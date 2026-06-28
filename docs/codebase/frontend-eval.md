@@ -574,14 +574,21 @@ mount-only effect) → sets model override + collection + tokens + steps, then
 each step's tokens / accuracy / Pass·Failure / **View trace** (expands the system
 prompt + per-position model output, "needle at N%"). Read-out maps the verdict to
 `≈Nk context tokens` / `broken baseline` / `accuracy maintained up to ≈Nk` /
-`Idle`. Execute is greyed without a model + tasks; while running it becomes Stop.
+`Idle`. A detected cliff whose collapse rung had no measured token count reads as
+**"Cliff detected — context-token depth not reported"** — it never falls through to a
+non-cliff message, and never substitutes a different rung's depth as if it were the
+cliff's (no fake precision). Execute is greyed without a model + tasks; while running
+it becomes Stop.
 
 ### ContextCliffChart.tsx — accuracy-vs-depth (visx)
 
 SVG line chart (visx `scaleLinear` + `Group`): accuracy% (y) vs prompt-token
 depth (x). Only rungs with **both** a measured token depth and an accuracy are
 plotted (a rung with no `prompt_eval_count` is dropped, never placed at a
-fabricated x). Draws a red dashed **Cliff Threshold** line at `cliffPoint(points)`,
+fabricated x) — and when any are dropped a caption below the chart says how many,
+so the gap is visible rather than a silently shorter line. The y-scale is `clamp`ed
+so a corrupt out-of-[0,1] composite pins to the axis edge instead of rendering
+off-canvas. Draws a red dashed **Cliff Threshold** line at `cliffPoint(points)`,
 an area fill, per-point dots (red past the cliff), and a hover tooltip
 ("≈N ctx tokens · X% accuracy · past cliff").
 

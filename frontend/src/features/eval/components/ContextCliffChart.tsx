@@ -28,13 +28,18 @@ export function ContextCliffChart({
   const pts = points.filter(
     (p): p is { promptTokens: number; composite: number } => p.composite != null && p.promptTokens != null,
   );
+  // Rungs the backend gave no token count for are not plottable (we won't fabricate an x),
+  // but their absence is surfaced below the chart rather than silently shrinking the series.
+  const droppedCount = points.length - pts.length;
   const [hover, setHover] = useState<{ promptTokens: number; composite: number } | null>(null);
   const iw = Math.max(0, width - M.left - M.right);
   const ih = Math.max(0, height - M.top - M.bottom);
 
   const xMax = Math.max(1, ...pts.map((p) => p.promptTokens));
   const x = scaleLinear({ domain: [0, xMax], range: [0, iw] });
-  const y = scaleLinear({ domain: [0, 100], range: [ih, 0] });
+  // `clamp` keeps a corrupt out-of-[0,1] composite from rendering off-canvas (invisible)
+  // instead of pinned to the axis edge.
+  const y = scaleLinear({ domain: [0, 100], range: [ih, 0], clamp: true });
 
   const cliff = cliffPoint(points);
   const cliffX = cliff != null ? x(cliff) : null;
@@ -52,6 +57,7 @@ export function ContextCliffChart({
     v === 0 ? "0" : v >= 1000 ? `${(v / 1000).toFixed(0)},000` : `${v}`;
 
   return (
+    <>
     <svg
       width={width}
       height={height}
@@ -239,6 +245,15 @@ export function ContextCliffChart({
         </defs>
       </Group>
     </svg>
+    {droppedCount > 0 && (
+      <div
+        data-testid="cliff-dropped-note"
+        style={{ fontSize: 11, color: "#94a3b8", fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif", padding: "2px 4px 0" }}
+      >
+        {droppedCount} rung{droppedCount === 1 ? "" : "s"} had no measured token depth — not plotted.
+      </div>
+    )}
+    </>
   );
 }
 
