@@ -460,7 +460,7 @@ per model). All pure-presentation given the report.
 |---|---|
 | `MatrixPanel.tsx` | Run + view toggle; `evalRegistryStore` + `installedModelsStore`. |
 | `MatrixGrid.tsx` | Tasks×models grid; cell = unrun `—` / scored badge (P/T/A/Abs pills) / clickable. |
-| `HistoryTimeline.tsx` | SVG composite-over-runs regression chart. |
+| `HistoryTimeline.tsx` | SVG composite-over-runs regression chart. Each model spans the plot on its **own** run ordinal (oldest→newest), so models with fewer runs aren't left-packed against the longest one and a single-run series sits at the left edge. The y-scale clamps to [0,1]; runs with neither composite nor Pass^k are counted and noted under the chart. |
 | `ModelDropdown.tsx` | Multi-select dropdown of matrix columns (Set + onToggle). |
 
 The **Audit tab** (`features/audit/AuditPage`) reuses `HistoryTimeline` for the saved

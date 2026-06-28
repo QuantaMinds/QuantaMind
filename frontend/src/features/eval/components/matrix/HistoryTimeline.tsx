@@ -24,23 +24,32 @@ interface Point {
   color: string;
 }
 
-/// Group history into one score-over-runs series per model, in record order.
-function seriesByModel(history: RunSummary[]): Array<{ model: string; points: Array<{ v: number; ts: string; kind: MetricKind }> }> {
+/// Group history into one score-over-runs series per model, in record order, plus a
+/// count of runs dropped for having neither a composite nor a Pass^k (so the chart can
+/// say so instead of a silently shorter line).
+function seriesByModel(history: RunSummary[]): {
+  series: Array<{ model: string; points: Array<{ v: number; ts: string; kind: MetricKind }> }>;
+  dropped: number;
+} {
   const order: string[] = [];
   const byModel = new Map<string, Array<{ v: number; ts: string; kind: MetricKind }>>();
+  let dropped = 0;
   for (const h of history) {
     // Single-turn runs plot their composite; agentic-only runs (no composite)
     // plot their Pass^k rate so batch runs still show on the timeline.
     const kind: MetricKind = h.composite != null ? "composite" : "Pass^k";
     const v = h.composite ?? h.pass_k ?? null;
-    if (v == null) continue;
+    if (v == null) {
+      dropped += 1;
+      continue;
+    }
     if (!byModel.has(h.model)) {
       byModel.set(h.model, []);
       order.push(h.model);
     }
     byModel.get(h.model)!.push({ v, ts: h.ts, kind });
   }
-  return order.map((model) => ({ model, points: byModel.get(model)! }));
+  return { series: order.map((model) => ({ model, points: byModel.get(model)! })), dropped };
 }
 
 /// Interactive pure-SVG regression chart: composite score (y) over consecutive
@@ -48,8 +57,7 @@ function seriesByModel(history: RunSummary[]): Array<{ model: string; points: Ar
 /// labelled so the meaning is explicit.
 export function HistoryTimeline({ history }: { history: RunSummary[] }) {
   const [hover, setHover] = useState<Point | null>(null);
-  const series = seriesByModel(history);
-  const maxLen = series.reduce((m, s) => Math.max(m, s.points.length), 0);
+  const { series, dropped } = seriesByModel(history);
 
   if (series.length === 0) {
     return (
@@ -59,11 +67,15 @@ export function HistoryTimeline({ history }: { history: RunSummary[] }) {
     );
   }
 
-  const xFor = (i: number) => (maxLen <= 1 ? ML + PW / 2 : ML + (i * PW) / (maxLen - 1));
-  const yFor = (v: number) => MT + (1 - v) * PH;
+  // Each model spans the plot on its OWN run ordinal (oldest→newest) — NOT a shared
+  // global length, which left-packed models with fewer runs against the longest model's
+  // axis. A single-run series sits at the left edge (its run #1), never dead-center.
+  const xFor = (i: number, len: number) => (len <= 1 ? ML : ML + (i * PW) / (len - 1));
+  // Clamp to [0,1] so a corrupt out-of-range score pins to an axis edge, not off-canvas.
+  const yFor = (v: number) => MT + (1 - Math.min(1, Math.max(0, v))) * PH;
 
   const points: Point[][] = series.map((s, si) =>
-    s.points.map((p, i) => ({ model: s.model, i, v: p.v, ts: p.ts, kind: p.kind, x: xFor(i), y: yFor(p.v), color: COLORS[si % COLORS.length] })),
+    s.points.map((p, i) => ({ model: s.model, i, v: p.v, ts: p.ts, kind: p.kind, x: xFor(i, s.points.length), y: yFor(p.v), color: COLORS[si % COLORS.length] })),
   );
 
   // Clamp the tooltip box inside the plot.
@@ -136,6 +148,12 @@ export function HistoryTimeline({ history }: { history: RunSummary[] }) {
           </div>
         ))}
       </div>
+
+      {dropped > 0 && (
+        <div data-testid="eval-history-dropped" style={{ marginTop: 6, fontSize: 11, color: "#94a3b8", fontFamily: "Inter,sans-serif" }}>
+          {dropped} run{dropped === 1 ? "" : "s"} had no composite or Pass^k score — not plotted.
+        </div>
+      )}
     </div>
   );
 }
