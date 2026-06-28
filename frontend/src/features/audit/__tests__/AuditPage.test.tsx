@@ -78,6 +78,28 @@ describe("AuditPage", () => {
     ]);
   });
 
+  it("surfaces a load failure instead of a misleading 'no runs yet' empty state", async () => {
+    vi.mocked(invoke).mockImplementation((cmd: string) =>
+      cmd === "load_collection_history" ? Promise.reject("disk boom") : Promise.resolve([]),
+    );
+    render(<AuditPage />);
+    await waitFor(() => expect(screen.getByTestId("audit-history-error")).toHaveTextContent("disk boom"));
+    // The misleading empty chart must NOT also render — a failure is not "no runs yet".
+    expect(screen.queryByTestId("history-timeline")).not.toBeInTheDocument();
+  });
+
+  it("tells the user runs exist under another backend rather than 'no runs yet'", async () => {
+    vi.mocked(invoke).mockImplementation((cmd: string) =>
+      cmd === "load_collection_history" ? Promise.resolve([summary("qwen.gguf", "llama_cpp")]) : Promise.resolve([]),
+    );
+    useBackendStore.setState({ selectedBackend: "ollama" }); // no ollama runs, one llama.cpp run
+    render(<AuditPage />);
+    const note = await screen.findByTestId("audit-history-other-backend");
+    expect(note).toHaveTextContent("No runs for Ollama yet");
+    expect(note).toHaveTextContent("1 run recorded under other backends");
+    expect(screen.queryByTestId("history-timeline")).not.toBeInTheDocument();
+  });
+
   it("re-fetches history live only when a batch completes for the shown collection", async () => {
     let n = 0; // count of load_collection_history calls
     vi.mocked(invoke).mockImplementation((cmd: string) => {

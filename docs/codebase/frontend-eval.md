@@ -463,6 +463,14 @@ per model). All pure-presentation given the report.
 | `HistoryTimeline.tsx` | SVG composite-over-runs regression chart. |
 | `ModelDropdown.tsx` | Multi-select dropdown of matrix columns (Set + onToggle). |
 
+The **Audit tab** (`features/audit/AuditPage`) reuses `HistoryTimeline` for the saved
+regression history. Its collection picker uses the tier-grouped `PresetOptGroups` (not a
+flat list) so same-domain scenarios across tiers — `easy/medium/hard-coding` all humanize
+to "Coding" — stay distinguishable under Easy/Medium/Hard/Extreme `<optgroup>`s. A history
+load is never swallowed: a failure shows an error banner, runs recorded only under a
+*different* backend show an explicit "runs under other backends" note, and only a genuine
+absence falls through to the timeline's "No run history yet" empty state.
+
 ---
 
 ## `components/manager/` — collections & authoring
