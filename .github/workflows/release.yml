@@ -52,6 +52,9 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm --dir=frontend install --frozen-lockfile
 
+      - name: Fetch llama-server sidecar
+        run: bash scripts/fetch-llama-server.sh
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

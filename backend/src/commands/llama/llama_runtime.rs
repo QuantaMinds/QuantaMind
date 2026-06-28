@@ -122,15 +122,17 @@ pub fn bin_name() -> &'static str {
 /// diagnosis — e.g. a bundled binary too old for `--jinja` exits immediately,
 /// and its stderr names the rejected flag.
 pub fn spawn_server(dir: &Path, args: &[String]) -> Result<Child, String> {
-    Command::new(dir.join(bin_name()))
-        .args(args)
+    let mut cmd = Command::new(dir.join(bin_name()));
+    cmd.args(args)
         .current_dir(dir)
-        .env("DYLD_FALLBACK_LIBRARY_PATH", dir)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| e.to_string())
+        .stderr(Stdio::piped());
+    #[cfg(target_os = "macos")]
+    cmd.env("DYLD_FALLBACK_LIBRARY_PATH", dir);
+    #[cfg(target_os = "linux")]
+    cmd.env("LD_LIBRARY_PATH", dir);
+    cmd.spawn().map_err(|e| e.to_string())
 }
 
 const TAIL_CAP: usize = 20;
