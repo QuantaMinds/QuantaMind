@@ -135,9 +135,20 @@ export const BuiltinCollectionInfoSchema = z.object({
 });
 export type BuiltinCollectionInfo = z.infer<typeof BuiltinCollectionInfoSchema>;
 
-/// The bundled v2 tiered scenario collections for the dataset picker.
+/// The bundled v2 tiered scenario collections for the dataset picker. Parsed PER ROW so
+/// one malformed collection (e.g. a future scenario with an unknown tier) can't throw the
+/// whole array and blank the entire picker — that single-bad-row failure (the c7a697a
+/// "built-ins wouldn't load" incident) recurs otherwise. A dropped row is WARNED, never
+/// silently swallowed, so a bad scenario stays diagnosable.
 export async function listBuiltinCollections(): Promise<BuiltinCollectionInfo[]> {
-  return z.array(BuiltinCollectionInfoSchema).parse(await invoke("list_builtin_collections"));
+  const rows = z.array(z.unknown()).parse(await invoke("list_builtin_collections"));
+  const out: BuiltinCollectionInfo[] = [];
+  for (const row of rows) {
+    const parsed = BuiltinCollectionInfoSchema.safeParse(row);
+    if (parsed.success) out.push(parsed.data);
+    else console.warn("Dropping malformed built-in collection:", (row as { id?: unknown })?.id ?? row, parsed.error.issues);
+  }
+  return out;
 }
 
 /// Tasks for a built-in collection id (a v2 scenario file stem, e.g. "easy-coding").

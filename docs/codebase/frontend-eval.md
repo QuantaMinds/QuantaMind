@@ -327,7 +327,10 @@ parallel, **publishes the presets to the picker first**, then loads the
 `DEFAULT_PRESET = "easy-coding"` tasks — so a single failing default-collection
 load can't blank the whole Built-in list (a silent init failure previously left
 the page stuck on "Custom JSON" with no collections); the error surfaces in the
-panel's error banner instead of being swallowed. NOTE: the registry Zod mirror
+panel's error banner instead of being swallowed. `listBuiltinCollections` also
+parses **per row** (`safeParse` + drop-and-`warn`), so one malformed bundled
+collection — e.g. a future scenario with an unknown tier — drops out with a warning
+rather than throwing the whole array and emptying the picker + tier list together. NOTE: the registry Zod mirror
 (`registry.ts`) must track the backend `EndStateRule` exactly — every bundled v2
 scenario serializes `{ require_all: [...] }`, and the spec's v2-only keys
 (`world_state`, `must_not_call`, `name_faults`, `generated`) must survive the parse,
