@@ -304,8 +304,9 @@ because it hides.
 - **Frontend: render throws are bounded per panel.** Every top-level tab is
   always-mounted (`App` renders them all behind `hidden=`), so an unbounded render
   throw in any one would unmount the whole app. Each view is wrapped in
-  `shared/ui/ErrorBoundary`, which **logs** the error + component stack (never just
-  swallows it into the card) and offers a Retry that remounts the subtree.
+  `ErrorBoundary` (co-located with the `ErrorCard` it renders, in `shared/ui/ErrorCard`),
+  which **logs** the error + component stack (never just swallows it into the card) and
+  offers a Retry that remounts the subtree.
 
 ### No leaky data
 

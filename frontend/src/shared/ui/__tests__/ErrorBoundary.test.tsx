@@ -1,6 +1,6 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { ErrorBoundary } from "../ErrorBoundary";
+import { ErrorBoundary } from "../ErrorCard";
 
 // A child that throws while `throwers` says its label should throw — lets a test
 // flip a throw off and assert the boundary's Retry actually remounts it.

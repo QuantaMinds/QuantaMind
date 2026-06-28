@@ -20,7 +20,7 @@ import { OnboardingCoach } from "./features/onboarding/components/OnboardingCoac
 import { AppHeader } from "./AppHeader";
 import { useGlobalHotkeys } from "./appHotkeys";
 import { CheatsheetModal } from "./shared/ui/CheatsheetModal";
-import { ErrorBoundary } from "./shared/ui/ErrorBoundary";
+import { ErrorBoundary } from "./shared/ui/ErrorCard";
 import { ToastHost } from "./shared/ui/Toast";
 import { useNavStore, type TopView } from "./shared/state/navStore";
 
