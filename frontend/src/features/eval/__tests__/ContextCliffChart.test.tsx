@@ -19,4 +19,18 @@ describe("ContextCliffChart hover", () => {
     fireEvent.mouseLeave(screen.getByTestId("cliff-point-0"));
     expect(screen.queryByTestId("cliff-tooltip")).toBeNull();
   });
+
+  it("notes rungs dropped for having no measured token depth instead of silently shrinking", () => {
+    const withGap: CliffPoint[] = [
+      { promptTokens: 1000, composite: 0.9 },
+      { promptTokens: null, composite: 0.4 }, // measured accuracy, no token count → not plottable
+    ];
+    render(<ContextCliffChart points={withGap} width={580} height={220} />);
+    expect(screen.getByTestId("cliff-dropped-note")).toHaveTextContent("1 rung had no measured token depth");
+  });
+
+  it("renders no dropped-note when every rung has a token depth", () => {
+    render(<ContextCliffChart points={points} width={580} height={220} />);
+    expect(screen.queryByTestId("cliff-dropped-note")).toBeNull();
+  });
 });

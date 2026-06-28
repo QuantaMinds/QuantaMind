@@ -327,7 +327,10 @@ parallel, **publishes the presets to the picker first**, then loads the
 `DEFAULT_PRESET = "easy-coding"` tasks — so a single failing default-collection
 load can't blank the whole Built-in list (a silent init failure previously left
 the page stuck on "Custom JSON" with no collections); the error surfaces in the
-panel's error banner instead of being swallowed. NOTE: the registry Zod mirror
+panel's error banner instead of being swallowed. `listBuiltinCollections` also
+parses **per row** (`safeParse` + drop-and-`warn`), so one malformed bundled
+collection — e.g. a future scenario with an unknown tier — drops out with a warning
+rather than throwing the whole array and emptying the picker + tier list together. NOTE: the registry Zod mirror
 (`registry.ts`) must track the backend `EndStateRule` exactly — every bundled v2
 scenario serializes `{ require_all: [...] }`, and the spec's v2-only keys
 (`world_state`, `must_not_call`, `name_faults`, `generated`) must survive the parse,
@@ -460,8 +463,16 @@ per model). All pure-presentation given the report.
 |---|---|
 | `MatrixPanel.tsx` | Run + view toggle; `evalRegistryStore` + `installedModelsStore`. |
 | `MatrixGrid.tsx` | Tasks×models grid; cell = unrun `—` / scored badge (P/T/A/Abs pills) / clickable. |
-| `HistoryTimeline.tsx` | SVG composite-over-runs regression chart. |
+| `HistoryTimeline.tsx` | SVG composite-over-runs regression chart. Each model spans the plot on its **own** run ordinal (oldest→newest), so models with fewer runs aren't left-packed against the longest one and a single-run series sits at the left edge. The y-scale clamps to [0,1]; runs with neither composite nor Pass^k are counted and noted under the chart. |
 | `ModelDropdown.tsx` | Multi-select dropdown of matrix columns (Set + onToggle). |
+
+The **Audit tab** (`features/audit/AuditPage`) reuses `HistoryTimeline` for the saved
+regression history. Its collection picker uses the tier-grouped `PresetOptGroups` (not a
+flat list) so same-domain scenarios across tiers — `easy/medium/hard-coding` all humanize
+to "Coding" — stay distinguishable under Easy/Medium/Hard/Extreme `<optgroup>`s. A history
+load is never swallowed: a failure shows an error banner, runs recorded only under a
+*different* backend show an explicit "runs under other backends" note, and only a genuine
+absence falls through to the timeline's "No run history yet" empty state.
 
 ---
 
@@ -566,14 +577,21 @@ mount-only effect) → sets model override + collection + tokens + steps, then
 each step's tokens / accuracy / Pass·Failure / **View trace** (expands the system
 prompt + per-position model output, "needle at N%"). Read-out maps the verdict to
 `≈Nk context tokens` / `broken baseline` / `accuracy maintained up to ≈Nk` /
-`Idle`. Execute is greyed without a model + tasks; while running it becomes Stop.
+`Idle`. A detected cliff whose collapse rung had no measured token count reads as
+**"Cliff detected — context-token depth not reported"** — it never falls through to a
+non-cliff message, and never substitutes a different rung's depth as if it were the
+cliff's (no fake precision). Execute is greyed without a model + tasks; while running
+it becomes Stop.
 
 ### ContextCliffChart.tsx — accuracy-vs-depth (visx)
 
 SVG line chart (visx `scaleLinear` + `Group`): accuracy% (y) vs prompt-token
 depth (x). Only rungs with **both** a measured token depth and an accuracy are
 plotted (a rung with no `prompt_eval_count` is dropped, never placed at a
-fabricated x). Draws a red dashed **Cliff Threshold** line at `cliffPoint(points)`,
+fabricated x) — and when any are dropped a caption below the chart says how many,
+so the gap is visible rather than a silently shorter line. The y-scale is `clamp`ed
+so a corrupt out-of-[0,1] composite pins to the axis edge instead of rendering
+off-canvas. Draws a red dashed **Cliff Threshold** line at `cliffPoint(points)`,
 an area fill, per-point dots (red past the cliff), and a hover tooltip
 ("≈N ctx tokens · X% accuracy · past cliff").
 

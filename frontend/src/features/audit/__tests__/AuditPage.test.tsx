@@ -52,6 +52,54 @@ describe("AuditPage", () => {
     expect(screen.getByTestId("history-timeline")).not.toHaveTextContent("llama3");
   });
 
+  it("tier-groups the collection picker so duplicate domain labels are distinguishable", async () => {
+    // The backend humanizes labels by stripping the tier prefix, so easy/medium/hard-coding
+    // all read "Coding". A flat list showed three indistinguishable options; PresetOptGroups
+    // separates them under Easy/Medium/Hard <optgroup>s.
+    useEvalRegistryStore.setState({
+      presets: [
+        { id: "easy-coding", label: "Coding", domain: "coding", tier: "easy" },
+        { id: "medium-coding", label: "Coding", domain: "coding", tier: "medium" },
+        { id: "hard-coding", label: "Coding", domain: "coding", tier: "hard" },
+      ],
+    });
+    render(<AuditPage />);
+    const select = screen.getByTestId("audit-collection") as HTMLSelectElement;
+    const groups = Array.from(select.querySelectorAll("optgroup")).map((g) => g.label);
+    expect(groups).toEqual(["Easy", "Medium", "Hard"]); // one group per tier, ordered
+    // Each duplicate "Coding" lives under its own tier group → its value is unique.
+    select.querySelectorAll("optgroup").forEach((g) => {
+      const opts = Array.from(g.querySelectorAll("option"));
+      expect(opts).toHaveLength(1);
+      expect(opts[0].textContent).toBe("Coding");
+    });
+    expect(Array.from(select.querySelectorAll("option")).map((o) => o.value)).toEqual([
+      "easy-coding", "medium-coding", "hard-coding",
+    ]);
+  });
+
+  it("surfaces a load failure instead of a misleading 'no runs yet' empty state", async () => {
+    vi.mocked(invoke).mockImplementation((cmd: string) =>
+      cmd === "load_collection_history" ? Promise.reject("disk boom") : Promise.resolve([]),
+    );
+    render(<AuditPage />);
+    await waitFor(() => expect(screen.getByTestId("audit-history-error")).toHaveTextContent("disk boom"));
+    // The misleading empty chart must NOT also render — a failure is not "no runs yet".
+    expect(screen.queryByTestId("history-timeline")).not.toBeInTheDocument();
+  });
+
+  it("tells the user runs exist under another backend rather than 'no runs yet'", async () => {
+    vi.mocked(invoke).mockImplementation((cmd: string) =>
+      cmd === "load_collection_history" ? Promise.resolve([summary("qwen.gguf", "llama_cpp")]) : Promise.resolve([]),
+    );
+    useBackendStore.setState({ selectedBackend: "ollama" }); // no ollama runs, one llama.cpp run
+    render(<AuditPage />);
+    const note = await screen.findByTestId("audit-history-other-backend");
+    expect(note).toHaveTextContent("No runs for Ollama yet");
+    expect(note).toHaveTextContent("1 run recorded under other backends");
+    expect(screen.queryByTestId("history-timeline")).not.toBeInTheDocument();
+  });
+
   it("re-fetches history live only when a batch completes for the shown collection", async () => {
     let n = 0; // count of load_collection_history calls
     vi.mocked(invoke).mockImplementation((cmd: string) => {

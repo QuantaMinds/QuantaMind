@@ -112,6 +112,25 @@ describe("ContextCliffPanel", () => {
     expect(screen.getByTestId("cliff-read")).not.toHaveTextContent("≈0");
   });
 
+  it("a cliff whose collapse rung has no measured depth still reads as a cliff (never 'no cliff')", async () => {
+    // Baseline holds (1.0), then accuracy collapses on a rung the backend gave no token
+    // count for (verified_tokens 0 → null depth). The verdict must still be a CLIFF — the
+    // old read-out fell through to a non-cliff "Ran — …" message, contradicting the collapse.
+    vi.mocked(runContextCliff).mockResolvedValue(
+      reportOf({ status: "Collapsed", depth: 0 }, [rung(1000, 1.0), rung(0, 0.2)]) as never,
+    );
+    render(<ContextCliffPanel />);
+    await waitFor(() => expect(getBuiltinCollection).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByTestId("cliff-run")).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId("cliff-run"));
+
+    await waitFor(() => expect(screen.getByTestId("cliff-read")).toHaveTextContent(/Cliff detected/i));
+    // Invariant: a detected cliff is NEVER reported as healthy.
+    expect(screen.getByTestId("cliff-read")).not.toHaveTextContent(/maintained/i);
+    // And no fabricated precise depth — the collapse rung had no measurement.
+    expect(screen.getByTestId("cliff-read")).not.toHaveTextContent(/≈\d/);
+  });
+
   it("surfaces a backend error instead of a silent blank chart", async () => {
     vi.mocked(runContextCliff).mockRejectedValue(new Error("server down"));
     render(<ContextCliffPanel />);

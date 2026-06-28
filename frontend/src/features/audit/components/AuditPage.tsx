@@ -4,7 +4,10 @@ import { useBatchStore } from "../../eval/state/batchStore";
 import { useInstalledModelsStore } from "../../models/state/installedModelsStore";
 import { useBackendStore } from "../../../shared/state/backendStore";
 import { loadCollectionHistory, type RunSummary } from "../../../shared/ipc/eval/matrix";
+import { formatIpcError } from "../../../shared/ipc/core/error";
+import type { BackendKind } from "../../../shared/ipc/models/storage";
 import { HistoryTimeline } from "../../eval/components/matrix/HistoryTimeline";
+import { PresetOptGroups } from "../../eval/components/PresetOptGroups";
 import { ContextCliffPanel } from "../../eval/components/ContextCliffPanel";
 import { batchToCsv, download } from "../../eval/exportBatch";
 import { InfoButton } from "../../../shared/ui/InfoButton";
@@ -21,6 +24,7 @@ const exportBtn: React.CSSProperties = {
   fontWeight: 600,
   cursor: "pointer",
 };
+const BACKEND_LABEL: Record<BackendKind, string> = { ollama: "Ollama", llama_cpp: "llama.cpp", mlx: "MLX" };
 const card: React.CSSProperties = {
   background: "#ffffff",
   border: "1px solid #e2e8f0",
@@ -39,6 +43,9 @@ export function AuditPage() {
   const selectedBackend = useBackendStore((s) => s.selectedBackend);
   const [collection, setCollection] = useState(DEFAULT_PRESET);
   const [history, setHistory] = useState<RunSummary[]>([]);
+  // A load failure is surfaced, never swallowed — an empty graph must distinguish
+  // "no runs yet" from "the history failed to load" (the two used to look identical).
+  const [historyError, setHistoryError] = useState<string | null>(null);
   // Show only the selected backend's regression history — a backend switch
   // shouldn't keep displaying the previous backend's model runs.
   const backendHistory = history.filter((h) => h.backend === selectedBackend);
@@ -47,14 +54,28 @@ export function AuditPage() {
     void init().catch((e) => console.error("eval registry init failed (AuditPage):", e));
   }, [init]);
 
+  // A load failure is shown (not swallowed into a misleading empty state); success clears it.
+  const applyHistory = (cancelled: () => boolean) => ({
+    ok: (h: RunSummary[]) => {
+      if (cancelled()) return;
+      setHistory(h);
+      setHistoryError(null);
+    },
+    fail: (e: unknown) => {
+      if (cancelled()) return;
+      setHistory([]);
+      setHistoryError(formatIpcError(e));
+    },
+  });
+
   useEffect(() => {
     let cancelled = false;
-    loadCollectionHistory(collection)
-      .then((h) => !cancelled && setHistory(h))
-      .catch(() => !cancelled && setHistory([]));
+    const h = applyHistory(() => cancelled);
+    loadCollectionHistory(collection).then(h.ok).catch(h.fail);
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collection]);
 
   // Re-read the on-disk history whenever a batch finishes FOR THE SHOWN collection.
@@ -64,12 +85,12 @@ export function AuditPage() {
   useEffect(() => {
     if (!report || report.collection_id !== collection) return;
     let cancelled = false;
-    loadCollectionHistory(collection)
-      .then((h) => !cancelled && setHistory(h))
-      .catch(() => !cancelled && setHistory([]));
+    const h = applyHistory(() => cancelled);
+    loadCollectionHistory(collection).then(h.ok).catch(h.fail);
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [report, collection]);
 
   return (
@@ -88,7 +109,7 @@ export function AuditPage() {
             data-testid="audit-collection"
             style={{ ...exportBtn, color: "#334155" }}
           >
-            {presets.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+            <PresetOptGroups presets={presets} />
             {collections.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
           <div style={{ flex: 1 }} />
@@ -112,7 +133,29 @@ export function AuditPage() {
           </button>
           <InfoButton {...TOOL_HELP.auditHistory} testId="audit-history" />
         </div>
-        <HistoryTimeline history={backendHistory} />
+        {historyError ? (
+          // A real load failure — never let it masquerade as the empty "no runs yet" state.
+          <p
+            data-testid="audit-history-error"
+            style={{
+              fontSize: 12, color: "#b91c1c", fontFamily: "Inter, sans-serif",
+              background: "#fef2f2", border: "1px solid #fee2e2", borderRadius: 6, padding: "10px 12px", margin: 0,
+            }}
+          >
+            Couldn't load run history — {historyError}
+          </p>
+        ) : history.length > 0 && backendHistory.length === 0 ? (
+          // Runs exist, just not for the selected backend — say so instead of "no runs yet".
+          <p
+            data-testid="audit-history-other-backend"
+            style={{ padding: 30, textAlign: "center", color: "#475569", fontSize: 13, fontFamily: "Inter, sans-serif" }}
+          >
+            No runs for {BACKEND_LABEL[selectedBackend]} yet — {history.length} run{history.length === 1 ? "" : "s"} recorded under other backends.
+          </p>
+        ) : (
+          // Genuinely no runs (HistoryTimeline renders its own "No run history yet" empty state).
+          <HistoryTimeline history={backendHistory} />
+        )}
       </div>
     </section>
   );

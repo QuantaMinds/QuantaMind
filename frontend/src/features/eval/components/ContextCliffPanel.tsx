@@ -480,8 +480,13 @@ export function ContextCliffPanel() {
           >
             {running
               ? "Running…"
-              : cliff != null
-                ? `≈${Math.round(cliff / 1000) * 1000} context tokens`
+              : verdict.kind === "cliff"
+                ? // A detected cliff ALWAYS reads as a cliff — when the collapse rung had no
+                  // measured token count we say so, never falling through to a non-cliff message
+                  // and never substituting a different rung's depth as if it were the cliff's.
+                  cliff != null
+                  ? `≈${Math.round(cliff / 1000) * 1000} context tokens`
+                  : "Cliff detected — context-token depth not reported"
                 : verdict.kind === "broken-baseline"
                   ? "Fails at the smallest tested context — broken baseline (a tool-call failure, not a context-length limit)"
                   : verdict.kind === "no-cliff" && maintainedTo > 0
