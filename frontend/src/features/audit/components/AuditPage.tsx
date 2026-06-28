@@ -5,6 +5,7 @@ import { useInstalledModelsStore } from "../../models/state/installedModelsStore
 import { useBackendStore } from "../../../shared/state/backendStore";
 import { loadCollectionHistory, type RunSummary } from "../../../shared/ipc/eval/matrix";
 import { HistoryTimeline } from "../../eval/components/matrix/HistoryTimeline";
+import { PresetOptGroups } from "../../eval/components/PresetOptGroups";
 import { ContextCliffPanel } from "../../eval/components/ContextCliffPanel";
 import { batchToCsv, download } from "../../eval/exportBatch";
 import { InfoButton } from "../../../shared/ui/InfoButton";
@@ -88,7 +89,7 @@ export function AuditPage() {
             data-testid="audit-collection"
             style={{ ...exportBtn, color: "#334155" }}
           >
-            {presets.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+            <PresetOptGroups presets={presets} />
             {collections.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
           <div style={{ flex: 1 }} />
