@@ -20,6 +20,7 @@ import { OnboardingCoach } from "./features/onboarding/components/OnboardingCoac
 import { AppHeader } from "./AppHeader";
 import { useGlobalHotkeys } from "./appHotkeys";
 import { CheatsheetModal } from "./shared/ui/CheatsheetModal";
+import { ErrorBoundary } from "./shared/ui/ErrorBoundary";
 import { ToastHost } from "./shared/ui/Toast";
 import { useNavStore, type TopView } from "./shared/state/navStore";
 
@@ -79,21 +80,26 @@ export default function App() {
          </header>
 
          <main className="py-8 font-sans space-y-6">
+           {/* Each tab is wrapped so a render throw degrades to a panel-scoped error
+               card — these views are all always-mounted (`hidden=`), so an unbounded
+               throw in any one of them would blank the entire app. */}
            <div hidden={view !== "workspace"} data-testid="view-workspace">
-             <div className="flex gap-4">
-               <WorkspaceSidebar />
-               <div className="flex-1 min-w-0"><Workspace /></div>
-             </div>
+             <ErrorBoundary label="Workspace">
+               <div className="flex gap-4">
+                 <WorkspaceSidebar />
+                 <div className="flex-1 min-w-0"><Workspace /></div>
+               </div>
+             </ErrorBoundary>
            </div>
-           <div hidden={view !== "compare"} data-testid="view-compare"><AnalysisPage /></div>
-           <div hidden={view !== "inspector"} data-testid="view-inspector"><InspectorPage /></div>
-           <div hidden={view !== "eval"} data-testid="view-eval"><EvalPage /></div>
-           <div hidden={view !== "audit"} data-testid="view-audit"><AuditPage /></div>
-           <div hidden={view !== "agentReport"} data-testid="view-agentReport"><AgentReportPage /></div>
-           <div hidden={view !== "models"} data-testid="view-models"><ModelsPage /></div>
-           <div hidden={view !== "downloads"} data-testid="view-downloads"><DownloadsPage /></div>
-           <div hidden={view !== "settings"} data-testid="view-settings"><SettingsPage /></div>
-           <div hidden={view !== "help"} data-testid="view-help"><HelpPage /></div>
+           <div hidden={view !== "compare"} data-testid="view-compare"><ErrorBoundary label="Analysis"><AnalysisPage /></ErrorBoundary></div>
+           <div hidden={view !== "inspector"} data-testid="view-inspector"><ErrorBoundary label="Inspector"><InspectorPage /></ErrorBoundary></div>
+           <div hidden={view !== "eval"} data-testid="view-eval"><ErrorBoundary label="Eval"><EvalPage /></ErrorBoundary></div>
+           <div hidden={view !== "audit"} data-testid="view-audit"><ErrorBoundary label="Audit"><AuditPage /></ErrorBoundary></div>
+           <div hidden={view !== "agentReport"} data-testid="view-agentReport"><ErrorBoundary label="Agent Report"><AgentReportPage /></ErrorBoundary></div>
+           <div hidden={view !== "models"} data-testid="view-models"><ErrorBoundary label="Models"><ModelsPage /></ErrorBoundary></div>
+           <div hidden={view !== "downloads"} data-testid="view-downloads"><ErrorBoundary label="Downloads"><DownloadsPage /></ErrorBoundary></div>
+           <div hidden={view !== "settings"} data-testid="view-settings"><ErrorBoundary label="Settings"><SettingsPage /></ErrorBoundary></div>
+           <div hidden={view !== "help"} data-testid="view-help"><ErrorBoundary label="Help"><HelpPage /></ErrorBoundary></div>
          </main>
 
          {/* Overlay/floating components stay outside sticky header */}

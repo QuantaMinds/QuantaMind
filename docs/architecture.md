@@ -301,6 +301,11 @@ because it hides.
   fails on an IPC payload, set an error state on the affected row/download (and
   log) — never `console.error` then `return`, which leaves the UI frozen. Promise
   rejections get a real handler, not a bare `.catch(() => {})`.
+- **Frontend: render throws are bounded per panel.** Every top-level tab is
+  always-mounted (`App` renders them all behind `hidden=`), so an unbounded render
+  throw in any one would unmount the whole app. Each view is wrapped in
+  `shared/ui/ErrorBoundary`, which **logs** the error + component stack (never just
+  swallows it into the card) and offers a Retry that remounts the subtree.
 
 ### No leaky data
 
