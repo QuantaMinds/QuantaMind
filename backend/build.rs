@@ -35,6 +35,9 @@ fn main() {
     if let Err(e) = std::fs::create_dir_all(binaries) {
         println!("cargo:warning=could not create backend/binaries/: {e}");
     }
+    // Re-run whenever the sidecar appears or disappears so the warning clears
+    // as soon as fetch-llama-server.sh is run without needing a manual `cargo clean`.
+    println!("cargo:rerun-if-changed=binaries/llama-server");
     if !binaries.join("llama-server").exists() {
         println!(
             "cargo:warning=backend/binaries/llama-server is missing — run \

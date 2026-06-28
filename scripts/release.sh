@@ -59,6 +59,9 @@ if [[ ! -f "$KEY_PATH" ]]; then
   exit 2
 fi
 
+echo "==> Fetching llama-server sidecar"
+bash "${REPO_ROOT}/scripts/fetch-llama-server.sh"
+
 echo "==> Building signed bundle (this can take a few minutes)"
 export TAURI_SIGNING_PRIVATE_KEY="$(cat "$KEY_PATH")"
 export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}"

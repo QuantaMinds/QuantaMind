@@ -9,7 +9,24 @@ DEST="$(cd "$(dirname "$0")/.." && pwd)/backend/binaries"
 TRIPLE="$(rustc -vV | sed -n 's/host: //p')"
 
 case "$TRIPLE" in
-  aarch64-apple-darwin) ASSET="llama-${LLAMA_BUILD}-bin-macos-arm64.tar.gz" ;;
+  aarch64-apple-darwin)
+    ASSET="llama-${LLAMA_BUILD}-bin-macos-arm64.tar.gz"
+    EXT="tar.gz"
+    LIBS="*.dylib"
+    BIN_NAME="llama-server"
+    ;;
+  x86_64-unknown-linux-gnu)
+    ASSET="llama-${LLAMA_BUILD}-bin-ubuntu-x64.zip"
+    EXT="zip"
+    LIBS="*.so*"
+    BIN_NAME="llama-server"
+    ;;
+  x86_64-pc-windows-msvc)
+    ASSET="llama-${LLAMA_BUILD}-bin-win-avx2-x64.zip"
+    EXT="zip"
+    LIBS="*.dll"
+    BIN_NAME="llama-server.exe"
+    ;;
   *)
     echo "No pinned llama-server asset for $TRIPLE yet — see docs/cross-platform-builds.md" >&2
     exit 1 ;;
@@ -20,17 +37,23 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 echo "Downloading $ASSET ..."
-curl -fsSL "$URL" -o "$TMP/llama.tar.gz"
-tar -xzf "$TMP/llama.tar.gz" -C "$TMP"
+curl -fsSL "$URL" -o "$TMP/llama.archive"
 
-BIN="$(find "$TMP" -type f -name llama-server | head -n1)"
-[ -n "$BIN" ] || { echo "llama-server not found in archive" >&2; exit 1; }
+if [ "$EXT" = "tar.gz" ]; then
+  tar -xzf "$TMP/llama.archive" -C "$TMP"
+else
+  unzip -q "$TMP/llama.archive" -d "$TMP"
+fi
+
+BIN="$(find "$TMP" -type f -name "$BIN_NAME" | head -n1)"
+[ -n "$BIN" ] || { echo "$BIN_NAME not found in archive" >&2; exit 1; }
 
 mkdir -p "$DEST"
-# Colocate the binary's sibling dylibs so it resolves its @rpath/@loader_path
-# libs. Bundled as a Tauri resource dir (not externalBin), so a bare name is
-# fine — `llama_dir()` resolves this whole directory at runtime.
-cp "$(dirname "$BIN")"/*.dylib "$DEST"/ 2>/dev/null || true
-cp "$BIN" "$DEST/llama-server"
-chmod +x "$DEST/llama-server"
-echo "Installed $DEST/llama-server (build $LLAMA_BUILD, $TRIPLE)"
+# Colocate the binary's sibling libs so it resolves its rpath libs at runtime.
+# Bundled as a Tauri resource dir (not externalBin), so a bare name is fine —
+# `llama_dir()` resolves this whole directory at runtime.
+# shellcheck disable=SC2086
+cp "$(dirname "$BIN")"/$LIBS "$DEST"/ 2>/dev/null || true
+cp "$BIN" "$DEST/$BIN_NAME"
+chmod +x "$DEST/$BIN_NAME"
+echo "Installed $DEST/$BIN_NAME (build $LLAMA_BUILD, $TRIPLE)"
