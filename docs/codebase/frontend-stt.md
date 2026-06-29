@@ -66,7 +66,7 @@ store.
 | **Transcribe workspace** | `Workspace` (replaces LLM view when STT server up) | `SttWorkspace`→{`RecordControls`,`TranscriptPane`,`ReferencePane`,`VoiceAssistant`} | `start/stop_recording`, `recording_level`, `transcribe_audio` | `transcriptStore` |
 | **Voice assistant** | inside `SttWorkspace` | `VoiceAssistant` → `useAssistantRun` | `run_prompt`/`stop_prompt` (events) | `assistantResultStore`, shared `compareStore` mirror |
 | **STT eval panel** | Analysis tab | `SttEvalPanel`→{`SttEvalEditor`,`EvalReportTable`,`EvalVerdictTable`} | `run_stt_eval`, `assess_stt_readiness`, `list_transcripts`, spec/profile CRUD | local component state (no global store) |
-| **STT inspector** | Inspector page (`SttInspectorSection`) + Analysis tab (`SttAnalysisSection`) | charts/cards/phase-bar + `PipelineSummary` | none (reads stores) | `sttResultStore` (transcript), `assistantResultStore` (LLM stage) |
+| **STT inspector** | Latency page (`SttInspectorSection`) + Analysis tab (`SttAnalysisSection`) | charts/cards/phase-bar + `PipelineSummary` | none (reads stores) | `sttResultStore` (transcript), `assistantResultStore` (LLM stage) |
 
 Mount points (verified):
 `Workspace.tsx` switches to `<SttWorkspace/>` when `useSttRuntimeStore(runningSttEngine)`
@@ -180,7 +180,7 @@ const stop = async (): Promise<RecordingResult | null> => {
 - **Why:** segments stream in for a live pane, but the **persisted** transcript
   is canonical — so on completion the live view is replaced by the deduped truth
   returned from `transcribe_audio`, and a durable copy is parked for the
-  Analysis/Inspector sections.
+  Analysis/Latency sections.
 - **What:** listeners for `stt-segments` (append) + `stt-transcribe-progress`
   (processed/total), torn down on unmount (no stacked listeners). `run(path)`
   resets, sets a `clip-<ts>` id, clears any prior LLM summary, calls
@@ -193,7 +193,7 @@ store.reset(); store.setCurrentId(id); store.setStatus("transcribing");
 useAssistantResultStore.getState().clear();     // drop stale LLM summary
 const transcript = await transcribeAudio(path, id);
 useTranscriptStore.getState().loadFrom(transcript);    // reconcile live ← canonical
-useSttResultStore.getState().setResult(transcript);    // durable for Inspector
+useSttResultStore.getState().setResult(transcript);    // durable for Latency
 ```
 
 ### Hook: `useAssistantRun` — the voice → LLM run (IMPORTANT)
@@ -230,7 +230,7 @@ useAssistantResultStore.getState().setResult({ transcriptId: meta.ctx.transcript
   the optional system/context. **Manual** Ask calls `run(..., { auto: false })`.
   **Auto** fires a `useEffect` once per fresh transcript (`lastAutoId` guard) the
   moment `status==="done"` — `{ auto: true }`, the production-faithful path. It
-  also mirrors the run into `compareStore.setSingleRun` so the Analysis/Inspector
+  also mirrors the run into `compareStore.setSingleRun` so the Analysis/Latency
   render the LLM stage through the same rich path as a SingleRun.
 
 ```ts
@@ -310,11 +310,11 @@ The eval contract (`SttEvalSpec`, `WerResult`, `SttReportRow`,
 ## `features/sttInspector` — measured profile & pipeline metrics
 
 Renders the **measured** profile of the last transcription with the same density
-as the LLM Inspector. Two entry points, both reading the **durable** stores
+as the LLM Latency tab. Two entry points, both reading the **durable** stores
 (`sttResultStore` = transcript, `assistantResultStore` = LLM stage) so they
 survive leaving the Workspace; both auto-hide until a transcription exists.
 
-- `SttInspectorSection` (Inspector page): phase bar + confidence timeline +
+- `SttInspectorSection` (Latency page): phase bar + confidence timeline +
   histogram + metric-card grid + pipeline one-liner.
 - `SttAnalysisSection` (Analysis tab): the three headline metrics as ruler bars
   + transcript text + export + pipeline one-liner.
@@ -390,7 +390,7 @@ End-to-end, the happy path through every surface:
 6. **(Auto-summarize) LLM reply.** `VoiceAssistant`'s effect fires
    `useAssistantRun.run(..., { auto: true })` → `run_prompt`; the reply streams,
    and the measured LLM metrics land in `assistantResultStore`.
-7. **Inspector metrics.** `SttInspectorSection` / `SttAnalysisSection` render the
+7. **Latency metrics.** `SttInspectorSection` / `SttAnalysisSection` render the
    confidence timeline/histogram, phase bar, metric cards, and the
    `PipelineSummary` end-to-end one-liner. Export to MD/JSON.
 8. **(Later) Eval.** Analysis tab → `SttEvalPanel`: build a spec over stored

@@ -39,7 +39,7 @@ describe("PerformanceMatrix", () => {
 
     // The Driver-B/D reliability columns are present.
     expect(screen.getByRole("columnheader", { name: "Schema Resil." })).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "Cliff Depth" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Context Limit" })).toBeInTheDocument();
   });
 
   it("pre-fills the cliff request (model + collection) and navigates to Audit — never auto-runs", async () => {
@@ -115,11 +115,11 @@ describe("PerformanceMatrix", () => {
     expect(screen.queryByText(/click a row to inspect/)).toBeNull();
   });
 
-  it("renders an always-visible legend explaining Cliff Depth + the probe payoff", () => {
+  it("renders an always-visible legend explaining Context Limit + the probe payoff", () => {
     useBatchStore.setState({ report });
     render(<PerformanceMatrix focusedModel="qwen" onFocusModel={() => {}} />);
     const legend = screen.getByTestId("matrix-legend");
-    expect(legend).toHaveTextContent(/Cliff Depth/);
+    expect(legend).toHaveTextContent(/Context Limit/);
     expect(legend).toHaveTextContent(/Agent-Readiness verdict/);
   });
 

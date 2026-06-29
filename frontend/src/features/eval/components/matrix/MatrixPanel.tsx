@@ -106,7 +106,7 @@ export function MatrixPanel({
       {/* Top bar */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px 12px", borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
         <h2 style={{ fontSize: 18, fontWeight: 600, color: "#e2e8f0", fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif", letterSpacing: "-0.01em" }}>
-          LLM Performance Matrix
+          Model Results
         </h2>
         <button
           type="button"

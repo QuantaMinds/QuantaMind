@@ -418,7 +418,7 @@ spawn, so the request carries no model name).
   `stop` — unlike mlx's request, which drops `seed`) and parses a llama-owned
   `ChatStreamChunk { choices, timings }`. It keeps the latest `timings` (llama's
   per-phase ms extension on the final chunk) → `Timings::stats()`, so
-  `prompt_eval_ms` survives the chat endpoint (the Inspector's TTFT breakdown
+  `prompt_eval_ms` survives the chat endpoint (the Latency tab's TTFT breakdown
   needs it — token-count-only `usage` can't give it). `stream_completion` is the
   legacy raw path. Each returns `Ok(None)` on a 404 so the orchestrator falls
   through.
@@ -631,7 +631,7 @@ stderr-aware launcher where loading is slow.
   (`fs::metadata`, the dominant resident-memory term), `load_ms` = the spawn→ready
   wall-clock (model-load window; coarse, bounded by the 500ms poll). A
   failed/never-ready start records nothing (no fabricated number). `llama_server_info`
-  exposes it — surfaced as a **spawn-time** readout in the Inspector (NOT a
+  exposes it — surfaced as a **spawn-time** readout in the Latency tab (NOT a
   per-request phase, since llama loads once at spawn and stays resident).
 - **`spawn_server`** (`llama_runtime.rs`): sets `current_dir(dir)` +
   `DYLD_FALLBACK_LIBRARY_PATH=dir` so `@rpath` dylibs resolve; **pipes stderr**
@@ -737,7 +737,7 @@ seed, stop, stream:true}` to `/v1/chat/completions` — with `--jinja` at spawn 
 server applies the GGUF's embedded template, so the model emits EOS and stops
 (a raw `/completion` prompt has no template and loops). Stream via
 `ChatStreamChunk`: `on_token(delta.content)`; stop on `finish_reason`; the final
-chunk's `timings` → `Timings::stats()` so `prompt_eval_ms` (the Inspector TTFT
+chunk's `timings` → `Timings::stats()` so `prompt_eval_ms` (the Latency tab TTFT
 breakdown's prefill) survives. If the chat route 404s (older build) → fall back to
 legacy `/completion` (`CompletionChunk`, `stop:true`); if *that* 404s too →
 port-collision error.

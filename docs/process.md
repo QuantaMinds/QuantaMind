@@ -45,7 +45,7 @@ Phase 4 additions (locked; installed when their step lands):
 
 | Layer | Choice | Why |
 |---|---|---|
-| Charting (TS) | `visx` v4 (`@next`, scale/shape/group) | React-19-native (stable v3 pins React ≤18). Modular SVG primitives for the Inspector charts; we draw axes/legends ourselves. Pin the alpha until v4 ships stable. |
+| Charting (TS) | `visx` v4 (`@next`, scale/shape/group) | React-19-native (stable v3 pins React ≤18). Modular SVG primitives for the Latency charts; we draw axes/legends ourselves. Pin the alpha until v4 ships stable. |
 
 ### What is explicitly NOT installed (yet)
 
@@ -348,7 +348,7 @@ prompt-template library.
 forward-looking notes in `inference/backend/`), so a future phase can add it
 without rework. With 3.10 out of scope, Phase 3 ships at 3.1–3.9 and is complete.
 
-### Phase 4 — v0.4 "The Inspector" (complete)
+### Phase 4 — v0.4 "Latency" (complete)
 
 Performance instrumentation: surface the raw timing/memory signal behind a run
 so users can see *why* it was fast or slow. Built one step at a time.
@@ -359,7 +359,7 @@ so users can see *why* it was fast or slow. Built one step at a time.
   `DonePayload` gains a `timeline` array, mirrored by the frontend zod schema.
   The first entry's `t_ms` equals `ttft_ms` by construction. Foundation for the
   views below; no UI yet.
-- **4.2 Token-timeline chart (done).** New **Inspector** tab plots the last
+- **4.2 Token-timeline chart (done).** New **Latency** tab plots the last
   run's per-token latency (x = token index, y = gap from previous token) with
   the TTFT bar annotated and latency-spike gaps flagged as outliers (robust
   median/MAD modified-z rule). Pure math in
@@ -370,12 +370,12 @@ so users can see *why* it was fast or slow. Built one step at a time.
   readout.
 - **4.3 TTFT breakdown (done).** `generate` now returns a `GenerateStats` from
   each backend's final chunk (Ollama's `load_duration`/`prompt_eval_*`/`eval_*`,
-  ns→ms; llama.cpp's `timings`), carried on the done payloads. The Inspector
+  ns→ms; llama.cpp's `timings`), carried on the done payloads. The Latency tab
   shows a stacked TTFT bar per model — Model load + Prompt prefill +
   Network/first-token (remainder) — segmented only by what the backend reports;
   otherwise "not available". Pure math in `features/inspector/format/ttft.ts`.
 - **4.4 VRAM allocation (done).** `get_loaded_models` reads Ollama `/api/ps`;
-  the Inspector shows a per-model bar — In VRAM (`size_vram`) vs offloaded to
+  the Latency tab shows a per-model bar — In VRAM (`size_vram`) vs offloaded to
   system RAM (`size − size_vram`), `context_length` in the tooltip. Models not
   loaded / non-Ollama backends → "Not available" (never a fabricated
   weights/KV/free split). Device free/total VRAM deferred to 4.5 (GPU probe).
@@ -385,7 +385,7 @@ so users can see *why* it was fast or slow. Built one step at a time.
 - **4.6 Inter-token latency histogram (done).** Per-model visx histogram of the
   inter-token gaps; outlier bins highlighted (`format/histogram.ts`).
 - **4.7 Cold- vs warm-start (done).** `HistoryEntry` records ttft/tok-s/load_ms;
-  the Inspector compares cold (load_ms>500ms) vs warm runs per model and shows
+  the Latency tab compares cold (load_ms>500ms) vs warm runs per model and shows
   the cold-load TTFT delta (`format/coldwarm.ts`).
 - **4.8 Memory-leak heuristic (done).** `get_ollama_rss` (sysinfo processes)
   sampled per run into a session series; a banner flags a monotonic climb across
@@ -398,7 +398,7 @@ so users can see *why* it was fast or slow. Built one step at a time.
   regression) exported via the dialog + `save_compare_report` (now allows
   `html`). Builders in `features/inspector/report/`.
 
-**Phase 4 (v0.4 The Inspector) is complete (4.1–4.10).** Metrics stay nullable
+**Phase 4 (v0.4 Latency) is complete (4.1–4.10).** Metrics stay nullable
 (`null` = not measured, never `0`); reports follow
 [#analysis-schema](reference.md#analysis-schema). Tests: full `cargo test`
 green + `cargo clippy` error-free; 560 frontend (vitest) + `tsc`; `pnpm build`
@@ -455,7 +455,7 @@ one. Built one step at a time.
   backend-aware compare runner from 5.6 rather than rebuilding metrics).
 - **5.4 Built-in mini-eval suite (done).** Bundled `docs/evals/*.yaml` tasks
   (classification, reasoning, extraction, schema) run against any installed
-  model from the **Eval** tab → a pass-rate + per-task pass/fail. **Scoring is
+  model from the **Tests** tab → a pass-rate + per-task pass/fail. **Scoring is
   deterministic** (locked stack has no sandbox/judge): exact-match,
   multiple-choice (first whole-word choice token), and — for the "code"
   category — **JSON schema-conformance** (BFCL-style): a balanced-brace
@@ -501,7 +501,7 @@ one. Built one step at a time.
   bleed into reasoning: `parse_rate` (over call-expected tasks), `tool_selection`,
   `args`, `abstain` — each `Option` (n/a, not 0, on a 0 denominator); composite =
   mean of available. The greedy extractor handles arrays AND bare sequential
-  objects; parallel scoring is length-guarded 1:1. Surfaced on the **Eval** tab
+  objects; parallel scoring is length-guarded 1:1. Surfaced on the **Tests** tab
   (`ToolCallPanel`) and as a per-quant spread in the **Quant** view.
   `inference/eval/toolcall/` (Tauri-free). The per-quant spread is a one-line
   headline in the **Quant** view (e.g. `Q4_K_M 71% · Q8_0 88%`).
@@ -534,7 +534,7 @@ one. Built one step at a time.
   other backends show "Not available — Ollama only". `inference/ollama/ollama_show.rs`
   (Tauri-free client; raw `model_info` kept for the 5.11 KV predictor) +
   `commands/models/model_inspect.rs`; UI `features/models/.../TemplatePanel.tsx` on
-  the Eval tab. First of the **5.10+ diagnostics** band (metadata + local math).
+  the Tests tab. First of the **5.10+ diagnostics** band (metadata + local math).
 
 - **5.11 KV-cache VRAM predictor + bandwidth (done).** Predicts VRAM as **base weights + KV
   cache(context)** so users stop guessing whether a model+context fits. The canonical f16 KV
@@ -548,7 +548,7 @@ one. Built one step at a time.
   showing the curated GB/s or "Not available". `vram_math.rs` + `hardware_mem.rs` (bandwidth) +
   `features/quant` (`useVramFit`, `QuantPage`, `fit.ts::fitOfNeed`).
 
-- **5.12 Silent-CPU-fallback guard (done).** The Eval tab warns when the selected model is loaded
+- **5.12 Silent-CPU-fallback guard (done).** The Tests tab warns when the selected model is loaded
   with weights off the accelerator (the silent fallback that tanks speed and ruins eval timings):
   `cpuOffload(size, vram)` over `/api/ps` data, gated on an accelerator being present. Ollama-only;
   renders nothing when fully resident / not loaded / other backend. `features/eval/CpuFallbackBanner`.
@@ -557,15 +557,15 @@ one. Built one step at a time.
   in percentage points vs the highest-quality scored quant (e.g. Q4_K_M "−17pp") + a "Δ vs Q8_0"
   note on the spread line. Pure `toolcallDelta`.
 
-- **5.14 Context-budget readout + finance preset (done).** (a) A `ContextBudgetBar` in the Inspector
+- **5.14 Context-budget readout + finance preset (done).** (a) A `ContextBudgetBar` in the Latency tab
   shows the exact `prompt_eval_count / context_length`, red ≥95% (about to overflow and drop tokens);
   "Not available" when unknown. (b) A second **read-only built-in preset**, "Finance (preset)"
   (`tasks_finance.json`), via `list_builtin_collections` / `get_builtin_collection(id)`; the dataset
   picker lists Curated + Finance as read-only. Structural tool-call reliability — **not** PDF parsing.
 
-- **5.15 Context-Cliff probe (done).** Runs the selected dataset at growing prompt lengths and graphs
+- **5.15 Context Stress Test (done).** Runs the selected dataset at growing prompt lengths and graphs
   where tool-call accuracy collapses (`cliff.ts` + `useContextCliff` + a visx `ContextCliffChart` on
-  the Eval tab). **Frontend-only**, padding is approximate (≈tokens via chars/4) and **labelled
+  the Tests tab). **Frontend-only**, padding is approximate (≈tokens via chars/4) and **labelled
   indicative** — no tokenizer; a failed rung records null, never a fabricated score.
 
 ### Phase 6 — Agentic reliability & the Automated-Pipeline workspace
@@ -575,7 +575,7 @@ reshapes the eval experience into a two-zone app. See [Agentic reliability
 eval](reference.md#agentic-eval) for the contract.
 
 **Navigation: two zones.** Zone 1 (Manual Playground): Workspace · **Compare**
-(renamed from Analysis) · Inspector. Zone 2 (Automated Pipeline): **Eval** (the
+(renamed from Analysis) · Latency. Zone 2 (Automated Pipeline): **Tests** (the
 3-pane workspace) · **Audit** (compliance home).
 
 | # | Step | Status |
@@ -585,11 +585,11 @@ eval](reference.md#agentic-eval) for the contract.
 | 1 | Data contract: `ToolTask.agentic`, `EndStateRule` enum (`RequireSequence`/`ExpectAbstainingText`), `validate_tasks` gate | done |
 | 2 | VRAM-safe sequential `run_batch` dispatcher + `run_batch_eval` streaming command | done |
 | 3 | Throttled single-stream React consumer (rAF-buffered `batchStore`, `useBatchRun`) | done |
-| 4 | 3-pane Eval workspace: `MatrixScoreboard` + `TraceDebugger` + audit export | done |
-| 5 | Audit tab: saved Matrix history + export + Context-Cliff probe | done |
+| 4 | 3-pane Tests workspace: `MatrixScoreboard` + `TraceDebugger` + audit export | done |
+| 5 | Audit tab: Results History + export + Context Stress Test | done |
 | 6 | Driver B lazy-agent traps: per-call `FaultInjection` (transient/persistent) in the sandbox + runner (`ToolError` step), authored in the Configurator | done |
 | 7 | Driver D schema resilience: semantic `validate_call` + `max_recovery` loop (`SchemaError` step, `MalformedSchema` failure, `schema_resilience` metric) | done |
-| 8 | Matrix `Schema Resil.` + `Cliff Depth` columns (cliff depth shared with the Inspector budget gauge via the `quantamind-cliff-<model>` marker) | done |
+| 8 | Model Results `Schema Resil.` + `Context Limit` columns (context limit shared with the Latency budget gauge via the `quantamind-cliff-<model>` marker) | done |
 | 9 | CSV import: strict flat `id,prompt,expected_tool,expected_args` + shared Tools box → custom collection (`read_text_capped`, `csvImport.ts`, `CsvImportModal`); single-turn only, live located validation | done |
 
 Locked decisions (set during planning): **iterate in Rust, never React** — one
@@ -633,8 +633,8 @@ Locked decisions: **never fabricate** — an unmeasured hard-required metric blo
 labelled never conflated; thresholds live in **editable profiles**, not constants;
 built-in profiles gate only on metrics measured today (Pass^k, loop/hallucination
 taxonomy, steps, and — since 7.4 — VRAM fit on Coding-agent), so a default profile
-doesn't mark every model NotReady for infra reasons. The **context-cliff is now
-wired** end-to-end (Matrix pre-fills the probe → measured cliff saved per
+doesn't mark every model NotReady for infra reasons. The **Context Stress Test is now
+wired** end-to-end (Model Results pre-fills the probe → measured context limit saved per
 (collection, model) → fed into the verdict → shown in the Agent Report), but the
 `min_context_tokens` gate stays **opt-in** (off in the built-ins; a custom profile
 turns it on) so an un-probed model is never silently failed. VRAM fit is **Ollama-precise**
@@ -682,7 +682,7 @@ surface is under [reference.md#eval-runner](reference.md#eval-runner).
 | v2 | Full v2 scenario engine (`agentic/v2/`): `world_state` discovery, `RequireAll` unordered checkpoints, `must_not_call` traps, name-keyed faults; 19 bundled tiered collections become THE eval content (old fixtures deleted); runs on the unchanged agentic runner; integrity + oracle gates prove all 434 tasks satisfiable and a trivial agent scores 0 | done |
 | C1–C2 | Per-run sandbox factory (`run_agentic_with`) + procedural instancing (`v2/generator.rs::instantiate`): seeded bijective entity-id rename per Pass^k run (oracle-safe, novel per run, replay fallback when no numbered entities); `AgenticSpec.generated` threaded through both streaming + native passes | done |
 | A5b/B2 | Runtime safety for heavy v2 runs: per-step 180s turn timeout (`TurnTimeout`); mid-run cancellation checked between Pass^k runs; worst-case pre-run cost estimate beside the Matrix Run button | done |
-| 9-UI | **Inline tier + anti-saturation run controls** on the Eval page: Difficulty Tier dropdown (`Auto`/Easy…Extreme/`Custom`) with tier-locked Pass^k (`PASS_K_BY_TIER` mirrors `passk.rs`), `get_hardware_tier` command driving `Auto` + the HW hint, an Enable-Decoy-Tools budget, and scoreboard header chips (`Tier · K · Decoys`). `tier`/`decoyTools` flow through `run_batch_eval` → `apply_overrides` onto each agentic spec | done |
+| 9-UI | **Inline tier + anti-saturation run controls** on the Tests page: Difficulty Tier dropdown (`Auto`/Easy…Extreme/`Custom`) with tier-locked Pass^k (`PASS_K_BY_TIER` mirrors `passk.rs`), `get_hardware_tier` command driving `Auto` + the HW hint, an Enable-Decoy-Tools budget, and scoreboard header chips (`Tier · K · Decoys`). `tier`/`decoyTools` flow through `run_batch_eval` → `apply_overrides` onto each agentic spec | done |
 | 9B-report | **Agent Report deep-dive** (per-model, augmenting the multi-model table): per-tier `avg_steps` + `failures` now computed in `agg_agentic` (enriched `TierStat`) and exposed on `ModelVerdict.by_tier`/`failures` via one `native_first_source` helper (same source the gate reads). Three new components — **Executive Verdict** (run-tier headline = highest tier exercised; hardware class is an advisory lens, never a gate; status = "cleared what it ran" via a contiguous `clearsThrough`), **Tier Progression Matrix** (CLEAR/SATURATED/FAIL/NOT-TESTED on the same `min_pass_k` bar as `cleared_tier`; Task Parameters from real task axes or "not declared"), **Failure Taxonomy** (failure-mode distribution across the *tested* tiers, honest event denominator). Versioned JSON export | done |
 | 9-publish | **Phase-8 publish payload extended with the Phase-9 verdict** (`backend-publish.md`): `PublishRow` (allowlist) now carries `status`/`eval_method`/`tier_tested`/`cleared_tier`/`hardware_class`/`recommended_tier`, the per-tier curve (`by_tier` = rate/k/decoy), `failure_distribution` (counts mapped field-by-field from `FailureTracker`, incl. `reported_in_prose`), collection identity (`collection_name` + SHA-256 `collection_hash`), and provenance (`schema_version`/`engine_version`/`build_hash` from `build.rs`). `project` gains a **built-in-only gate** (custom collections excluded via `collection_hash: None`); the canonical hash covers the full row. Integrity stays **hash-only** (no client signature). | done |
 
@@ -709,9 +709,9 @@ Parking lot for ideas, libraries, and changes deliberately deferred. Nothing
 here is in the current phase — see [Phase roadmap](#phase-roadmap). If something
 here becomes relevant, move it into a phase plan first.
 
-### Full end-state agentic context-cliff
+### Full end-state agentic Context Stress Test
 
-The context-cliff probe now *includes* agentic collections, but scores them on JSON **well-formedness**
+The Context Stress Test now *includes* agentic collections, but scores them on JSON **well-formedness**
 only — does the model still emit a parseable tool call as context grows (see `reference.md#context-cliff`).
 That catches a real failure mode (the tool-call FORMAT degrading with context) but **not** task
 correctness. A fuller probe — "at what context length does **multi-step** agentic accuracy collapse?" —

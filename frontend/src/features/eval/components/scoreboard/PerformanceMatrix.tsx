@@ -22,7 +22,7 @@ const COLUMN_HELP: Record<string, string | undefined> = {
   "Avg Steps": metricTitle("avgSteps"),
   Effort: metricTitle("effort"),
   "Schema Resil.": metricTitle("schemaResil"),
-  "Cliff Depth": metricTitle("cliffDepth"),
+  "Context Limit": metricTitle("cliffDepth"),
   "Top Error": metricTitle("topError"),
 };
 
@@ -210,7 +210,7 @@ export function PerformanceMatrix({
         e.stopPropagation();
         reprobe(model);
       }}
-      title="Re-run the Context-Cliff probe for this model (opens the Audit tab)"
+      title="Re-run the Context Stress Test for this model (opens the Audit tab)"
       data-testid={`cliff-reprobe-${model}`}
       style={{ marginLeft: 4, cursor: "pointer", color: "#94a3b8", fontSize: 11, background: "none", border: "none", padding: 0 }}
     >
@@ -228,7 +228,7 @@ export function PerformanceMatrix({
     "Steps",
     "Effort",
     "Schema Resil.",
-    "Cliff Depth",
+    "Context Limit",
     "Top Error",
   ];
 
@@ -242,7 +242,7 @@ export function PerformanceMatrix({
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span className="flex h-2 w-2 rounded-full bg-blue-500" />
           <span style={{ fontSize: 14, fontWeight: 700, color: "#0f172a", fontFamily: "Inter, sans-serif", letterSpacing: "0.03em" }}>
-            4. LLM PERFORMANCE MATRIX
+            4. MODEL RESULTS
           </span>
         </div>
         <span style={{ fontSize: 11, color: "#64748b", fontFamily: "Inter, sans-serif" }}>
@@ -415,7 +415,7 @@ export function PerformanceMatrix({
                             e.stopPropagation();
                             reprobe(r.model);
                           }}
-                          title="Not measured yet — pre-fills the Context-Cliff probe for this model on the Audit tab"
+                          title="Not measured yet — pre-fills the Context Stress Test for this model on the Audit tab"
                           style={cliffLink}
                           className="px-2 py-0.5 text-[10px] font-bold rounded bg-blue-50 border border-blue-200 text-blue-600 hover:bg-blue-100 hover:border-blue-300 transition-all cursor-pointer inline-flex items-center gap-1"
                           data-testid={`cliff-run-${r.model}`}
@@ -457,7 +457,7 @@ export function PerformanceMatrix({
       )}
       {rows.length > 0 && (
         <div style={legendStyle} data-testid="matrix-legend">
-          <strong style={{ color: "#475569" }}>Cliff Depth</strong> — the context length where a model's
+          <strong style={{ color: "#475569" }}>Context Limit</strong> — the context length where a model's
           tool-call accuracy starts to collapse. Click <strong style={{ color: "#2563eb" }}>Run probe ↗</strong> to
           measure it (runs in the Audit tab); the result feeds the model's Agent-Readiness verdict.{" "}
           <span style={{ color: "#166534", fontWeight: 600 }}>✓ no cliff</span> = probed, accuracy held the whole range from a healthy baseline.{" "}

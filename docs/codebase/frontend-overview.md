@@ -76,8 +76,8 @@ the back button returns the user to where they were.
 |---|---|---|---|
 | `workspace` | Workspace | `features/workspace/components/Workspace.tsx` | [frontend-workspace](frontend-workspace.md) |
 | `compare` | Analysis | `features/compare/components/AnalysisPage.tsx` | [frontend-compare-analysis](frontend-compare-analysis.md) |
-| `inspector` | Inspector | `features/inspector/components/InspectorPage.tsx` | [frontend-inspector-quant-agentreport](frontend-inspector-quant-agentreport.md) |
-| `eval` | Eval | `features/eval/components/EvalPage.tsx` | [frontend-eval](frontend-eval.md) |
+| `inspector` | Latency | `features/inspector/components/InspectorPage.tsx` | [frontend-inspector-quant-agentreport](frontend-inspector-quant-agentreport.md) |
+| `eval` | Tests | `features/eval/components/EvalPage.tsx` | [frontend-eval](frontend-eval.md) |
 | `audit` | Audit | `features/audit/components/AuditPage.tsx` | [frontend-support-features](frontend-support-features.md) |
 | `agentReport` | Agent Report | `features/agentReport/components/AgentReportPage.tsx` | [frontend-inspector-quant-agentreport](frontend-inspector-quant-agentreport.md) |
 | `models` | Models | `features/models/components/ModelsPage.tsx` | [frontend-models](frontend-models.md) |
@@ -86,7 +86,7 @@ the back button returns the user to where they were.
 | `help` | Help | `features/help/components/HelpPage.tsx` | [frontend-support-features](frontend-support-features.md) |
 
 The Quant view is a **sub-tab merged into Analysis**; it shares the readiness
-data model with Inspector/Agent Report and is documented on
+data model with Latency/Agent Report and is documented on
 [frontend-inspector-quant-agentreport](frontend-inspector-quant-agentreport.md).
 
 ---

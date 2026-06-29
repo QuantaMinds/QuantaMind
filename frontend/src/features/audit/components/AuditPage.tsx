@@ -102,7 +102,7 @@ export function AuditPage() {
 
       <div style={card} data-testid="audit-history">
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-          <span style={{ fontSize: 13, fontWeight: 650, color: "#1e293b", fontFamily: "Inter,sans-serif" }}>Saved Matrix History</span>
+          <span style={{ fontSize: 13, fontWeight: 650, color: "#1e293b", fontFamily: "Inter,sans-serif" }}>Results History</span>
           <select
             value={collection}
             onChange={(e) => setCollection(e.target.value)}

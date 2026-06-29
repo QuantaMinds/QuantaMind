@@ -281,7 +281,7 @@ export function EvalManager({
       <div style={headerStyle}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{ fontSize: 16, fontWeight: 700, color: "#0f172a", fontFamily: "Inter, sans-serif" }}>
-            1. EVAL MANAGER
+            1. TESTS MANAGER
           </div>
           <span style={{ marginLeft: "auto" }}>
             <InfoButton {...TOOL_HELP.evalManager} testId="eval-manager" />

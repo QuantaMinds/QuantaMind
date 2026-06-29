@@ -1,4 +1,4 @@
-# Frontend — The Eval Tab
+# Frontend — The Tests Tab
 
 The largest frontend feature. Lives under `frontend/src/features/eval/`. It scores
 **local LLMs** on tool-calling and agentic ability and surfaces the results that
@@ -16,7 +16,7 @@ Cross-links:
 
 **Why.** A model that passes a chat benchmark can still be useless as an *agent*:
 it emits malformed tool JSON, calls the wrong tool, loops forever, hallucinates
-"done", or degrades as the context fills. The Eval tab measures exactly those
+"done", or degrades as the context fills. The Tests tab measures exactly those
 failure modes on the user's own machine, against the user's own models, with no
 fabricated numbers (every "N/A"/"—" is a real absence, never a faked 0).
 
@@ -28,7 +28,7 @@ or a user-authored custom set):
 | **Tool-call (single-turn)** | One prompt → one (or parallel) tool call. Parse / tool-match / args-match / abstain sub-scores → `composite`. | matrix grid, scoreboard, PipelinePanel trace |
 | **Agentic (multi-step)** | A sandbox loop: model calls tools until an end-state, with injected faults. `Pass^k` (all k runs pass), avg steps, effort (tokens), schema-resilience, top-error. | scoreboard, TraceDebugger |
 | **Matrix (across models)** | Run a whole collection across many target models → one row per model, compared side-by-side. | PerformanceMatrix / MatrixPanel |
-| **Context-cliff** | Pad the context to growing depths, find where tool-call accuracy collapses. Feeds the readiness verdict. | ContextCliffPanel + Chart (Audit tab) |
+| **Context Stress Test** | Pad the context to growing depths, find where tool-call accuracy collapses. Feeds the readiness verdict. | ContextCliffPanel + Chart (Audit tab) |
 | **Custom collections + CSV** | Author tasks in-app; import single-turn cases from CSV; import/export JSON. | EvalManager, CollectionEditor, CsvImportModal |
 
 **How.** Every panel is a thin React shell over a Tauri IPC command in
@@ -45,7 +45,7 @@ heavy report lands once on completion. Crash-recovery (`check_unfinished_run` �
 | **EvalManager** | Difficulty-tier–filtered collection picker, model, editable k / maxSteps, native-FC toggle, Run/Stop, New Collection/Import/Export | `run_batch_eval` / `stop_batch_eval` (via `useBatchRun`) | `evalRegistryStore`, `batchStore` |
 | **MatrixScoreboard** ("Simulator") | Per-task Pass/Fail/Partial table + live progress (read-only; authoring lives in the sidebar) | reads streamed events | `batchStore`, `evalRegistryStore` |
 | **TraceDebugger** ("Evaluator") | One (model,task) pipeline: Config→System→Stream→Verify + agentic step timeline | reads cached outcome/steps | `batchStore`, `evalRegistryStore` |
-| **PerformanceMatrix** | One row per model: Pass^k, native FC, avg-steps, effort, schema-resil, **cliff depth**, top-error | reads `report`; pre-fills cliff | `batchStore`, `cliffStore` |
+| **PerformanceMatrix** | One row per model: Pass^k, native FC, avg-steps, effort, schema-resil, **context limit**, top-error | reads `report`; pre-fills cliff | `batchStore`, `cliffStore` |
 | **CollectionEditor** | Task list + Task/Sandbox configurator (authoring) | registry CRUD (via store) | `evalRegistryStore` |
 | **CsvImportModal** | Live-validated CSV → tasks | `read_text_capped`, `import`/`save_custom_collection` | `evalRegistryStore` |
 | **ContextCliffPanel** + Chart | Cliff probe controls, rung table, accuracy-vs-depth chart | `run_context_cliff` / `stop_context_cliff` / `get_cliff_results` | `cliffStore` |
@@ -181,7 +181,7 @@ and `__tests__/TraceDebuggerRunIo.test.tsx` (rendered).
 | `ToolCallPanel.tsx` *(standalone)* | Batch scoreboard (task table + bar chart + stats + run controls) over `run_toolcall_eval`; `batchStore` + `evalRegistryStore` + `installedModelsStore`. |
 | `CpuFallbackBanner.tsx` | Warns when Ollama weights spill to CPU; reads `loadedModels()` + hardware snapshot. |
 | `RunRecoveryDialog.tsx` | Modal "Resume interrupted evaluation?" — Resume (keeps data) / Discard (destructive) / Esc-dismiss. Renders `run.collection_id` + `done/total`. |
-| `ContextCliffPanel.tsx` | The full cliff probe — see [Context-cliff](#contextcliff-folder). |
+| `ContextCliffPanel.tsx` | The full Context Stress Test — see [Context Stress Test](#contextcliff-folder). |
 
 ---
 
@@ -277,9 +277,9 @@ reset: () => { accepting = false; buffer = []; if (frame) unschedule(frame); set
 
 ### cliffStore.ts — the survivable probe
 
-**Responsibility.** Runs the context-cliff probe and holds its live series so the
-run **survives tab navigation**. Also caches backend-persisted cliff depths per
-(collection, model) for the Matrix.
+**Responsibility.** Runs the Context Stress Test and holds its live series so the
+run **survives tab navigation**. Also caches backend-persisted context limits per
+(collection, model) for the Model Results.
 
 **Shape.** `request` (Matrix pre-fill, consumed by the panel), `points`
 (`CliffPoint[]`, live), `running`/`runningModel`, `progress` (per-rung done/total),
@@ -410,19 +410,19 @@ export function toScoreRows(report, models): ScoreRow[] {
 }
 ```
 
-### PerformanceMatrix.tsx — the cross-model table ("4. LLM Performance Matrix")
+### PerformanceMatrix.tsx — the cross-model table ("4. Model Results")
 
 **Responsibility.** One row per model with the full metric set, and the **bridge
 to the cliff probe**. Reads `batchStore.report` → `toScoreRows`, and the cliff
 caches from `cliffStore` (hydrated on mount per `report.collection_id`).
 
 **How.** Per-model badges via `getPassKBadge`/`getSchemaResilBadge`/
-`getTopErrorBadge` (green = perfect, amber = partial, red = failure). The **Cliff
-Depth** cell is a small state machine, checked in order:
+`getTopErrorBadge` (green = perfect, amber = partial, red = failure). The **Context
+Limit** cell is a small state machine, checked in order:
 
 1. `probing…` (this model is the running probe)
 2. **`fails from start`** (red) — `brokenBaseline` (checked *before* a depth: a
-   broken baseline is persisted as a depth for the readiness gate, but the Matrix
+   broken baseline is persisted as a depth for the readiness gate, but the Model Results
    must show the failure, not dress it as a cliff)
 3. **`{n} tok`** — a genuine measured collapse depth (`results[model]`)
 4. **`✓ no cliff`** (green) — `probed` healthy across the range
@@ -540,7 +540,7 @@ files). Parses live with `csvToCollection` (per-row ✓/✗); import is gated on
 
 ---
 
-## Context-cliff folder
+## Context Stress Test folder
 
 ### cliff.ts — verdict classification (pure)
 
@@ -599,7 +599,7 @@ an area fill, per-point dots (red past the cliff), and a hover tooltip
 
 ## Data-flow walkthroughs
 
-### (a) Tool-call collection across models → matrix → scoreboard
+### (a) Tool-call collection across models → Model Results → scoreboard
 
 ```
 EvalManager: pick collection (evalRegistryStore.select → tasks), pick models, set k/maxSteps
@@ -641,7 +641,7 @@ Resume → batchStore.startRun() → resume_batch_eval(runId)
 Discard → discard_run(runId) (drops the log) ; Dismiss → keep for next launch
 ```
 
-### (d) Context-cliff probe → chart
+### (d) Context Stress Test → chart
 
 ```
 PerformanceMatrix "Run probe ↗" → cliffStore.setRequest({model,backend,collectionId,maxTokens,steps})

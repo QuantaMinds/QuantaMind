@@ -18,7 +18,7 @@ cancellation. It also hosts per-backend **server start/stop** controls and a lef
 ## Overview
 
 ### Why it's the core tab
-Everything else (Analysis, Models, History, Eval) feeds off the act of running a prompt
+Everything else (Analysis, Models, History, Tests) feeds off the act of running a prompt
 against a local model. The Workspace is where that single run happens. The global header
 owns model selection and the per-backend Play/Stop; this page owns the **prompt content,
 the Run trigger, the live stream, and the per-prompt file**.
@@ -153,7 +153,7 @@ const cancel = useCallback(async () => {
 
 Notes:
 - `keepLoaded` on → `keepAlive=-1` (Ollama resident). Off → the arg is **omitted** (not
-  `0`), so Ollama's idle-unload lets the model linger for the Inspector before freeing.
+  `0`), so Ollama's idle-unload lets the model linger for the Latency tab before freeing.
 - `cancel()` doesn't itself set a state — the backend emits `prompt-cancelled`, and the
   listener transitions to `cancelled`. If the run already finished, the catch swallows it.
 - Returns `{ output, status, error, metrics, cancelledInfo, start, cancel }`.

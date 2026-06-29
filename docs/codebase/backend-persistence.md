@@ -31,7 +31,7 @@ All paths are under the OS app-config dir (`app.path().app_config_dir()`) unless
 | Batch job logs | `jobs/<run_id>.jsonl` | JSONL (header + units) | Batch eval (resume) |
 | Batch reports | `batch_reports/<collection>.json` | JSON (`BatchReport`) | Readiness page |
 | Readiness profiles | `readiness/<id>.json` | JSON (`ReadinessProfile`) | Readiness gating |
-| Context-cliff status | `cliff/<collection>.json` | JSON (`{model: CliffStatus}`) | Readiness / cliff probe |
+| Context Stress Test status | `cliff/<collection>.json` | JSON (`{model: CliffStatus}`) | Readiness / Context Stress Test |
 | STT transcripts | `transcripts/<id>.json` | JSON (`Transcript`) | STT |
 | STT eval specs | `stt_evals/<name>.json` | JSON (`SttEvalSpec`) | STT eval |
 | STT eval reports | `stt_reports/<id>.jsonl` | JSONL (`SttReportRow`) | STT eval |
@@ -307,7 +307,7 @@ pub fn list(dir: &Path) -> AppResult<Vec<ReadinessProfile>> {
 **Responsibility:** the most-recent batch report per collection (last-write-wins). **Why:** Rust is the source of truth for the verdict — the GUI command and a future CLI read the same bytes. **What:** `MAX_BYTES = 1 MB`; `save(dir, &BatchReport)` (keyed by `report.collection_id` via `safe_filename`), `load(dir, collection_id) -> Option<BatchReport>` (missing → empty state). **How/Where used:** `commands/eval/batch_cmd.rs` & `readiness_cmd.rs` → `batch_reports/`.
 
 ### File: `readiness/cliff.rs`
-**Responsibility:** per-model context-cliff status for a collection. **What:** `MAX_BYTES = 256 KB`. Stores `{model: CliffStatus}` where `CliffStatus = NotProbed | NoCliff{tested} | Collapsed{depth} | …`. **Model keys are stored verbatim** (Ollama names carry colons); only the *filename* is sanitized. `load` reads `HashMap<String, Value>` first so `status_from_value` can **migrate a legacy bare number** into `Collapsed{depth}` (the only thing the old format recorded), otherwise deserializing the tagged enum. `save` is **atomic** (load → merge one model → temp-write → rename, last-write-wins per model). **How/Where used:** `commands/eval/readiness_cmd.rs` → `cliff/`.
+**Responsibility:** per-model Context Stress Test status for a collection. **What:** `MAX_BYTES = 256 KB`. Stores `{model: CliffStatus}` where `CliffStatus = NotProbed | NoCliff{tested} | Collapsed{depth} | …`. **Model keys are stored verbatim** (Ollama names carry colons); only the *filename* is sanitized. `load` reads `HashMap<String, Value>` first so `status_from_value` can **migrate a legacy bare number** into `Collapsed{depth}` (the only thing the old format recorded), otherwise deserializing the tagged enum. `save` is **atomic** (load → merge one model → temp-write → rename, last-write-wins per model). **How/Where used:** `commands/eval/readiness_cmd.rs` → `cliff/`.
 
 ```rust
 fn status_from_value(v: &Value) -> Option<CliffStatus> {

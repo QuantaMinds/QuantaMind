@@ -198,7 +198,7 @@ export function ContextCliffPanel() {
             className="text-lg font-semibold tracking-tight"
             style={{ color: "#1e293b", fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif" }}
           >
-            Context-Cliff Diagnostic Probe
+            Context Stress Test
           </h2>
           <select
             value={active}
