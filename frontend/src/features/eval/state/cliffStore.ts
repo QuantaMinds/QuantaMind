@@ -39,6 +39,10 @@ export interface RunProbeArgs {
   /// own text. The backend engine cycles it, char-boundary-safe, to each verified depth.
   source: CliffSource;
   params?: InferenceParams;
+  /// The GGUF path of the selected model (llama.cpp only). The backend matches it
+  /// against the running llama-server so the probe can refuse to run when the wrong
+  /// model is loaded or its launch `-c` is too small — rather than 400 on every rung.
+  modelPath?: string;
 }
 
 interface CliffStore {
@@ -176,7 +180,7 @@ export const useCliffStore = create<CliffStore>((set, get) => ({
   wasProbed: (collectionId, model) => get().probed[collectionId]?.[model] === true,
   hasBrokenBaseline: (collectionId, model) => get().brokenBaseline[collectionId]?.[model] === true,
 
-  runProbe: async ({ model, backend, collectionId, tasks, maxTokens, steps, source, params }) => {
+  runProbe: async ({ model, backend, collectionId, tasks, maxTokens, steps, source, params, modelPath }) => {
     // GUARDRAIL 2: clear all prior state BEFORE dispatching — never append to a
     // stale series (that corrupts the chart and the persisted cliff).
     const myRun = ++activeRun;
@@ -218,7 +222,7 @@ export const useCliffStore = create<CliffStore>((set, get) => ({
         }),
       );
 
-      const report = await runContextCliff(model, backend, collectionId, tasks, source, maxTokens, steps, params, myRun);
+      const report = await runContextCliff(model, backend, collectionId, tasks, source, maxTokens, steps, params, myRun, modelPath);
       if (activeRun !== myRun) return; // stopped or superseded mid-run
 
       // The report is authoritative — replace the live series with its verified rungs

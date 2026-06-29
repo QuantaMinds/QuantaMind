@@ -4,7 +4,8 @@ use crate::inference::generate::generate_stats::GenerateStats;
 use crate::inference::http::http::{body_or_note, streaming_client};
 use crate::inference::http::ndjson::next_line;
 use crate::inference::llama::llama_wire::{
-    strip_sse, ChatRequest, ChatStreamChunk, CompletionChunk, CompletionRequest,
+    context_overflow_hint, strip_sse, ChatRequest, ChatStreamChunk, CompletionChunk,
+    CompletionRequest,
 };
 use futures_util::StreamExt;
 use tokio_util::sync::CancellationToken;
@@ -88,9 +89,11 @@ async fn stream_chat(
     }
     if !status.is_success() {
         let body_text = body_or_note(resp).await;
-        return Err(AppError::Inference(format!(
-            "llama-server POST {url} → HTTP {status}: {body_text}"
-        )));
+        // A context overflow gets actionable copy (raise Context window + restart);
+        // anything else keeps the self-explaining URL+status+body.
+        let msg = context_overflow_hint(&body_text)
+            .unwrap_or_else(|| format!("llama-server POST {url} → HTTP {status}: {body_text}"));
+        return Err(AppError::Inference(msg));
     }
 
     let mut bytes = resp.bytes_stream();
@@ -166,9 +169,11 @@ async fn stream_completion(
     }
     if !status.is_success() {
         let body_text = body_or_note(resp).await;
-        return Err(AppError::Inference(format!(
-            "llama-server POST {url} → HTTP {status}: {body_text}"
-        )));
+        // A context overflow gets actionable copy (raise Context window + restart);
+        // anything else keeps the self-explaining URL+status+body.
+        let msg = context_overflow_hint(&body_text)
+            .unwrap_or_else(|| format!("llama-server POST {url} → HTTP {status}: {body_text}"));
+        return Err(AppError::Inference(msg));
     }
 
     let mut bytes = resp.bytes_stream();
@@ -314,6 +319,27 @@ mod tests {
             msg.contains("Another server is likely on"),
             "should hint at the collision: {msg}"
         );
+    }
+
+    /// A 400 context-overflow on the chat route is rewritten into actionable copy
+    /// (raise Context window + restart), not the raw JSON — the cure for the
+    /// llama.cpp fixed-context wall.
+    #[tokio::test]
+    async fn context_overflow_400_yields_actionable_message() {
+        let mut s = Server::new_async().await;
+        let _m = s
+            .mock("POST", "/v1/chat/completions")
+            .with_status(400)
+            .with_body(r#"{"error":{"code":400,"message":"request (10536 tokens) exceeds the available context size (8192 tokens), try increasing it","type":"exceed_context_size_error","n_prompt_tokens":10536,"n_ctx":8192}}"#)
+            .create_async()
+            .await;
+        let err = stream_generate(&s.url(), "m", "p", None, None, CancellationToken::new(), |_| {})
+            .await
+            .unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("Context window"), "should tell the user which param to raise: {msg}");
+        assert!(msg.contains("10536 tokens"), "should name the prompt size: {msg}");
+        assert!(!msg.contains("exceed_context_size_error"), "should not dump the raw type: {msg}");
     }
 
     /// A non-404 error on the primary chat route is surfaced with URL + status +

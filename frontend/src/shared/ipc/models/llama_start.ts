@@ -15,8 +15,14 @@ export const LlamaStartResultSchema = z.discriminatedUnion("status", [
 export type LlamaStartResult = z.infer<typeof LlamaStartResultSchema>;
 
 /// Start the llama-server sidecar on a specific GGUF (one model at a time).
-export async function startLlamaServer(modelPath: string): Promise<LlamaStartResult> {
-  const raw = await invoke("start_llama_server", { modelPath });
+/// `numCtx` is the user's "Context window" param: it drives the launch `-c`
+/// (llama.cpp fixes context at launch), so changing it relaunches the server.
+/// `null`/omitted ⇒ the safe default (GGUF context capped for KV-cache safety).
+export async function startLlamaServer(
+  modelPath: string,
+  numCtx?: number | null,
+): Promise<LlamaStartResult> {
+  const raw = await invoke("start_llama_server", { modelPath, numCtx: numCtx ?? null });
   return LlamaStartResultSchema.parse(raw);
 }
 

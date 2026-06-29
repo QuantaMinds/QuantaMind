@@ -992,11 +992,19 @@ let _ = queue::delete(&job_path);
   `assess_readiness`, `list_readiness_profiles` / `save_readiness_profile` /
   `delete_readiness_profile`. Const `CLIFF_CTX_HEADROOM=2048`,
   `EVENT_CLIFF_PROGRESS="cliff-progress"`, `EVENT_CLIFF_STEP="cliff-step"`.
-  `run_context_cliff` forces temp 0, `num_ctx = max_tokens + 2048`, registers a cancel
+  `run_context_cliff` forces temp 0, `num_ctx = needed_ctx = max_tokens + 2048`, registers a cancel
   token, emits a rung event per `on_rung` AND a fine-grained `cliff-step` per
   `on_step` (one per task generation — `StepProgress{rung,position,task,...}` — so the UI
   shows movement during a slow deep rung instead of freezing between rungs), persists the
-  classified `CliffStatus` only on success. `assess_readiness`
+  classified `CliffStatus` only on success. **llama.cpp pre-flight:** for the
+  `LlamaCpp` backend it takes the selected model's GGUF `model_path` and queries
+  `LlamaServerState::probe_readiness(path)` (added there) — `NotRunning`/`WrongModel`
+  (matched on the exact launch path, since the single-model server ignores the request's
+  model field) → `start_with_model_msg`; `Ready{ctx}` with `ctx < needed_ctx` →
+  `raise_or_reduce_msg`. Returning `Err` before the ladder means a user-managed server
+  loaded with the wrong model or too small a `-c` yields one honest message instead of a
+  400 on every deep rung (or a silently mis-scored model). Ollama/MLX size per request and
+  skip the check. `assess_readiness`
   loads the persisted batch report, pulls real weights/quant from Ollama, computes
   per-column VRAM fit via `vram_fit::try_profile` (only when `cap_bytes` set),
   builds verdicts via `verdict_for`, then `recommend::rank`.

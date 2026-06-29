@@ -86,7 +86,7 @@ Everything runs on-device. HTTP-only to your local backend. No weights bundled, 
 
 - **Backends:** Ollama, llama.cpp, and MLX over HTTP — no weights bundled.
 - **pass^k scoring:** *k*-of-*k* success per task tier (Easy / Medium / Hard), not a single pass.
-- **Hardware-aware:** the verdict accounts for your machine — quantization, VRAM headroom, spawn-time footprint, prefix-cache behaviour.
+- **Hardware-aware:** the verdict accounts for your machine — quantization, VRAM headroom, spawn-time footprint, prefix-cache behaviour, and the llama.cpp context window (sized to what your RAM actually holds).
 - **Failure-mode classification:** surfaces *how* a model breaks — `ForbiddenCall` (out-of-scope tool), `LoopCap` (step budget hit), silent `FakeDone`, and more — not just a pass/fail number.
 - **Quant comparison:** diff a quantized model against a Q8 baseline to catch behaviour that a raw score hides.
 

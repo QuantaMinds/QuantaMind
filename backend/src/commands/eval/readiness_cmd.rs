@@ -4,6 +4,7 @@ use crate::commands::models::model_inspect::fetch_dims;
 use crate::commands::prompt::prompt_options::{to_generate_options, validate_params};
 use crate::commands::storage::storage::fetch_installed_with_stats;
 use crate::commands::system::hardware::snapshot;
+use crate::commands::llama::llama_server_types::{LlamaProbeReadiness, LlamaServerState};
 use crate::errors::AppError;
 use crate::inference::backend::backend_kind::BackendKind;
 use crate::inference::backend::endpoint;
@@ -84,6 +85,30 @@ struct CliffStep {
 /// window must exceed the requested token depth or the backend truncates the padding.
 const CLIFF_CTX_HEADROOM: u32 = 2048;
 
+/// llama.cpp isn't running the probe's model (or any) — guide the user to launch it at
+/// a window the probe needs, naming both so the fix is unambiguous. The probe never
+/// relaunches the server itself (it's user-managed), so this is the honest hand-off.
+fn start_with_model_msg(model: &str, needed_ctx: u32) -> String {
+    format!(
+        "Start llama.cpp with \"{model}\" and a Context window of at least {needed_ctx} \
+         tokens (set it in the parameters, then press Start) before running the Context \
+         Stress Test. llama.cpp pins its context at launch, so the model must be loaded \
+         with a window this deep before the probe can measure it."
+    )
+}
+
+/// The right model is loaded but its launch `-c` is too small for the requested depth.
+/// One honest line covering both "set it higher" and "this machine's memory caps it".
+fn raise_or_reduce_msg(running_ctx: u32, needed_ctx: u32) -> String {
+    let safe_depth = running_ctx.saturating_sub(CLIFF_CTX_HEADROOM);
+    format!(
+        "llama.cpp is running this model with a {running_ctx}-token context window, but \
+         this probe needs about {needed_ctx}. Raise \"Context window\" and restart \
+         llama.cpp (Stop & Start) — if it won't go higher, this machine's memory caps it \
+         there, so reduce the Context Stress Test length to about {safe_depth} tokens."
+    )
+}
+
 /// Look up an installed model's metadata, tolerant of the `:latest` tag mismatch
 /// between an eval target and the `/api/tags` listing. Used for both the real
 /// weight size and the real quantization.
@@ -154,6 +179,7 @@ pub fn get_cliff_results(app: AppHandle, collection_id: String) -> Result<HashMa
 pub async fn run_context_cliff(
     app: AppHandle,
     state: tauri::State<'_, CliffRunState>,
+    llama_state: tauri::State<'_, LlamaServerState>,
     run_id: u32,
     model: String,
     backend: Option<BackendKind>,
@@ -163,6 +189,7 @@ pub async fn run_context_cliff(
     max_tokens: u32,
     steps: u32,
     params: Option<InferenceParams>,
+    model_path: Option<String>,
 ) -> Result<CliffReport, AppError> {
     validate_tasks(&tasks)?;
     let backend = backend.unwrap_or_default();
@@ -180,6 +207,24 @@ pub async fn run_context_cliff(
     let needed_ctx = max_tokens.saturating_add(CLIFF_CTX_HEADROOM);
     if options.num_ctx.map_or(true, |c| c < needed_ctx) {
         options.num_ctx = Some(needed_ctx);
+    }
+
+    // llama.cpp pins context at launch and the probe never relaunches (the server is
+    // user-managed), so verify up front that the RIGHT model is loaded with a wide
+    // enough `-c`. Without this the ladder would 400 on every deep rung — or worse,
+    // silently score whatever other model is loaded (the request `model` field is
+    // ignored by the single-model server). Ollama/MLX size per request, so skip them.
+    if backend == BackendKind::LlamaCpp {
+        let path = model_path.as_deref().unwrap_or("");
+        match llama_state.probe_readiness(path) {
+            LlamaProbeReadiness::NotRunning | LlamaProbeReadiness::WrongModel => {
+                return Err(AppError::Inference(start_with_model_msg(&model, needed_ctx)));
+            }
+            LlamaProbeReadiness::Ready { ctx } if ctx < needed_ctx => {
+                return Err(AppError::Inference(raise_or_reduce_msg(ctx, needed_ctx)));
+            }
+            LlamaProbeReadiness::Ready { .. } => {}
+        }
     }
 
     // Register this run's cancel token so `stop_context_cliff` can abort it, and
@@ -413,6 +458,32 @@ pub async fn assess_readiness(
     // then steps) so the page's recommendation banner + leaderboard are correct.
     recommend::rank(&mut out);
     Ok(out)
+}
+
+#[cfg(test)]
+mod cliff_preflight_tests {
+    use super::*;
+
+    /// The "wrong/no model" hand-off must name the model and the window so the user
+    /// can act; the frontend `friendly()` mapping also keys off this phrasing.
+    #[test]
+    fn start_with_model_msg_names_the_model_and_window() {
+        let m = start_with_model_msg("qwen2.5-coder", 18_432);
+        assert!(m.contains("qwen2.5-coder"), "names the target model: {m}");
+        assert!(m.contains("18432"), "names the needed window: {m}");
+        assert!(m.contains("Start llama.cpp"), "tells the user to start it: {m}");
+    }
+
+    /// The "too small" message must state both levers (raise + restart, or reduce depth)
+    /// and a concrete safe depth = running window minus the cliff headroom.
+    #[test]
+    fn raise_or_reduce_msg_states_both_levers_and_a_safe_depth() {
+        let m = raise_or_reduce_msg(8192, 18_432);
+        assert!(m.contains("8192"), "names the running window: {m}");
+        assert!(m.contains("18432"), "names the needed window: {m}");
+        assert!(m.contains("Context window"), "names the raise lever: {m}");
+        assert!(m.contains("6144"), "a safe depth of 8192 - 2048 headroom: {m}");
+    }
 }
 
 #[cfg(test)]

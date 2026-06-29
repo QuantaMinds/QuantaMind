@@ -11,11 +11,11 @@ export function useStartLlamaServer() {
   const [status, setStatus] = useState<StartLlamaStatus>("idle");
   const [error, setError] = useState<string | null>(null);
 
-  const start = useCallback(async (modelPath: string) => {
+  const start = useCallback(async (modelPath: string, numCtx?: number | null) => {
     setError(null);
     setStatus("starting");
     try {
-      const result = await startLlamaServer(modelPath);
+      const result = await startLlamaServer(modelPath, numCtx);
       switch (result.status) {
         case "already_running":
         case "started":

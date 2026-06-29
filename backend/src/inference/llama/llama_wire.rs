@@ -150,6 +150,47 @@ pub fn strip_sse(line: &[u8]) -> &[u8] {
     line.strip_prefix(b"data: ").unwrap_or(line)
 }
 
+#[derive(Deserialize)]
+struct LlamaErrorBody {
+    error: LlamaErrorInner,
+}
+
+#[derive(Deserialize)]
+struct LlamaErrorInner {
+    #[serde(default, rename = "type")]
+    kind: String,
+    #[serde(default)]
+    message: String,
+    #[serde(default)]
+    n_prompt_tokens: Option<u32>,
+    #[serde(default)]
+    n_ctx: Option<u32>,
+}
+
+/// Turn a llama-server error body into actionable copy when it's a context
+/// overflow (`exceed_context_size_error`), else `None` (caller falls back to the
+/// raw status+body). The window is fixed at launch (`-c`), so the cure is to
+/// raise the "Context window" param and restart llama.cpp — not retry. Pure, so
+/// the user-facing wording is tested without a live server.
+pub fn context_overflow_hint(body: &str) -> Option<String> {
+    let parsed: LlamaErrorBody = serde_json::from_str(body).ok()?;
+    let e = parsed.error;
+    let is_overflow = e.kind == "exceed_context_size_error"
+        || e.message.contains("context size")
+        || e.message.contains("exceeds the available context");
+    if !is_overflow {
+        return None;
+    }
+    let prompt = e.n_prompt_tokens.map_or("The prompt".into(), |n| format!("The prompt ({n} tokens)"));
+    let window = e.n_ctx.map_or("the context window".into(), |n| format!("the {n}-token context window"));
+    Some(format!(
+        "{prompt} is larger than {window} this model was loaded with. Increase \
+         \"Context window\" in the parameters, then restart llama.cpp (Stop & Start) — \
+         its context is fixed at launch. Or shorten the prompt / reduce the Context \
+         Stress Test length."
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -173,6 +214,26 @@ mod tests {
         let json = serde_json::to_string(&CompletionRequest::new("hi".into(), None)).unwrap();
         assert!(!json.contains("temperature"));
         assert!(!json.contains("seed"));
+    }
+
+    /// The exact body llama-server returns on the 400 → actionable copy naming
+    /// the token counts and the cure (raise Context window + restart), NOT the
+    /// raw JSON.
+    #[test]
+    fn context_overflow_hint_rewrites_the_400_body() {
+        let body = r#"{"error":{"code":400,"message":"request (10536 tokens) exceeds the available context size (8192 tokens), try increasing it","type":"exceed_context_size_error","n_prompt_tokens":10536,"n_ctx":8192}}"#;
+        let msg = context_overflow_hint(body).expect("overflow body should produce a hint");
+        assert!(msg.contains("10536 tokens"), "names the prompt size: {msg}");
+        assert!(msg.contains("8192-token"), "names the loaded window: {msg}");
+        assert!(msg.contains("Context window"), "tells the user which param to raise: {msg}");
+        assert!(msg.contains("restart"), "tells the user to restart: {msg}");
+    }
+
+    /// A non-overflow error body is left for the caller's raw fallback.
+    #[test]
+    fn context_overflow_hint_ignores_unrelated_errors() {
+        assert!(context_overflow_hint(r#"{"error":{"type":"server_error","message":"boom"}}"#).is_none());
+        assert!(context_overflow_hint("boom").is_none(), "non-JSON body → None");
     }
 
     #[test]

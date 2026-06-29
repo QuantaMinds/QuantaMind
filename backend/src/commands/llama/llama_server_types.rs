@@ -29,7 +29,26 @@ pub struct SpawnReadout {
 struct RunningServer {
     child: Child,
     model_path: String,
+    /// The `-c` the server was launched with. llama.cpp fixes context at launch,
+    /// so a request for a different window must relaunch — tracked here so
+    /// `is_current` can tell "same model, new context" apart from a no-op start.
+    ctx: u32,
     readout: Option<SpawnReadout>,
+}
+
+/// Whether the running `llama-server` can serve a context-cliff probe of a given
+/// model. The probe never relaunches (the server is user-managed), so it must check
+/// — against the EXACT GGUF path the server was launched with — that the right model
+/// is loaded and its launch `-c` is wide enough, before marching the ladder into
+/// per-rung HTTP 400s or, worse, scoring the wrong model's weights.
+#[derive(Debug, PartialEq, Eq)]
+pub enum LlamaProbeReadiness {
+    /// No server is up.
+    NotRunning,
+    /// A server is up but loaded a different GGUF than the probe targets.
+    WrongModel,
+    /// The targeted model is loaded; `ctx` is its launch `-c` (already hardware-clamped).
+    Ready { ctx: u32 },
 }
 
 /// The single active `llama-server` process. One server per loaded GGUF; a new
@@ -40,15 +59,29 @@ pub struct LlamaServerState {
 }
 
 impl LlamaServerState {
-    pub fn is_model(&self, model_path: &str) -> bool {
+    /// True when the running server is the same GGUF launched with the same `-c`.
+    /// A context change (the user's `num_ctx` param) is NOT current — llama.cpp
+    /// can only adopt the new window by relaunching.
+    pub fn is_current(&self, model_path: &str, ctx: u32) -> bool {
         self.inner
             .lock_recover()
             .as_ref()
-            .is_some_and(|s| s.model_path == model_path)
+            .is_some_and(|s| s.model_path == model_path && s.ctx == ctx)
     }
 
-    pub fn store(&self, child: Child, model_path: String) {
-        *self.inner.lock_recover() = Some(RunningServer { child, model_path, readout: None });
+    /// Whether the running server can serve a cliff probe of `model_path`, matched on
+    /// the EXACT launch path (same identity `is_current` uses). The caller compares
+    /// `Ready.ctx` against the probe's needed window — a relaunch is the user's job.
+    pub fn probe_readiness(&self, model_path: &str) -> LlamaProbeReadiness {
+        match self.inner.lock_recover().as_ref() {
+            None => LlamaProbeReadiness::NotRunning,
+            Some(s) if s.model_path != model_path => LlamaProbeReadiness::WrongModel,
+            Some(s) => LlamaProbeReadiness::Ready { ctx: s.ctx },
+        }
+    }
+
+    pub fn store(&self, child: Child, model_path: String, ctx: u32) {
+        *self.inner.lock_recover() = Some(RunningServer { child, model_path, ctx, readout: None });
     }
 
     /// Record the spawn readout once the server is ready. No-op if nothing is

@@ -17,6 +17,9 @@ import type { CliffPreset } from "../../../shared/ipc/eval/cliff";
 interface ProbeModel {
   name: string;
   backend: BackendKind;
+  /// GGUF path for llama.cpp models (carried through from `SelectedModel`); the probe
+  /// sends it so the backend can match the running llama-server. Absent for Ollama/MLX.
+  path?: string;
 }
 
 const FALLBACK_MAX_TOKENS = 65536; // slider ceiling when the model context window is unknown
@@ -178,6 +181,7 @@ export function ContextCliffPanel() {
       steps: testSteps,
       source: { kind: "preset", preset },
       params: globalParams,
+      modelPath: selected.path, // llama.cpp: backend matches it to the running server
     });
   };
   const handleStop = () => stopProbe();
