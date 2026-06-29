@@ -279,6 +279,9 @@ Every dependency is a maintenance debt. Resist additions.
 
 The two halves talk JSON over Tauri's IPC. Contracts are explicit in `shared/ipc/types.ts` on the TS side, mirrored in Rust — no codegen.
 
+> **New here?** [`ARCHITECTURE.md`](ARCHITECTURE.md) is the five-minute map of the
+> backend's hexagonal layout and the one dependency rule that keeps it navigable.
+
 ---
 
 ## Quick start
