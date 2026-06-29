@@ -95,6 +95,18 @@ fn resolve_launch_ctx_clamps_to_hardware_ceiling() {
     assert_eq!(resolve_launch_ctx(Some(262_144), Some(32_768), 100), MIN_CONTEXT, "result is floored at MIN_CONTEXT");
 }
 
+/// Regression (gemma-4-12b): a model whose GGUF dims don't fully parse — gemma stores
+/// `attention.head_count_kv` as a per-layer array, so `dims = None` — must NOT have its
+/// explicit `num_ctx` clamped. The unmeasurable ceiling is `u32::MAX`, so the user's
+/// window is honored (up to the model max) and only the unset default still caps at 8K.
+#[test]
+fn unmeasurable_ceiling_never_clamps_an_explicit_window() {
+    let ceiling = hardware_ctx_ceiling(7_000_000_000, None, 16 * 1024 * 1024 * 1024);
+    assert_eq!(ceiling, u32::MAX, "no dims → no measurable ceiling");
+    assert_eq!(resolve_launch_ctx(Some(262_144), Some(16_384), ceiling), 16_384, "explicit window honored, not clamped to 8K");
+    assert_eq!(resolve_launch_ctx(Some(262_144), None, ceiling), MAX_CONTEXT, "unset still caps at the 8K default");
+}
+
 /// `hardware_ctx_ceiling` is conservative: it budgets only `USABLE_MEMORY_PCT` of
 /// TOTAL RAM and reserves the weights, so the launched `-c` stays well under the naive
 /// `total / per-token`, and degrades to the safe default when dims are missing rather
@@ -117,8 +129,9 @@ fn hardware_ctx_ceiling_is_conservative_and_degrades_safely() {
     assert!(ceiling >= 18_432, "16 GiB must hold the deepest cliff rung for a 7B, got {ceiling}");
     assert_eq!(ceiling % 256, 0, "rounded down to a tidy step");
 
-    // Missing dims → the safe default cap, never a divide-by-zero or over-allocation.
-    assert_eq!(hardware_ctx_ceiling(model_bytes, None, total), MAX_CONTEXT, "absent dims fall back to the default cap");
+    // Missing dims → NO clamp (u32::MAX), never a bogus cap that would defeat an
+    // explicit `num_ctx`. The unset-default 8K cap lives in `cap_context`, not here.
+    assert_eq!(hardware_ctx_ceiling(model_bytes, None, total), u32::MAX, "absent dims → no RAM clamp");
     // A machine too small for even the weights → floored, never zero.
     assert_eq!(hardware_ctx_ceiling(model_bytes, Some(dims), 1024), MIN_CONTEXT, "no usable budget → MIN_CONTEXT floor");
 }

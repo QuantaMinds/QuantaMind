@@ -629,9 +629,12 @@ stderr-aware launcher where loading is slow.
   total_memory)`: `USABLE_MEMORY_PCT` (70%) of **total** RAM minus the weights,
   divided by the per-token KV cost from `vram_math::calculate_kv_cache_bytes` over the
   GGUF's transformer dims (`spawn_meta` now reads `block_count` /
-  `attention.head_count[_kv]` / `embedding_length` alongside `context_length`). Total
-  (not free) memory keeps the launched window a *stable* per-machine property; missing
-  dims ⇒ the 8K default cap, never a guess. `--jinja` always on; `template` is an
+  `attention.head_count[_kv]` / `embedding_length` alongside `context_length`;
+  per-block dims like gemma's array-typed `head_count_kv` reduce to their max via
+  `as_dim_u64`, the GGUF reader keeping small int arrays). Total (not free) memory keeps
+  the launched window a *stable* per-machine property; genuinely missing dims ⇒ **no RAM
+  clamp** (`u32::MAX`) so an explicit window is never silently capped to a guess — the
+  unset default still caps at 8K via `cap_context`. `--jinja` always on; `template` is an
   optional `--chat-template-file` override resolved by `llama_templates` — `None`
   ⇒ the embedded template), then **block on
   `wait_until_ready()`** (poll `/health` every 500ms ≤30s). If readiness fails,

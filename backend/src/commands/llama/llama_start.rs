@@ -1,7 +1,7 @@
 use crate::commands::llama::llama_runtime::{
     bin_name, build_spawn_args, hardware_ctx_ceiling, is_reachable, jinja_unsupported,
     resolve_launch_ctx, spawn_meta, spawn_server, spawn_stderr_tail, wait_until_ready, SpawnMeta,
-    JINJA_UNSUPPORTED_MSG, MAX_CONTEXT, PORT, PROBE_TIMEOUT_MS,
+    JINJA_UNSUPPORTED_MSG, PORT, PROBE_TIMEOUT_MS,
 };
 use crate::commands::system::hardware::snapshot;
 use crate::commands::llama::llama_server_types::{LlamaServerState, LlamaStartResult, SpawnReadout};
@@ -64,10 +64,11 @@ pub async fn start_llama_server(
     // Bound `-c` to what this machine's RAM can hold (weights + KV cache) so even an
     // explicit high `num_ctx` can't OOM the pre-allocated cache. Budgeted on TOTAL
     // memory (a stable per-machine capacity), not momentary free RAM. If the weight
-    // size is unknown we can't size the budget safely → the conservative default cap.
+    // size is unknown we can't measure a budget → no clamp (u32::MAX), never a bogus
+    // cap that would defeat an explicit window; the unset default still caps at 8K.
     let hw_ceiling = match model_bytes {
         Some(mb) => hardware_ctx_ceiling(mb, dims, snapshot().total_memory_bytes),
-        None => MAX_CONTEXT,
+        None => u32::MAX,
     };
     let ctx = resolve_launch_ctx(gguf_ctx, num_ctx, hw_ceiling);
     // Already serving this exact (model, context)? No-op. A changed context falls

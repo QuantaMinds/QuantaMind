@@ -143,15 +143,20 @@ pub fn spawn_meta(gguf_path: &str) -> SpawnMeta {
 /// subtracts the on-disk weights, divides the remaining budget by the per-token KV
 /// cost, floors to `CTX_STEP`, and never drops below `MIN_CONTEXT`. Budgeting on total
 /// (not free) memory makes the ceiling a stable property of (machine, model) — the
-/// same model probes to the same depth regardless of what else is open. Missing dims
-/// (or a zero per-token cost) ⇒ `MAX_CONTEXT`, the pre-ceiling default — never an
-/// over-allocation from guessed dimensions. Pure: the caller supplies total memory, so
-/// it's tested without a live machine.
+/// same model probes to the same depth regardless of what else is open.
+///
+/// When the GGUF doesn't expose the dims we need (or per-token cost is zero) we CANNOT
+/// measure a real ceiling, so we return `u32::MAX` — i.e. NO RAM clamp. This is the
+/// safe direction: an unmeasurable ceiling must never silently cap the user's explicit
+/// `num_ctx` (that would defeat an informed opt-in, e.g. gemma whose KV-heads are
+/// array-typed). The unset-default 8K cap still applies via `cap_context`; only an
+/// explicit, deliberate window is left unbounded here. Pure: the caller supplies total
+/// memory, so it's tested without a live machine.
 pub fn hardware_ctx_ceiling(model_bytes: u64, dims: Option<KvDims>, total_bytes: u64) -> u32 {
-    let Some(d) = dims else { return MAX_CONTEXT };
+    let Some(d) = dims else { return u32::MAX };
     let per_token = calculate_kv_cache_bytes(d.layers, d.head_count, d.head_count_kv, d.embedding_length, 1);
     if per_token == 0 {
-        return MAX_CONTEXT;
+        return u32::MAX;
     }
     let usable = total_bytes / 100 * USABLE_MEMORY_PCT;
     let budget = usable.saturating_sub(model_bytes);

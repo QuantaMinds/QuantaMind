@@ -49,6 +49,17 @@ fn as_u64(v: &GgufValue) -> Option<u64> {
     }
 }
 
+/// A transformer dim, scalar or per-block. When a model stores it per layer (gemma's
+/// `attention.head_count_kv` is one i32 per block), take the MAX — for a KV-cache size
+/// estimate that's the conservative bound (most heads ⇒ most memory ⇒ a lower, safer
+/// context ceiling). A scalar reads through `as_u64`.
+fn as_dim_u64(v: &GgufValue) -> Option<u64> {
+    match v {
+        GgufValue::IntArray(a) => a.iter().copied().filter(|n| *n >= 0).max().map(|n| n as u64),
+        other => as_u64(other),
+    }
+}
+
 pub fn inspect_gguf_bytes(bytes: &[u8]) -> Result<GgufMetadata, AppError> {
     let mut r = GgufReader::new(bytes);
     r.magic(b"GGUF")?;
@@ -81,7 +92,7 @@ pub fn inspect_gguf_bytes(bytes: &[u8]) -> Result<GgufMetadata, AppError> {
         .and_then(file_type_to_quant)
         .map(|s| s.to_string());
     let family = family_from_architecture(&architecture);
-    let dim = |suffix: &str| kv.get(&format!("{architecture}.{suffix}")).and_then(as_u64);
+    let dim = |suffix: &str| kv.get(&format!("{architecture}.{suffix}")).and_then(as_dim_u64);
     let block_count = dim("block_count");
     let head_count = dim("attention.head_count");
     let head_count_kv = dim("attention.head_count_kv");
@@ -166,6 +177,14 @@ mod tests {
         b.extend_from_slice(&val.to_le_bytes());
         b
     }
+    fn kv_i32_array(key: &str, vals: &[i32]) -> Vec<u8> {
+        let mut b = kv_key(key);
+        b.extend_from_slice(&9u32.to_le_bytes()); // tag: array
+        b.extend_from_slice(&5u32.to_le_bytes()); // elem tag: i32
+        b.extend_from_slice(&(vals.len() as u64).to_le_bytes());
+        vals.iter().for_each(|v| b.extend_from_slice(&v.to_le_bytes()));
+        b
+    }
     fn gguf(kvs: &[Vec<u8>]) -> Vec<u8> {
         let mut b = b"GGUF".to_vec();
         b.extend_from_slice(&3u32.to_le_bytes()); // version
@@ -192,6 +211,26 @@ mod tests {
         assert_eq!(m.head_count, Some(32));
         assert_eq!(m.head_count_kv, Some(8));
         assert_eq!(m.embedding_length, Some(4096));
+    }
+
+    /// gemma stores `attention.head_count_kv` as one i32 per layer (sliding-window
+    /// architecture). The dim must still resolve — to the MAX across layers, the
+    /// conservative bound for a KV-cache size estimate — not collapse to `None`.
+    #[test]
+    fn parses_array_typed_kv_heads_as_their_max() {
+        let bytes = gguf(&[
+            kv_string("general.architecture", "gemma4"),
+            kv_u32("gemma4.context_length", 262_144),
+            kv_u32("gemma4.block_count", 48),
+            kv_u32("gemma4.attention.head_count", 16),
+            kv_i32_array("gemma4.attention.head_count_kv", &[8, 8, 4, 8]),
+            kv_u32("gemma4.embedding_length", 3840),
+        ]);
+        let m = inspect_gguf_bytes(&bytes).expect("valid gguf");
+        assert_eq!(m.head_count_kv, Some(8), "per-layer head_count_kv reduces to its max");
+        assert_eq!(m.block_count, Some(48));
+        assert_eq!(m.head_count, Some(16));
+        assert_eq!(m.embedding_length, Some(3840));
     }
 
     /// A header that omits the dims yields `None` for each (the degrade path the

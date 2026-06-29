@@ -223,8 +223,11 @@ machine's RAM can hold — a fraction of *total* memory (a stable per-machine
 capacity, not momentary free RAM) minus the model weights, divided by the model's
 per-token KV cost (read from the GGUF's transformer dims). So an explicit
 `num_ctx` of 32K on a 16 GB Mac is clamped to a window that actually fits rather
-than OOMing the pre-allocated KV cache at spawn. Models whose GGUF omits the dims
-fall back to the 8K default cap (never an over-allocation from guessed numbers).
+than OOMing the pre-allocated KV cache at spawn. Per-block dims (e.g. gemma stores
+KV-heads as one value per layer) are read as their max. When the GGUF genuinely
+doesn't expose the dims, there's no measurable ceiling — an explicit window is then
+honored as-is (an informed opt-in; the unset default still caps at 8K) rather than
+silently clamped to a guess.
 
 **Context Stress Test pre-flight.** Because the probe never relaunches the server
 (it's user-managed), it checks *before* running that the **right** model is loaded
