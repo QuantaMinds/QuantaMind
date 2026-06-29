@@ -1,3 +1,8 @@
+// The backend runs no `unsafe` of its own — all native work (HTTP, audio, process
+// control) goes through safe crates. Deny it so a future `unsafe` block is a
+// conscious, reviewed exception, not an accident (guide Part 7).
+#![deny(unsafe_code)]
+
 pub mod commands;
 pub mod errors;
 pub mod inference;

@@ -40,9 +40,13 @@ Per `CLAUDE.md`/`docs/process.md#workflow`, each phase is one commit:
       `commands/mlx/`(11), `commands/llama/`(11) into concern sub-folders to green the
       taxonomy target — a dedicated refactor (out of this plan's scope per the
       "separate refactor commit" rule).
-- [ ] **Phase 5** — `#![deny(unsafe_code)]` in `lib.rs`; CI gate (`fmt --check`,
-      `clippy`, `cargo test --test layering_guard`).
-      *Gate:* new CI steps pass locally. (Decide `-D warnings` vs informational given the 49 baseline.)
+- [x] **Phase 5** — `#![deny(unsafe_code)]` added to `lib.rs` (compiles clean — no
+      backend `unsafe`). CI gains `cargo test --test layering_guard` (the law) and
+      `cargo clippy --lib` (error gate). *Verified locally:* lib 899 ✓, guard 4/4 ✓,
+      clippy exit 0 ✓.
+      ⚠️ **Deferred (would red-wash CI):** `fmt --check` (code is not rustfmt-clean;
+      "rustfmt not enforced") and `clippy -D warnings` (49 pre-existing warnings). Both
+      need a dedicated cleanup commit first — noted in `#future-considerations`.
 - [ ] **Phase 6** — `docs/process.md#future-considerations`: workspace-split triggers +
       `proptest`/`insta` proposals; ADR 0006.
       *Gate:* docs render; `git diff backend/Cargo.toml` shows no new deps.

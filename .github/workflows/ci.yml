@@ -37,6 +37,23 @@ jobs:
         working-directory: backend
         run: cargo test --lib
 
+      # --- Backend: architecture guard. The one-way dependency law
+      #     (docs/architecture.md#layering) is deterministic and infra-free, so
+      #     gate it on every PR. (The folder-size rule lives in a separate target,
+      #     folder_taxonomy.rs, which carries known pre-existing debt and is not
+      #     gated here yet — see docs/restructure-todo.md.) ---
+      - name: cargo test --test layering_guard
+        working-directory: backend
+        run: cargo test --test layering_guard
+
+      # --- Backend: clippy as an error gate. Surfaces lint warnings in the log
+      #     and fails on clippy *errors* (incl. any `unsafe`, denied crate-wide).
+      #     Not `-D warnings` yet: ~49 pre-existing warnings are tracked separately
+      #     (docs/restructure-todo.md) and would otherwise red-wash the gate. ---
+      - name: cargo clippy --lib
+        working-directory: backend
+        run: cargo clippy --lib
+
       # --- Frontend: typecheck + vitest. ---
       - uses: pnpm/action-setup@v4
         with:
