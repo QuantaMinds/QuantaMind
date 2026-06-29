@@ -13,8 +13,8 @@ use crate::inference::eval::toolcall::eval::{aggregate, trace_one_with, TaskResu
 use crate::inference::eval::toolcall::matrix::ModelTarget;
 use crate::inference::eval::toolcall::score::verdict_passed;
 use crate::inference::eval::toolcall::tasks::{is_agentic, ToolTask};
+use crate::inference::eval::run_summary::RunSummary;
 use crate::inference::ollama::ollama::force_unload;
-use crate::persistence::eval_history::RunSummary;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;

@@ -1,7 +1,7 @@
 use crate::errors::AppResult;
 use crate::inference::backend::backend_kind::BackendKind;
+use crate::inference::eval::run_summary::RunSummary;
 use crate::inference::eval::toolcall::eval::ToolCallReport;
-use crate::persistence::eval_history::RunSummary;
 use serde::{Deserialize, Serialize};
 
 /// One model+backend to run a collection against (sent by the frontend; also

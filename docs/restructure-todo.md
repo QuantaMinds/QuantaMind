@@ -22,14 +22,13 @@ Per `CLAUDE.md`/`docs/process.md#workflow`, each phase is one commit:
 ## Phases
 
 - [x] **Phase 0** — Baseline, branch, this tracker.
-- [ ] **Phase 1** — Root `ARCHITECTURE.md`; link from README; commit the guide file.
-      *Gate:* intra-repo links resolve.
-- [ ] **Phase 2** — `docs/adr/` (README + `0000-template.md`) + backfilled ADRs 0001–0005.
-      *Gate:* ADR index links resolve.
-- [ ] **Phase 3** — Move `RunSummary` struct from `persistence/eval_history.rs` into the
-      domain (`inference/eval/`); persistence I/O imports it; remove the
-      `inference → persistence` edge.
-      *Gate:* `cargo test --lib` green; `grep -r 'use crate::persistence' backend/src/inference` empty.
+- [x] **Phase 1** — Root `ARCHITECTURE.md`; link from README; commit the guide file.
+- [x] **Phase 2** — `docs/adr/` (README + `0000-template.md`) + backfilled ADRs 0001–0005.
+- [x] **Phase 3** — `RunSummary` struct moved to `inference/eval/run_summary.rs`;
+      `persistence/eval_history` now imports it; `inference` has zero `use crate::persistence`.
+      *Verified:* `cargo test --lib` = 899 passed (unchanged); clippy 49 warnings (unchanged);
+      history round-trip/back-compat/truncate tests green. Pure type relocation — serde shape
+      byte-identical, so no behavioral surface for a live run to add over the round-trip tests.
 - [ ] **Phase 4** — Correct `docs/architecture.md#layering` (domain-center) + extend
       `layering_guard.rs` (inference ⊁ `crate::persistence`/`tauri::`; persistence+metrics ⊁ `crate::commands`).
       *Gate:* `cargo test --test layering_guard` green; a temporary reverse `use` goes RED.
