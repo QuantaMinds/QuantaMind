@@ -18,3 +18,4 @@ roughly one screen. Use [`0000-template.md`](0000-template.md).
 | [0003](0003-versioned-collections.md) | An answer-key change mints a new versioned collection, never an in-place edit | Accepted |
 | [0004](0004-tauri-free-domain.md) | `inference/` is Tauri-free; domain→IPC progress crosses via sink ports | Accepted |
 | [0005](0005-no-fabricated-metrics.md) | Absence is `Option`/`N/A`, never a fabricated `0` | Accepted |
+| [0006](0006-test-libraries-deferred.md) | `proptest`/`insta` + stricter lint gate proposed and deferred | Proposed |

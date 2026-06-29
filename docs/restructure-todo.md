@@ -47,9 +47,16 @@ Per `CLAUDE.md`/`docs/process.md#workflow`, each phase is one commit:
       ⚠️ **Deferred (would red-wash CI):** `fmt --check` (code is not rustfmt-clean;
       "rustfmt not enforced") and `clippy -D warnings` (49 pre-existing warnings). Both
       need a dedicated cleanup commit first — noted in `#future-considerations`.
-- [ ] **Phase 6** — `docs/process.md#future-considerations`: workspace-split triggers +
-      `proptest`/`insta` proposals; ADR 0006.
-      *Gate:* docs render; `git diff backend/Cargo.toml` shows no new deps.
+- [x] **Phase 6** — `docs/process.md#future-considerations` gains the workspace-split
+      (with activation triggers) and the test-lib/lint-strictness proposals; ADR 0006
+      records them. *Verified:* `git diff main -- backend/Cargo.toml` empty (no new deps);
+      lib 899 green.
+
+## Status: all six phases complete ✅
+
+Remaining tracked debt (separate, future PRs — see `#future-considerations` + ADR-0001/0006):
+folder-taxonomy split (4 folders), `fmt --check` after a reformat, `clippy -D warnings`
+after the 49 are cleared, the Cargo workspace split, and `proptest`/`insta` adoption.
 
 ## Out of scope (separate, later-approved plan)
 

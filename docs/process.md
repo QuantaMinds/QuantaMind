@@ -709,6 +709,47 @@ Parking lot for ideas, libraries, and changes deliberately deferred. Nothing
 here is in the current phase — see [Phase roadmap](#phase-roadmap). If something
 here becomes relevant, move it into a phase plan first.
 
+### Cargo workspace split (per-layer crates)
+
+The backend is a single crate with layers as modules — the stage
+[`../rust-engineering-architecture-guide.md`](../rust-engineering-architecture-guide.md)
+Part 3 endorses until scale forces a split (see
+[`adr/0001-single-crate-not-workspace.md`](adr/0001-single-crate-not-workspace.md)). The
+guide's Part 3c target is a Cargo workspace where the *compiler* enforces the Dependency
+Rule instead of a guard test: `engine-core` (domain — `inference/` minus the HTTP
+clients), `engine-app` (use cases), `backends` (Ollama/llama.cpp/MLX driven adapters),
+`commands` (the Tauri driving adapter), and a `bin/` composition root.
+
+**Activate when** one of these triggers fires (not before):
+- clean-build time crosses ~a few minutes and incremental builds hurt the loop;
+- more than a couple of engineers work the backend concurrently and the guard-test
+  enforcement (vs compiler enforcement) starts letting cross-layer leaks through review;
+- a layer needs to ship independently (e.g. a headless CLI reusing `engine-core`).
+
+**Why deferred:** it touches all ~353 files and the Tauri build, for a boundary the
+`layering_guard.rs` test already enforces at current scale. The litmus test
+(`inference/` compiles with infra deleted) already holds (Phase 3). Do it as its own PR,
+one crate extracted per commit, suite green between each.
+
+### Stricter lint gate + richer test stack (locked-stack PRs)
+
+These align with the guide (Parts 6–7) but each adds a crate or a cleanup the **locked
+stack** (`#tech-stack`) gates behind a rationale PR — so they are proposals, not yet code
+(see [`adr/0006-test-libraries-deferred.md`](adr/0006-test-libraries-deferred.md)):
+
+- **`proptest`** — property tests for the determinism-critical seams: `pass_k` bounds,
+  scoring bijection, and `serde` round-trips of specs (a round-trip property catches the
+  "schema silently drops an unlisted field" bug deterministically). Highest-value add.
+- **`insta`** — snapshot tests for complex *deterministic* output (a readiness report, a
+  serialized env view). Snapshot the deterministic projection, never stochastic model text.
+- **`cargo clippy -- -D warnings`** — promote the CI clippy step from an error gate to a
+  warning gate **after** the ~49 pre-existing warnings are cleared (a dedicated cleanup).
+- **`cargo fmt --all -- --check`** — add once the tree is reformatted (`cargo fmt` once,
+  one mechanical commit); today the code is not rustfmt-clean and the gate would red-wash.
+- **Considered, not now:** `mockall` (hand-written in-memory fakes already cover the
+  ports), `cargo-nextest` (suite runs in <1s), `async-trait` (backends use enum dispatch,
+  no `dyn`). Revisit if the suite or the port surface grows.
+
 ### Full end-state agentic context-cliff
 
 The context-cliff probe now *includes* agentic collections, but scores them on JSON **well-formedness**
