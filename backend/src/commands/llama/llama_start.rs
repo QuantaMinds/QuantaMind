@@ -1,7 +1,9 @@
 use crate::commands::llama::llama_runtime::{
-    bin_name, build_spawn_args, is_reachable, jinja_unsupported, spawn_meta, spawn_server,
-    spawn_stderr_tail, wait_until_ready, JINJA_UNSUPPORTED_MSG, PORT, PROBE_TIMEOUT_MS,
+    bin_name, build_spawn_args, hardware_ctx_ceiling, is_reachable, jinja_unsupported,
+    resolve_launch_ctx, spawn_meta, spawn_server, spawn_stderr_tail, wait_until_ready, SpawnMeta,
+    JINJA_UNSUPPORTED_MSG, PORT, PROBE_TIMEOUT_MS,
 };
+use crate::commands::system::hardware::snapshot;
 use crate::commands::llama::llama_server_types::{LlamaServerState, LlamaStartResult, SpawnReadout};
 use crate::commands::llama::llama_templates::{model_stem, resolve_template_file};
 use crate::errors::AppError;
@@ -47,8 +49,31 @@ pub async fn start_llama_server(
     app: tauri::AppHandle,
     state: tauri::State<'_, LlamaServerState>,
     model_path: String,
+    num_ctx: Option<u32>,
 ) -> Result<LlamaStartResult, AppError> {
-    if is_reachable(PROBE_TIMEOUT_MS).await && state.is_model(&model_path) {
+    // One GGUF read → context window + architecture + KV dims. The arch (and the
+    // model name) resolve any user/bundled `.jinja` override for a model whose
+    // embedded template is broken; no override ⇒ the embedded template via `--jinja`.
+    // `num_ctx` (the user's "Context window" param) drives the launch `-c`, bounded by
+    // the model max — llama.cpp can't change context per request, so it's set here.
+    let SpawnMeta { ctx: gguf_ctx, arch, dims } = spawn_meta(&model_path);
+    // The model's on-disk footprint (the dominant resident-memory term) — read once
+    // for both the hardware ceiling and the spawn readout; `None` if it can't be
+    // stat'd, never fabricated.
+    let model_bytes = std::fs::metadata(&model_path).map(|m| m.len()).ok();
+    // Bound `-c` to what this machine's RAM can hold (weights + KV cache) so even an
+    // explicit high `num_ctx` can't OOM the pre-allocated cache. Budgeted on TOTAL
+    // memory (a stable per-machine capacity), not momentary free RAM. If the weight
+    // size is unknown we can't measure a budget → no clamp (u32::MAX), never a bogus
+    // cap that would defeat an explicit window; the unset default still caps at 8K.
+    let hw_ceiling = match model_bytes {
+        Some(mb) => hardware_ctx_ceiling(mb, dims, snapshot().total_memory_bytes),
+        None => u32::MAX,
+    };
+    let ctx = resolve_launch_ctx(gguf_ctx, num_ctx, hw_ceiling);
+    // Already serving this exact (model, context)? No-op. A changed context falls
+    // through and relaunches with the new `-c`.
+    if is_reachable(PROBE_TIMEOUT_MS).await && state.is_current(&model_path, ctx) {
         return Ok(LlamaStartResult::AlreadyRunning);
     }
     state.stop().map_err(AppError::Internal)?;
@@ -57,15 +82,8 @@ pub async fn start_llama_server(
             note: NOT_BUNDLED_MSG.into(),
         });
     };
-    // One GGUF read → context window + architecture; the latter (and the model
-    // name) resolve any user/bundled `.jinja` override for a model whose embedded
-    // template is broken. No override ⇒ the embedded template via `--jinja`.
-    let (ctx, arch) = spawn_meta(&model_path);
     let template = resolve_template_file(&app, model_stem(&model_path), &arch);
     let template_arg = template.as_deref().and_then(|p| p.to_str());
-    // The model's on-disk footprint (the dominant resident-memory term) — captured
-    // before the move; `None` if it can't be stat'd, never fabricated.
-    let model_bytes = std::fs::metadata(&model_path).map(|m| m.len()).ok();
     // Stamp the load window right before exec: spawn → first `/health`-ready is the
     // model-load time (coarse, bounded by the 500ms poll), excluding our arg-prep.
     let load_start = std::time::Instant::now();
@@ -77,7 +95,7 @@ pub async fn start_llama_server(
     // Drain stderr so a stale-binary death (e.g. `--jinja` rejected) leaves a
     // diagnosable tail, and so the pipe never fills and wedges the child.
     let tail = child.stderr.take().map(spawn_stderr_tail);
-    state.store(child, model_path);
+    state.store(child, model_path, ctx);
     if wait_until_ready().await {
         // Ready: record the one-time spawn readout (only on success → no bogus
         // load_ms for a failed/never-ready start).

@@ -395,11 +395,13 @@ fn take(&mut self, n: usize) -> Result<&'a [u8], AppError> {
 - **Responsibility:** Decode one typed GGUF metadata value; skip arrays.
 - **Why:** Only scalar metadata is inspected, but every value (incl. arrays, which
   can be huge tokenizer tables) must be *drained* to keep the cursor aligned.
-- **What:** `GgufValue` enum (scalars + `String` + `ArraySkipped`),
+- **What:** `GgufValue` enum (scalars + `String` + `IntArray` + `ArraySkipped`),
   `read_value(r)` (tag-dispatched), `skip_value(r, tag)` (recursive for nested
   arrays), `checked_count`. Tags: 0..7 scalars, 8 string, 9 array (elem tag + u64
-  count, each element skipped), 10..12 = u64/i64/f64. Array payload is parsed for
-  size but discarded (`ArraySkipped`).
+  count), 10..12 = u64/i64/f64. A **small int array** (≤ `MAX_CAPTURED_ARRAY`, e.g.
+  gemma's per-layer `attention.head_count_kv`) is kept as `IntArray(Vec<i64>)`;
+  string/float/nested and vocab-sized arrays are drained and discarded
+  (`ArraySkipped`) so the cursor stays aligned without holding huge tables.
 
 ### File: `inference/gguf/gguf.rs`
 - **Responsibility:** Top-level inspector: read the header from disk → typed

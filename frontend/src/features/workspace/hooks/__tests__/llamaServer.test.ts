@@ -21,8 +21,8 @@ describe("useStartLlamaServer", () => {
   it("marks llama healthy after a successful start with the model path", async () => {
     vi.mocked(startLlamaServer).mockResolvedValue({ status: "started", pid: 1, port: 8080 });
     const { result } = renderHook(() => useStartLlamaServer());
-    await act(async () => { await result.current.start("/g/phi3.gguf"); });
-    expect(startLlamaServer).toHaveBeenCalledWith("/g/phi3.gguf");
+    await act(async () => { await result.current.start("/g/phi3.gguf", 16384); });
+    expect(startLlamaServer).toHaveBeenCalledWith("/g/phi3.gguf", 16384);
     expect(useBackendStore.getState().llamaHealthy).toBe(true);
     expect(result.current.status).toBe("idle");
   });

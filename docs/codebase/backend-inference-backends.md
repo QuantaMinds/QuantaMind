@@ -613,14 +613,28 @@ stderr-aware launcher where loading is slow.
 | `llama_models.rs` | `list_llama_models` / `delete_llama_model` (symlink-safe). |
 | `llama_templates.rs` | user/bundled `.jinja` override store; `resolve_template_file` (by model stem → arch), `list_chat_templates` IPC. |
 
-- **`start_llama_server`** (`llama_start.rs`): if already reachable *and* serving
-  this model → `AlreadyRunning`; else `state.stop()` the previous, resolve the
-  binary **directory** (`QUANTAMIND_LLAMA_DIR` → bundled `resources/binaries` →
-  dev tree — the dir, not a lone binary, because `@loader_path` dylibs must stay
-  colocated), spawn with `build_spawn_args(path, PORT, ctx, template)` (ctx + arch
-  from one `spawn_meta`/`inspect_gguf` read — ctx is the GGUF context **capped at
-  `MAX_CONTEXT` 8K**, since the declared value is the model MAX and `-c 262144`
-  OOMs the KV cache; `--jinja` always on; `template` is an
+- **`start_llama_server`** (`llama_start.rs`): takes `model_path` + optional
+  `num_ctx` (the user's "Context window" param). If already reachable *and* serving
+  this model **at the same `-c`** (`is_current`) → `AlreadyRunning`; a changed
+  context relaunches (llama.cpp fixes context at spawn). Else `state.stop()` the
+  previous, resolve the binary **directory** (`QUANTAMIND_LLAMA_DIR` → bundled
+  `resources/binaries` → dev tree — the dir, not a lone binary, because
+  `@loader_path` dylibs must stay colocated), spawn with
+  `build_spawn_args(path, PORT, ctx, template)` where
+  `ctx = resolve_launch_ctx(gguf_ctx, num_ctx, hw_ceiling)`: the user's `num_ctx` is
+  honored (bounded by the GGUF max) so long prompts work, else the GGUF context
+  **capped at `MAX_CONTEXT` 8K** (the declared value is the model MAX and `-c 262144`
+  OOMs the KV cache) — and **either way** clamped by `hw_ceiling` (and floored at
+  `MIN_CONTEXT` 2K). The ceiling is `hardware_ctx_ceiling(model_bytes, dims,
+  total_memory)`: `USABLE_MEMORY_PCT` (70%) of **total** RAM minus the weights,
+  divided by the per-token KV cost from `vram_math::calculate_kv_cache_bytes` over the
+  GGUF's transformer dims (`spawn_meta` now reads `block_count` /
+  `attention.head_count[_kv]` / `embedding_length` alongside `context_length`;
+  per-block dims like gemma's array-typed `head_count_kv` reduce to their max via
+  `as_dim_u64`, the GGUF reader keeping small int arrays). Total (not free) memory keeps
+  the launched window a *stable* per-machine property; genuinely missing dims ⇒ **no RAM
+  clamp** (`u32::MAX`) so an explicit window is never silently capped to a guess — the
+  unset default still caps at 8K via `cap_context`. `--jinja` always on; `template` is an
   optional `--chat-template-file` override resolved by `llama_templates` — `None`
   ⇒ the embedded template), then **block on
   `wait_until_ready()`** (poll `/health` every 500ms ≤30s). If readiness fails,

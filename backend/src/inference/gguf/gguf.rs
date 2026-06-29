@@ -25,6 +25,14 @@ pub struct GgufMetadata {
     pub context_length: Option<u32>,
     pub quantization: Option<String>,
     pub family: String,
+    /// Transformer dims for the KV-cache size estimate (`vram_math`), each read from
+    /// the `<arch>.*` header keys and `None` when the header omits one. Used by the
+    /// llama-server spawn to bound `-c` to what RAM holds; absent ⇒ the spawn falls
+    /// back to its safe default rather than guessing.
+    pub block_count: Option<u64>,
+    pub head_count: Option<u64>,
+    pub head_count_kv: Option<u64>,
+    pub embedding_length: Option<u64>,
 }
 
 fn as_string(v: &GgufValue) -> Option<&str> {
@@ -38,6 +46,17 @@ fn as_u64(v: &GgufValue) -> Option<u64> {
         GgufValue::I64(n) if *n >= 0 => Some(*n as u64),
         GgufValue::I32(n) if *n >= 0 => Some(*n as u64),
         _ => None,
+    }
+}
+
+/// A transformer dim, scalar or per-block. When a model stores it per layer (gemma's
+/// `attention.head_count_kv` is one i32 per block), take the MAX — for a KV-cache size
+/// estimate that's the conservative bound (most heads ⇒ most memory ⇒ a lower, safer
+/// context ceiling). A scalar reads through `as_u64`.
+fn as_dim_u64(v: &GgufValue) -> Option<u64> {
+    match v {
+        GgufValue::IntArray(a) => a.iter().copied().filter(|n| *n >= 0).max().map(|n| n as u64),
+        other => as_u64(other),
     }
 }
 
@@ -73,8 +92,23 @@ pub fn inspect_gguf_bytes(bytes: &[u8]) -> Result<GgufMetadata, AppError> {
         .and_then(file_type_to_quant)
         .map(|s| s.to_string());
     let family = family_from_architecture(&architecture);
+    let dim = |suffix: &str| kv.get(&format!("{architecture}.{suffix}")).and_then(as_dim_u64);
+    let block_count = dim("block_count");
+    let head_count = dim("attention.head_count");
+    let head_count_kv = dim("attention.head_count_kv");
+    let embedding_length = dim("embedding_length");
 
-    Ok(GgufMetadata { architecture, parameter_count, context_length, quantization, family })
+    Ok(GgufMetadata {
+        architecture,
+        parameter_count,
+        context_length,
+        quantization,
+        family,
+        block_count,
+        head_count,
+        head_count_kv,
+        embedding_length,
+    })
 }
 
 fn read_prefix(path: &Path, n: u64) -> Result<Vec<u8>, AppError> {
@@ -119,4 +153,98 @@ pub fn inspect_gguf(path: &Path) -> Result<GgufMetadata, AppError> {
         }
     }
     Ok(meta)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn kv_key(key: &str) -> Vec<u8> {
+        let mut b = (key.len() as u64).to_le_bytes().to_vec();
+        b.extend_from_slice(key.as_bytes());
+        b
+    }
+    fn kv_string(key: &str, val: &str) -> Vec<u8> {
+        let mut b = kv_key(key);
+        b.extend_from_slice(&8u32.to_le_bytes()); // tag: string
+        b.extend_from_slice(&(val.len() as u64).to_le_bytes());
+        b.extend_from_slice(val.as_bytes());
+        b
+    }
+    fn kv_u32(key: &str, val: u32) -> Vec<u8> {
+        let mut b = kv_key(key);
+        b.extend_from_slice(&4u32.to_le_bytes()); // tag: u32
+        b.extend_from_slice(&val.to_le_bytes());
+        b
+    }
+    fn kv_i32_array(key: &str, vals: &[i32]) -> Vec<u8> {
+        let mut b = kv_key(key);
+        b.extend_from_slice(&9u32.to_le_bytes()); // tag: array
+        b.extend_from_slice(&5u32.to_le_bytes()); // elem tag: i32
+        b.extend_from_slice(&(vals.len() as u64).to_le_bytes());
+        vals.iter().for_each(|v| b.extend_from_slice(&v.to_le_bytes()));
+        b
+    }
+    fn gguf(kvs: &[Vec<u8>]) -> Vec<u8> {
+        let mut b = b"GGUF".to_vec();
+        b.extend_from_slice(&3u32.to_le_bytes()); // version
+        b.extend_from_slice(&0u64.to_le_bytes()); // tensor_count
+        b.extend_from_slice(&(kvs.len() as u64).to_le_bytes());
+        kvs.iter().for_each(|kv| b.extend_from_slice(kv));
+        b
+    }
+
+    /// The four `<arch>.*` dims the hardware-ceiling KV estimate needs parse from a
+    /// real header — Llama-3-8B's values (32 layers, 32 heads, 8 KV heads, 4096 emb).
+    #[test]
+    fn parses_kv_dims_for_the_hardware_ceiling() {
+        let bytes = gguf(&[
+            kv_string("general.architecture", "llama"),
+            kv_u32("llama.context_length", 8192),
+            kv_u32("llama.block_count", 32),
+            kv_u32("llama.attention.head_count", 32),
+            kv_u32("llama.attention.head_count_kv", 8),
+            kv_u32("llama.embedding_length", 4096),
+        ]);
+        let m = inspect_gguf_bytes(&bytes).expect("valid gguf");
+        assert_eq!(m.block_count, Some(32));
+        assert_eq!(m.head_count, Some(32));
+        assert_eq!(m.head_count_kv, Some(8));
+        assert_eq!(m.embedding_length, Some(4096));
+    }
+
+    /// gemma stores `attention.head_count_kv` as one i32 per layer (sliding-window
+    /// architecture). The dim must still resolve — to the MAX across layers, the
+    /// conservative bound for a KV-cache size estimate — not collapse to `None`.
+    #[test]
+    fn parses_array_typed_kv_heads_as_their_max() {
+        let bytes = gguf(&[
+            kv_string("general.architecture", "gemma4"),
+            kv_u32("gemma4.context_length", 262_144),
+            kv_u32("gemma4.block_count", 48),
+            kv_u32("gemma4.attention.head_count", 16),
+            kv_i32_array("gemma4.attention.head_count_kv", &[8, 8, 4, 8]),
+            kv_u32("gemma4.embedding_length", 3840),
+        ]);
+        let m = inspect_gguf_bytes(&bytes).expect("valid gguf");
+        assert_eq!(m.head_count_kv, Some(8), "per-layer head_count_kv reduces to its max");
+        assert_eq!(m.block_count, Some(48));
+        assert_eq!(m.head_count, Some(16));
+        assert_eq!(m.embedding_length, Some(3840));
+    }
+
+    /// A header that omits the dims yields `None` for each (the degrade path the
+    /// ceiling treats as "can't size → safe default"), not a zero or a panic.
+    #[test]
+    fn kv_dims_are_none_when_the_header_omits_them() {
+        let bytes = gguf(&[
+            kv_string("general.architecture", "llama"),
+            kv_u32("llama.context_length", 8192),
+        ]);
+        let m = inspect_gguf_bytes(&bytes).expect("valid gguf");
+        assert_eq!(m.block_count, None);
+        assert_eq!(m.head_count, None);
+        assert_eq!(m.head_count_kv, None);
+        assert_eq!(m.embedding_length, None);
+    }
 }

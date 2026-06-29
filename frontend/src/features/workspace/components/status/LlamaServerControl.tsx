@@ -1,5 +1,6 @@
 import { useBackendStore } from "../../../../shared/state/backendStore";
 import { useSelectedModelStore } from "../../../../shared/state/selectedModelStore";
+import { useParamsStore } from "../../../../shared/state/paramsStore";
 import { useStartLlamaServer } from "../../hooks/useStartLlamaServer";
 import { useStopLlamaServer } from "../../hooks/useStopLlamaServer";
 import { PlayStopButton } from "../../../../shared/ui/PlayStopButton";
@@ -14,6 +15,9 @@ export function LlamaServerControl() {
   const { start, status: startStatus, error: startError } = useStartLlamaServer();
   const { stop, status: stopStatus } = useStopLlamaServer();
   const path = model?.path;
+  // The user's "Context window" param drives the launch `-c` for llama.cpp
+  // (its context is fixed at spawn); changing it relaunches the server.
+  const numCtx = useParamsStore((s) => s.globalParams.num_ctx);
 
   return (
     <div className="space-y-0.5">
@@ -21,7 +25,7 @@ export function LlamaServerControl() {
         running={!!healthy}
         busy={startStatus === "starting" || stopStatus === "stopping"}
         disabled={!path}
-        onPlay={() => path && void start(path)}
+        onPlay={() => path && void start(path, numCtx)}
         onStop={() => void stop()}
         title={path ? "Start llama-server on the selected model" : "Select a llama.cpp model first"}
         label="llama.cpp"

@@ -110,9 +110,13 @@ export async function runContextCliff(
   /// The caller's run token, echoed on every `cliff-progress` event so a superseded
   /// run's late events can be filtered out of the new run's series.
   runId: number,
+  /// The selected model's GGUF path (llama.cpp only). The backend matches it against
+  /// the running llama-server to refuse a probe when the wrong model is loaded or its
+  /// launch `-c` is too small, instead of 400-ing on every deep rung.
+  modelPath?: string,
 ): Promise<CliffReport> {
   return CliffReportSchema.parse(
-    await invoke("run_context_cliff", { runId, model, backend, collectionId, tasks, source, maxTokens: Math.round(maxTokens), steps, params }),
+    await invoke("run_context_cliff", { runId, model, backend, collectionId, tasks, source, maxTokens: Math.round(maxTokens), steps, params, modelPath: modelPath ?? null }),
   );
 }
 

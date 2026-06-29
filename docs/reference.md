@@ -208,6 +208,41 @@ templated `/v1/chat/completions` precisely to prevent this. If you still see it:
   `llama-server -m your-model.gguf --host 127.0.0.1 --port 8081 --jinja -c 8192`.
   Without `--jinja`, generations loop on builds where it isn't the default.
 
+### llama.cpp prompt exceeds the context window {#llama-context-overflow}
+
+A llama.cpp run (or the Context Stress Test) can fail with *"The prompt (N
+tokens) is larger than the M-token context window this model was loaded with."*
+Unlike Ollama, **llama.cpp fixes its context window at launch** (the `-c` flag) —
+there's no per-request resize. QuantaMind launches `llama-server` with `-c` sized
+from the **Context window** param (`num_ctx`); when that param is empty it uses
+the GGUF's context capped at 8K (so a small machine never allocates a giant KV
+cache by surprise).
+
+**Hardware ceiling.** Whatever the source, `-c` is also bounded by what this
+machine's RAM can hold — a fraction of *total* memory (a stable per-machine
+capacity, not momentary free RAM) minus the model weights, divided by the model's
+per-token KV cost (read from the GGUF's transformer dims). So an explicit
+`num_ctx` of 32K on a 16 GB Mac is clamped to a window that actually fits rather
+than OOMing the pre-allocated KV cache at spawn. Per-block dims (e.g. gemma stores
+KV-heads as one value per layer) are read as their max. When the GGUF genuinely
+doesn't expose the dims, there's no measurable ceiling — an explicit window is then
+honored as-is (an informed opt-in; the unset default still caps at 8K) rather than
+silently clamped to a guess.
+
+**Context Stress Test pre-flight.** Because the probe never relaunches the server
+(it's user-managed), it checks *before* running that the **right** model is loaded
+with a wide enough `-c` — matched on the exact GGUF path, since the single-model
+`llama-server` ignores the request's model field. If the wrong model (or none) is
+loaded, or its window is too small, the probe stops with an actionable message
+instead of marching the ladder into a 400 on every deep rung (or silently scoring
+whatever model happens to be loaded).
+
+- Raise **Context window** in the parameters popover to at least the prompt size
+  (for the Context Stress Test, ≥ its max depth + ~2K headroom), then **restart
+  llama.cpp** (Stop & Start) so the new `-c` takes effect.
+- If the window won't go higher, this machine's memory caps it there — reduce the
+  prompt / Context Stress Test length to fit the largest window it will launch.
+
 ### Backend server down — batch pre-flight {#batch-preflight}
 
 Every backend's server health is polled into the header dots every 5s — Ollama, MLX,

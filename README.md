@@ -2,11 +2,11 @@
 
 # QuantaMind
 
-**A native desktop workbench for running, comparing, and managing local large language models.**
+**The pre-deployment gate for local AI agents.**
 
-Built with Tauri, Rust, React, and Ollama. Local-first. No telemetry. No cloud.
+Benchmark any **Ollama**, **llama.cpp**, or **MLX** model for *agentic readiness* on your own hardware and get a **Ready / Conditional / NotReady** verdict — before you wire it into an agent. Nothing leaves the machine.
 
-<sub>Workspace · Voice (STT) · Analysis · Inspector · Models · Eval · Quant · Agent Readiness · one ~30 MB binary</sub>
+<sub>Local-first · No telemetry · No account · pass^k scoring · hardware-aware · one ~30 MB binary</sub>
 
 <br/>
 
@@ -14,7 +14,7 @@ Built with Tauri, Rust, React, and Ollama. Local-first. No telemetry. No cloud.
 ![Platform](https://img.shields.io/badge/platform-macOS-blue)
 ![Tauri](https://img.shields.io/badge/Tauri-2.x-FFC131?logo=tauri&logoColor=black)
 ![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange?logo=rust&logoColor=white)
-![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
+![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green)
 ![Status](https://img.shields.io/badge/status-active%20development-yellow)
@@ -27,9 +27,12 @@ Built with Tauri, Rust, React, and Ollama. Local-first. No telemetry. No cloud.
 
 ## Table of contents
 
-- [Overview](#overview)
-- [Why QuantaMind](#why-quantamind)
+- [Your local model passed the demo. Will it survive an agent?](#your-local-model-passed-the-demo-will-it-survive-an-agent)
+- [What it does](#what-it-does)
+- [How it works](#how-it-works)
+- [Why local, why pre-deployment](#why-local-why-pre-deployment)
 - [Features](#features)
+- [Roadmap](#roadmap)
 - [Tech stack](#tech-stack)
 - [Architecture](#architecture)
 - [Quick start](#quick-start)
@@ -52,44 +55,50 @@ Built with Tauri, Rust, React, and Ollama. Local-first. No telemetry. No cloud.
 
 ---
 
-## Overview
+## Your local model passed the demo. Will it survive an agent?
 
-**QuantaMind** is a native desktop application that turns your computer into a serious workbench for local language models. What began as three tools (Workspace, Model Management, Compare) now spans the whole local-agent workflow — from a single prompt to a hardware-aware, go/no-go readiness verdict:
+Parameter count is a terrible predictor of whether a local model can actually drive an agent. In Docker's open agent-loop benchmark (3,570 runs across 21 models), **Llama 3.3 70B scored 0.61** on tool-calling while **Qwen3 8B scored 0.97** — a model ~20× smaller was far more reliable at the thing that makes an agent useful.
 
-| Tool | What it does |
-|---|---|
-| **Workspace** | Write a prompt, pick a model, stream the answer back with timing metrics, save/load the prompt as YAML. |
-| **Voice (Speech-to-Text)** | Record or upload audio, transcribe it locally with **whisper.cpp**, and pipe the transcript straight into the selected LLM — a full voice → assistant loop, all offline. |
-| **Analysis** (Compare) | Run the same prompt through multiple models side-by-side, with a hardware feasibility check up front and Markdown/JSON export. |
-| **Inspector** | Per-token timing forensics for a run — TTFT phase breakdown, a per-token latency timeline, and an inter-token latency histogram. |
-| **Model Management** | Install, inspect, and uninstall models from three sources — Ollama library, Hugging Face GGUF, local files — without touching a terminal. |
-| **Eval** | Score models on graduated **tiered agentic scenarios** (Easy→Extreme across coding, finance, medical, legal, ops…) — world-state discovery, `must_not_call` traps, tier-scaled Pass^k — plus schema resilience and the context-cliff probe; custom collections + JSON/CSV import. |
-| **Quant** | Compare quantizations of one model family — size vs quality vs whether it fits in memory. |
-| **Agent Report** | Turn the measurements into a per-model **Ready / Conditional / Not Ready** verdict against a chosen readiness profile and your hardware. |
+The same model that's flawless in chat will, mid-task, fake a tool call, loop until it gives up, or declare "done" without finishing. And on local hardware the result also shifts with **quantization and VRAM** — so a verdict from a cloud eval doesn't transfer to your machine.
 
-Under the hood: a ~30 MB Tauri binary — a native shell wrapped around a Rust backend and a React/TypeScript frontend, talking to local model servers over HTTP: **Ollama**, **llama.cpp** (`llama-server`), and **MLX** (`mlx_lm`, Apple Silicon) behind a single `InferenceBackend` trait. Speech-to-text runs on its own parallel axis — a **whisper.cpp** (`whisper-server`) sidecar on `:8093` — so one STT engine runs alongside one LLM without ever touching the text-inference path.
+QuantaMind is the gate you run before that happens.
 
 > [!IMPORTANT]
 > Everything runs on your machine. There is no QuantaMind cloud, no account, no telemetry. Your prompts and your model outputs never leave your hardware.
 
 ---
 
-## Why QuantaMind
+## What it does
 
-Anyone who has spent a weekend with local models knows the friction:
+Point it at a model running locally. It drives that model through real agentic tasks — multi-step plans, tool calls, recovery — and returns a verdict for **that model on that hardware**:
 
-- You install Ollama, then realize you have to memorize CLI flags.
-- You find a great GGUF on Hugging Face — but Ollama needs a Modelfile with the *right* chat template, and getting that wrong silently poisons every generation.
-- You want to compare three models on the same prompt; now you're copy-pasting into three terminals and timing them with a stopwatch.
-- You burn a 20 GB download halfway through and never notice the partial file lingering.
+- **Ready** — reliable enough to wire into an agent here.
+- **Conditional** — works for some task tiers, not others. The report tells you which.
+- **NotReady** — fails the tasks that matter, with the failure mode named.
 
-QuantaMind exists to remove that friction without hiding the underlying tools. It doesn't replace Ollama; it sits on top of it as a **well-engineered workspace** that makes the same primitives usable.
+Reliability is scored with **pass^k** — does the model succeed *k* times out of *k*, not once by luck. For an agent, consistency is the whole game.
 
-Three design commitments shape every decision:
+Everything runs on-device. HTTP-only to your local backend. No weights bundled, no telemetry, no account required.
 
-1. **Local-first, always.** Your prompts, your models, your hardware, your data.
-2. **Honest UX.** When the system can't guarantee something, the UI says so plainly instead of fabricating confidence.
-3. **Engineering discipline.** Small files, separated concerns, strict data-quality gates after every change.
+---
+
+## How it works
+
+- **Backends:** Ollama, llama.cpp, and MLX over HTTP — no weights bundled.
+- **pass^k scoring:** *k*-of-*k* success per task tier (Easy / Medium / Hard), not a single pass.
+- **Hardware-aware:** the verdict accounts for your machine — quantization, VRAM headroom, spawn-time footprint, prefix-cache behaviour, and the llama.cpp context window (sized to what your RAM actually holds).
+- **Failure-mode classification:** surfaces *how* a model breaks — `ForbiddenCall` (out-of-scope tool), `LoopCap` (step budget hit), silent `FakeDone`, and more — not just a pass/fail number.
+- **Quant comparison:** diff a quantized model against a Q8 baseline to catch behaviour that a raw score hides.
+
+What a spec sheet and a cloud eval structurally cannot show: the same model at Q4 vs Q8 can hold the same score while changing *how* it fails. QuantaMind shows you that.
+
+---
+
+## Why local, why pre-deployment
+
+Production observability tools tell you how your agent did *after* it shipped, on a cloud API model. QuantaMind answers a different question: **will this specific local model, on this specific hardware, hold up as an agent — before I ship it?**
+
+A cloud SaaS can't answer that, because it doesn't run on your machine and local results are hardware-dependent. For teams forced onto local models by data-sovereignty or air-gap requirements, that gap is the whole problem.
 
 ---
 
@@ -172,6 +181,15 @@ Three design commitments shape every decision:
 - **Per-model deep-dive (Phase 9B):** an **Executive Verdict** judged against the tier you actually ran (hardware class shown as advice, never a forced fail), a **Tier Progression Matrix** (per-tier Pass^k + avg-steps with CLEAR / SATURATED / FAIL / NOT-TESTED badges — saturation at a glance), and a **Failure Taxonomy** (decoy / forbidden-call / loop / hallucination distribution across the tested tiers) — the selector targets a specific *(model, path)*. The matrix **accumulates per domain**: running Easy then Medium for the same domain fills in both tiers (the assessment unions a model's ladder across the domain's tier collections, matched per `(model, backend)` and same path), and the report **auto-refreshes** when a batch finishes for the shown collection or a same-domain tier — no manual re-run to see a newly-tested model/tier
 - Export the verdict table as a standalone HTML report, or the deep-dive as versioned JSON
 - **Publish to the community leaderboard (opt-in, default-OFF):** an allowlisted, **verdicts-and-metrics-only** payload — model, quant, hardware `cohort_key`, the tier verdict (status / tier-tested / cleared / recommended), the per-tier Pass^k curve, the failure-mode distribution (counts), the collection identity + content hash, and build provenance (`schema_version` / `engine_version` / a `build.rs` git hash). Never prompts, traces, machine identifiers, or results on your own custom collections; the dialog shows the exact JSON before anything leaves the machine. A row is publishable once it has a measured Pass^k and a known quantization — the quant is read from the Ollama registry or, failing that, parsed from the model name, so **llama.cpp / MLX (and offline-Ollama) results publish too** instead of erroring with "no rows". A model measured on both tool-calling paths publishes **one row per path** (distinguished by `eval_method`), so the leaderboard can compare native vs prompt-based directly
+
+---
+
+## Roadmap
+
+- **WebGPU** — run the readiness gate in the browser, on your own GPU, zero install.
+- **Windows + Linux** desktop builds.
+- **Expanded task suite** — more agentic tiers and domains.
+- **Deterministic visual environments** — stateful WebUI + vision/OCR readiness evals.
 
 ---
 
@@ -265,40 +283,44 @@ The two halves talk JSON over Tauri's IPC. Contracts are explicit in `shared/ipc
 
 ## Quick start
 
+> **macOS only for now.** Windows and Linux builds are on the [Roadmap](#roadmap). There are no prebuilt downloads yet — running from source (below) is the way in, and the fastest way to send feedback.
+
 ### Prerequisites
 
-| Tool | Version | Notes |
+| Tool | Version | Required? |
 |---|---|---|
-| **Rust** | 1.75+ | |
-| **Node** | 20+ | |
-| **pnpm** | 9+ | |
-| **Ollama** | latest | Primary backend |
-| **llama.cpp** (`llama-server`) | optional | Run GGUF models directly |
-| **MLX** (`pip install mlx-lm`) | optional | Apple Silicon only |
-| **whisper.cpp** (`brew install whisper-cpp`) | optional | Speech-to-text; set up in-app under Models → Speech-to-Text |
+| **Rust** | 1.75+ | required |
+| **Node** | 20+ | required |
+| **pnpm** | 9+ | required |
+| **Ollama** | latest | required — the default backend |
+| **llama.cpp** (`llama-server`) | latest | optional — run GGUF models directly |
+| **MLX** (`pip install mlx-lm`) | latest | optional — Apple Silicon only |
+| **whisper.cpp** (`brew install whisper-cpp`) | latest | optional — speech-to-text, set up in-app under Models → Speech-to-Text |
 
-### Install
+### Run it (copy-paste)
+
+One block, zero to a running window:
 
 ```bash
-# 1) Toolchains (macOS only for now)
+# 1) Toolchains  (skip any you already have)
 brew install rust node pnpm ollama
 xcode-select --install
 
-# 2) Start Ollama + pull a small model
+# 2) Start Ollama + pull a small model to gate
 ollama serve &
 ollama pull llama3.2:1b
-curl http://localhost:11434/api/tags   # smoke-test that Ollama is up
+curl http://localhost:11434/api/tags          # smoke-test: Ollama is up
 
-# 3) Clone and install
-git clone https://github.com/QuantaMinds/QuantaMind.git quantamind
-cd quantamind/frontend
+# 3) Clone, install, run
+git clone https://github.com/QuantaMinds/QuantaMind.git
+cd QuantaMind/frontend
 pnpm install
-
-# 4) Run in dev mode
-pnpm tauri dev
+pnpm tauri dev                                 # first build is slow; opens a native window
 ```
 
-The first run opens a native window. Editing `frontend/src/App.tsx` and saving triggers HMR.
+The first run opens a native window. Open the **Eval** tab, pick the model you pulled, and run a built-in agentic collection to get your first **Ready / Conditional / NotReady** verdict — then check the **Agent Report** tab for the per-model breakdown. (Editing `frontend/src/App.tsx` and saving triggers HMR.)
+
+> 💬 **Hit a snag in these steps? [Open an issue](https://github.com/QuantaMinds/QuantaMind/issues)** — frictionless setup is a goal, so setup bugs are real bugs.
 
 ### First prompt
 1. Pick a model from the dropdown.

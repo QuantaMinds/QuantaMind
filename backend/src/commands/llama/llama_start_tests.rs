@@ -1,6 +1,8 @@
 use super::has_bin;
 use crate::commands::llama::llama_runtime::bin_name;
-use crate::commands::llama::llama_server_types::{LlamaServerState, LlamaStartResult, SpawnReadout};
+use crate::commands::llama::llama_server_types::{
+    LlamaProbeReadiness, LlamaServerState, LlamaStartResult, SpawnReadout,
+};
 
 #[test]
 fn has_bin_requires_the_binary_in_the_dir() {
@@ -40,6 +42,35 @@ fn start_failed_serializes_with_error() {
     let json = serde_json::to_string(&r).unwrap();
     assert!(json.contains(r#""status":"start_failed""#));
     assert!(json.contains(r#""error":"boom""#));
+}
+
+#[test]
+fn is_current_is_false_when_nothing_is_running() {
+    // No server up → never "current", so a start always proceeds rather than
+    // short-circuiting to AlreadyRunning.
+    let state = LlamaServerState::default();
+    assert!(!state.is_current("/g/phi3.gguf", 8192));
+}
+
+#[test]
+fn probe_readiness_reports_not_running_when_idle() {
+    // Nothing up → the probe must tell the user to start the model, not run blind.
+    let state = LlamaServerState::default();
+    assert_eq!(state.probe_readiness("/g/phi3.gguf"), LlamaProbeReadiness::NotRunning);
+}
+
+/// The flagged edge: identity is matched on the EXACT launch path, so a probe of a
+/// model the server didn't load reports `WrongModel` — never a false `Ready` that
+/// would score the loaded model's weights instead.
+#[cfg(unix)]
+#[test]
+fn probe_readiness_matches_on_exact_model_path() {
+    let child = std::process::Command::new("sleep").arg("30").spawn().expect("spawn dummy child");
+    let state = LlamaServerState::default();
+    state.store(child, "/g/phi3.gguf".into(), 8192);
+    assert_eq!(state.probe_readiness("/g/phi3.gguf"), LlamaProbeReadiness::Ready { ctx: 8192 });
+    assert_eq!(state.probe_readiness("/g/llama3.gguf"), LlamaProbeReadiness::WrongModel);
+    state.stop().expect("stop dummy child");
 }
 
 #[test]

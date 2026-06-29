@@ -251,7 +251,7 @@ minimap off, `wordWrap:"on"`, font 13, `scrollBeyondLastLine:false`; `onChange` 
 | File | Responsibility |
 | --- | --- |
 | `ParamRow.tsx` | One inference-param row: a slider + number input + reset (↺). Empty input → `undefined` (use model default); parses int/float per `info.integer`; slider falls back to the placeholder default when unset. |
-| `paramsInfo.ts` | `PARAMS[]` display metadata + tooltips for temperature, top_p, top_k, max_tokens, repeat_penalty, seed, num_ctx. Ranges mirror backend `commands/prompt_options.rs`; placeholders show effective defaults. `num_ctx` is **Ollama-only** (llama.cpp/MLX context is fixed by the server). |
+| `paramsInfo.ts` | `PARAMS[]` display metadata + tooltips for temperature, top_p, top_k, max_tokens, repeat_penalty, seed, num_ctx. Ranges mirror backend `commands/prompt_options.rs`; placeholders show effective defaults. `num_ctx` drives the launch `-c` for llama.cpp too (changing it restarts the server, since llama.cpp fixes context at spawn); Ollama applies it per run; MLX is fixed by the model. |
 
 ---
 
