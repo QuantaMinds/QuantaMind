@@ -206,23 +206,38 @@ list and [Robustness](#robustness) for the failure policy.
 
 ### The dependency law
 
-Edges point one way only. A lower layer must never import a higher one.
+Source dependencies point **inward, to the domain**. `inference/` is the pure core;
+everything else depends on it, and it depends on nothing else in the crate. This is the
+Dependency Rule (hexagonal / Ports & Adapters — see
+[`../rust-engineering-architecture-guide.md`](../rust-engineering-architecture-guide.md)
+and [`../ARCHITECTURE.md`](../ARCHITECTURE.md)).
 
 ```
-commands/  →  inference/  →  persistence/ , metrics/
-   (IPC)        (domain)         (I/O)      (timing)
+commands/  ──►  inference/ (domain)  ◄──  persistence/ , metrics/
+  (IPC,            pure core,              driven adapters: serialize
+  driving)         defines ports          domain types, time streams
 ```
 
 - `commands/` is the only layer that touches Tauri (`AppHandle`, `State`,
-  `Emitter`, `#[tauri::command]`).
-- **`inference/` must be Tauri-free.** It must not import `crate::commands`, and
-  must not name any `tauri::` type. If domain code needs to report progress, it
-  takes a **sink** (below), not an `AppHandle`.
-- `persistence/` and `metrics/` are leaves: plain data in, `Result<T, AppError>`
-  out, no knowledge of the layers above.
+  `Emitter`, `#[tauri::command]`). It is the *driving adapter*.
+- **`inference/` must be Tauri-free.** It must not import `crate::commands`, must not
+  import `crate::persistence`, and must not name any `tauri::` type. If domain code
+  needs to report progress it takes a **sink** (below), not an `AppHandle`. If it shares
+  a type with persistence, that type lives *in the domain* and persistence imports it
+  (e.g. `RunSummary` in `inference/eval/run_summary.rs`).
+- `persistence/` and `metrics/` are **driven adapters**: plain data in,
+  `Result<T, AppError>` out. They legitimately depend on domain *types* (to serialize a
+  `ReadinessVerdict`, a `Transcript`, a `RunSummary`), but never on the layers *above*
+  them (`commands/`), and the domain never depends back on them. The litmus test
+  (`rust-engineering-architecture-guide.md` Part 2): `inference/` would still compile
+  with `persistence/`, `metrics/`, and `commands/` deleted.
 
-Enforced by a guardrail test (see [Robustness](#robustness)): no file under
-`inference/` may contain `use crate::commands`.
+Enforced by the guardrail target `backend/tests/layering_guard.rs` (see
+[Robustness](#robustness)) — run on every PR: no file under `inference/` may contain
+`use crate::commands`, `use crate::persistence`, or any `tauri::`; and neither
+`persistence/` nor `metrics/` may contain `use crate::commands`. (The folder-size rule
+lives in the separate `backend/tests/folder_taxonomy.rs` target — see
+[Folder taxonomy](#folder-taxonomy).)
 
 ### Pattern 1 — Sink boundary (invert the dependency)
 
@@ -351,9 +366,11 @@ prove the invariant or return a typed error.
 
 ### Guardrail
 
-A backend test enforces the layering invariant (no `use crate::commands` under
-`inference/`) and flags any folder with >10 files (see
-[Folder taxonomy](#folder-taxonomy)).
+`backend/tests/layering_guard.rs` enforces the one-way dependency law: under
+`inference/`, no `use crate::commands`, no `use crate::persistence`, and no `tauri::`;
+and neither `persistence/` nor `metrics/` may `use crate::commands` (see
+[The dependency law](#the-dependency-law)). The folder-size rule is a separate target,
+`backend/tests/folder_taxonomy.rs` (see [Folder taxonomy](#folder-taxonomy)).
 
 Update this section when a new class of failure or boundary appears, or the
 error model changes (e.g. structured `AppError`).
@@ -367,9 +384,16 @@ more than 10 files**. When a folder reaches the limit, split it into sub-folders
 grouped by concern — never a `misc/`/`utils/` catch-all. Finding a file should be
 a matter of guessing the right concern folder.
 
-Enforced by a guardrail test on each side (`backend/tests/layering_guard.rs`,
+Enforced by a guardrail test on each side (`backend/tests/folder_taxonomy.rs`,
 `frontend/src/__tests__/folderTaxonomy.test.ts`). `__tests__` dirs are exempt —
 they mirror their source one-to-one, so their size is already bounded.
+
+> **Known debt (2026-06):** four backend folders are currently over the limit —
+> `persistence/` (12), `inference/eval/toolcall/` (11), `commands/mlx/` (11),
+> `commands/llama/` (11). The taxonomy test is kept in its **own** target
+> (`folder_taxonomy.rs`), separate from the dependency-law target
+> (`layering_guard.rs`), so the law can gate CI while this split is worked off as a
+> dedicated refactor. Tracked in `docs/restructure-todo.md`.
 
 ### Target sub-folder layout
 

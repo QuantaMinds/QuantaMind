@@ -29,9 +29,17 @@ Per `CLAUDE.md`/`docs/process.md#workflow`, each phase is one commit:
       *Verified:* `cargo test --lib` = 899 passed (unchanged); clippy 49 warnings (unchanged);
       history round-trip/back-compat/truncate tests green. Pure type relocation — serde shape
       byte-identical, so no behavioral surface for a live run to add over the round-trip tests.
-- [ ] **Phase 4** — Correct `docs/architecture.md#layering` (domain-center) + extend
-      `layering_guard.rs` (inference ⊁ `crate::persistence`/`tauri::`; persistence+metrics ⊁ `crate::commands`).
-      *Gate:* `cargo test --test layering_guard` green; a temporary reverse `use` goes RED.
+- [x] **Phase 4** — Corrected `docs/architecture.md#layering` to domain-center; extended
+      the guard (inference ⊁ `crate::persistence`/`tauri::`; persistence+metrics ⊁
+      `crate::commands`). Split the test file: **dependency law** →
+      `tests/layering_guard.rs` (4 tests, GREEN, CI-gateable); **folder-size rule** →
+      `tests/folder_taxonomy.rs` (isolated; RED on 4 pre-existing over-limit folders).
+      *Verified:* `cargo test --test layering_guard` green; planted reverse `use` →
+      RED, removed → green (teeth confirmed).
+      ⚠️ **Follow-up debt:** split `persistence/`(12), `inference/eval/toolcall/`(11),
+      `commands/mlx/`(11), `commands/llama/`(11) into concern sub-folders to green the
+      taxonomy target — a dedicated refactor (out of this plan's scope per the
+      "separate refactor commit" rule).
 - [ ] **Phase 5** — `#![deny(unsafe_code)]` in `lib.rs`; CI gate (`fmt --check`,
       `clippy`, `cargo test --test layering_guard`).
       *Gate:* new CI steps pass locally. (Decide `-D warnings` vs informational given the 49 baseline.)
