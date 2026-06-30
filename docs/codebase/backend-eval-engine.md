@@ -1,7 +1,7 @@
 # Backend — Evaluation Engine
 
 The local-LLM evaluation subsystem: deterministic tool-call scoring, a sandboxed
-multi-step agentic runner, a stoppable context-cliff probe, readiness / VRAM-fit
+multi-step agentic runner, a stoppable Context Stress Test, readiness / VRAM-fit
 synthesis, and a crash-resumable batch queue. All inference-side logic is
 Tauri-free and pure where possible; the `commands/eval/` layer is the thin IPC
 skin that streams events and persists results.
@@ -10,7 +10,7 @@ Cross-links:
 - Persistence of eval history, traces, cliff results, and readiness profiles →
   `backend-persistence.md`.
 - The Eval UI (datasets, run, scoreboard, trajectory inspector) → `frontend-eval.md`.
-- Readiness / Agent-Report / Inspector UI → `frontend-inspector-quant-agentreport.md`.
+- Readiness / Agent-Report / Latency UI → `frontend-inspector-quant-agentreport.md`.
 
 ---
 
@@ -31,9 +31,9 @@ estimate or a 0 substituted for missing data.
 | Mode | Entry | What it measures | Scoring |
 |------|-------|------------------|---------|
 | **Single tool-call** | `run_toolcall_eval` | One model over a collection: parse / tool-select / arg / abstain | `toolcall::score` + cascaded `aggregate` |
-| **Matrix** | `run_collection_matrix` | Same collection across N models (sequential) | per-column `ToolCallReport` + mean composite |
+| **Model Results** | `run_collection_matrix` | Same collection across N models (sequential) | per-column `ToolCallReport` + mean composite |
 | **Agentic** | inside `run_batch_eval` (tasks `category == "agentic"`) | Multi-step sandboxed tool loop, Pass^k reliability | `agentic::report::AgenticReport` |
-| **Context-cliff** | `run_context_cliff` | Largest verified prompt-token depth before accuracy collapses | per-rung composite vs baseline |
+| **Context Stress Test** | `run_context_cliff` | Largest verified prompt-token depth before accuracy collapses | per-rung composite vs baseline |
 | **Readiness** | `assess_readiness` | A measured batch report + cliff + VRAM fit vs a use-case profile → Ready/Conditional/NotReady | `readiness::verdict::assess` |
 
 The **batch** mode (`run_batch_eval`) is the umbrella runner: it mixes single-turn
@@ -723,7 +723,7 @@ else `NoCliff{tested}`.
 
 ## Folder: `inference/eval/readiness/`
 
-Synthesizes a measured batch report (+ cliff depth + VRAM fit) into ranked
+Synthesizes a measured batch report (+ context limit + VRAM fit) into ranked
 **Ready / Conditional / NotReady** verdicts against a tunable use-case profile.
 Pure and Tauri-free; a MEASURED hard-gate failure blocks (NotReady), soft gates
 downgrade, and a required-but-**unmeasured** input is a **Conditional caveat**
@@ -1058,7 +1058,7 @@ let _ = queue::delete(&job_path);
    loads (an `Err` halts with the log intact). On success: transactional finish
    (persist → verify on disk → delete the job log).
 
-### (d) Context-cliff probe
+### (d) Context Stress Test
 
 1. `run_context_cliff(run_id, model, backend, tasks, source, max_tokens, steps,
    params)` forces temp 0 and `num_ctx = max_tokens + 2048`, registers a cancel

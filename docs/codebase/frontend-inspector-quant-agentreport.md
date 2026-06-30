@@ -1,4 +1,4 @@
-# Frontend — Inspector, Quant, Agent Report & Publish
+# Frontend — Latency, Quant, Agent Report & Publish
 
 File-by-file reference for the three local-analysis surfaces of the QuantaMind
 desktop app and the Publish UI that closes the loop. React 18 + TS 5 + Zustand +
@@ -24,7 +24,7 @@ that hosts Quant as a sub-tab) ·
 ## Overview
 
 **Why these surfaces exist.** A local-LLM operator needs to answer three
-questions that no single number can: *Is this run healthy?* (Inspector), *Which
+questions that no single number can: *Is this run healthy?* (Latency), *Which
 quantization should I run?* (Quant), and *Is this model good enough to deploy as
 an agent?* (Agent Report). Each turns raw measurements into an honest, explained
 verdict — never a fabricated score (see the `no-fake-metrics` rule: an unmeasured
@@ -32,7 +32,7 @@ value renders `N/A`/`—`, never a guess).
 
 **What each produces.**
 
-- **Inspector** — per-run *token-timing forensics* for the last run(s): a TTFT
+- **Latency** — per-run *token-timing forensics* for the last run(s): a TTFT
   phase breakdown (model-load + prefill + first-token), a per-token latency
   timeline with robust outlier flagging, an inter-token jitter histogram, a
   cold-vs-warm start comparison, a VRAM-budget bar, plus a global memory-leak
@@ -50,7 +50,7 @@ value renders `N/A`/`—`, never a guess).
 **How they chain.**
 
 ```
-Workspace run ─▶ Inspector  (measure: timing, VRAM, leaks, regressions)
+Workspace run ─▶ Latency  (measure: timing, VRAM, leaks, regressions)
 Eval batch ────▶ Quant      (score: pass-rate + tool-call spread per quant)
             └──▶ Agent Report (verdict: measurements × profile × hardware)
                       └──▶ Publish (preview → opt-in → board)
@@ -60,14 +60,14 @@ Eval batch ────▶ Quant      (score: pass-rate + tool-call spread per q
 
 | Surface | Key components | IPC command(s) | State store | Backend doc |
 |---|---|---|---|---|
-| **Inspector** | `InspectorPage`, `ModelTimeline`, `TtftBreakdown`, `TokenTimeline`, `LatencyHistogram`, `ColdWarmPanel`, `RegressionAlert`, `LeakBanner`, `VramBar`, `ContextBudgetBar` | `get_hardware_snapshot`, `get_loaded_models`, `history_list`, (leak) process-RSS sampler | `compareStore` (rows), `leakStore` (RSS series), reads `cliffStore` | [prompt-workspace](./backend-prompt-workspace-system.md), [compare](./backend-compare.md) |
+| **Latency** | `InspectorPage`, `ModelTimeline`, `TtftBreakdown`, `TokenTimeline`, `LatencyHistogram`, `ColdWarmPanel`, `RegressionAlert`, `LeakBanner`, `VramBar`, `ContextBudgetBar` | `get_hardware_snapshot`, `get_loaded_models`, `history_list`, (leak) process-RSS sampler | `compareStore` (rows), `leakStore` (RSS series), reads `cliffStore` | [prompt-workspace](./backend-prompt-workspace-system.md), [compare](./backend-compare.md) |
 | **Quant** | `QuantPage`, `quantPick`, `recommend`, `useVramFit`, `useQuantEval`, `useQuantToolcall` | `inspect_model`, `estimate_kv_cache_bytes`, `list_evals`+`run_eval_task`, `run_toolcall_eval`, `get_hardware_snapshot` | `installedModelsStore`, `selectedModelStore`, local hook state | [eval-engine](./backend-eval-engine.md), [models-hf-gguf](./backend-models-hf-gguf.md) |
 | **Agent Report** | `AgentReportPage`, `VerdictTable`, `RecommendationBanner`, `ExecutiveVerdict`, `TierProgressionMatrix`, `FailureTaxonomy`, `EditProfileModal`, `ExportMenu`, `StatusBadge` | `assess_readiness`, `list_readiness_profiles`, `save_readiness_profile`, `get_hardware_snapshot`, `get_hardware_tier`, `save_readiness_image` | `readinessStore`, reads `evalRegistryStore` | [eval-engine](./backend-eval-engine.md) |
 | **Publish** | `PublishButton`, `PublishDialog`, `WhatsSharedPanel`, `writeupLink` | `preview_publish_payload`, `publish_to_board`, `start_login` | none (passes `verdicts` through) | [publish](./backend-publish.md) |
 
 ---
 
-## 1. Inspector
+## 1. Latency
 
 `features/inspector/` — a hidden-but-mounted tab. `InspectorPage` re-reads
 `/api/ps` + run history every time the tab is opened (the model that just ran is
@@ -184,7 +184,7 @@ The per-model console: header (tok/s, outlier count) → `TtftBreakdown` phase t
 `RegressionAlert` → hover readout → `TokenTimeline` SVG → `LatencyHistogram`. It
 calls `buildLatencyBars` and `buildHistogram` once and threads the results down.
 
-### Inspector trivial components (compact)
+### Latency trivial components (compact)
 
 | File | Role |
 |---|---|
@@ -192,12 +192,12 @@ calls `buildLatencyBars` and `buildHistogram` once and threads the results down.
 | `LatencyHistogram.tsx` | visx band/linear histogram of the `HistogramBucket[]`; outlier bins rose (`#e11d48`), hover shows the bin's `lo–hi ms · count`. |
 | `TtftBreakdown.tsx` | stacked horizontal CSS bar (load/prefill/stream-gen) sized by `%`; shows "not available for this backend" via `buildTtftSegments(...).available`. Adds a llama.cpp **prefix-cache reuse** line (`· prefix cache: N reused / M recomputed`) gated on `cacheReuse(stats.cache_n, stats.prompt_eval_count).available` — absent for Ollama/MLX (`cache_n` null), a measured `0 reused` for a cold llama run (the two render differently by design). |
 | `VramBar.tsx` | ASCII-cell (`█`/`░`) memory monitor: model cells + system-base cells over the device pool, with an 85% OOM-risk marker; system base derived only when **both** VRAM totals are reported (else it would fabricate a figure). |
-| `ContextBudgetBar.tsx` | ASCII context-window monitor: `prompt_eval_count / context_length`; overlays an indicative attention "cliff" marker from `cliffStore.cliffForModel(model)` (backend-hydrated, not browser-cached); hot at ≥95%. |
+| `ContextBudgetBar.tsx` | ASCII context-window monitor: `prompt_eval_count / context_length`; overlays an indicative context-limit marker from `cliffStore.cliffForModel(model)` (backend-hydrated, not browser-cached); hot at ≥95%. |
 | `ColdWarmPanel.tsx` | renders `coldWarmState` → cold-start headline or the right "n/a" reason. |
 | `RegressionAlert.tsx` | renders `regressionVerdict` → "on par" (gray) or amber "X% slower". |
 | `LeakBanner.tsx` | renders `detectLeak(leakStore.series)`. |
 
-### Inspector hooks
+### Latency hooks
 
 | Hook | Does |
 |---|---|
@@ -206,7 +206,7 @@ calls `buildLatencyBars` and `buildHistogram` once and threads the results down.
 | `useHardware` + `deviceMemory` | `get_hardware_snapshot` once; `deviceMemory` derives the pool total + `unified` flag (Apple RAM vs NVIDIA VRAM). |
 | `useParentWidth` | `ResizeObserver` → container width for SVG sizing. |
 
-### Inspector report (`report/`)
+### Latency report (`report/`)
 
 `ExportReportButton` gathers hardware + loaded-model VRAM + history on demand,
 calls `buildInspectorHtml`, and writes the file via `saveCompareReport`.
@@ -486,8 +486,8 @@ leaking.
 
 ## Data-flow walkthroughs
 
-**(a) Run history → Inspector charts.** A Workspace run writes its metrics into
-`compareStore.rows` (and a `HistoryEntry` to disk). Opening Inspector triggers
+**(a) Run history → Latency charts.** A Workspace run writes its metrics into
+`compareStore.rows` (and a `HistoryEntry` to disk). Opening the Latency tab triggers
 `useLoadedModels` (`get_loaded_models`) + `useRunHistory` (`history_list`) +
 `useHardware` (`get_hardware_snapshot`). For each charted row, `ModelTimeline`
 calls `buildLatencyBars` (→ `TokenTimeline` + outlier count), `buildHistogram` (→
@@ -508,7 +508,7 @@ quality evals" / "Run tool-call evals" populate the Quality and Tool-calls colum
 the per-quant quality lost to fewer bits.
 
 **(c) Measurements → readiness verdict → publish.** The user runs an eval batch on
-the **Eval** tab (persisted per collection). Agent Report's `loadProfiles` +
+the **Tests** tab (persisted per collection). Agent Report's `loadProfiles` +
 `loadHardware` seed the controls; **Run Validation** calls
 `assess_readiness(collectionId, profileId, capBytes)` → `ModelVerdict[]` (Rust
 scores measurements × profile gates × VRAM cap). `RecommendationBanner` frames

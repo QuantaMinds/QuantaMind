@@ -25,7 +25,7 @@ export function ClearCacheConfirm({
   return (
     <div role="alertdialog" data-testid="clear-cache-confirm" className="border rounded p-3 bg-amber-50 text-xs">
       Clear cached app data? This deletes eval history, batch reports, job logs,
-      pipeline traces, context-cliff measurements, and the recent-workspace list.
+      pipeline traces, context stress test measurements, and the recent-workspace list.
       <strong> Custom eval collections, readiness profiles, and settings are kept.</strong>
       <label className="flex items-start gap-2 mt-2">
         <input

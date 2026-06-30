@@ -344,9 +344,9 @@ export const useHistoryStore = create<HistoryStoreState>((set) => ({
 `audit/components/AuditPage.tsx` is "Zone 2 — the compliance home." It does
 **not** show run history; it shows benchmark/regression artifacts:
 
-1. **Context-Cliff probe** (`ContextCliffPanel`) at the top — a diagnostic
-   moved off the Eval workspace.
-2. **Audit & Compliance — Saved Matrix History:** a collection picker (presets +
+1. **Context Stress Test** (`ContextCliffPanel`) at the top — a diagnostic
+   moved off the Tests workspace.
+2. **Audit & Compliance — Results History:** a collection picker (presets +
    custom collections from `evalRegistryStore`) feeding `loadCollectionHistory`,
    rendered as a `HistoryTimeline`. **Filtered to the selected backend** so a
    backend switch never shows the previous backend's runs. History is re-fetched

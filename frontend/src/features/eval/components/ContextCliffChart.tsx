@@ -62,7 +62,7 @@ export function ContextCliffChart({
       width={width}
       height={height}
       role="img"
-      aria-label="Context cliff: accuracy vs token depth"
+      aria-label="Context Stress Test: accuracy vs token depth"
       data-testid="cliff-chart"
       style={{ overflow: "visible" }}
     >

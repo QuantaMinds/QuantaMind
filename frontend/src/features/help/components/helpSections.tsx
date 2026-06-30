@@ -121,7 +121,7 @@ export const HELP_SECTIONS: HelpSection[] = [
 
   {
     id: "inspector",
-    title: "Inspector",
+    title: "Latency",
     blurb: "Per-token timing forensics for a run — exactly where the milliseconds go.",
     blocks: [
       {
@@ -222,12 +222,12 @@ export const HELP_SECTIONS: HelpSection[] = [
 
   {
     id: "eval",
-    title: "Eval",
+    title: "Tests",
     blurb: "Score models on tool-calling and multi-step agentic tasks — the engine behind the scoreboard.",
     blocks: [
       {
         id: "eval-manager",
-        heading: "Eval Manager",
+        heading: "Tests Manager",
         what: "The left panel: a collection picker, a target-model multi-select, Iterations (k) and Max Steps inputs, and Run/Stop.",
         why: "An eval is (which tasks) × (which models) × (how many repeats). The manager is where you set those three before a batch runs.",
         how: "Pick a built-in or custom collection, choose target models, set k and the step cap, then Run. Switching collection or model mid-batch cancels cleanly and clears stale results so a leftover Pass/Fail never bleeds into the new run.",
@@ -314,17 +314,17 @@ export const HELP_SECTIONS: HelpSection[] = [
       },
       {
         id: "performance-matrix",
-        heading: "Performance Matrix",
-        what: "The per-model summary table: Pass^k · Avg Steps · Effort · Schema Resil. · Cliff Depth · Top Error (+ an optional Native-FC column).",
+        heading: "Model Results",
+        what: "The per-model summary table: Pass^k · Avg Steps · Effort · Schema Resil. · Context Limit · Top Error (+ an optional Native-FC column).",
         why: "One row per model is the at-a-glance verdict surface — every metric above, lined up so models are directly comparable.",
-        how: "Each cell renders the corresponding measured metric (see the metric blocks above). N/A and “—” states are explained on hover; click a row to inspect that model. An always-visible legend explains the Cliff Depth column.",
+        how: "Each cell renders the corresponding measured metric (see the metric blocks above). N/A and “—” states are explained on hover; click a row to inspect that model. An always-visible legend explains the Context Limit column.",
       },
       {
         id: "context-cliff",
-        heading: "Context-Cliff probe + chart",
-        what: "Runs a dataset at growing prompt lengths and graphs (visx) where tool-call accuracy collapses — the “context cliff”.",
+        heading: "Context Stress Test + chart",
+        what: "Runs a dataset at growing prompt lengths and graphs (visx) where tool-call accuracy collapses — the point where long context breaks tool use.",
         why: "Many local models break down well before their advertised context window. The probe finds the real usable window for tool use, which feeds the Agent-Readiness verdict.",
-        how: "The x-axis is the model’s real measured prompt-token depth (prompt_eval_count, averaged per rung) — never a chars÷4 estimate; the y-axis is the composite accuracy above. The verdict is computed so the persisted depth and the badge can never disagree: a healthy baseline (rung 0 ≥ 50%) that then drops ≥20pp = a cliff at that rung’s depth; a healthy baseline that holds = “✓ no cliff”; a baseline already below 50% = “fails from start” (broken at the smallest context, a tool-call failure — not a context limit); an errored baseline = unmeasured. Because a cliff is a diagnostic, the probe defaults to Greedy (temperature 0) decoding so the same (model, collection) reproduces the same verdict run-to-run — untick “Greedy (temp 0)” to sample at your global temperature instead. The probe never auto-runs: you start it with Execute Probe, or from the Performance Matrix via “Run probe ↗” on an un-measured model or the “↻” re-probe control beside an already-measured cliff badge — both pre-fill the model + collection and open the Audit tab.",
+        how: "The x-axis is the model’s real measured prompt-token depth (prompt_eval_count, averaged per rung) — never a chars÷4 estimate; the y-axis is the composite accuracy above. The verdict is computed so the persisted depth and the badge can never disagree: a healthy baseline (rung 0 ≥ 50%) that then drops ≥20pp = a cliff at that rung’s depth; a healthy baseline that holds = “✓ no cliff”; a baseline already below 50% = “fails from start” (broken at the smallest context, a tool-call failure — not a context limit); an errored baseline = unmeasured. Because a cliff is a diagnostic, the probe defaults to Greedy (temperature 0) decoding so the same (model, collection) reproduces the same verdict run-to-run — untick “Greedy (temp 0)” to sample at your global temperature instead. The probe never auto-runs: you start it with Execute Probe, or from the Model Results table via “Run probe ↗” on an un-measured model or the “↻” re-probe control beside an already-measured badge — both pre-fill the model + collection and open the Audit tab.",
         formula:
           "baseline = composite(rung 0)\n" +
           "if baseline < 0.50            → broken-baseline (“fails from start”)\n" +
@@ -352,15 +352,15 @@ export const HELP_SECTIONS: HelpSection[] = [
         heading: "History timeline",
         what: "A line chart (one series per model) of each model’s score across consecutive runs.",
         why: "Single runs can’t tell you about regressions; a trend line catches the moment a model — or a prompt change — starts doing worse.",
-        how: "X = run order (oldest → newest), Y = composite/pass-rate %. Each model is a coloured line with dots; hover a dot for its run number and exact value. It tracks the same metrics the Performance Matrix reports.",
+        how: "X = run order (oldest → newest), Y = composite/pass-rate %. Each model is a coloured line with dots; hover a dot for its run number and exact value. It tracks the same metrics the Model Results table reports.",
         source: "frontend/src/features/eval/components/matrix/HistoryTimeline.tsx",
       },
       {
         id: "cliff-here",
-        heading: "Context-Cliff probe (also here)",
-        what: "The same Context-Cliff probe and chart from the Eval tab, reachable from Audit.",
-        why: "The cliff is part of the audit story for a model, so the probe lives where you review history too — and “Run probe ↗” from the Matrix pre-fills and lands here.",
-        how: "Identical to the probe documented under Eval → Context-Cliff (verdicts, the 50% baseline gate, the ≥20pp cliff rule). On completion the depth is saved to the backend per (collection, model).",
+        heading: "Context Stress Test (also here)",
+        what: "The same Context Stress Test and chart from the Tests tab, reachable from Audit.",
+        why: "The context limit is part of the audit story for a model, so the test lives where you review history too — and “Run probe ↗” from Model Results pre-fills and lands here.",
+        how: "Identical to the test documented under Tests → Context Stress Test (verdicts, the 50% baseline gate, the ≥20pp collapse rule). On completion the depth is saved to the backend per (collection, model).",
       },
       {
         id: "audit-export",

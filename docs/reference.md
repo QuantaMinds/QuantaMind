@@ -133,9 +133,9 @@ always clear what you're running and how:
   **Ollama is multi-select** (1 → a single run in the Workspace; 2+ → a
   sequential/parallel compare shown in the Workspace, results on Analysis);
   **llama.cpp/MLX are single-select**. Every page reads this — there is no
-  per-page model picker. Analysis is results-only; Eval has its own *target*
+  per-page model picker. Analysis is results-only; Tests has its own *target*
   multi-select but it is filtered to the selected backend; the Audit
-  Context-Cliff probe runs one global model (a dropdown picks which when 2+
+  Context Stress Test runs one global model (a dropdown picks which when 2+
   Ollama models are selected).
 
 The llama.cpp path posts to the templated `/v1/chat/completions` (the server is
@@ -147,7 +147,7 @@ build, or another OpenAI-style server answering on the same port — e.g.
 collision. See [llama.cpp won't stop / loops](#llama-loops).
 - **Inference params** (`paramsStore`) — temperature, top_p, top_k, max_tokens,
   repeat_penalty, seed. **The single source of truth for every run** — Workspace,
-  Analysis compare, Eval batch, and the Context-Cliff probe all read
+  Analysis compare, Eval batch, and the Context Stress Test all read
   `globalParams`. A field left unset is omitted so the backend default applies;
   ranges are validated at the Rust boundary (`commands/prompt/prompt_options.rs`).
   With **2+ Ollama models**, a "use the same parameters for all" toggle switches
@@ -402,7 +402,7 @@ exactly what to fix — none mean the app is broken:
 
 Downloads → **Clear cache** reclaims space taken by regenerable app data. It
 asks you to type `CLEAR` first, then deletes: eval regression history, the last
-batch reports, resumable job logs, pipeline-visualizer traces, context-cliff
+batch reports, resumable job logs, pipeline-visualizer traces, Context Stress Test
 measurements, and the recent-workspace list. It reports how much was freed.
 
 **Kept, always:** your downloaded models, custom eval collections, readiness
@@ -416,7 +416,7 @@ so we get your app version, OS, and current model.
 
 ## Tool-calling eval {#toolcall-eval}
 
-The **Eval** tab's tool-calling test measures whether a model can reliably drive
+The **Tests** tab's tool-calling test measures whether a model can reliably drive
 an agent — entirely offline and deterministic. Read the scores with these caveats:
 
 - **Prompt-based, not native function-calling.** The tool schemas are injected
@@ -466,7 +466,7 @@ an agent — entirely offline and deterministic. Read the scores with these cave
   100% args but 50% parse" reads correctly as *"reasoning is fine, formatting is
   brittle"* — the #1 local-agent failure. A metric shows **n/a** (not 0) when no
   task exercises it. An unreachable backend → **"Not available"**, never a score.
-- **Custom tasks** — author your own collections in the **Eval** tab (see the
+- **Custom tasks** — author your own collections in the **Tests** tab (see the
   contract below). The runner treats built-in and custom tasks identically.
 
 ## Agentic reliability eval {#agentic-eval}
@@ -476,8 +476,8 @@ through a stateful, multi-step loop inside a deterministic sandbox — measuring
 not just whether the model claims success, but whether it *did the work*, and how
 much compute it burned getting there. Agentic tasks live **alongside** single-turn
 tasks in the same collection (an agentic `ToolTask` carries an optional `agentic`
-spec); the **Eval** workspace runs a mixed collection across several models in one
-streaming batch and renders a per-model Matrix (Pass^k · Avg Steps · Effort · Top
+spec); the **Tests** workspace runs a mixed collection across several models in one
+streaming batch and renders a per-model Model Results (Pass^k · Avg Steps · Effort · Top
 Error), with a click-through Trace Debugger. See [the workspace](#eval-runner).
 
 - **Prompt-based sandbox, same as the tool-call eval.** The `DeterministicSandbox`
@@ -652,9 +652,9 @@ Error), with a click-through Trace Debugger. See [the workspace](#eval-runner).
   (on `BatchColumn` and the history `RunSummary`) marks this — effort must never be
   ranked across thinking/non-thinking models, the same rule already applied to
   prompt-path vs native-FC pass-rates.
-- **The Matrix columns.** Per model: **Pass^k · Avg Steps · Effort · Schema Resil.
-  · Cliff Depth · Top Error**. `Schema Resil.` is the Driver-D metric above;
-  `Cliff Depth` is the measured context-cliff depth from the Audit probe (real
+- **The Model Results columns.** Per model: **Pass^k · Avg Steps · Effort · Schema Resil.
+  · Context Limit · Top Error**. `Schema Resil.` is the Driver-D metric above;
+  `Context Limit` is the measured context limit from the Audit probe (real
   `prompt_eval_count` at the accuracy collapse), read from the backend per
   (collection, model); unmeasured cells show **"Run probe ↗"** which pre-fills the
   Audit probe for that model (model + collection + context length + steps — see
@@ -681,7 +681,7 @@ Run the curated built-in suite or your own task collections. Each collection is 
 JSON **array of `ToolTask`** objects, saved as one `.json` file under
 `app_config_dir/evals/` (portable — commit or send the file to share).
 
-**Authoring (master-detail).** In the **Eval** tab, **+ New Collection** opens a
+**Authoring (master-detail).** In the **Tests** tab, **+ New Collection** opens a
 small name dialog, then an empty task list. **+ Add Task** opens a task in its
 **detail** editor (id, prompt, tools JSON, expected JSON); **← Back** returns to
 the list. Click any task row to reopen its detail. Validation is friendly and
@@ -756,7 +756,7 @@ trust boundary.
 
 ## Model inspector & template guard {#model-inspector}
 
-The **Eval** tab inspects the selected installed model via Ollama's `/api/show`:
+The **Tests** tab inspects the selected installed model via Ollama's `/api/show`:
 
 - **Chat template** — the model's Go chat template, shown verbatim as inert text
   (never executed/injected). Use it to debug *why* prompts misbehave: a template
@@ -796,21 +796,21 @@ the recommendation honours the same gate.
 ## Silent CPU fallback {#cpu-fallback}
 
 When a model doesn't fully fit the accelerator, Ollama quietly offloads layers to system RAM and
-keeps running — far slower, and it silently ruins any speed/eval timing. The Eval tab flags this for
+keeps running — far slower, and it silently ruins any speed/eval timing. The Tests tab flags this for
 the selected model from `/api/ps` (`size_vram` vs `size`): "⚠ ~X% of this model is on CPU". Shown
 only when an accelerator is present and weights are actually spilled — **Ollama-only**, nothing
 fabricated on other backends or when the model isn't loaded.
 
 ## Context budget {#context-budget}
 
-The Inspector shows how much of the context window a run consumed — the exact server-reported
+The Latency tab shows how much of the context window a run consumed — the exact server-reported
 `prompt_eval_count` over the model's `context_length` — turning red at ≥95% (past which earlier
 tokens are silently dropped). Exact counts only; "Not available" when either number is missing.
 
 ## STT Inspector {#stt-inspector}
 
 After a transcription finishes, the STT workspace shows a measured profile of the run. Like the
-text Inspector, it never fabricates a number — any metric the backend can't supply reads **"N/A"**:
+text Latency tab, it never fabricates a number — any metric the backend can't supply reads **"N/A"**:
 
 - **Real-time factor (RTF)** — decoded audio seconds ÷ wall-clock seconds; `> 1×` is faster than
   real time. The denominator is the **decoded sample count** (a hardware fact), so it's the same
@@ -830,10 +830,10 @@ text Inspector, it never fabricates a number — any metric the backend can't su
 The behavioral analysis runs off the transcription's timed path, so measuring it never inflates the
 RTF it reports.
 
-### In the Analysis & Inspector tabs {#stt-inspector-tabs}
+### In the Analysis & Latency tabs {#stt-inspector-tabs}
 
 The same measured profile is surfaced with the visual density of the LLM views. Once a
-transcription completes, an **STT section auto-appears** in both the **Analysis** and **Inspector**
+transcription completes, an **STT section auto-appears** in both the **Analysis** and **Latency**
 tabs (alongside any LLM run — neither clobbers the other). It survives tab navigation because the
 finished transcript is held in a durable store, not the transient live-transcript store.
 
@@ -841,7 +841,7 @@ finished transcript is held in a durable store, not the transient live-transcrip
   throughput / TTFT bars), the full transcript text, and **Export Markdown / JSON** of the metrics +
   raw segments. **words/sec** is a *measured* count (real whitespace words ÷ wall seconds), **N/A**
   when wall time is missing — never an estimate.
-- **Inspector** — a wall-time **phase bar** `[ first segment | transcription ]` (the only honest
+- **Latency** — a wall-time **phase bar** `[ first segment | transcription ]` (the only honest
   split — whisper-server reports no model-load / encode / decode breakdown), the **confidence
   timeline**, a **confidence distribution** histogram, and the **metric-card grid**.
 
@@ -861,7 +861,7 @@ transcript):
 **The voice pipeline (STT → LLM).** When an LLM runs on the transcript — the **Auto-summarize**
 toggle (the STT→LLM auto-pipe), the voice panel's **Ask**, or a plain **Workspace** run after a
 transcription — its metrics render through the **same rich LLM views** as any other run: the full
-per-token `ModelTimeline` (phase bar, VRAM, context budget, token-latency chart) in the Inspector and
+per-token `ModelTimeline` (phase bar, VRAM, context budget, token-latency chart) in the Latency tab and
 the throughput / TTFT bars in the Analysis tab. The STT section sits **directly below** it, so both
 stages of the pipeline read top-to-bottom on one page. There is no separate, thinner LLM card — the
 LLM run is mirrored into the normal compare rows, so it stays the single source of those numbers.
@@ -872,7 +872,7 @@ transcript currently shown, so the two stages are never mismatched.
 
 ## STT Eval & Readiness {#stt-eval}
 
-Beyond the per-transcript Inspector, the **Analysis** tab has an **STT Eval & Readiness** panel that
+Beyond the per-transcript Latency tab, the **Analysis** tab has an **STT Eval & Readiness** panel that
 scores transcription *accuracy* across a batch and gives a go/no-go verdict. It is **decoupled from
 transcription**: it scores transcripts you've **already** produced (read from disk), so a sidecar
 crash can't kill a sweep, and you can re-score with a new metric in milliseconds without re-running
@@ -912,7 +912,7 @@ underlying data.
 
 ## Collection matrix & regression history {#matrix}
 
-The **LLM Performance Matrix** (in the Eval tab) batch-runs a whole collection across several
+The **Model Results** view (in the Tests tab) batch-runs a whole collection across several
 installed models at once and tracks how scores move over time. Pick an **Active Collection**, choose
 models from the **Models** dropdown, and press ▶ Run. Models run **sequentially** (local backends dislike
 concurrent load); one model's backend being down is captured as that **column's error** and never
@@ -957,7 +957,7 @@ back to a live trace.
 
 ## Eval Runner: Scoreboard ↔ Debugger {#eval-runner}
 
-The Simulator and the Pipeline visualizer are paired under an **Eval Runner** toggle in the Eval tab:
+The Simulator and the Pipeline visualizer are paired under an **Eval Runner** toggle in the Tests tab:
 
 - **Batch Scoreboard** — the *Tool-Calling Evaluation Simulator*. It has its own **Active Collection**
   picker, so it batch-runs **any** collection — your own custom collections as well as the built-in
@@ -1017,10 +1017,10 @@ tier→max-steps policy to lock it to. A **"Conditional" per-task status** isn't
 Pass/Fail only; Conditional exists for readiness verdicts, not per task). The trace panel's AST tab +
 inline decoy/hallucination annotations are out of scope (the Evaluator/Trace panel is untouched).
 
-## Context-cliff probe {#context-cliff}
+## Context Stress Test {#context-cliff}
 
 Runs a dataset at increasing prompt lengths and graphs where tool-call accuracy collapses
-— the "context cliff" many local models hit well before their advertised window. The engine is the
+— the point where long context breaks tool use, which many local models hit well before their advertised window. The engine is the
 **Tauri-free** `inference/eval/cliff/` module (`run_context_cliff` command), so the ladder, padding,
 needle sweep, verify-and-adjust, and classification are all unit-tested without a window; the frontend
 only charts the verified series it returns. The x-axis is the model's **real measured prompt-token
@@ -1097,7 +1097,7 @@ composite vs a **50%** bar.
 `frontend/src/features/eval/cliff.ts::classifyCliff` mirrors the same rules over the returned series for
 the read-out, so the persisted status and the displayed verdict can never disagree):
 
-| Verdict | Condition | Matrix cell |
+| Verdict | Condition | Model Results cell |
 |---|---|---|
 | **cliff** | Healthy baseline (rung 0 ≥ 50%), then a rung drops **≥ 20pp** below it | **N tok** (that rung's measured depth) |
 | **no-cliff** | Healthy baseline (rung 0 ≥ 50%) that held across the whole range | **✓ no cliff** (green) |
@@ -1137,8 +1137,8 @@ The `min_context_tokens` hard gate is **strict**: `Collapsed` passes iff `depth 
 passes iff `tested ≥ min` (an incomplete probe is not a pass); `NotProbed` blocks. Off in the built-in
 profiles, so cliff stays informational unless a custom profile opts in.
 
-**The probe is part of the pipeline, not a dead-end.** The journey is Eval → Audit → Agent Report.
-On the **Performance Matrix**, an unmeasured *Cliff Depth* cell shows **"Run probe ↗"** which
+**The probe is part of the pipeline, not a dead-end.** The journey is Tests → Audit → Agent Report.
+On the **Model Results**, an unmeasured *Context Limit* cell shows **"Run probe ↗"** which
 **pre-fills** the probe for that model + the current collection + a context length and switches to the
 Audit tab — it **never auto-runs** (a misclick must not lock the GPU on a long sweep); you click
 **Execute**. An *already-measured* cell instead shows a small **"↻"** re-probe control beside its depth
@@ -1147,9 +1147,9 @@ badge that takes the same pre-fill-and-open-Audit path (also never auto-running)
 The run lives in a store, so it **survives tab navigation** (a progress bar shows rung
 X/N at ~N tokens; **Stop** cancels). On completion the cliff is saved to the backend **per
 (collection, model)** — `~/.config/quantamind/cliff/<collection>.json`, written atomically
-(temp-file + rename) with the **raw** model name as the key (colons intact). The Matrix then shows the
+(temp-file + rename) with the **raw** model name as the key (colons intact). The Model Results then shows the
 real **N tok** (read from the backend, not browser storage), and `assess_readiness` feeds each model's
-cliff into the verdict: the Agent Report **displays** the Cliff depth, and the context gate **blocks**
+context limit into the verdict: the Agent Report **displays** the Context Limit, and the context gate **blocks**
 (*"reasoning cliff at X < Y needed"*) only when a profile **opts in** via `min_context_tokens` (now
 editable in the profile modal). The gate is off by default, so an un-probed model is never silently
 failed for context.
@@ -1456,9 +1456,9 @@ log stays intact for a later resume) — it never loads onto dirty VRAM, which i
 OOM it prevents. (Multi-model batches are Ollama-only; llama.cpp/MLX single-model servers
 already reap deterministically via `kill` + `wait`.)
 
-**Recovery.** On the Eval tab, if an interrupted run is found you're prompted to **Resume**
+**Recovery.** On the Tests tab, if an interrupted run is found you're prompted to **Resume**
 or **Discard**. Resume rebuilds the completed units into **one** partial report that paints
-the Matrix instantly (no per-task event flood), then continues the live run, skipping
+the Model Results instantly (no per-task event flood), then continues the live run, skipping
 completed units. On a clean finish the report is **transactionally** persisted — saved,
 verified on disk, and only **then** is the job log deleted — so a crash between the two can
 never lose the run. At most the one in-flight `(model, task)` re-runs.

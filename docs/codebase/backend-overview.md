@@ -170,7 +170,7 @@ its type, retrievable anywhere as `tauri::State<'_, T>` or
 | `workspace::workspaces::WorkspaceState` | `Mutex<Option<PathBuf>>` | Currently-open workspace root path. | [backend-persistence.md](backend-persistence.md) |
 | `settings::user_settings::UserSettingsState` | `Mutex<UserSettings>` + loaded flag | App-wide user settings, lazy-loaded. | [backend-persistence.md](backend-persistence.md) |
 | `eval::batch_cmd::BatchRunState` | `Mutex<Option<CancellationToken>>` | Cancel the running batch eval. | [backend-eval-engine.md](backend-eval-engine.md) |
-| `eval::readiness_cmd::CliffRunState` | `Mutex<Option<CancellationToken>>` | Cancel the running context-cliff probe. | [backend-eval-engine.md](backend-eval-engine.md) |
+| `eval::readiness_cmd::CliffRunState` | `Mutex<Option<CancellationToken>>` | Cancel the running Context Stress Test. | [backend-eval-engine.md](backend-eval-engine.md) |
 | `publish::auth_state::AuthState` | `Mutex<Option<String>>` | In-memory access token for publish (refresh token lives in OS keyring). | [backend-publish.md](backend-publish.md) |
 
 Pattern: most state is either a **cancellation handle** (`Option<CancellationToken>`,
@@ -188,7 +188,7 @@ The `invoke_handler!` table registers **123** commands. Grouped by
 
 | Group | # | What it does | Owning doc |
 |---|---|---|---|
-| `eval` | 29 | Eval engine: load/run tasks, tool-call eval + trace, custom/builtin collections, matrix runs, batch (run/stop/resume/discard), readiness profiles + assess, context-cliff probe. | [backend-eval-engine.md](backend-eval-engine.md) |
+| `eval` | 29 | Eval engine: load/run tasks, tool-call eval + trace, custom/builtin collections, matrix runs, batch (run/stop/resume/discard), readiness profiles + assess, Context Stress Test. | [backend-eval-engine.md](backend-eval-engine.md) |
 | `stt` | 22 | Speech-to-text: whisper-server start/stop/health/env, model download/catalog/list/delete, transcribe + load transcript, STT eval CRUD + report, STT readiness profiles. | [backend-stt.md](backend-stt.md) |
 | `workspace` | 15 | Workspace open/close/current/tree/recent, prompt file CRUD (load/save/create/rename/delete), run history (append/list/get/clear/remove). | [backend-persistence.md](backend-persistence.md) |
 | `settings` | 7 | Model settings (get + set temperature), storage path get/validate, user settings get/set + resolve models folder. | `commands/settings`, [backend-persistence.md](backend-persistence.md) |

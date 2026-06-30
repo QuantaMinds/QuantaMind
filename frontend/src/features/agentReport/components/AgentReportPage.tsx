@@ -469,7 +469,7 @@ export function AgentReportPage() {
             </div>
             <h3 className="text-base font-semibold text-slate-700">No batch report found</h3>
             <p className="text-sm text-slate-500 max-w-sm">
-              No batch report found for “{selected}”. Run a batch for this collection on the Eval tab, then come back to assess it.
+              No batch report found for “{selected}”. Run a batch for this collection on the Tests tab, then come back to assess it.
             </p>
           </div>
         )}

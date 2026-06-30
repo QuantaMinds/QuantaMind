@@ -1,6 +1,6 @@
 /// In-app help copy for the Eval/Audit tools and metrics — a single source of
-/// truth so the same explanation appears wherever a metric is shown (the Eval
-/// Performance Matrix tooltips and the Audit history popup).
+/// truth so the same explanation appears wherever a metric is shown (the Model
+/// Results tooltips and the Audit history popup).
 
 export interface Help {
   title: string;
@@ -10,8 +10,8 @@ export interface Help {
 /// What each tool does / when to use it / how it scores. Shown in an InfoButton.
 export const TOOL_HELP = {
   evalManager: {
-    title: "Eval Manager",
-    body: "Pick a collection (a built-in suite or your own), choose which models to test, set Iterations (k) and Max Steps, then run the batch. This is the control panel — it doesn't score anything itself; it dispatches the run that fills the Simulator and Performance Matrix.",
+    title: "Tests Manager",
+    body: "Pick a collection (a built-in suite or your own), choose which models to test, set Iterations (k) and Max Steps, then run the batch. This is the control panel — it doesn't score anything itself; it dispatches the run that fills the Simulator and Model Results.",
   },
   simulator: {
     title: "The Simulator (Batch Scoreboard)",
@@ -22,16 +22,16 @@ export const TOOL_HELP = {
     body: "Drill into ONE task end-to-end: the exact system prompt sent, the model's raw output, the tool call parsed from it, and the verdict (parsed? right tool? right args?). Use it when a cell failed and you need to see why — the eval is never a black box.",
   },
   performanceMatrix: {
-    title: "LLM Performance Matrix",
+    title: "Model Results",
     body: "Per-model summary of the last run — Pass^k, Avg Steps, Effort and the Top error for each model. Click a row to focus that model in the Simulator/Evaluator. Hover a column header for what it measures.",
   },
   auditHistory: {
-    title: "Saved Matrix History",
-    body: "A regression timeline of past batch runs for this collection — each model's pass-rate / composite over consecutive runs, so you can catch when a model (or a prompt change) regresses. Hover a point for its run number and score. It tracks the same metrics the Eval Performance Matrix reports: Pass^k (consistency), Effort (tokens to succeed), and the dominant Top error.",
+    title: "Results History",
+    body: "A regression timeline of past batch runs for this collection — each model's pass-rate / composite over consecutive runs, so you can catch when a model (or a prompt change) regresses. Hover a point for its run number and score. It tracks the same metrics the Model Results table reports: Pass^k (consistency), Effort (tokens to succeed), and the dominant Top error.",
   },
   contextCliff: {
-    title: "Context-Cliff Diagnostic Probe",
-    body: "Runs the chosen dataset at growing prompt lengths and graphs where tool-call accuracy collapses — the 'context cliff'. Use it to find a model's usable context window for tool use. Padding is approximate (≈tokens), so the depth is indicative, not a tokenizer count.",
+    title: "Context Stress Test",
+    body: "Runs the chosen dataset at growing prompt lengths and graphs where tool-call accuracy collapses — the point where long context breaks tool use. Use it to find a model's usable context window for tool use. Padding is approximate (≈tokens), so the depth is indicative, not a tokenizer count.",
   },
   iterations: {
     title: "Iterations (k)",
@@ -67,8 +67,8 @@ export const METRIC_HELP = {
     body: "Of the runs that hit a semantic schema error (missing/typed-wrong param), the share that recovered — emitted a valid call after the injected correction. '—' means no run ever hit one, so the metric didn't apply.",
   },
   cliffDepth: {
-    title: "Cliff depth",
-    body: "The measured context length (real prompt tokens) at which this model's accuracy collapses, from the Context-Cliff probe in the Audit tab. 'Accuracy' here is the composite tool-call score (parse + tool-selection + argument + abstention), 0–100%, scored at each rung. The cliff is the first rung that drops ≥20pp below the unpadded baseline. It feeds the Agent-Readiness verdict (a model that breaks down before your app's context needs is downgraded). States: 'Run probe ↗' until measured; 'N tok' = a measured cliff depth; '✓ no cliff' = a HEALTHY baseline (≥50%) that held the whole tested range; 'fails from start' = the baseline itself was below 50%, so the model is broken at the smallest context — a tool-call failure, not a context-length limit (not the same as 'no cliff').",
+    title: "Context Limit",
+    body: "The measured context length (real prompt tokens) at which this model's accuracy collapses, from the Context Stress Test in the Audit tab. 'Accuracy' here is the composite tool-call score (parse + tool-selection + argument + abstention), 0–100%, scored at each rung. The cliff is the first rung that drops ≥20pp below the unpadded baseline. It feeds the Agent-Readiness verdict (a model that breaks down before your app's context needs is downgraded). States: 'Run probe ↗' until measured; 'N tok' = a measured cliff depth; '✓ no cliff' = a HEALTHY baseline (≥50%) that held the whole tested range; 'fails from start' = the baseline itself was below 50%, so the model is broken at the smallest context — a tool-call failure, not a context-length limit (not the same as 'no cliff').",
   },
   passRate: {
     title: "Pass rate",
