@@ -49,6 +49,15 @@ cpal = "0.15"
 # Independent, deterministic (non-ML) voice-activity detection for the STT
 # silence-hallucination metric — never the model under test (anti-circularity).
 webrtc-vad = "0.4"
+# Per-user data / config directory resolution (platform::user_dirs) — resolves
+# to %LOCALAPPDATA%\QuantaMind on Windows, ~/.quantamind on Unix.
+dirs = "6"
+
+# Windows-only: process-group signaling for graceful sidecar stop (R1) and
+# TerminateProcess for hard stop. Aligned with the version already resolved in
+# the dep graph (tauri pulls it in).
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Console", "Win32_System_Threading"] }
 
 [dev-dependencies]
 mockito = "1"

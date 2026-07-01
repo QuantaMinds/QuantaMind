@@ -8,6 +8,7 @@ pub mod errors;
 pub mod inference;
 pub mod metrics;
 pub mod persistence;
+pub mod platform;
 pub mod sync;
 pub mod time_iso;
 pub mod validation;

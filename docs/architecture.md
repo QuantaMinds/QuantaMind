@@ -63,6 +63,19 @@ HTTP to a local Ollama server.
   short-lived access token is the only managed `AuthState` (un-gated so `.manage()`
   works in every build). The pure, metrics-only canonical record + hash + local
   pre-validation live as a leaf in `persistence/publish/`.
+- `platform/` — **OS platform adapter** (Unix vs Windows). One `EngineHost` trait
+  (`engine_host.rs`) with two impls — `UnixHost` (`unix_host.rs`) and `WindowsHost`
+  (`windows_host.rs`) — selected at compile time via `type Host = …` in `host.rs`;
+  every lifecycle module (`commands/{ollama,llama,stt}/…_runtime.rs`, plus
+  `commands/app_lifecycle.rs`) uses `platform::Host::…` instead of scattering
+  `#[cfg(target_os = "…")]` blocks. Methods: `resolve_on_path` (`which` vs
+  `where.exe`), `envs_for_lib_dir` (DYLD/LD/none), `apply_spawn_flags` (Windows
+  `CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP` — R1: the process-group flag is
+  what makes `graceful_stop` target the child instead of QuantaMind itself),
+  `graceful_stop` (SIGTERM vs `GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid)`),
+  `hard_stop` (SIGKILL vs `TerminateProcess`), `pid_alive`. Also `user_dirs::data_dir`
+  → `~/.quantamind` on Unix, `%LOCALAPPDATA%\QuantaMind` on Windows. Adding a new
+  engine = one adapter impl, no new cfg blocks.
 - `inference/` — backend adapters behind the `InferenceBackend` trait
   (`backend.rs`). `OllamaBackend`, `LlamaCppBackend` (a `llama-server` sidecar),
   and `MlxBackend` (`mlx_lm.server`, Apple Silicon) today; callers build one by
