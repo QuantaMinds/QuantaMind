@@ -146,7 +146,7 @@ describe("EvalManager Sidebar Controls", () => {
 
   it("renders the headers and Data Source radio controls", () => {
     render(<EvalManager {...props()} />);
-    expect(screen.getByText("1. EVAL MANAGER")).toBeInTheDocument();
+    expect(screen.getByText("1. TESTS MANAGER")).toBeInTheDocument();
     expect(screen.getByText("(File & Controls)")).toBeInTheDocument();
     expect(screen.getByText("◉ Built-in")).toBeInTheDocument();
     expect(screen.getByText("◯ Custom JSON")).toBeInTheDocument();

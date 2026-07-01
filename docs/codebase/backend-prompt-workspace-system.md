@@ -604,7 +604,7 @@ pub struct HardwareSnapshot {
   empty (not error) when Ollama is unreachable.
 - **What:** `LoadedModel { name, size_bytes, size_vram_bytes, context_length }`;
   `fetch_loaded` (empty on any failure); command `get_loaded_models`.
-- **How/Where used:** Inspector / live-memory view, leak heuristics.
+- **How/Where used:** Latency tab / live-memory view, leak heuristics.
 
 ### system/process_memory.rs
 

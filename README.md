@@ -27,6 +27,7 @@ Benchmark any **Ollama**, **llama.cpp**, or **MLX** model for *agentic readiness
 
 ## Table of contents
 
+- [Quick start](#quick-start)
 - [Your local model passed the demo. Will it survive an agent?](#your-local-model-passed-the-demo-will-it-survive-an-agent)
 - [What it does](#what-it-does)
 - [How it works](#how-it-works)
@@ -35,13 +36,12 @@ Benchmark any **Ollama**, **llama.cpp**, or **MLX** model for *agentic readiness
 - [Roadmap](#roadmap)
 - [Tech stack](#tech-stack)
 - [Architecture](#architecture)
-- [Quick start](#quick-start)
 - [Building from source](#building-from-source)
 - [Project layout](#project-layout)
 - [Deep dive — Workspace](#deep-dive--workspace)
 - [Deep dive — Speech-to-Text](#deep-dive--speech-to-text)
 - [Deep dive — Model Management](#deep-dive--model-management)
-- [Deep dive — Compare](#deep-dive--compare)
+- [Deep dive — Analysis](#deep-dive--analysis)
 - [Install pipeline internals](#install-pipeline-internals)
 - [Live model browsing](#live-model-browsing)
 - [Engineering principles](#engineering-principles)
@@ -52,6 +52,69 @@ Benchmark any **Ollama**, **llama.cpp**, or **MLX** model for *agentic readiness
 - [FAQ](#faq)
 - [License](#license)
 - [Acknowledgements](#acknowledgements)
+
+---
+
+## Quick start
+
+**Zero to a running window in ~5 minutes.** macOS only for now ([Windows/Linux on the Roadmap](#roadmap)); there are no prebuilt downloads yet, so running from source is the way in.
+
+```bash
+# 1) Toolchains  (skip any you already have)
+brew install rust node pnpm ollama
+xcode-select --install
+
+# 2) Start Ollama + pull a small model to gate
+ollama serve &
+ollama pull llama3.2:1b
+curl http://localhost:11434/api/tags          # smoke-test: Ollama is up
+
+# 3) Clone, install, run
+git clone https://github.com/QuantaMinds/QuantaMind.git
+cd QuantaMind/frontend
+pnpm install
+pnpm tauri dev                                 # first build is slow; opens a native window
+```
+
+That's it. The first run opens a native window. Open the **Tests** tab, pick the model you pulled, and run a built-in agentic collection to get your first **Ready / Conditional / NotReady** verdict — then check the **Agent Report** tab for the per-model breakdown. (Editing `frontend/src/App.tsx` and saving triggers HMR.)
+
+> 💬 **Hit a snag in these steps? [Open an issue](https://github.com/QuantaMinds/QuantaMind/issues)** — frictionless setup is a goal, so setup bugs are real bugs.
+
+<details>
+<summary><b>Prerequisites</b> — versions, and the optional backends</summary>
+
+| Tool | Version | Required? |
+|---|---|---|
+| **Rust** | 1.75+ | required |
+| **Node** | 20+ | required |
+| **pnpm** | 9+ | required |
+| **Ollama** | latest | required — the default backend |
+| **llama.cpp** (`llama-server`) | latest | optional — run GGUF models directly |
+| **MLX** (`pip install mlx-lm`) | latest | optional — Apple Silicon only |
+| **whisper.cpp** (`brew install whisper-cpp`) | latest | optional — speech-to-text, set up in-app under Models → Speech-to-Text |
+
+</details>
+
+### First prompt
+1. Open the **Workspace** tab and pick a model from the dropdown.
+2. Type a prompt (`Why is the sky blue?` is a good smoke test).
+3. Click **Run**.
+4. Watch tokens stream in. Note the metrics line below the output.
+
+### First install from the UI
+1. Open the **Models** tab (or the **Downloads** tab to add a new model).
+2. Pick a source:
+   - **Ollama Library** — type any model name (e.g. `mistral:7b`) and click Install.
+   - **Hugging Face** — search a GGUF repo, click a result, pick a variant.
+   - **Local File** — drag a `.gguf` onto the modal or click Browse.
+3. Confirm any disk-space warnings, click Install, watch the progress bar.
+
+### First transcription (voice)
+1. Open **Models → Speech-to-Text**. If whisper.cpp isn't found, run `brew install whisper-cpp` (the tab has a copy button) and click **Re-check**.
+2. Download a model from the catalog — **Base (English)** is a good first pick (~148 MB). The shared silero VAD comes with it automatically.
+3. In the header **Speech-to-Text** control, pick the model and press **▶** to start the engine. The Workspace switches to the two-pane transcribe view.
+4. Press **Record** (or upload a WAV), speak, then stop. The transcript streams into the left pane.
+5. Optionally type an assistant prompt, pick an LLM in the header, and click **Ask the assistant** — or flip on **Auto-summarize** to have it run automatically.
 
 ---
 
@@ -134,7 +197,7 @@ A cloud SaaS can't answer that, because it doesn't run on your machine and local
 - Storage path section that shows current `OLLAMA_MODELS` and *honestly* helps you change it
 
 ### Analysis
-- Top-level tab parallel to Workspace, with two sub-tabs: **Analysis** (compare) and **Quant**
+- Top-level tab parallel to Workspace, with two sub-tabs: **Analysis** (multi-model compare) and **Quant**
 - Multi-select installed models, one prompt, three strategies
 - Hardware feasibility verdict: `ok` / `risky` / `wont_fit` — computed at click time
 - Per-model streaming column with its own metrics row
@@ -146,14 +209,14 @@ A cloud SaaS can't answer that, because it doesn't run on your machine and local
 - The backend is bound to the model's weight format — auto-picked, never a silent fallback
 - Each external server is launched stream-aware (no blind timeout), reaped on app exit, and bound to a dynamically chosen free port
 
-### Inspector
+### Latency
 - Per-token timing forensics for the last run
 - TTFT breakdown: model-load vs prompt-prefill vs generation, as a stacked phase bar
 - Per-token latency timeline (visx) with outlier highlighting and phase boundaries
 - Inter-token latency histogram, VRAM bar, context-budget bar
 - Cold- vs warm-start comparison, memory-leak heuristic, regression alerts, HTML report export
 
-### Eval
+### Tests
 - Score models on **graduated tiered agentic scenarios** (Easy→Extreme) — the bundled suites span coding, finance, medical, legal, ecommerce, support, supply-chain, math/science, and clinical-trial domains; users add tasks or import JSON/CSV per tier
 - **Difficulty Tier** run control (`Auto`/Easy…Extreme): the chosen tier filters the Built-In list to that tier's collections and recommends both **Pass^k** (Easy 5 / Medium 8 / Hard 16 / Extreme 24) and the agentic **Max Steps** budget (Easy 8 / Medium 16 / Hard 32 / Extreme 48); `Auto` follows your machine's hardware class (shown as a "HW: …GB · class · tier recommended" hint). **Iterations (k)** and **Max Steps** are always editable — pre-filled with the tier's recommended value but yours to override. An **Anti-Saturation** toggle shuffles N never-correct decoy tools into each task to resist contamination; the scoreboard header echoes the live run as `Tier · K · Decoys`. Click a collection in the left sidebar to expand its tasks, each with hover **Edit**/**Delete** (editing a built-in saves a custom copy)
 - Deterministic, sandbox-free scoring: composite tool-call accuracy (parse · tool · args · abstain), **Pass^k** reliability, avg steps, effort, **schema resilience**, dominant failure mode
@@ -163,7 +226,7 @@ A cloud SaaS can't answer that, because it doesn't run on your machine and local
 - **Foreign-dialect verdict (honest, at production parity):** a mis-built model (e.g. a mis-quantized GGUF that emits unparseable harmony-ish token soup like `<|tool_response|>call:reply(text='…')`) is labeled **`foreign_dialect`** — its own failure verdict, distinct from "malformed JSON" or "hallucinated", so a template/dialect artifact is never mislabeled as a model-capability failure. Crucially these broken forms are **labeled, not salvaged**: the harness only recovers a call when a real client (Ollama's native parser) also would, so the bench can never score *more leniently than a real deployment* — the difference between "fail in the bench → succeed in production" and the inverse
 - **Empty-output verdict (honest):** a model that emits nothing usable — empty / whitespace / punctuation-only (e.g. a model that doesn't engage the prompt-based JSON tool format and emits a lone `.` before its stop token) — is labeled **`empty_output`**, distinct from "hallucinated": *"the model said nothing"* is not *"the model claimed it finished"*. Such a model typically needs the **Measure native tool-calling** toggle — the same model that emits `.` on the prompt path returns clean `tool_calls` natively
 - **Per-model stop tokens (no runaway generation):** harmony models (gpt-oss) end a turn on `<|return|>`/`<|call|>` and gemma on `<end_of_turn>` — none of them a plain EOS — so without the right stop sequences they emit those markers as *text* and generate until the token cap, hallucinating an entire fake multi-turn transcript. Each eval turn resolves the model's real end-of-turn tokens from its architecture (Ollama `/api/show`, metadata-only — no model reload) and passes them as `stop`, so generation halts cleanly at the tool call instead of looping
-- **Context-cliff** probe — backend engine that pads tasks with license-clean synthetic presets, sweeps the instruction across mid-document depths, and verifies each rung to ±5% of the target, finding the prompt length where tool-call accuracy collapses (real measured prompt tokens, never an estimate); the deep rungs are slow (a quarter-to-full context window of inference), so live progress is reported at *task* granularity — "rung r/N · padding to Nk tokens · position p/3 · task t/M" with an elapsed/ETA readout and an overall % bar — so a long rung shows continuous movement instead of looking stuck; the % bar is **monotonic and never reads a false 100%** — within-rung fill is capped below each rung boundary (it only crosses when the rung authoritatively completes) so a verify-and-adjust re-sweep can't bounce it back, and it snaps to 100% when an early-stopped probe finishes; every rung keeps a per-step trace — the exact system prompt + each needle position's output (pass or fail), streamed live per rung — surfaced as a per-row **View trace** in the results table (with an ⓘ explaining how Accuracy is scored) so a red "0% / Broken" shows *what* the model saw and emitted, not just that it failed
+- **Context Stress Test** — backend engine that pads tasks with license-clean synthetic presets, sweeps the instruction across mid-document depths, and verifies each rung to ±5% of the target, finding the prompt length where tool-call accuracy collapses (real measured prompt tokens, never an estimate); the deep rungs are slow (a quarter-to-full context window of inference), so live progress is reported at *task* granularity — "rung r/N · padding to Nk tokens · position p/3 · task t/M" with an elapsed/ETA readout and an overall % bar — so a long rung shows continuous movement instead of looking stuck; the % bar is **monotonic and never reads a false 100%** — within-rung fill is capped below each rung boundary (it only crosses when the rung authoritatively completes) so a verify-and-adjust re-sweep can't bounce it back, and it snaps to 100% when an early-stopped probe finishes; every rung keeps a per-step trace — the exact system prompt + each needle position's output (pass or fail), streamed live per rung — surfaced as a per-row **View trace** in the results table (with an ⓘ explaining how Accuracy is scored) so a red "0% / Broken" shows *what* the model saw and emitted, not just that it failed
 - Author custom collections by hand or bulk-load single-turn tasks via CSV import
 - Optional native function-calling path (Ollama `/api/chat` `tools`) alongside the prompt-based proxy
 - **Per-run trace inspector:** the agentic Trace Debugger splits a task's Pass^k repetitions into **collapsible "Run N of K" sections** (each with a PASS/FAIL/RUNNING chip and its own turn numbering) instead of one flat stream — so identical single-step runs no longer look like duplicate cards. The **Audit & Compliance** regression graph also refreshes live when a batch finishes for the shown collection (no app restart needed)
@@ -281,70 +344,6 @@ The two halves talk JSON over Tauri's IPC. Contracts are explicit in `shared/ipc
 
 > **New here?** [`ARCHITECTURE.md`](ARCHITECTURE.md) is the five-minute map of the
 > backend's hexagonal layout and the one dependency rule that keeps it navigable.
-
----
-
-## Quick start
-
-> **macOS only for now.** Windows and Linux builds are on the [Roadmap](#roadmap). There are no prebuilt downloads yet — running from source (below) is the way in, and the fastest way to send feedback.
-
-### Prerequisites
-
-| Tool | Version | Required? |
-|---|---|---|
-| **Rust** | 1.75+ | required |
-| **Node** | 20+ | required |
-| **pnpm** | 9+ | required |
-| **Ollama** | latest | required — the default backend |
-| **llama.cpp** (`llama-server`) | latest | optional — run GGUF models directly |
-| **MLX** (`pip install mlx-lm`) | latest | optional — Apple Silicon only |
-| **whisper.cpp** (`brew install whisper-cpp`) | latest | optional — speech-to-text, set up in-app under Models → Speech-to-Text |
-
-### Run it (copy-paste)
-
-One block, zero to a running window:
-
-```bash
-# 1) Toolchains  (skip any you already have)
-brew install rust node pnpm ollama
-xcode-select --install
-
-# 2) Start Ollama + pull a small model to gate
-ollama serve &
-ollama pull llama3.2:1b
-curl http://localhost:11434/api/tags          # smoke-test: Ollama is up
-
-# 3) Clone, install, run
-git clone https://github.com/QuantaMinds/QuantaMind.git
-cd QuantaMind/frontend
-pnpm install
-pnpm tauri dev                                 # first build is slow; opens a native window
-```
-
-The first run opens a native window. Open the **Eval** tab, pick the model you pulled, and run a built-in agentic collection to get your first **Ready / Conditional / NotReady** verdict — then check the **Agent Report** tab for the per-model breakdown. (Editing `frontend/src/App.tsx` and saving triggers HMR.)
-
-> 💬 **Hit a snag in these steps? [Open an issue](https://github.com/QuantaMinds/QuantaMind/issues)** — frictionless setup is a goal, so setup bugs are real bugs.
-
-### First prompt
-1. Pick a model from the dropdown.
-2. Type a prompt (`Why is the sky blue?` is a good smoke test).
-3. Click **Run**.
-4. Watch tokens stream in. Note the metrics line below the output.
-
-### First install from the UI
-1. Click the **+** next to the Model Picker to open the **Add Model** modal.
-2. Pick a tab:
-   - **Ollama Library** — type any model name (e.g. `mistral:7b`) and click Install.
-   - **Hugging Face** — search a GGUF repo, click a result, pick a variant.
-   - **Local File** — drag a `.gguf` onto the modal or click Browse.
-3. Confirm any disk-space warnings, click Install, watch the progress bar.
-
-### First transcription (voice)
-1. Open **Models → Speech-to-Text**. If whisper.cpp isn't found, run `brew install whisper-cpp` (the tab has a copy button) and click **Re-check**.
-2. Download a model from the catalog — **Base (English)** is a good first pick (~148 MB). The shared silero VAD comes with it automatically.
-3. In the header **Speech-to-Text** control, pick the model and press **▶** to start the engine. The Workspace switches to the two-pane transcribe view.
-4. Press **Record** (or upload a WAV), speak, then stop. The transcript streams into the left pane.
-5. Optionally type an assistant prompt, pick an LLM in the header, and click **Ask the assistant** — or flip on **Auto-summarize** to have it run automatically.
 
 ---
 
@@ -629,7 +628,7 @@ Sorted by size descending. Each row: family · parameter size · quantization ·
 
 ---
 
-## Deep dive — Compare
+## Deep dive — Analysis
 
 ### Strategy choice
 
@@ -921,7 +920,7 @@ Long files hide their dependencies, smuggle in second concerns, and make every r
 <details>
 <summary><b>Can I run QuantaMind without an internet connection?</b></summary>
 
-Yes, once you've installed at least one model. The Workspace, Voice (Speech-to-Text), and Compare tabs are fully offline. Only the Hugging Face tab — and downloading new LLM or whisper models — needs connectivity.
+Yes, once you've installed at least one model. The Workspace, Voice (Speech-to-Text), and Analysis tabs are fully offline. Only the Hugging Face tab — and downloading new LLM or whisper models — needs connectivity.
 
 </details>
 

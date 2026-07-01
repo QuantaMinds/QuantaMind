@@ -110,8 +110,8 @@ HTTP to a local Ollama server.
   (never the model's own `no_speech_prob` — that would be circular; an `assert_ne!`
   on the engine id enforces it). The `Profiler` is dropped (channel closed, thread
   drains) on any error `?`, so no partial profiling state lingers. The frontend
-  renders it in the **Analysis & Inspector tabs** (`features/sttInspector`, fed by a
-  durable `sttResultStore`) with the text-Inspector's N/A framing — see
+  renders it in the **Analysis & Latency tabs** (`features/sttInspector`, fed by a
+  durable `sttResultStore`) with the text Latency tab's N/A framing — see
   `reference.md#stt-inspector`.
   `inference/stt/eval/` is the **eval + readiness layer** (P4): a **dumb, decoupled
   scorer** over *stored* transcripts (it reads a `Transcript` JSON + an `eval_spec`,
@@ -190,7 +190,7 @@ HTTP to a local Ollama server.
    model list is filtered to the selected backend; switching backend reconciles
    the selection imperatively inside `setSelectedBackend` (trims off-backend
    models), never via a cross-store subscription. Every page reads this global
-   selection — there is no per-page model picker (Eval keeps its own batch-target
+   selection — there is no per-page model picker (Tests keeps its own batch-target
    multi-select, filtered to the backend).
 
 Update this section when a new top-level module is added, a boundary rule
@@ -267,7 +267,7 @@ The batch command also carries the **Phase-9 run-shape parameters** end-to-end:
 `RunConfig` (`#[serde(default)]` so older resumable job logs still parse), and
 `apply_overrides` stamps them onto each agentic spec at run time (tier → `spec.tier`
 + derived `pass_k_for(tier)` when no explicit `k`; decoys → `spec.axes.decoy_tools`).
-The eval page's tier-`Auto` mode + HW hint read a separate **`get_hardware_tier`**
+The Tests page's tier-`Auto` mode + HW hint read a separate **`get_hardware_tier`**
 command (`commands/eval/readiness_cmd.rs`) that classifies the machine via the
 readiness engine's `classify_bytes` + `default_required_tier` — one source of truth
 for the GB thresholds, never duplicated in TS.
@@ -418,7 +418,7 @@ one folder per commit, behavior unchanged).
   lookup is in `commands/system/hardware_mem.rs`. The 5.12–5.15 diagnostics are mostly frontend over
   data already fetched: `features/eval/CpuFallbackBanner` (silent CPU fallback, from `/api/ps`),
   `QuantPage::toolcallDelta` (quant parse-rate delta), `features/inspector/ContextBudgetBar`
-  (prompt_eval_count / context_length), and the context-cliff probe (`features/eval/cliff.ts` +
+  (prompt_eval_count / context_length), and the Context Stress Test (`features/eval/cliff.ts` +
   `useContextCliff` + `ContextCliffChart`, visx). Built-in eval presets (curated + `tasks_finance.json`)
   are enumerated by `toolcall/tasks.rs::BUILTIN_COLLECTIONS` behind `list_builtin_collections` /
   `get_builtin_collection`.

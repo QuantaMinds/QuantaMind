@@ -27,8 +27,8 @@ import { useNavStore, type TopView } from "./shared/state/navStore";
 const TABS: { id: TopView; label: string }[] = [
    { id: "workspace", label: "Workspace" },
    { id: "compare", label: "Analysis" },
-   { id: "inspector", label: "Inspector" },
-   { id: "eval", label: "Eval" },
+   { id: "inspector", label: "Latency" },
+   { id: "eval", label: "Tests" },
    { id: "audit", label: "Audit" },
    { id: "agentReport", label: "Agent Report" },
    { id: "models", label: "Models" },
@@ -92,8 +92,8 @@ export default function App() {
              </ErrorBoundary>
            </div>
            <div hidden={view !== "compare"} data-testid="view-compare"><ErrorBoundary label="Analysis"><AnalysisPage /></ErrorBoundary></div>
-           <div hidden={view !== "inspector"} data-testid="view-inspector"><ErrorBoundary label="Inspector"><InspectorPage /></ErrorBoundary></div>
-           <div hidden={view !== "eval"} data-testid="view-eval"><ErrorBoundary label="Eval"><EvalPage /></ErrorBoundary></div>
+           <div hidden={view !== "inspector"} data-testid="view-inspector"><ErrorBoundary label="Latency"><InspectorPage /></ErrorBoundary></div>
+           <div hidden={view !== "eval"} data-testid="view-eval"><ErrorBoundary label="Tests"><EvalPage /></ErrorBoundary></div>
            <div hidden={view !== "audit"} data-testid="view-audit"><ErrorBoundary label="Audit"><AuditPage /></ErrorBoundary></div>
            <div hidden={view !== "agentReport"} data-testid="view-agentReport"><ErrorBoundary label="Agent Report"><AgentReportPage /></ErrorBoundary></div>
            <div hidden={view !== "models"} data-testid="view-models"><ErrorBoundary label="Models"><ModelsPage /></ErrorBoundary></div>

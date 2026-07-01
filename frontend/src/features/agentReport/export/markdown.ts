@@ -48,7 +48,7 @@ function reasonsBlock(m: ModelVerdict): string[] {
   return [head, ...v.blocking.map((b) => `- ✗ ${b}`), ...v.conditions.map((c) => `- ! ${c}`), ""];
 }
 
-/// Build a shareable, offline GitHub-flavored Markdown readiness report. Pure
+/// Build a shareable, offline GitHub-flavored Markdown readiness report. 
 /// (no DOM, no network). Unmeasured metrics render "N/A", never fabricated.
 export function buildReadinessMarkdown(
   verdicts: ModelVerdict[],

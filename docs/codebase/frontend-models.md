@@ -205,7 +205,7 @@ network download — the file is already on disk). `onStt` is a thin downloading
 
 ### `installedModelsStore.ts` — the canonical installed-model registry ⭐
 **Responsibility:** *single source of truth* for "what models are installed", consumed by every
-model picker in the app (Workspace, Compare, Analysis, Eval). **Why:** one store, refreshed two
+model picker in the app (Workspace, Compare, Analysis, Tests). **Why:** one store, refreshed two
 ways — proactively by install hooks on success, and centrally by `installedModelsBus` on the
 backend's `models-changed` broadcast — so a new model appears even if the broadcast is dropped
 (listener race, `/api/tags` lag).
@@ -525,7 +525,7 @@ error (message + dismiss).
    `list_installed_stt_models`) and `setList`.
 7. **Appears everywhere.** Because `installedModelsStore` is the single registry, the new model
    now shows in `DownloadsInstalled` (grouped, badged) *and* in every model picker — Workspace,
-   Compare, Analysis, Eval — which all subscribe to the same store. No page reload, no per-picker
+   Compare, Analysis, Tests — which all subscribe to the same store. No page reload, no per-picker
    re-fetch.
 
 ---
