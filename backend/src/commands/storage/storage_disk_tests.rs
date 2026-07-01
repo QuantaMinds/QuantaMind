@@ -1,4 +1,13 @@
 use super::*;
+use std::sync::Mutex;
+
+// `QUANTAMIND_GGUF_DIR` / `QUANTAMIND_MLX_DIR` are process-global state, but
+// `cargo test` runs tests in parallel threads within the same process. Every
+// test below that reads or mutates one of these vars holds the matching lock
+// for its full body so the two groups can't interleave and observe each
+// other's env-var writes.
+static GGUF_ENV_LOCK: Mutex<()> = Mutex::new(());
+static MLX_ENV_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
 fn gguf_dest_sanitizes_model_tag_into_a_filename() {
@@ -12,11 +21,12 @@ fn gguf_dest_replaces_slashes_from_repo_style_names() {
     assert_eq!(p, PathBuf::from("/g/meta_llama_8b.gguf"));
 }
 
-// One test owns the QUANTAMIND_GGUF_DIR env var (cargo runs tests in parallel,
-// so a second env-mutating test would race this one). Uses `std::env::temp_dir`
-// for a real absolute cross-platform path — `/tmp/...` isn't absolute on Windows.
+// Holds GGUF_ENV_LOCK for its full body (see lock comment above). Uses
+// `std::env::temp_dir` for a real absolute cross-platform path — `/tmp/...`
+// isn't absolute on Windows.
 #[test]
 fn gguf_dir_precedence_setting_then_env_then_default() {
+    let _guard = GGUF_ENV_LOCK.lock().unwrap();
     let env_path = std::env::temp_dir().join("qm-gguf-test");
     let setting_path = std::env::temp_dir().join("qm-models-shared");
     std::env::set_var("QUANTAMIND_GGUF_DIR", &env_path);
@@ -48,9 +58,10 @@ fn mlx_model_dir_sanitizes_repo_into_a_subdir() {
     assert_eq!(p, PathBuf::from("/m/mlx-community_Llama-3.2-3B-Instruct-4bit"));
 }
 
-// One test owns QUANTAMIND_MLX_DIR (parallel tests would race an env mutation).
+// Holds MLX_ENV_LOCK for its full body (see lock comment above).
 #[test]
 fn mlx_dir_precedence_setting_then_env_then_default() {
+    let _guard = MLX_ENV_LOCK.lock().unwrap();
     let env_path = std::env::temp_dir().join("qm-mlx-test");
     let setting_path = std::env::temp_dir().join("qm-models-mlx");
     std::env::set_var("QUANTAMIND_MLX_DIR", &env_path);
@@ -76,6 +87,7 @@ fn mlx_dir_default_relative_setting_is_absolute() {
 // without failing the test.
 #[test]
 fn gguf_dir_default_targets_correct_per_os_leaf() {
+    let _guard = GGUF_ENV_LOCK.lock().unwrap();
     std::env::remove_var("QUANTAMIND_GGUF_DIR");
     let d = gguf_dir_resolved(None);
     #[cfg(windows)]
@@ -93,6 +105,7 @@ fn gguf_dir_default_targets_correct_per_os_leaf() {
 
 #[test]
 fn mlx_dir_default_targets_correct_per_os_leaf() {
+    let _guard = MLX_ENV_LOCK.lock().unwrap();
     std::env::remove_var("QUANTAMIND_MLX_DIR");
     let d = mlx_dir_resolved(None);
     #[cfg(windows)]
