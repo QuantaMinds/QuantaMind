@@ -1,2 +1,16 @@
+# pnpm 11 treats any `pnpm-workspace.yaml` as declaring a workspace root and
+# requires a non-empty `packages:` field. This is a single-package repo, not a
+# monorepo, so `packages: ['.']` names the current directory as the only
+# member — satisfies the schema without changing behaviour. Without this line,
+# `pnpm install --frozen-lockfile` errors with `packages field missing or
+# empty` on every CI run.
+packages:
+  - '.'
+
+# Pre-approve esbuild's postinstall script so pnpm 11's supply-chain gate
+# (`ERR_PNPM_IGNORED_BUILDS`) doesn't block `pnpm install` / `pnpm tauri dev`
+# on a fresh clone. Moved out of `package.json`'s legacy
+# `pnpm.onlyBuiltDependencies` field (deprecated in pnpm 11 — silently
+# ignored with a warning).
 allowBuilds:
   esbuild: true
