@@ -2986,6 +2986,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "cpal",
+ "dirs",
  "futures-util",
  "hound",
  "keyring",
@@ -3010,6 +3011,7 @@ dependencies = [
  "tokio-util",
  "uuid",
  "webrtc-vad",
+ "windows 0.61.3",
 ]
 
 [[package]]
