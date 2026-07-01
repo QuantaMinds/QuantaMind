@@ -1,4 +1,5 @@
 use crate::commands::storage::storage_types::DiskUsage;
+use crate::os;
 use std::path::{Path, PathBuf};
 use sysinfo::Disks;
 
@@ -12,20 +13,23 @@ pub(crate) fn absolutize(p: PathBuf) -> PathBuf {
 }
 
 /// Resolve the on-disk Ollama models directory. Respects `OLLAMA_MODELS`
-/// if set; otherwise defaults to `$HOME/.ollama/models` (works on macOS
-/// and Linux; Windows users will set the env var per M.13's settings).
+/// if set; otherwise defaults to `$HOME/.ollama/models` (via `dirs::home_dir`,
+/// which reads `USERPROFILE` on Windows and `HOME` on Unix — so Windows works
+/// without any env-var setup, matching the Ollama installer's default).
 pub fn models_dir() -> PathBuf {
     if let Ok(p) = std::env::var("OLLAMA_MODELS") {
         return absolutize(PathBuf::from(p));
     }
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/".to_string());
-    PathBuf::from(home).join(".ollama/models")
+    dirs::home_dir()
+        .map(|h| h.join(".ollama").join("models"))
+        .unwrap_or_else(|| PathBuf::from(".ollama/models"))
 }
 
 /// Shared GGUF weights folder, the source of truth for both backends. HF and
 /// local-file downloads are retained here (llama.cpp loads them directly;
 /// Ollama imports them). Precedence: user setting → `QUANTAMIND_GGUF_DIR` env →
-/// `~/.quantamind/gguf`.
+/// `~/.quantamind/gguf` on Unix / `%LOCALAPPDATA%\QuantaMind\gguf` on Windows
+/// (via `os::user_dirs::data_dir()`).
 pub fn gguf_dir_resolved(setting: Option<&str>) -> PathBuf {
     if let Some(p) = setting.filter(|s| !s.trim().is_empty()) {
         return absolutize(PathBuf::from(p));
@@ -33,8 +37,7 @@ pub fn gguf_dir_resolved(setting: Option<&str>) -> PathBuf {
     if let Ok(p) = std::env::var("QUANTAMIND_GGUF_DIR") {
         return absolutize(PathBuf::from(p));
     }
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/".to_string());
-    PathBuf::from(home).join(".quantamind/gguf")
+    os::user_dirs::data_dir().join("gguf")
 }
 
 /// The default/env-resolved weights folder (no user-setting override).
@@ -51,7 +54,8 @@ pub fn gguf_dest(dir: &Path, name: &str) -> PathBuf {
 
 /// Local MLX weights folder. Each MLX repo is snapshotted into its own subdir
 /// here (multi-file safetensors models, unlike single-file GGUF). Precedence:
-/// user setting → `QUANTAMIND_MLX_DIR` env → `~/.quantamind/mlx`.
+/// user setting → `QUANTAMIND_MLX_DIR` env → `~/.quantamind/mlx` on Unix /
+/// `%LOCALAPPDATA%\QuantaMind\mlx` on Windows.
 pub fn mlx_dir_resolved(setting: Option<&str>) -> PathBuf {
     if let Some(p) = setting.filter(|s| !s.trim().is_empty()) {
         return absolutize(PathBuf::from(p));
@@ -59,8 +63,7 @@ pub fn mlx_dir_resolved(setting: Option<&str>) -> PathBuf {
     if let Ok(p) = std::env::var("QUANTAMIND_MLX_DIR") {
         return absolutize(PathBuf::from(p));
     }
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/".to_string());
-    PathBuf::from(home).join(".quantamind/mlx")
+    os::user_dirs::data_dir().join("mlx")
 }
 
 /// The default/env-resolved MLX weights folder (no user-setting override).
@@ -74,6 +77,35 @@ pub fn mlx_dir() -> PathBuf {
 pub fn mlx_model_dir(dir: &Path, repo: &str) -> PathBuf {
     let safe = repo.replace(['/', ':'], "_");
     dir.join(safe)
+}
+
+/// On Windows only, warn via stderr if the legacy `~/.quantamind/gguf` or
+/// `~/.quantamind/mlx` folders exist alongside the new `%LOCALAPPDATA%\QuantaMind`
+/// default. **Never auto-move** — user model weights are irreplaceable, and a
+/// bad move here is unforgivable. The user must migrate manually. Idempotent —
+/// runs once at startup and just logs; the app keeps using the new default so
+/// nothing breaks.
+pub fn warn_on_legacy_windows_paths() {
+    #[cfg(windows)]
+    {
+        if std::env::var("QUANTAMIND_GGUF_DIR").is_ok() || std::env::var("QUANTAMIND_MLX_DIR").is_ok() {
+            return; // user has an explicit override — no legacy to warn about
+        }
+        let home = match dirs::home_dir() {
+            Some(h) => h,
+            None => return,
+        };
+        let legacy_gguf = home.join(".quantamind").join("gguf");
+        let legacy_mlx = home.join(".quantamind").join("mlx");
+        if legacy_gguf.exists() || legacy_mlx.exists() {
+            let new_dir = os::user_dirs::data_dir();
+            eprintln!(
+                "[storage] legacy weights folder detected at {}\\{{gguf,mlx}} — QuantaMind now defaults to {}. To migrate, move the files manually (nothing is auto-moved). Set QUANTAMIND_GGUF_DIR / QUANTAMIND_MLX_DIR to point at the legacy location if you prefer to keep it.",
+                home.join(".quantamind").display(),
+                new_dir.display(),
+            );
+        }
+    }
 }
 
 /// Compute total/free bytes for the disk that holds `probe_path`, plus
