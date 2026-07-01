@@ -57,7 +57,7 @@ Benchmark any **Ollama**, **llama.cpp**, or **MLX** model for *agentic readiness
 
 ## Quick start
 
-**Zero to a running window in ~5 minutes.** macOS only for now ([Windows/Linux on the Roadmap](#roadmap)); there are no prebuilt downloads yet, so running from source is the way in.
+**Zero to a running window in ~5 minutes.** macOS is first-class today; **Windows and Linux support is landing in phases** (see [Roadmap](#roadmap)) — the platform-adapter foundation is in place, sidecar lifecycles are being rewired. There are no prebuilt downloads yet, so running from source is the way in.
 
 ```bash
 # 1) Toolchains  (skip any you already have)
@@ -250,7 +250,7 @@ A cloud SaaS can't answer that, because it doesn't run on your machine and local
 ## Roadmap
 
 - **WebGPU** — run the readiness gate in the browser, on your own GPU, zero install.
-- **Windows + Linux** desktop builds.
+- **Windows + Linux** desktop builds — *in progress*. Platform-adapter foundation (Unix + Windows `EngineHost`) has landed; sidecar lifecycles (Ollama auto-start, `llama-server`, `whisper-server`), multi-vendor GPU probe (NVIDIA + AMD + Intel + DXGI), and native Windows storage paths are being rewired phase-by-phase.
 - **Expanded task suite** — more agentic tiers and domains.
 - **Deterministic visual environments** — stateful WebUI + vision/OCR readiness evals.
 
@@ -366,7 +366,7 @@ pnpm tauri build
 Outputs land in `backend/target/release/bundle/`:
 - macOS: `.dmg` and `.app`
 
-> **macOS only for now.** Windows and Linux builds are planned but not yet supported.
+> **macOS is the shipping target today.** Windows and Linux support is being rewired phase-by-phase — the platform-adapter foundation has landed but the runtime lifecycles aren't fully cross-platform yet. See the [Roadmap](#roadmap).
 
 ### Run the test suites
 
