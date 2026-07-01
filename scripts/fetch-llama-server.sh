@@ -16,13 +16,13 @@ case "$TRIPLE" in
     BIN_NAME="llama-server"
     ;;
   x86_64-unknown-linux-gnu)
-    ASSET="llama-${LLAMA_BUILD}-bin-ubuntu-x64.zip"
-    EXT="zip"
+    ASSET="llama-${LLAMA_BUILD}-bin-ubuntu-x64.tar.gz"
+    EXT="tar.gz"
     LIBS="*.so*"
     BIN_NAME="llama-server"
     ;;
   x86_64-pc-windows-msvc)
-    ASSET="llama-${LLAMA_BUILD}-bin-win-avx2-x64.zip"
+    ASSET="llama-${LLAMA_BUILD}-bin-win-cpu-x64.zip"
     EXT="zip"
     LIBS="*.dll"
     BIN_NAME="llama-server.exe"

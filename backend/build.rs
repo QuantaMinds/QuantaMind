@@ -35,12 +35,17 @@ fn main() {
     if let Err(e) = std::fs::create_dir_all(binaries) {
         println!("cargo:warning=could not create backend/binaries/: {e}");
     }
+    let bin_name = if cfg!(windows) {
+        "llama-server.exe"
+    } else {
+        "llama-server"
+    };
     // Re-run whenever the sidecar appears or disappears so the warning clears
     // as soon as fetch-llama-server.sh is run without needing a manual `cargo clean`.
-    println!("cargo:rerun-if-changed=binaries/llama-server");
-    if !binaries.join("llama-server").exists() {
+    println!("cargo:rerun-if-changed=binaries/{bin_name}");
+    if !binaries.join(bin_name).exists() {
         println!(
-            "cargo:warning=backend/binaries/llama-server is missing — run \
+            "cargo:warning=backend/binaries/{bin_name} is missing — run \
              scripts/fetch-llama-server.sh before bundling, or llama.cpp \
              features will be unavailable at runtime."
         );
