@@ -16,11 +16,6 @@ on:
     branches: ['**']
   pull_request:
 
-# A newer push to the same branch/PR cancels the older in-flight run.
-concurrency:
-  group: ci-${{ github.ref }}-${{ matrix.os }}
-  cancel-in-progress: true
-
 jobs:
   test:
     strategy:
@@ -28,6 +23,15 @@ jobs:
       matrix:
         os: [macos-14, ubuntu-22.04, windows-latest]
     runs-on: ${{ matrix.os }}
+    # A newer push to the same branch/PR cancels the older in-flight run.
+    # Concurrency lives at the JOB level (not workflow level) because
+    # `matrix.os` is only in scope inside a job — a workflow-level
+    # `${{ matrix.os }}` is a validation error and fails the run outright
+    # ("This run likely failed because of a workflow file issue"). Per-leg
+    # groups so a new push cancels each matrix leg independently.
+    concurrency:
+      group: ci-${{ github.ref }}-${{ matrix.os }}
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
 
