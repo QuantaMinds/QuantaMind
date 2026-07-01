@@ -95,18 +95,31 @@ describe("OllamaEmptyState", () => {
     );
   });
 
-  it("when auto-start is unsupported, idle state hides Start and offers Check again instead", async () => {
-    vi.mocked(invoke).mockImplementation((cmd: string) =>
-      Promise.resolve(cmd === "ollama_auto_start_supported" ? false : undefined),
-    );
+  // Phase 2 runtime-contract update: when `ollama_auto_start_supported()`
+  // returns false, the meaning is "not found on disk" (was: "wrong OS"). The
+  // copy shifts from "Auto-start isn't supported on this OS yet" to
+  // "Ollama isn't installed on this machine" with a per-OS install command
+  // block. Test asserts the new copy shape.
+  it("when Ollama isn't on disk, empty state offers a per-OS install command and Check again", async () => {
+    vi.mocked(invoke).mockImplementation((cmd: string) => {
+      if (cmd === "ollama_auto_start_supported") return Promise.resolve(false);
+      if (cmd === "os_platform") return Promise.resolve("macos");
+      return Promise.resolve(undefined);
+    });
     render(<OllamaEmptyState />);
     await waitFor(() =>
       expect(screen.getByTestId("ollama-check-again-button")).toBeInTheDocument(),
     );
     expect(screen.queryByTestId("ollama-start-button")).not.toBeInTheDocument();
-    expect(screen.getByText(/Auto-start isn't supported on this OS yet/)).toBeInTheDocument();
+    expect(screen.getByText(/Ollama isn't installed on this machine/)).toBeInTheDocument();
+    // The per-OS install command block is present with a Copy button.
+    expect(screen.getByTestId("ollama-install-cmd")).toBeInTheDocument();
+    expect(screen.getByTestId("ollama-install-copy")).toBeInTheDocument();
   });
 
+  // The `manual_start_required` variant is unreachable from Rust as of Phase 2
+  // (see `OllamaStartResult` docstring), but the frontend still renders it if
+  // it ever surfaces. Test kept for wire-format compat.
   it("manual_start_required shows manual-start guidance with a Check again action", async () => {
     mockInvoke([{ status: "manual_start_required", install_url: "https://ollama.com/download" }]);
     render(<OllamaEmptyState />);
