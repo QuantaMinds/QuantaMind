@@ -68,22 +68,27 @@ pub fn bin_name() -> &'static str {
 }
 
 /// Spawn `whisper-server` from `dir` (binary + dylibs colocated; `current_dir`
-/// + `DYLD_FALLBACK_LIBRARY_PATH` resolve `@loader_path` libs). stderr is piped
-/// into a tail ring for crash diagnosis; stdout/stdin nulled. Returns the child
-/// (caller owns its lifecycle) and the shared tail.
+/// + per-OS lib-path envs from `Host::envs_for_lib_dir` resolve `@loader_path`
+/// libs on macOS/Linux; Windows finds DLLs next to the .exe without any env).
+/// stderr is piped into a tail ring for crash diagnosis; stdout/stdin nulled.
+/// Returns the child (caller owns its lifecycle) and the shared tail.
 pub fn spawn_server(
     dir: &Path,
     args: &[String],
 ) -> Result<(Child, Arc<Mutex<VecDeque<String>>>), String> {
-    let mut child = Command::new(dir.join(bin_name()))
-        .args(args)
+    use crate::os::{EngineHost, Host};
+    let mut cmd = Command::new(dir.join(bin_name()));
+    cmd.args(args)
         .current_dir(dir)
-        .env("DYLD_FALLBACK_LIBRARY_PATH", dir)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| e.to_string())?;
+        .stderr(Stdio::piped());
+    for (k, v) in Host::envs_for_lib_dir(dir) {
+        cmd.env(k, v);
+    }
+    // R1 spawn flags on Windows (CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP).
+    Host::apply_spawn_flags(&mut cmd);
+    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
     let tail = Arc::new(Mutex::new(VecDeque::new()));
     if let Some(stderr) = child.stderr.take() {
         spawn_stderr_reader(stderr, Arc::clone(&tail));
@@ -91,36 +96,25 @@ pub fn spawn_server(
     Ok((child, tail))
 }
 
-#[cfg(unix)]
-fn request_graceful_stop(pid: u32) {
-    let _ = Command::new("kill")
-        .arg("-TERM")
-        .arg(pid.to_string())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-}
-
-/// Terminate the running server. Graceful first (R4): SIGTERM, then up to 2 s
-/// for a clean exit that releases the port, then a hard kill. The server only
-/// *reads* model files, so a hard kill can never corrupt weights — graceful is
-/// purely for clean teardown. Uses the system `kill` (no new crate); Windows
-/// has no SIGTERM, so it falls straight through to the hard kill. Idempotent:
-/// killing an already-exited child is success.
+/// Terminate the running server. Graceful first (R4): request a stop via
+/// `Host::graceful_stop` (SIGTERM on Unix, `GenerateConsoleCtrlEvent
+/// (CTRL_BREAK_EVENT, pid)` on Windows — safe only because `apply_spawn_flags`
+/// put each child in its own process group), poll `pid_alive` for up to 2 s,
+/// then hard-kill through the `Child` handle. The server only *reads* model
+/// files, so a hard kill can never corrupt weights — graceful is purely for
+/// clean teardown. Idempotent: killing an already-exited child is success.
 pub fn kill_server(child: &mut Child) -> Result<(), String> {
+    use crate::os::{EngineHost, Host};
     if matches!(child.try_wait(), Ok(Some(_))) {
         return Ok(());
     }
-    #[cfg(unix)]
-    {
-        request_graceful_stop(child.id());
-        let start = Instant::now();
-        while start.elapsed() < Duration::from_millis(GRACEFUL_WAIT_MS) {
-            if matches!(child.try_wait(), Ok(Some(_))) {
-                return Ok(());
-            }
-            std::thread::sleep(Duration::from_millis(100));
+    let _ = Host::graceful_stop(child.id());
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_millis(GRACEFUL_WAIT_MS) {
+        if matches!(child.try_wait(), Ok(Some(_))) {
+            return Ok(());
         }
+        std::thread::sleep(Duration::from_millis(100));
     }
     match child.kill() {
         Ok(()) => {

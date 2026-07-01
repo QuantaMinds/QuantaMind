@@ -92,7 +92,53 @@ pub fn install_signal_reaper(app: AppHandle) {
     });
 }
 
-#[cfg(not(unix))]
+/// Windows: a **defense-in-depth fallback** only (R2). A windowed Tauri app on
+/// Windows has no console attached, so `SetConsoleCtrlHandler` never fires on a
+/// normal user launch. The **primary reap path on Windows** is Tauri's
+/// `on_window_event(WindowEvent::CloseRequested)` in `lib.rs`, which calls
+/// `reap_managed` on the window close, plus `RunEvent::ExitRequested` via
+/// `reap_on_exit`. `sweep_orphans` at startup is the last-resort backstop for a
+/// crash where neither of the above fires. This handler catches the edge case
+/// of a console-attached run (dev-tool invocation, `cmd`-launched binary).
+#[cfg(windows)]
+#[allow(unsafe_code)]
+pub fn install_signal_reaper(app: AppHandle) {
+    use std::sync::OnceLock;
+    use windows::Win32::System::Console::{
+        SetConsoleCtrlHandler, CTRL_BREAK_EVENT, CTRL_CLOSE_EVENT, CTRL_C_EVENT,
+        CTRL_LOGOFF_EVENT, CTRL_SHUTDOWN_EVENT,
+    };
+
+    static REAP_APP: OnceLock<AppHandle> = OnceLock::new();
+
+    unsafe extern "system" fn handler(ctrl_type: u32) -> windows::core::BOOL {
+        let handled = ctrl_type == CTRL_C_EVENT
+            || ctrl_type == CTRL_BREAK_EVENT
+            || ctrl_type == CTRL_CLOSE_EVENT
+            || ctrl_type == CTRL_LOGOFF_EVENT
+            || ctrl_type == CTRL_SHUTDOWN_EVENT;
+        if !handled {
+            return false.into();
+        }
+        if let Some(app) = REAP_APP.get() {
+            eprintln!("[reap] console ctrl event {ctrl_type} — stopping servers");
+            reap_managed(app);
+        }
+        true.into()
+    }
+
+    if REAP_APP.set(app).is_err() {
+        return; // already registered — idempotent
+    }
+    // SAFETY: `handler` matches PHANDLER_ROUTINE. A failure here (no console
+    // attached, which is the norm for a windowed launch) means the fallback
+    // silently isn't installed — the Tauri window-close primary still fires.
+    unsafe {
+        let _ = SetConsoleCtrlHandler(Some(handler), true);
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
 pub fn install_signal_reaper(_app: AppHandle) {}
 
 #[cfg(test)]

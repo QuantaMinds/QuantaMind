@@ -1,17 +1,18 @@
-// Windows-only. This is the ONLY file in the crate that needs `unsafe {}`
-// blocks — the crate root sets `#![deny(unsafe_code)]`, and we scope a
-// targeted allow here rather than punching a hole in the whole workspace.
-#![cfg(target_os = "windows")]
+// Windows-only. This file is not even parsed on macOS/Linux builds — the
+// `pub mod windows;` in `os/mod.rs` is `#[cfg(target_os = "windows")]`-gated.
+// This is the ONLY file in the crate that needs `unsafe {}` blocks; the crate
+// root sets `#![deny(unsafe_code)]`, and we scope a targeted allow here rather
+// than punching a hole in the whole workspace.
 #![allow(unsafe_code)]
 
-use crate::platform::EngineHost;
+use crate::os::EngineHost;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use windows::Win32::Foundation::CloseHandle;
-use windows::Win32::System::Console::{GenerateConsoleCtrlEvent, CTRL_BREAK_EVENT};
-use windows::Win32::System::Threading::{
+use ::windows::Win32::Foundation::CloseHandle;
+use ::windows::Win32::System::Console::{GenerateConsoleCtrlEvent, CTRL_BREAK_EVENT};
+use ::windows::Win32::System::Threading::{
     OpenProcess, TerminateProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
 };
 
@@ -106,8 +107,8 @@ mod tests {
     #[test]
     fn pid_alive_true_for_self_false_for_impossible() {
         assert!(WindowsHost::pid_alive(std::process::id()));
-        // pid 0 is the System Idle Process — not openable with our access
-        // rights; a healthy Windows returns Err here.
+        // pid 0xFFFF_FFFF is not openable with our access rights; a healthy
+        // Windows returns Err here.
         assert!(!WindowsHost::pid_alive(0xFFFF_FFFF));
     }
 
@@ -125,7 +126,5 @@ mod tests {
         assert_eq!(CREATE_NEW_PROCESS_GROUP, 0x0000_0200);
         let mut cmd = Command::new("cmd");
         WindowsHost::apply_spawn_flags(&mut cmd);
-        // If this compiles + runs, the flags call went through — the OS
-        // rejects invalid combinations at spawn time.
     }
 }

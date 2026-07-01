@@ -63,19 +63,30 @@ HTTP to a local Ollama server.
   short-lived access token is the only managed `AuthState` (un-gated so `.manage()`
   works in every build). The pure, metrics-only canonical record + hash + local
   pre-validation live as a leaf in `persistence/publish/`.
-- `platform/` — **OS platform adapter** (Unix vs Windows). One `EngineHost` trait
-  (`engine_host.rs`) with two impls — `UnixHost` (`unix_host.rs`) and `WindowsHost`
-  (`windows_host.rs`) — selected at compile time via `type Host = …` in `host.rs`;
-  every lifecycle module (`commands/{ollama,llama,stt}/…_runtime.rs`, plus
-  `commands/app_lifecycle.rs`) uses `platform::Host::…` instead of scattering
-  `#[cfg(target_os = "…")]` blocks. Methods: `resolve_on_path` (`which` vs
-  `where.exe`), `envs_for_lib_dir` (DYLD/LD/none), `apply_spawn_flags` (Windows
-  `CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP` — R1: the process-group flag is
-  what makes `graceful_stop` target the child instead of QuantaMind itself),
-  `graceful_stop` (SIGTERM vs `GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid)`),
-  `hard_stop` (SIGKILL vs `TerminateProcess`), `pid_alive`. Also `user_dirs::data_dir`
-  → `~/.quantamind` on Unix, `%LOCALAPPDATA%\QuantaMind` on Windows. Adding a new
-  engine = one adapter impl, no new cfg blocks.
+- `os/` — **OS platform adapter** with strict per-OS files. One `EngineHost`
+  trait (`engine_host.rs`) with three impls — `macos::MacosHost`,
+  `linux::LinuxHost`, `windows::WindowsHost` — each in its own file
+  `#[cfg(target_os = "…")]`-gated at the mod declaration, so a macOS build
+  contains **zero** Windows/Linux code, a Windows build contains zero
+  macOS/Linux code, and so on. `host.rs` type-aliases `Host` to the right impl
+  via `cfg`, with a `compile_error!` for unsupported target OSes. Every
+  lifecycle module (`commands/{ollama,llama,stt}/…_runtime.rs`, plus
+  `commands/app_lifecycle.rs`) uses `os::Host::…` instead of scattering
+  `#[cfg(target_os = "…")]` blocks. Methods: `resolve_on_path` (`which` on
+  macOS/Linux vs `where.exe` on Windows), `envs_for_lib_dir`
+  (`DYLD_FALLBACK_LIBRARY_PATH` on macOS, `LD_LIBRARY_PATH` on Linux, empty on
+  Windows), `apply_spawn_flags` (Windows `CREATE_NO_WINDOW |
+  CREATE_NEW_PROCESS_GROUP` — R1: the process-group flag is what makes
+  `graceful_stop` target the child instead of QuantaMind itself; no-op on
+  Unix), `graceful_stop` (SIGTERM on Unix vs `GenerateConsoleCtrlEvent
+  (CTRL_BREAK_EVENT, pid)` on Windows), `hard_stop` (SIGKILL vs
+  `TerminateProcess`), `pid_alive`. Also `user_dirs::data_dir` →
+  `~/.quantamind` on Unix, `%LOCALAPPDATA%\QuantaMind` on Windows.
+  Cross-OS-testable helpers (pure fallback-path builders, JSON parsers) live
+  in cfg-neutral files so their tests run on any CI runner; per-OS lifecycle
+  code is only compiled + tested on its own OS runner (Phase 5 CI matrix
+  covers all three). Adding a new engine = one adapter impl, no new cfg
+  blocks in the caller sites.
 - `inference/` — backend adapters behind the `InferenceBackend` trait
   (`backend.rs`). `OllamaBackend`, `LlamaCppBackend` (a `llama-server` sidecar),
   and `MlxBackend` (`mlx_lm.server`, Apple Silicon) today; callers build one by
