@@ -1,15 +1,39 @@
+import { useHostOs } from "../../../shared/os/useHostOs";
+import type { HostOs } from "../../../shared/ipc/system/os_platform";
+
+/// Per-OS install / reinstall guidance line. Falls back to macOS Homebrew when
+/// the OS is `unknown` (dev without Tauri IPC).
+function installStep(os: HostOs | null, reinstall: boolean): string {
+  switch (os) {
+    case "windows":
+      return reinstall
+        ? "Run `winget upgrade --id ggerganov.whisper.cpp`, then click Re-check."
+        : "Run `winget install ggerganov.whisper.cpp`, then click Re-check.";
+    case "linux":
+      return "Download whisper.cpp from https://github.com/ggerganov/whisper.cpp/releases and drop `whisper-server` into ~/.local/bin (or /usr/local/bin), then click Re-check.";
+    case "mac":
+    default:
+      return reinstall
+        ? "Run `brew reinstall whisper-cpp`, then click Re-check."
+        : "On macOS, run `brew install whisper-cpp`, then click Re-check.";
+  }
+}
+
 /// Turn a raw STT error into plain-language guidance with concrete next steps —
 /// so a failure reads as "here's how to fix it", never "the app is broken".
 /// Returns null when we have no specific advice (caller shows the raw message).
 /// Mirrors `importGuidance` in models/components/LocalFilePreview.tsx.
-export function sttGuidance(msg: string): { title: string; steps: string[] } | null {
+///
+/// `os` is optional so tests can call with a known host; the React component
+/// wraps this with `useHostOs()`.
+export function sttGuidance(msg: string, os: HostOs | null = "mac"): { title: string; steps: string[] } | null {
   const m = msg.toLowerCase();
   if (m.includes("library not loaded") || m.includes("dyld") || m.includes("can't run")) {
     return {
       title: "whisper.cpp is installed but can't run",
       steps: [
         "The engine is present but its libraries are missing or mismatched.",
-        "Run `brew reinstall whisper-cpp`, then click Re-check.",
+        installStep(os, true),
       ],
     };
   }
@@ -18,7 +42,7 @@ export function sttGuidance(msg: string): { title: string; steps: string[] } | n
       title: "whisper.cpp isn't installed",
       steps: [
         "Speech-to-text needs the whisper.cpp engine.",
-        "On macOS, run `brew install whisper-cpp`, then click Re-check.",
+        installStep(os, false),
       ],
     };
   }
@@ -87,7 +111,8 @@ export function lastLines(text: string, n = 8): string {
 /// STT errors as actionable guidance, not a raw dump. Unknown errors fall back
 /// to the plain message. Mirrors `ImportError`.
 export function SttError({ message, testid = "stt-error" }: { message: string; testid?: string }) {
-  const g = sttGuidance(message);
+  const os = useHostOs();
+  const g = sttGuidance(message, os);
   if (!g) {
     return (
       <div role="alert" data-testid={testid} className="text-red-600 text-xs">

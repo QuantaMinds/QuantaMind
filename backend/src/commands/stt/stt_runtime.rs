@@ -186,16 +186,66 @@ mod tests {
         assert!(!reachable_at("http://127.0.0.1:1", 1000).await, "refused is not reachable");
     }
 
-    #[cfg(unix)]
+    // R4 — portable child spinner: sleeps N seconds on both OSes.
+    //
+    // On Unix: `sh -c "sleep N"` — straightforward.
+    //
+    // On Windows: `powershell.exe Start-Sleep -Seconds N`. Rejected alternatives:
+    // * `ping -n N 127.0.0.1 -w 1000` — localhost replies instantly so the
+    //   "sleep" completes in ms. The classic Windows sleep-hack landmine.
+    // * `ping <non-routable> -n 1 -w N000` — depends on network stack state,
+    //   fails on machines with strict egress filtering.
+    // * `cmd /c timeout /t N /nobreak` — DEMONSTRATED in test at
+    //   `spin_helper_actually_sleeps_at_least_a_second` to return in ~58ms
+    //   when stdio is redirected. `timeout` skips its countdown when it
+    //   can't attach to a console — which is exactly our spawned-child case.
+    // PowerShell is a heavier startup but reliably blocks under redirected
+    // stdio, which is what the child-lifecycle tests need.
+    #[cfg(test)]
+    fn spawn_spin_child_for_secs(secs: u32) -> std::process::Child {
+        #[cfg(windows)]
+        {
+            Command::new("powershell.exe")
+                .args(["-NoProfile", "-Command", &format!("Start-Sleep -Seconds {secs}")])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap()
+        }
+        #[cfg(not(windows))]
+        {
+            Command::new("sh")
+                .args(["-c", &format!("sleep {secs}")])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap()
+        }
+    }
+
+    #[test]
+    fn spin_helper_actually_sleeps_at_least_a_second() {
+        // Guardrail against a future refactor sneaking `ping -n 30 127.0.0.1`
+        // back in — that trick returns in ms because localhost never times
+        // out, so a child that "sleeps 30s" via ping actually exits
+        // instantly. This asserts the helper blocks for the requested
+        // duration (using 1s so the test itself stays fast).
+        let start = Instant::now();
+        let mut child = spawn_spin_child_for_secs(1);
+        // On both OSes the child should still be alive shortly after spawn.
+        assert!(matches!(child.try_wait(), Ok(None)),
+            "spin child exited too fast — is `ping` sneaking back in?");
+        let _ = child.wait();
+        let elapsed = start.elapsed();
+        assert!(elapsed >= Duration::from_millis(800),
+            "spin child took only {elapsed:?} — expected ~1s");
+    }
+
     #[test]
     fn kill_server_terminates_gracefully_and_is_idempotent() {
-        let mut child = Command::new("sleep")
-            .arg("30")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap();
-        // SIGTERM stops `sleep` well within the 2s grace window.
+        let mut child = spawn_spin_child_for_secs(30);
+        // graceful_stop (SIGTERM / CTRL_BREAK to the child's group) or hard
+        // kill fallback stops the child well within the 2s grace window.
         assert!(kill_server(&mut child).is_ok());
         assert!(matches!(child.try_wait(), Ok(Some(_))), "child exited after kill");
         // A second kill on an already-exited child is a no-op success.

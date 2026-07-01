@@ -5,11 +5,11 @@ name: CI
 # suite fire AUTOMATICALLY — not only when someone remembers to run them locally.
 # Release builds live in release.yml (tags only); this is the test gate.
 #
-# Runner: macos-14. `cargo test --lib` compiles the lib target, which pulls in
-# `tauri` (a regular [dependencies] entry) — on Linux that needs the
-# libwebkit2gtk-*-dev system libs, whereas macOS ships them, so the test job
-# stays dependency-free. (Verified: `cargo test --lib` compiles + passes on macOS
-# with no extra system packages.)
+# Phase 5: promoted to a per-OS matrix so Windows and Linux regressions are
+# caught here, not on release day. macOS remains the primary runner; Ubuntu
+# needs libwebkit2gtk-*-dev + gtk-3 + patchelf; Windows uses Git Bash for the
+# fetch-llama-server.sh sidecar script and VS Build Tools' `dumpbin` for the R3
+# DLL check in release.yml.
 
 on:
   push:
@@ -18,14 +18,27 @@ on:
 
 # A newer push to the same branch/PR cancels the older in-flight run.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref }}-${{ matrix.os }}
   cancel-in-progress: true
 
 jobs:
   test:
-    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-22.04, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+
+      # Linux needs the Tauri system libs so `cargo test --lib` (which pulls in
+      # `tauri` as a regular [dependencies] entry) compiles. macOS + Windows
+      # ship the equivalents.
+      - name: Install Linux Tauri deps
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
 
       # --- Backend: Rust lib tests (the green suite; NOT full `cargo test`, a
       #     pre-existing broken non-lib target blocks that). ---
@@ -33,6 +46,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: backend
+          key: ${{ matrix.os }}
+
       - name: cargo test --lib
         working-directory: backend
         run: cargo test --lib
