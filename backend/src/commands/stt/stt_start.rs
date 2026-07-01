@@ -63,33 +63,62 @@ fn first_dir_with_bin(dirs: &[PathBuf]) -> Option<PathBuf> {
     dirs.iter().find_map(|d| has_bin(d.clone()))
 }
 
-/// Discover a user-installed `whisper-server` on PATH or in the standard
-/// Homebrew prefixes, mirroring `ollama_runtime::resolve_ollama`. The hardcoded
-/// prefixes matter: a Finder-launched GUI app doesn't inherit the shell `PATH`,
-/// so `which` alone would miss a brew install.
-#[cfg(target_os = "macos")]
+/// Discover a user-installed `whisper-server` on PATH or in each OS's standard
+/// install prefixes, mirroring `ollama_runtime::resolve_ollama`. The hardcoded
+/// prefixes matter: a Finder / Explorer / Files-launched GUI app doesn't
+/// inherit the shell `PATH`, so `which` / `where.exe` alone would miss a
+/// brew / winget / apt install.
 fn resolve_whisper_on_path() -> Option<PathBuf> {
-    if let Ok(out) = std::process::Command::new("which").arg(bin_name()).output() {
-        if out.status.success() {
-            let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if let Some(dir) = (!path.is_empty()).then(|| PathBuf::from(&path)).as_ref().and_then(|p| p.parent()) {
-                if let Some(d) = has_bin(dir.to_path_buf()) {
-                    return Some(d);
-                }
-            }
+    use crate::os::{EngineHost, Host};
+    if let Some(parent) = Host::resolve_on_path(bin_name()) {
+        if let Some(d) = has_bin(parent) {
+            return Some(d);
         }
     }
-    for dir in ["/opt/homebrew/bin", "/usr/local/bin"] {
-        if let Some(d) = has_bin(PathBuf::from(dir)) {
+    for dir in whisper_fallback_dirs() {
+        if let Some(d) = has_bin(dir) {
             return Some(d);
         }
     }
     None
 }
 
-#[cfg(not(target_os = "macos"))]
-fn resolve_whisper_on_path() -> Option<PathBuf> {
-    None
+/// Per-OS well-known install prefixes for whisper.cpp. macOS: Homebrew.
+/// Windows: `%LOCALAPPDATA%\Programs\whisper-cpp` (winget default) + Scoop
+/// shims. Linux: `~/.local/bin`, `/usr/local/bin`, `/usr/bin`.
+fn whisper_fallback_dirs() -> Vec<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        vec![PathBuf::from("/opt/homebrew/bin"), PathBuf::from("/usr/local/bin")]
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let mut v = Vec::new();
+        if let Ok(lad) = std::env::var("LOCALAPPDATA") {
+            v.push(PathBuf::from(&lad).join("Programs").join("whisper-cpp"));
+        }
+        if let Ok(up) = std::env::var("USERPROFILE") {
+            v.push(PathBuf::from(&up).join("scoop").join("shims"));
+            v.push(
+                PathBuf::from(&up)
+                    .join("scoop")
+                    .join("apps")
+                    .join("whisper-cpp")
+                    .join("current"),
+            );
+        }
+        v
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let mut v = Vec::new();
+        if let Ok(home) = std::env::var("HOME") {
+            v.push(PathBuf::from(&home).join(".local").join("bin"));
+        }
+        v.push(PathBuf::from("/usr/local/bin"));
+        v.push(PathBuf::from("/usr/bin"));
+        v
+    }
 }
 
 /// Whether the STT engine is present AND actually runnable in this environment.
@@ -109,14 +138,16 @@ pub struct WhisperEnv {
 /// Prove `whisper-server` actually runs from `dir` (its dylibs resolve), not just
 /// that the file exists: run `--help` with the same env `spawn_server` uses. A
 /// broken install exits non-zero with a dyld `Library not loaded: …` line on
-/// stderr, which we return (last few lines) as the diagnostic.
+/// stderr (macOS), a `ld.so: cannot open shared object` line (Linux), or a
+/// `0xC0000135` exit (Windows, missing DLL) — we return the diagnostic tail.
 fn dry_run(dir: &Path) -> Result<(), String> {
-    let out = std::process::Command::new(dir.join(bin_name()))
-        .arg("--help")
-        .current_dir(dir)
-        .env("DYLD_FALLBACK_LIBRARY_PATH", dir)
-        .output()
-        .map_err(|e| e.to_string())?;
+    use crate::os::{EngineHost, Host};
+    let mut cmd = std::process::Command::new(dir.join(bin_name()));
+    cmd.arg("--help").current_dir(dir);
+    for (k, v) in Host::envs_for_lib_dir(dir) {
+        cmd.env(k, v);
+    }
+    let out = cmd.output().map_err(|e| e.to_string())?;
     if out.status.success() {
         return Ok(());
     }

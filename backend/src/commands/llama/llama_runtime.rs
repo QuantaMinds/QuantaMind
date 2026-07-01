@@ -205,24 +205,29 @@ pub fn bin_name() -> &'static str {
 
 /// Spawn `llama-server` from `dir` (which holds the binary and its dylibs),
 /// returning the child so the caller owns its lifecycle. `current_dir` +
-/// `DYLD_FALLBACK_LIBRARY_PATH` ensure the `@rpath`/`@loader_path` dylibs
-/// resolve regardless of cwd. Killing by `Child` handle is portable across
-/// macOS / Windows / Linux, unlike Ollama's macOS-only `pkill`.
+/// per-OS lib-path env vars (from `Host::envs_for_lib_dir`) ensure the
+/// `@rpath` / `@loader_path` dylibs resolve regardless of cwd. Killing by
+/// `Child` handle is portable across macOS / Windows / Linux, unlike Ollama's
+/// macOS-only `pkill`.
 ///
 /// stderr is `piped` (not discarded) so the caller can drain it for the death
 /// diagnosis — e.g. a bundled binary too old for `--jinja` exits immediately,
 /// and its stderr names the rejected flag.
 pub fn spawn_server(dir: &Path, args: &[String]) -> Result<Child, String> {
+    use crate::os::{EngineHost, Host};
     let mut cmd = Command::new(dir.join(bin_name()));
     cmd.args(args)
         .current_dir(dir)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
-    #[cfg(target_os = "macos")]
-    cmd.env("DYLD_FALLBACK_LIBRARY_PATH", dir);
-    #[cfg(target_os = "linux")]
-    cmd.env("LD_LIBRARY_PATH", dir);
+    for (k, v) in Host::envs_for_lib_dir(dir) {
+        cmd.env(k, v);
+    }
+    // R1: on Windows, sets CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP so a
+    // subsequent `graceful_stop` targets the child (and its tree), not us.
+    // No-op on Unix.
+    Host::apply_spawn_flags(&mut cmd);
     cmd.spawn().map_err(|e| e.to_string())
 }
 

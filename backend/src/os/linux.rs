@@ -1,10 +1,13 @@
-use crate::platform::EngineHost;
+// Linux-only. This file is not even parsed on macOS/Windows builds — the
+// `pub mod linux;` in `os/mod.rs` is `#[cfg(target_os = "linux")]`-gated.
+
+use crate::os::EngineHost;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-pub struct UnixHost;
+pub struct LinuxHost;
 
-impl EngineHost for UnixHost {
+impl EngineHost for LinuxHost {
     fn resolve_on_path(bin: &str) -> Option<PathBuf> {
         let out = Command::new("which").arg(bin).output().ok()?;
         if !out.status.success() {
@@ -18,19 +21,9 @@ impl EngineHost for UnixHost {
     }
 
     fn envs_for_lib_dir(dir: &Path) -> Vec<(&'static str, PathBuf)> {
-        #[cfg(target_os = "macos")]
-        {
-            vec![("DYLD_FALLBACK_LIBRARY_PATH", dir.to_path_buf())]
-        }
-        #[cfg(target_os = "linux")]
-        {
-            vec![("LD_LIBRARY_PATH", dir.to_path_buf())]
-        }
-        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-        {
-            let _ = dir;
-            Vec::new()
-        }
+        // Linux: ld.so's `LD_LIBRARY_PATH` resolves `$ORIGIN`-style RPATHs when
+        // the sidecar's `.so`s sit alongside the binary.
+        vec![("LD_LIBRARY_PATH", dir.to_path_buf())]
     }
 
     fn apply_spawn_flags(_cmd: &mut Command) {
@@ -39,10 +32,6 @@ impl EngineHost for UnixHost {
     }
 
     fn graceful_stop(pid: u32) -> Result<(), String> {
-        // Shell out to `kill` — the app already uses this idiom elsewhere and
-        // one extra process spawn is cheap next to the grace window that
-        // follows. `kill -TERM` on a gone pid exits 1 (already dead), which we
-        // treat as success (caller wanted it stopped).
         let _ = Command::new("kill")
             .arg("-TERM")
             .arg(pid.to_string())
@@ -63,8 +52,6 @@ impl EngineHost for UnixHost {
     }
 
     fn pid_alive(pid: u32) -> bool {
-        // `kill -0` sends no signal; succeeds only when the pid exists and is
-        // signalable — the standard Unix liveness probe.
         Command::new("kill")
             .arg("-0")
             .arg(pid.to_string())
@@ -80,25 +67,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn envs_for_lib_dir_names_the_right_var() {
-        let envs = UnixHost::envs_for_lib_dir(Path::new("/lib"));
+    fn envs_for_lib_dir_uses_ld_var() {
+        let envs = LinuxHost::envs_for_lib_dir(Path::new("/lib"));
         assert_eq!(envs.len(), 1);
-        let (k, _) = envs[0];
-        #[cfg(target_os = "macos")]
-        assert_eq!(k, "DYLD_FALLBACK_LIBRARY_PATH");
-        #[cfg(target_os = "linux")]
-        assert_eq!(k, "LD_LIBRARY_PATH");
+        assert_eq!(envs[0].0, "LD_LIBRARY_PATH");
     }
 
     #[test]
     fn pid_alive_matches_self_and_dead_child() {
-        assert!(UnixHost::pid_alive(std::process::id()));
-        // Spawn a trivial child, reap it, then confirm its pid is dead.
+        assert!(LinuxHost::pid_alive(std::process::id()));
         let mut child = Command::new("true").spawn().unwrap();
         let pid = child.id();
         child.wait().unwrap();
         std::thread::sleep(std::time::Duration::from_millis(20));
-        assert!(!UnixHost::pid_alive(pid));
+        assert!(!LinuxHost::pid_alive(pid));
     }
 
     #[test]
@@ -107,14 +89,12 @@ mod tests {
         let pid = child.id();
         child.wait().unwrap();
         std::thread::sleep(std::time::Duration::from_millis(20));
-        assert!(UnixHost::hard_stop(pid).is_ok());
+        assert!(LinuxHost::hard_stop(pid).is_ok());
     }
 
     #[test]
-    fn resolve_on_path_finds_a_standard_binary() {
-        // `sh` exists on macOS + Linux; `which sh` should succeed and its
-        // parent (typically `/bin`) is a real directory.
-        let dir = UnixHost::resolve_on_path("sh").expect("sh must be on PATH");
+    fn resolve_on_path_finds_sh() {
+        let dir = LinuxHost::resolve_on_path("sh").expect("sh must be on PATH");
         assert!(dir.exists(), "resolved dir {dir:?} should exist");
     }
 }

@@ -35,16 +35,23 @@ fn manual_start_required_serializes_with_install_url() {
     assert!(json.contains(r#""install_url":"https://ollama.com/download""#));
 }
 
-#[cfg(not(target_os = "macos"))]
-#[test]
-fn auto_start_is_unsupported_off_macos() {
-    assert!(!AUTO_START_SUPPORTED);
-}
+// Phase 2 (runtime contract shift): the two prior `AUTO_START_SUPPORTED`
+// compile-time-constant tests are removed. The new contract is
+// `auto_start_supported() == resolve_ollama().is_some()` — a tautology under
+// test conditions (the CI runner may or may not have Ollama installed), so a
+// hardcoded per-OS expectation isn't meaningful anymore. The behaviour is
+// exercised end-to-end by the frontend `OllamaEmptyState` tests (which mock
+// the IPC return) and by the live Windows verify gate (proves the button
+// reads "Start Ollama" when %LOCALAPPDATA%\Programs\Ollama\ollama.exe
+// exists).
 
-#[cfg(target_os = "macos")]
 #[test]
-fn auto_start_is_supported_on_macos() {
-    assert!(AUTO_START_SUPPORTED);
+fn auto_start_supported_matches_resolve_ollama_presence() {
+    use crate::commands::ollama::ollama_runtime::{auto_start_supported, resolve_ollama};
+    // The runtime contract is a strict projection: they're the same
+    // condition. Green regardless of whether Ollama is installed on the CI
+    // runner — the invariant is the equivalence itself.
+    assert_eq!(auto_start_supported(), resolve_ollama().is_some());
 }
 
 #[test]

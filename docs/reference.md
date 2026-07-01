@@ -179,11 +179,22 @@ links the classifier emits (mirrored at `quantamind.co/docs/troubleshooting`).
 QuantaMind talks to a local Ollama server at `localhost:11434`. If it isn't
 running you'll see "Ollama isn't running".
 
-- Click **Start Ollama** in the model picker's empty state (macOS), or run
-  `ollama serve` in a terminal.
+- Click **Start Ollama** in the model picker's empty state — the button now
+  works on **macOS, Windows, and Linux** (Phase 2). QuantaMind resolves
+  `ollama` on PATH (`which` on macOS/Linux, `where.exe` on Windows) plus
+  well-known install prefixes: `/opt/homebrew/bin` and `/usr/local/bin` on
+  macOS; `%LOCALAPPDATA%\Programs\Ollama\ollama.exe` and
+  `C:\Program Files\Ollama\ollama.exe` on Windows; `/usr/local/bin` and
+  `/usr/bin` on Linux.
+- If it isn't installed, install per-OS:
+  - **macOS:** `brew install ollama`
+  - **Windows:** `winget install Ollama.Ollama`
+  - **Linux:** `curl -fsSL https://ollama.com/install.sh | sh`
+- Or run `ollama serve` in a terminal.
 - Confirm it's up: `curl http://localhost:11434/api/tags` should return JSON.
-- On Windows/Linux, launch the Ollama app/service manually — in-app start is
-  macOS-only in this release.
+- On Windows the child is spawned with `CREATE_NO_WINDOW` (no console flash)
+  and its own process group (R1), so QuantaMind's Stop control cleanly kills
+  Ollama's whole tree without touching QuantaMind itself.
 
 ### llama.cpp won't stop / repeats forever {#llama-loops}
 
@@ -358,18 +369,30 @@ The raw parser detail is kept (demoted) under **Details:** for diagnosis.
 ### Setting up speech-to-text (whisper.cpp) {#stt-server}
 
 STT runs on **whisper.cpp**, its own axis parallel to the LLM backend — one STT
-runs alongside one LLM. Install it (`brew install whisper-cpp`), download a model
-in Models → Speech-to-Text, then pick it in the header STT group and press ▶. See
-below for details.
+runs alongside one LLM. Install it (macOS: `brew install whisper-cpp`;
+Windows: `winget install ggerganov.whisper.cpp` or `scoop install whisper-cpp`;
+Linux: download a release from
+[whisper.cpp releases](https://github.com/ggerganov/whisper.cpp/releases) and
+put `whisper-server` on your PATH), download a model in Models → Speech-to-Text,
+then pick it in the header STT group and press ▶. See below for details.
 
-The whisper.cpp engine. On macOS, install it once with Homebrew — the
-**Speech-to-Text** tab walks you through it:
+The whisper.cpp engine — install it once for your OS:
 
-1. Install [Homebrew](https://brew.sh) if you don't have it.
-2. Run `brew install whisper-cpp` (the tab has a copy button).
-3. Click **Re-check** — QuantaMind finds it automatically on `PATH`/Homebrew
-   (`check_whisper_env`); no path setup needed. Installed it elsewhere? Use
-   **Choose its folder** (remembered across launches).
+- **macOS:** `brew install whisper-cpp` (the Speech-to-Text tab has a copy
+  button).
+- **Windows:** `winget install ggerganov.whisper.cpp` (primary) or
+  `scoop install whisper-cpp` — QuantaMind then finds it under
+  `%LOCALAPPDATA%\Programs\whisper-cpp`, `%USERPROFILE%\scoop\shims`, or
+  `%USERPROFILE%\scoop\apps\whisper-cpp\current`.
+- **Linux:** grab a release binary from
+  [whisper.cpp releases](https://github.com/ggerganov/whisper.cpp/releases)
+  and drop `whisper-server` into `~/.local/bin`, `/usr/local/bin`, or
+  `/usr/bin` — QuantaMind checks all three.
+
+Click **Re-check** — QuantaMind finds it automatically on `PATH` + the
+per-OS well-known prefixes above (`check_whisper_env`); no path setup needed
+if you used the recommended installer. Installed it elsewhere? Use
+**Choose its folder** (remembered across launches).
 
 If the tab says **"installed but can't run"**, the binary is present but its
 libraries are missing/mismatched (a dyld *Library not loaded* error, shown under
