@@ -44,6 +44,13 @@ pub fn locate(configured: Option<&str>) -> Option<PathBuf> {
 mod tests {
     use super::*;
 
+    /// `#[cfg(unix)]`-gated: the assertion checks for `/usr/bin` and
+    /// `/opt/homebrew/bin` which don't exist on Windows. MLX itself is
+    /// Apple-Silicon-only (`mlx_supported()` gates all runtime paths on
+    /// `cfg!(all(target_os = "macos", target_arch = "aarch64"))`), so the
+    /// locator this test covers never runs on Windows regardless — the test
+    /// is meaningful only where the code it tests actually executes.
+    #[cfg(unix)]
     #[test]
     fn candidate_dirs_covers_path_entries_venvs_and_homebrew() {
         let dirs = candidate_dirs(Some("/Users/x"), Some("/usr/bin:/bin"));
