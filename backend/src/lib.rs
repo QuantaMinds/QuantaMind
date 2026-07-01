@@ -50,6 +50,10 @@ pub fn run() {
             // Sweep any half-installed STT artifacts left by a prior crash, so a
             // model reads installed only when its real files are present (R3).
             let _ = commands::stt::stt_disk::reconcile_stt_dir(&commands::stt::stt_disk::stt_dir());
+            // Phase 4: on Windows only, warn if legacy `~/.quantamind/*` folders
+            // exist alongside the new `%LOCALAPPDATA%\QuantaMind` default. Never
+            // auto-move — user weights are irreplaceable.
+            commands::storage::storage_disk::warn_on_legacy_windows_paths();
             // Clear leftover recording scratch from a prior session.
             commands::stt::transcribe::clear_scratch(app.handle());
             Ok(())

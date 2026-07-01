@@ -13,21 +13,25 @@ fn gguf_dest_replaces_slashes_from_repo_style_names() {
 }
 
 // One test owns the QUANTAMIND_GGUF_DIR env var (cargo runs tests in parallel,
-// so a second env-mutating test would race this one).
+// so a second env-mutating test would race this one). Uses `std::env::temp_dir`
+// for a real absolute cross-platform path — `/tmp/...` isn't absolute on Windows.
 #[test]
 fn gguf_dir_precedence_setting_then_env_then_default() {
-    std::env::set_var("QUANTAMIND_GGUF_DIR", "/tmp/qm-gguf-test");
-    assert_eq!(gguf_dir(), PathBuf::from("/tmp/qm-gguf-test"), "env beats default");
-    assert_eq!(gguf_dir_resolved(Some("/models/shared")), PathBuf::from("/models/shared"),
+    let env_path = std::env::temp_dir().join("qm-gguf-test");
+    let setting_path = std::env::temp_dir().join("qm-models-shared");
+    std::env::set_var("QUANTAMIND_GGUF_DIR", &env_path);
+    assert_eq!(gguf_dir(), env_path, "env beats default");
+    assert_eq!(gguf_dir_resolved(Some(setting_path.to_str().unwrap())), setting_path,
         "setting beats env");
-    assert_eq!(gguf_dir_resolved(Some("  ")), PathBuf::from("/tmp/qm-gguf-test"),
+    assert_eq!(gguf_dir_resolved(Some("  ")), env_path,
         "blank setting falls through to env");
     std::env::remove_var("QUANTAMIND_GGUF_DIR");
 }
 
 #[test]
 fn resolved_setting_wins_without_touching_env() {
-    assert_eq!(gguf_dir_resolved(Some("/models/shared")), PathBuf::from("/models/shared"));
+    let setting_path = std::env::temp_dir().join("qm-models-shared-2");
+    assert_eq!(gguf_dir_resolved(Some(setting_path.to_str().unwrap())), setting_path);
 }
 
 #[test]
@@ -47,11 +51,13 @@ fn mlx_model_dir_sanitizes_repo_into_a_subdir() {
 // One test owns QUANTAMIND_MLX_DIR (parallel tests would race an env mutation).
 #[test]
 fn mlx_dir_precedence_setting_then_env_then_default() {
-    std::env::set_var("QUANTAMIND_MLX_DIR", "/tmp/qm-mlx-test");
-    assert_eq!(mlx_dir(), PathBuf::from("/tmp/qm-mlx-test"), "env beats default");
-    assert_eq!(mlx_dir_resolved(Some("/models/mlx")), PathBuf::from("/models/mlx"),
+    let env_path = std::env::temp_dir().join("qm-mlx-test");
+    let setting_path = std::env::temp_dir().join("qm-models-mlx");
+    std::env::set_var("QUANTAMIND_MLX_DIR", &env_path);
+    assert_eq!(mlx_dir(), env_path, "env beats default");
+    assert_eq!(mlx_dir_resolved(Some(setting_path.to_str().unwrap())), setting_path,
         "setting beats env");
-    assert_eq!(mlx_dir_resolved(Some("  ")), PathBuf::from("/tmp/qm-mlx-test"),
+    assert_eq!(mlx_dir_resolved(Some("  ")), env_path,
         "blank setting falls through to env");
     std::env::remove_var("QUANTAMIND_MLX_DIR");
 }
@@ -61,4 +67,43 @@ fn mlx_dir_default_relative_setting_is_absolute() {
     let resolved = mlx_dir_resolved(Some("./mlx"));
     assert!(resolved.is_absolute(), "expected absolute, got {resolved:?}");
     assert!(resolved.ends_with("mlx"));
+}
+
+// Phase 4: on Windows the default lands under %LOCALAPPDATA%\QuantaMind\{gguf,mlx};
+// on Unix it stays under ~/.quantamind/{gguf,mlx} — byte-identical to before the
+// refactor. Only asserts the LEAF path components (which are stable) so a runner
+// that doesn't have %LOCALAPPDATA% or $HOME set falls to a bare relative path
+// without failing the test.
+#[test]
+fn gguf_dir_default_targets_correct_per_os_leaf() {
+    std::env::remove_var("QUANTAMIND_GGUF_DIR");
+    let d = gguf_dir_resolved(None);
+    #[cfg(windows)]
+    {
+        assert!(d.iter().any(|c| c == std::ffi::OsStr::new("QuantaMind")),
+            "expected QuantaMind component on Windows, got {d:?}");
+    }
+    #[cfg(not(windows))]
+    {
+        assert!(d.iter().any(|c| c == std::ffi::OsStr::new(".quantamind")),
+            "expected .quantamind component on Unix, got {d:?}");
+    }
+    assert_eq!(d.file_name().and_then(|s| s.to_str()), Some("gguf"));
+}
+
+#[test]
+fn mlx_dir_default_targets_correct_per_os_leaf() {
+    std::env::remove_var("QUANTAMIND_MLX_DIR");
+    let d = mlx_dir_resolved(None);
+    #[cfg(windows)]
+    {
+        assert!(d.iter().any(|c| c == std::ffi::OsStr::new("QuantaMind")),
+            "expected QuantaMind component on Windows, got {d:?}");
+    }
+    #[cfg(not(windows))]
+    {
+        assert!(d.iter().any(|c| c == std::ffi::OsStr::new(".quantamind")),
+            "expected .quantamind component on Unix, got {d:?}");
+    }
+    assert_eq!(d.file_name().and_then(|s| s.to_str()), Some("mlx"));
 }

@@ -181,7 +181,15 @@ HTTP to a local Ollama server.
   size-capped, validated on every read/write). The shared GGUF weights folder
   resolves via `UserSettings.models_folder` → `storage_disk::gguf_dir_resolved`
   (`UserSettingsState::weights_dir`); HF + local installs land there for
-  llama.cpp and import into Ollama when reachable.
+  llama.cpp and import into Ollama when reachable. Per-OS default (Phase 4):
+  `~/.quantamind/gguf` on Unix (via `os::user_dirs::data_dir()` — backwards
+  compatible), `%LOCALAPPDATA%\QuantaMind\gguf` on Windows (no env-var
+  gymnastics for a fresh install). `models_dir` (Ollama's on-disk model
+  location) uses `dirs::home_dir()` so `%USERPROFILE%\.ollama\models` resolves
+  on Windows without setting `OLLAMA_MODELS`. `warn_on_legacy_windows_paths()`
+  runs at startup and stderr-logs (never auto-moves) if a legacy
+  `~/.quantamind/{gguf,mlx}` sits alongside the new Windows default —
+  irreplaceable user weights are the reason.
 - `validation/` — schemas. Shared by commands and persistence.
 - `errors.rs` — single `AppError` enum. No `unwrap()` outside tests.
 
