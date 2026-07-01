@@ -109,8 +109,50 @@ mod tests {
         Arc::new(Mutex::new(VecDeque::new()))
     }
 
+    // Portable child helpers so the state-management tests below run on all
+    // three CI matrix runners (macos-14 / ubuntu-22.04 / windows-latest), not
+    // just POSIX. On Windows `sleep`/`true` don't exist — mirror the Phase 5
+    // `spawn_spin_child_for_secs` idiom (PowerShell `Start-Sleep` reliably
+    // blocks under redirected stdio; `cmd /c exit` immediately exits).
     fn spawn_sleep() -> Child {
-        Command::new("sleep").arg("30").stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap()
+        #[cfg(windows)]
+        {
+            Command::new("powershell.exe")
+                .args(["-NoProfile", "-Command", "Start-Sleep -Seconds 30"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap()
+        }
+        #[cfg(not(windows))]
+        {
+            Command::new("sh")
+                .args(["-c", "sleep 30"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap()
+        }
+    }
+
+    fn spawn_immediate_exit() -> Child {
+        #[cfg(windows)]
+        {
+            Command::new("cmd")
+                .args(["/c", "exit"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap()
+        }
+        #[cfg(not(windows))]
+        {
+            Command::new("true")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap()
+        }
     }
 
     #[test]
@@ -132,9 +174,11 @@ mod tests {
     #[test]
     fn is_alive_is_false_once_the_child_exits() {
         let state = SttServerState::default();
-        let quick = Command::new("true").stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+        let quick = spawn_immediate_exit();
         state.store(quick, "/m/x.bin".into(), "/m/vad.bin".into(), empty_tail());
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        // `cmd /c exit` on Windows takes ~30-80ms to fully spawn+reap; give
+        // it a slightly longer grace than the POSIX `true` needed.
+        std::thread::sleep(std::time::Duration::from_millis(300));
         assert!(!state.is_alive(), "a child that exited on its own is not alive");
         let _ = state.stop();
     }
