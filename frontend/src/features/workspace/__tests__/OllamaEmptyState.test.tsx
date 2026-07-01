@@ -11,8 +11,23 @@ import { OllamaEmptyState } from "../components/status/OllamaEmptyState";
 import { useBackendStore } from "../../../shared/state/backendStore";
 import { useInstalledModelsStore } from "../../models/state/installedModelsStore";
 
+// Every test renders <OllamaEmptyState/>, which fires an `ollama_auto_start_supported`
+// probe on mount in addition to whatever `start_ollama` call a click triggers — mock
+// by command name so that mount-time probe never consumes a `start_ollama`-only
+// sequenced response.
+function mockInvoke(startOllamaResponses: unknown[]) {
+  let call = 0;
+  vi.mocked(invoke).mockImplementation((cmd: string) => {
+    if (cmd === "ollama_auto_start_supported") return Promise.resolve(true);
+    const response = startOllamaResponses[Math.min(call, startOllamaResponses.length - 1)];
+    call += 1;
+    return Promise.resolve(response);
+  });
+}
+
 beforeEach(() => {
   vi.mocked(invoke).mockReset();
+  mockInvoke([]);
   vi.mocked(openExternal).mockReset().mockResolvedValue(undefined);
   useBackendStore.setState({ ollamaHealthy: false });
   useInstalledModelsStore.setState({
@@ -30,7 +45,7 @@ describe("OllamaEmptyState", () => {
 
   it("clicking Start moves to starting → success and flips ollamaHealthy true", async () => {
     vi.useFakeTimers();
-    vi.mocked(invoke).mockResolvedValue({ status: "started", pid: 4242 });
+    mockInvoke([{ status: "started", pid: 4242 }]);
     render(<OllamaEmptyState />);
     fireEvent.click(screen.getByTestId("ollama-start-button"));
     await vi.waitFor(() =>
@@ -44,9 +59,7 @@ describe("OllamaEmptyState", () => {
   });
 
   it("not_installed shows install button that calls shell.open", async () => {
-    vi.mocked(invoke).mockResolvedValue({
-      status: "not_installed", install_url: "https://ollama.com/download",
-    });
+    mockInvoke([{ status: "not_installed", install_url: "https://ollama.com/download" }]);
     render(<OllamaEmptyState />);
     fireEvent.click(screen.getByTestId("ollama-start-button"));
     await waitFor(() => expect(screen.getByTestId("ollama-install-button")).toBeInTheDocument());
@@ -57,9 +70,10 @@ describe("OllamaEmptyState", () => {
   });
 
   it("start_failed shows error message and Retry triggers another start", async () => {
-    vi.mocked(invoke)
-      .mockResolvedValueOnce({ status: "start_failed", error: "Port 11434 in use" })
-      .mockResolvedValueOnce({ status: "start_failed", error: "still in use" });
+    mockInvoke([
+      { status: "start_failed", error: "Port 11434 in use" },
+      { status: "start_failed", error: "still in use" },
+    ]);
     render(<OllamaEmptyState />);
     fireEvent.click(screen.getByTestId("ollama-start-button"));
     await waitFor(() =>
@@ -69,7 +83,8 @@ describe("OllamaEmptyState", () => {
     await waitFor(() =>
       expect(screen.getByTestId("ollama-error-message")).toHaveTextContent(/still in use/),
     );
-    expect(invoke).toHaveBeenCalledTimes(2);
+    const startCalls = vi.mocked(invoke).mock.calls.filter(([cmd]) => cmd === "start_ollama");
+    expect(startCalls).toHaveLength(2);
   });
 
   it("install link in idle state also opens the official download page", async () => {
@@ -78,5 +93,27 @@ describe("OllamaEmptyState", () => {
     await waitFor(() =>
       expect(openExternal).toHaveBeenCalledWith("https://ollama.com/download"),
     );
+  });
+
+  it("when auto-start is unsupported, idle state hides Start and offers Check again instead", async () => {
+    vi.mocked(invoke).mockImplementation((cmd: string) =>
+      Promise.resolve(cmd === "ollama_auto_start_supported" ? false : undefined),
+    );
+    render(<OllamaEmptyState />);
+    await waitFor(() =>
+      expect(screen.getByTestId("ollama-check-again-button")).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId("ollama-start-button")).not.toBeInTheDocument();
+    expect(screen.getByText(/Auto-start isn't supported on this OS yet/)).toBeInTheDocument();
+  });
+
+  it("manual_start_required shows manual-start guidance with a Check again action", async () => {
+    mockInvoke([{ status: "manual_start_required", install_url: "https://ollama.com/download" }]);
+    render(<OllamaEmptyState />);
+    fireEvent.click(screen.getByTestId("ollama-start-button"));
+    await waitFor(() =>
+      expect(screen.getByText(/needs to be started manually/)).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId("ollama-check-again-button")).toBeInTheDocument();
   });
 });

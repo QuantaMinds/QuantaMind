@@ -1,6 +1,6 @@
 use crate::commands::ollama::ollama_runtime::{
     is_reachable, kill_pid, kill_serve, resolve_ollama, spawn_serve, wait_until_ready,
-    PROBE_TIMEOUT_MS,
+    AUTO_START_SUPPORTED, PROBE_TIMEOUT_MS,
 };
 use crate::errors::AppError;
 use crate::sync::MutexExt;
@@ -18,6 +18,11 @@ pub enum OllamaStartResult {
     Started { pid: u32 },
     NotInstalled { install_url: String },
     StartFailed { error: String },
+    /// This OS can't auto-launch Ollama (non-macOS today), independent of
+    /// whether the binary is actually installed — distinct from
+    /// `NotInstalled` so the UI doesn't tell an installed-but-not-running
+    /// Windows/Linux user that Ollama is missing.
+    ManualStartRequired { install_url: String },
 }
 
 #[derive(Default)]
@@ -76,6 +81,9 @@ async fn start_ollama_inner() -> OllamaStartResult {
     if is_reachable(PROBE_TIMEOUT_MS).await {
         return OllamaStartResult::AlreadyRunning;
     }
+    if !AUTO_START_SUPPORTED {
+        return OllamaStartResult::ManualStartRequired { install_url: INSTALL_URL.into() };
+    }
     let Some(bin) = resolve_ollama() else {
         return OllamaStartResult::NotInstalled { install_url: INSTALL_URL.into() };
     };
@@ -93,6 +101,14 @@ async fn start_ollama_inner() -> OllamaStartResult {
 #[tauri::command]
 pub async fn stop_ollama() -> Result<(), AppError> {
     kill_serve().map_err(AppError::Internal)
+}
+
+/// Whether this OS can auto-launch Ollama — lets the UI hide/relabel the
+/// "Start Ollama" button before the user ever clicks it, rather than only
+/// reacting to a `ManualStartRequired` result after the fact.
+#[tauri::command]
+pub fn ollama_auto_start_supported() -> bool {
+    AUTO_START_SUPPORTED
 }
 
 #[cfg(test)]

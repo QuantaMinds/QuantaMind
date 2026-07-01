@@ -6,6 +6,7 @@ vi.mock("@tauri-apps/plugin-shell", () => ({ open: vi.fn() }));
 vi.mock("../../../../shared/ipc/models/ollama_start", () => ({
   startOllama: vi.fn().mockResolvedValue({ status: "started", pid: 1 }),
   stopOllama: vi.fn().mockResolvedValue(undefined),
+  isOllamaAutoStartSupported: vi.fn().mockResolvedValue(true),
 }));
 
 import { OllamaControl } from "../status/OllamaControl";

@@ -37,9 +37,9 @@ export const HELP_SECTIONS: HelpSection[] = [
       {
         id: "first-run",
         heading: "First run — getting Ollama up",
-        what: "On a fresh machine the model dropdown is replaced by an “Ollama is not running” card with Start Ollama and Install Ollama buttons.",
-        why: "QuantaMind doesn’t ship its own model runtime — it drives Ollama, a local server, so your models and weights stay on your machine and nothing is sent to the cloud.",
-        how: "“Start Ollama” launches the server in the background (it keeps running after you quit QuantaMind). “Install Ollama” opens ollama.com/download. Once it’s up, the Models tab lets you pull a model — try llama3.2:1b (~700 MB) for a quick first run.",
+        what: "On a fresh machine the model dropdown is replaced by an “Ollama is not running” card. On macOS this card offers Start Ollama and Install Ollama buttons; on Windows and Linux it offers Check again and Install Ollama instead.",
+        why: "QuantaMind doesn’t ship its own model runtime — it drives Ollama, a local server, so your models and weights stay on your machine and nothing is sent to the cloud. Auto-launching that server is currently only implemented on macOS.",
+        how: "On macOS, “Start Ollama” launches the server in the background (it keeps running after you quit QuantaMind). On Windows/Linux, start Ollama yourself (the Ollama app, or `ollama serve` in a terminal) and click Check again. “Install Ollama” opens ollama.com/download on any OS. Once it’s up, the Models tab lets you pull a model — try llama3.2:1b (~700 MB) for a quick first run.",
       },
       {
         id: "model-select",

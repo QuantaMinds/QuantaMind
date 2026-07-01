@@ -1,7 +1,7 @@
 import { useStartOllama } from "../../hooks/useStartOllama";
 
 export function OllamaEmptyState() {
-  const { status, error, start, openInstallPage } = useStartOllama();
+  const { status, error, autoStartSupported, start, openInstallPage } = useStartOllama();
   const busy = status === "starting";
 
   return (
@@ -46,12 +46,12 @@ export function OllamaEmptyState() {
             Retry
           </button>
         </>
-      ) : (
+      ) : status === "manual_start_required" ? (
         <>
-          <div className="font-medium">Ollama is not running</div>
+          <div className="font-medium">Ollama needs to be started manually on this OS</div>
           <div className="text-gray-700">
-            QuantaMind needs Ollama to run local AI models. Click below to start
-            it, or install Ollama first if you haven't.
+            Auto-start isn't supported on Windows/Linux yet. Start Ollama
+            yourself, then click Check again.
           </div>
           <div className="flex gap-2">
             <button
@@ -59,9 +59,9 @@ export function OllamaEmptyState() {
               onClick={() => void start()}
               disabled={busy}
               className="border rounded px-3 py-1 bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
-              data-testid="ollama-start-button"
+              data-testid="ollama-check-again-button"
             >
-              Start Ollama
+              Check again
             </button>
             <button
               type="button"
@@ -72,6 +72,63 @@ export function OllamaEmptyState() {
               Install Ollama
             </button>
           </div>
+        </>
+      ) : (
+        <>
+          <div className="font-medium">Ollama is not running</div>
+          {autoStartSupported ? (
+            <>
+              <div className="text-gray-700">
+                QuantaMind needs Ollama to run local AI models. Click below to
+                start it, or install Ollama first if you haven't.
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => void start()}
+                  disabled={busy}
+                  className="border rounded px-3 py-1 bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
+                  data-testid="ollama-start-button"
+                >
+                  Start Ollama
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void openInstallPage()}
+                  className="text-blue-700 hover:underline text-sm"
+                  data-testid="ollama-install-link"
+                >
+                  Install Ollama
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="text-gray-700">
+                Auto-start isn't supported on this OS yet — start Ollama
+                yourself, then click Check again.
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => void start()}
+                  disabled={busy}
+                  className="border rounded px-3 py-1 bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
+                  data-testid="ollama-check-again-button"
+                >
+                  Check again
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void openInstallPage()}
+                  className="text-blue-700 hover:underline text-sm"
+                  data-testid="ollama-install-link"
+                >
+                  Install Ollama
+                </button>
+              </div>
+            </>
+          )}
         </>
       )}
     </div>

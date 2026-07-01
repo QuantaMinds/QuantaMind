@@ -49,6 +49,12 @@ pub fn resolve_ollama() -> Option<PathBuf> {
 #[cfg(not(target_os = "macos"))]
 pub fn resolve_ollama() -> Option<PathBuf> { None }
 
+/// Whether this OS's runtime can auto-launch `ollama serve`. False everywhere
+/// except macOS — callers use this to short-circuit *before* asking
+/// `resolve_ollama()`, which otherwise conflates "not installed" with
+/// "installed but this OS can't launch it" (see `ManualStartRequired`).
+pub const AUTO_START_SUPPORTED: bool = cfg!(target_os = "macos");
+
 pub const UNSUPPORTED_OS_MSG: &str =
     "Auto-start of Ollama is not yet supported on this OS — please start Ollama manually.";
 

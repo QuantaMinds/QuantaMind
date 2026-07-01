@@ -106,6 +106,7 @@ pub fn run() {
             commands::models::models_pull::cancel_pull,
             commands::ollama::ollama_start::start_ollama,
             commands::ollama::ollama_start::stop_ollama,
+            commands::ollama::ollama_start::ollama_auto_start_supported,
             commands::llama::llama_start::start_llama_server,
             commands::llama::llama_start::stop_llama_server,
             commands::llama::llama_start::llama_server_info,

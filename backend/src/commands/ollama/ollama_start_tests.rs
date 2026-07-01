@@ -28,6 +28,26 @@ fn start_failed_serializes_with_error() {
 }
 
 #[test]
+fn manual_start_required_serializes_with_install_url() {
+    let r = OllamaStartResult::ManualStartRequired { install_url: INSTALL_URL.into() };
+    let json = serde_json::to_string(&r).unwrap();
+    assert!(json.contains(r#""status":"manual_start_required""#));
+    assert!(json.contains(r#""install_url":"https://ollama.com/download""#));
+}
+
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn auto_start_is_unsupported_off_macos() {
+    assert!(!AUTO_START_SUPPORTED);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn auto_start_is_supported_on_macos() {
+    assert!(AUTO_START_SUPPORTED);
+}
+
+#[test]
 fn stop_owned_is_a_noop_when_we_started_nothing() {
     // AlreadyRunning (a user's daemon) leaves started_pid None → reap touches nothing.
     let s = OllamaStartState::default();
