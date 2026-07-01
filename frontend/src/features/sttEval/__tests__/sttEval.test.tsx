@@ -97,7 +97,7 @@ describe("SttEvalEditor", () => {
     });
     const onSaved = vi.fn();
     render(<SttEvalEditor onSaved={onSaved} onCancel={() => {}} />);
-    await waitFor(() => expect(screen.getByTestId("stt-eval-starter")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId("stt-eval-starter")).toBeEnabled());
     await act(async () => {
       fireEvent.click(screen.getByTestId("stt-eval-starter")); // flush setRows + setName before reading
     });
@@ -120,7 +120,7 @@ describe("SttEvalEditor", () => {
       return undefined;
     });
     render(<SttEvalEditor initialName="legal-test" onSaved={vi.fn()} onCancel={() => {}} />);
-    await waitFor(() => expect(screen.getByTestId("stt-eval-add")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId("stt-eval-add")).toBeEnabled());
     fireEvent.click(screen.getByTestId("stt-eval-add"));
     fireEvent.change(screen.getByTestId("stt-eval-ref-0"), { target: { value: "   " } });
     fireEvent.change(screen.getByTestId("stt-eval-crit-0"), { target: { value: "$100, ruben" } });
