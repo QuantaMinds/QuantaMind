@@ -382,6 +382,19 @@ so users can see *why* it was fast or slow. Built one step at a time.
 - **4.5 Hardware detection (done).** CPU/cores/RAM/OS/arch via `sysinfo` + a
   shell-out GPU probe (`nvidia-smi` CSV → bytes; macOS `sysctl` chip name +
   unified memory; else "Not available") in a new **Settings › Hardware** view.
+  *Extended by cross-platform Phase 3 (2026-07):* the probe chain is now
+  `nvidia → amd → intel_xpu → dxgi → apple`. AMD adds `rocm-smi --showmeminfo
+  vram --showproductname --json` (tolerant of string-or-numeric byte fields
+  across rocm-smi 5.x/6.x). Intel adds `xpu-smi discovery -j` (Linux/Windows —
+  free VRAM stays `None`, xpu-smi's discovery view doesn't report it). Windows
+  DXGI is the last-resort fallback via
+  `windows::Win32::Graphics::Dxgi::CreateDXGIFactory1` +
+  `IDXGIAdapter1::GetDesc1` (name from `Description`, VRAM from
+  `DedicatedVideoMemory`; **free VRAM stays `None`** — DXGI exposes no
+  free-VRAM API, "never fabricate" rule holds); the software "Microsoft Basic
+  Render Driver" adapter is skipped. Result: an AMD/Intel Windows machine
+  without vendor CLIs installed still shows a real GPU name + total VRAM
+  instead of "Not available".
 - **4.6 Inter-token latency histogram (done).** Per-model visx histogram of the
   inter-token gaps; outlier bins highlighted (`format/histogram.ts`).
 - **4.7 Cold- vs warm-start (done).** `HistoryEntry` records ttft/tok-s/load_ms;
