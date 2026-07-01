@@ -46,6 +46,123 @@ fn nvidia() -> Option<GpuInfo> {
     })
 }
 
+/// Parse `rocm-smi --showmeminfo vram --showproductname --json` output —
+/// takes the first `card*` entry, extracts VRAM total bytes and card name.
+/// Values may be present as either JSON numbers or strings (rocm-smi has
+/// varied across versions), so accept both. Pure.
+pub fn parse_rocm_smi_json(bytes: &[u8]) -> Option<(String, u64, Option<u64>)> {
+    let v: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    let obj = v.as_object()?;
+    let card = obj
+        .iter()
+        .find(|(k, _)| k.starts_with("card"))
+        .map(|(_, val)| val)?
+        .as_object()?;
+    let read_bytes = |k: &str| -> Option<u64> {
+        let val = card.get(k)?;
+        val.as_u64().or_else(|| val.as_str().and_then(|s| s.parse().ok()))
+    };
+    let total = read_bytes("VRAM Total Memory (B)")?;
+    let used = read_bytes("VRAM Total Used Memory (B)");
+    let free = used.map(|u| total.saturating_sub(u));
+    let name = card
+        .get("Card Series")
+        .or_else(|| card.get("Card Model"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .unwrap_or_else(|| "AMD GPU".to_string());
+    Some((name, total, free))
+}
+
+fn amd() -> Option<GpuInfo> {
+    let out = Command::new("rocm-smi")
+        .args(["--showmeminfo", "vram", "--showproductname", "--json"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let (name, total, free) = parse_rocm_smi_json(&out.stdout)?;
+    Some(GpuInfo {
+        name: Some(name),
+        vram_total_bytes: Some(total),
+        vram_free_bytes: free,
+        unified: false,
+        available: true,
+    })
+}
+
+/// Parse `xpu-smi discovery -j` — takes the first entry in `device_list`.
+/// `memory_physical_size_byte` is total; xpu-smi doesn't report free, so it's
+/// left `None` (never fabricated). Pure.
+pub fn parse_xpu_smi_json(bytes: &[u8]) -> Option<(String, u64)> {
+    let v: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    let dev = v.get("device_list")?.as_array()?.first()?;
+    let name = dev.get("device_name")?.as_str()?.to_string();
+    let total = dev
+        .get("memory_physical_size_byte")
+        .and_then(|x| x.as_u64().or_else(|| x.as_str().and_then(|s| s.parse().ok())))?;
+    Some((name, total))
+}
+
+fn intel_xpu() -> Option<GpuInfo> {
+    let out = Command::new("xpu-smi").args(["discovery", "-j"]).output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let (name, total) = parse_xpu_smi_json(&out.stdout)?;
+    Some(GpuInfo {
+        name: Some(name),
+        vram_total_bytes: Some(total),
+        // xpu-smi's discovery view doesn't include free memory — leave None
+        // rather than fabricate.
+        vram_free_bytes: None,
+        unified: false,
+        available: true,
+    })
+}
+
+/// Windows last-resort GPU probe via DXGI adapter enumeration. Returns the
+/// primary adapter's name + dedicated VRAM. **`vram_free_bytes` stays `None`**
+/// — DXGI exposes no free-VRAM API, and the "never fabricate" rule forbids
+/// guessing. Fires when vendor CLIs (nvidia-smi, rocm-smi, xpu-smi) aren't
+/// installed but a physical GPU is present.
+#[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
+fn dxgi() -> Option<GpuInfo> {
+    use ::windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, IDXGIAdapter1, IDXGIFactory1};
+
+    // SAFETY: `CreateDXGIFactory1` and adapter-desc calls are standard COM
+    // patterns; each interface pointer is only used until its own `Drop`
+    // releases it (windows crate handles the release automatically). We never
+    // dereference a raw pointer that we could hand out beyond this fn.
+    unsafe {
+        let factory: IDXGIFactory1 = CreateDXGIFactory1().ok()?;
+        let adapter: IDXGIAdapter1 = factory.EnumAdapters1(0).ok()?;
+        let desc = adapter.GetDesc1().ok()?;
+        // `Description` is a fixed-size UTF-16 buffer; find its NUL terminator.
+        let len = desc.Description.iter().position(|&c| c == 0).unwrap_or(desc.Description.len());
+        let name = String::from_utf16_lossy(&desc.Description[..len]);
+        // Skip the software "Microsoft Basic Render Driver" adapter — it's not
+        // a real GPU and its DedicatedVideoMemory is 0.
+        if desc.DedicatedVideoMemory == 0 || name.contains("Basic Render") {
+            return None;
+        }
+        Some(GpuInfo {
+            name: Some(name),
+            vram_total_bytes: Some(desc.DedicatedVideoMemory as u64),
+            vram_free_bytes: None,
+            unified: false,
+            available: true,
+        })
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn dxgi() -> Option<GpuInfo> {
+    None
+}
+
 #[cfg(target_os = "macos")]
 fn apple() -> Option<GpuInfo> {
     let out = Command::new("sysctl").args(["-n", "machdep.cpu.brand_string"]).output().ok()?;
@@ -62,9 +179,11 @@ fn apple() -> Option<GpuInfo> {
     None
 }
 
-/// Try NVIDIA, then Apple Silicon; otherwise an unavailable GpuInfo.
+/// Try NVIDIA (cross-OS via nvidia-smi), then AMD (rocm-smi), then Intel
+/// (xpu-smi), then Windows DXGI fallback, then Apple Silicon. Anything past
+/// the last successful probe is skipped. Otherwise an unavailable GpuInfo.
 pub fn probe_gpu() -> GpuInfo {
-    nvidia().or_else(apple).unwrap_or_default()
+    nvidia().or_else(amd).or_else(intel_xpu).or_else(dxgi).or_else(apple).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -85,7 +204,57 @@ mod tests {
     }
 
     #[test]
+    fn parse_rocm_smi_json_accepts_string_and_numeric_bytes() {
+        // rocm-smi 5.x reports VRAM as strings; 6.x sometimes numeric.
+        let json_str = br#"{"card0":{"VRAM Total Memory (B)":"17163091968","VRAM Total Used Memory (B)":"1073741824","Card Series":"Radeon RX 7900 XTX"}}"#;
+        let (name, total, free) = parse_rocm_smi_json(json_str).unwrap();
+        assert_eq!(name, "Radeon RX 7900 XTX");
+        assert_eq!(total, 17_163_091_968);
+        assert_eq!(free, Some(17_163_091_968 - 1_073_741_824));
+
+        let json_num = br#"{"card0":{"VRAM Total Memory (B)":8589934592,"Card Series":"Radeon RX 6800"}}"#;
+        let (name, total, free) = parse_rocm_smi_json(json_num).unwrap();
+        assert_eq!(name, "Radeon RX 6800");
+        assert_eq!(total, 8_589_934_592);
+        assert_eq!(free, None); // no used → no free (never fabricated)
+    }
+
+    #[test]
+    fn parse_rocm_smi_json_rejects_malformed() {
+        assert!(parse_rocm_smi_json(b"").is_none());
+        assert!(parse_rocm_smi_json(b"not json").is_none());
+        assert!(parse_rocm_smi_json(b"{}").is_none()); // no card* key
+        assert!(parse_rocm_smi_json(b"{\"card0\":{}}").is_none()); // no total
+    }
+
+    #[test]
+    fn parse_xpu_smi_json_extracts_first_device() {
+        let json = br#"{
+            "device_list": [
+                {"device_id": 0, "device_name": "Intel(R) Arc(TM) A770 Graphics", "memory_physical_size_byte": 17179869184}
+            ]
+        }"#;
+        let (name, total) = parse_xpu_smi_json(json).unwrap();
+        assert_eq!(name, "Intel(R) Arc(TM) A770 Graphics");
+        assert_eq!(total, 17_179_869_184);
+    }
+
+    #[test]
+    fn parse_xpu_smi_json_rejects_malformed() {
+        assert!(parse_xpu_smi_json(b"").is_none());
+        assert!(parse_xpu_smi_json(b"{}").is_none());
+        assert!(parse_xpu_smi_json(b"{\"device_list\":[]}").is_none());
+        assert!(parse_xpu_smi_json(b"{\"device_list\":[{}]}").is_none());
+    }
+
+    #[test]
     fn probe_never_panics() {
         let _ = probe_gpu();
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn dxgi_never_panics() {
+        let _ = dxgi();
     }
 }

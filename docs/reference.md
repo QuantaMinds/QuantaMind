@@ -815,6 +815,13 @@ the recommendation honours the same gate.
   file-size × 1.3 heuristic, **flagged approximate** (`~`).
 - **Speed is memory-bandwidth-bound, not FLOPS-bound.** Token throughput tracks GB/s, so the tab
   shows the chip's nominal bandwidth (curated table) or "Not available" — never a guessed number.
+- **Available VRAM comes from the GPU probe.** Chain (Phase 3): NVIDIA (`nvidia-smi`) → AMD
+  (`rocm-smi --showmeminfo vram --showproductname --json`) → Intel (`xpu-smi discovery -j`) →
+  **Windows DXGI fallback** (`CreateDXGIFactory1 + IDXGIAdapter1::GetDesc1` — for AMD/Intel Windows
+  machines without vendor CLIs installed) → Apple Silicon (`sysctl`). Free VRAM stays **`None`** on
+  xpu-smi and DXGI (neither reports free memory, never fabricated). The readiness verdict's
+  `require_full_vram` gate on AMD/Intel Windows now measures a real fit instead of degrading to
+  "unmeasured → Conditional".
 
 ## Silent CPU fallback {#cpu-fallback}
 
