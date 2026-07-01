@@ -55,6 +55,39 @@ jobs:
       - name: Fetch llama-server sidecar
         run: bash scripts/fetch-llama-server.sh
 
+      # R3 — verify every non-system DLL that llama-server.exe imports actually
+      # sits alongside it in backend/binaries/. On a dev box the missing DLLs are
+      # silently satisfied from ambient CUDA/MinGW installs; a clean user
+      # machine crashes with cryptic 0xC0000135. This CI gate fails the release
+      # if any dep is missing, so we never ship a broken .msi.
+      - name: R3 DLL co-location check (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsPath = & $vswhere -latest -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $dumpbin = Get-ChildItem "$vsPath\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" | Select-Object -First 1
+          if (-not $dumpbin) { throw "dumpbin.exe not found under $vsPath" }
+          $exe = "backend\binaries\llama-server.exe"
+          if (-not (Test-Path $exe)) { throw "backend\binaries\llama-server.exe missing (fetch script failed?)" }
+          $output = & $dumpbin.FullName /dependents $exe
+          $needed = $output | Select-String -Pattern "^\s+(\S+\.dll)$" | ForEach-Object { $_.Matches[0].Groups[1].Value }
+          $bundled = Get-ChildItem "backend\binaries" -Filter "*.dll" -Recurse | ForEach-Object { $_.Name.ToLower() }
+          $missing = @()
+          foreach ($dep in $needed) {
+            $dlow = $dep.ToLower()
+            # Skip system DLLs from C:\Windows\System32
+            $sys = Test-Path "C:\Windows\System32\$dep"
+            if ($sys -or $bundled -contains $dlow) { continue }
+            $missing += $dep
+          }
+          if ($missing.Count -gt 0) {
+            Write-Host "== llama-server.exe imports these DLLs that are neither system nor bundled: =="
+            $missing | ForEach-Object { Write-Host "  $_" }
+            throw "R3 DLL check failed: $($missing -join ', ') must be present in backend\binaries\ or added to the fetch script."
+          }
+          Write-Host "R3 DLL check passed: all $($needed.Count) non-system DLL imports of llama-server.exe are bundled."
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

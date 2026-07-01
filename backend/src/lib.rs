@@ -200,6 +200,7 @@ pub fn run() {
             commands::settings::user_settings::set_user_settings,
             commands::settings::user_settings::resolve_models_folder,
             commands::system::onboarding::scaffold_onboarding_workspace,
+            commands::system::os_info::os_platform,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
