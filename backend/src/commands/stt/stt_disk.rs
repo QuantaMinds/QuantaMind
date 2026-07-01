@@ -97,26 +97,31 @@ mod tests {
     }
 
     // One test owns QUANTAMIND_STT_DIR — cargo runs tests in parallel, so a
-    // second env-mutating test would race this one.
+    // second env-mutating test would race this one. Uses `std::env::temp_dir`
+    // for a real cross-platform absolute path — `/tmp/...` isn't absolute on
+    // Windows, so `absolutize()` prefixes it with the drive letter and the
+    // equality assertion fails (identical bug pattern to the Phase 4 fix in
+    // `storage_disk_tests.rs`).
     #[test]
     fn stt_dir_precedence_setting_then_env_then_default() {
-        std::env::set_var("QUANTAMIND_STT_DIR", "/tmp/qm-stt-test");
-        assert_eq!(stt_dir(), PathBuf::from("/tmp/qm-stt-test"), "env beats default");
+        let env_path = std::env::temp_dir().join("qm-stt-test");
+        let setting_path = std::env::temp_dir().join("qm-models-stt");
+        std::env::set_var("QUANTAMIND_STT_DIR", &env_path);
+        assert_eq!(stt_dir(), env_path, "env beats default");
         assert_eq!(
-            stt_dir_resolved(Some("/models/stt")),
-            PathBuf::from("/models/stt"),
+            stt_dir_resolved(Some(setting_path.to_str().unwrap())),
+            setting_path,
             "setting beats env"
         );
         assert_eq!(
             stt_dir_resolved(Some("  ")),
-            PathBuf::from("/tmp/qm-stt-test"),
+            env_path,
             "blank setting falls through to env"
         );
         std::env::remove_var("QUANTAMIND_STT_DIR");
-        assert!(
-            stt_dir_resolved(None).ends_with(".quantamind/stt"),
-            "default (no env) falls through to ~/.quantamind/stt"
-        );
+        let default = stt_dir_resolved(None);
+        let leaf = default.file_name().and_then(|s| s.to_str()).unwrap_or("");
+        assert_eq!(leaf, "stt", "default falls through to <data-dir>/stt");
     }
 
     #[test]
