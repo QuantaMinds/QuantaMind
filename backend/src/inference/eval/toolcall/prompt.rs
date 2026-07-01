@@ -48,7 +48,9 @@ pub fn terminal_closing(tools: &[ToolSchema], terminal: TerminalGuidance) -> Str
         TerminalGuidance::MustUseTools => match reply_tool_name(tools) {
             Some(name) => format!(
                 "Deliver every result by calling a tool. To report your final answer to the user, \
-                 call the `{name}` tool. Do not answer in plain text."
+                 call the `{name}` tool with your answer in its `text` argument — for example, \
+                 `text: \"<your answer>\"`. Do not answer in plain text, even if you already know \
+                 the final answer: the `{name}` tool call IS your answer, not a summary of it."
             ),
             None => "Deliver every result by calling a tool from the list above — your tool actions \
                      are your final answer. Do not answer in plain text, and do not call a tool that \
@@ -58,7 +60,22 @@ pub fn terminal_closing(tools: &[ToolSchema], terminal: TerminalGuidance) -> Str
     }
 }
 
+/// The bookend directive for act-tasks: a short, imperative line placed BEFORE the tool
+/// list so the format mandate lands twice (recency effect for small local models, which
+/// tend to weight the tail of a long system prompt over its head). Empty for abstain-tasks,
+/// which already keep a plain-text option and need no reinforcement.
+pub fn leading_mandate(terminal: TerminalGuidance) -> &'static str {
+    match terminal {
+        TerminalGuidance::MustUseTools => {
+            "CRITICAL: every response must be a tool call. Never respond with plain text, and \
+             never add commentary before or after the call. "
+        }
+        TerminalGuidance::PlainTextOk => "",
+    }
+}
+
 pub fn build_system_for(tools: &[ToolSchema], terminal: TerminalGuidance) -> String {
+    let lead = leading_mandate(terminal);
     let closing: String = terminal_closing(tools, terminal);
     let tools_json = serde_json::to_string_pretty(
         &tools
@@ -68,7 +85,7 @@ pub fn build_system_for(tools: &[ToolSchema], terminal: TerminalGuidance) -> Str
     )
     .unwrap_or_default();
     format!(
-        "You can call tools. Available tools:\n{tools_json}\n\n\
+        "{lead}You can call tools. Available tools:\n{tools_json}\n\n\
          When a tool is needed, respond with ONLY a JSON object of the form \
          {{\"name\": \"<tool>\", \"args\": {{...}}}}. To call several tools, respond \
          with a JSON array of such objects. Do not add prose, explanation, or \
@@ -170,5 +187,20 @@ mod tests {
         assert_eq!(reply_tool_name(&action_only), None);
         let with_reply = vec![tool("act", json!({ "id": { "type": "string" } })), tool("reply_customer", json!({ "text": { "type": "string" } }))];
         assert_eq!(reply_tool_name(&with_reply), Some("reply_customer"));
+    }
+
+    #[test]
+    fn must_use_tools_bookends_the_format_mandate_at_head_and_tail() {
+        // The prose-answer fix: an act-task prompt states the format mandate BEFORE the
+        // tool list (recency-agnostic head) AND after it in the closing (tail), so a small
+        // local model that weights the end of a long prompt still sees the rule.
+        let reply_tools = vec![tool("reply", json!({ "text": { "type": "string" } }))];
+        let p = build_system_for(&reply_tools, TerminalGuidance::MustUseTools);
+        assert!(p.starts_with("CRITICAL: every response must be a tool call"), "{p}");
+        assert!(p.contains("Do not answer in plain text"), "{p}");
+        // An abstain-task keeps the original head — no leading mandate to contradict its
+        // plain-text escape hatch.
+        let p2 = build_system_for(&reply_tools, TerminalGuidance::PlainTextOk);
+        assert!(p2.starts_with("You can call tools"), "{p2}");
     }
 }

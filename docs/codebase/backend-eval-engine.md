@@ -175,6 +175,21 @@ if abstain != matches!(t.expected, Expected::NoCall) { return Err(bad(&t.id, "ex
   (which had induced a phantom `reply` call → schema-error/timeout on ~55 action-only tasks).
   Guarded by `scenarios.rs::reply_tool_name_classifies_every_task_and_reporters_are_unique`
   (≤1 text-bearing tool per task; reporter checkpoint ⇒ that tool; action-only ⇒ `None`).
+- **Format bookend:** `leading_mandate(terminal)` returns a short imperative line
+  ("CRITICAL: every response must be a tool call…") that `build_system_for` prepends
+  BEFORE the tool list on `MustUseTools` prompts, and `terminal_closing`'s reply-tool
+  branch now spells out the `text` argument shape inline. The same mandate is exactly
+  once for `MustUseTools`, empty for `PlainTextOk` — the format rule lands at both the
+  head and the tail of the prompt (small local models weight the tail of a long system
+  prompt over its head, so repeating it there is what actually moves compliance).
+  `native_system` (native tool-calling path, `model_turn.rs`) shares the same
+  `leading_mandate`/`terminal_closing` so prompt-path and native-path models see an
+  identical mandate (path-fairness). This is pure prompt engineering — it reduces
+  `ReportedInProse` by making the model less likely to answer in prose, but doesn't
+  change how prose is scored; a model that still answers in prose is still a genuine
+  failure. Verified live against `gemma4:e4b` (prompt path), the model family the
+  original fixed-prompt wording was known to nudge into prose — see
+  `runner_tests.rs::live_gemma4_prompt_path_calls_reply_instead_of_prose`.
 
 ```rust
 "You can call tools. Available tools:\n{tools_json}\n\n\
