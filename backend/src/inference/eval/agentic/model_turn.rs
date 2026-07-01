@@ -3,7 +3,7 @@ use crate::inference::backend::backend::InferenceBackend;
 use crate::inference::backend::backend_kind::BackendKind;
 use crate::inference::chat::chat_templates::detect_template;
 use crate::inference::eval::agentic::difficulty::passk::NON_THINKING_MAX_TOKENS;
-use crate::inference::eval::toolcall::prompt::{leading_mandate, terminal_closing, TerminalGuidance};
+use crate::inference::eval::toolcall::prompt::{terminal_closing, TerminalGuidance};
 use crate::inference::eval::toolcall::tasks::ToolSchema;
 use crate::inference::generate::generate_options::GenerateOptions;
 use crate::inference::generate::generate_spec::GenerateSpec;
@@ -214,8 +214,7 @@ impl ModelTurn for BackendTurn {
 /// nudged capable native models (gemma4) OFF the `reply` tool into prose → an unfair
 /// `ReportedInProse` the prompt path doesn't suffer. Path-fairness, one source of truth.
 fn native_system(tools: &[ToolSchema], terminal: TerminalGuidance) -> String {
-    let lead = leading_mandate(terminal);
-    format!("{lead}You complete the task using the available tools. {}", terminal_closing(tools, terminal))
+    format!("You complete the task using the available tools. {}", terminal_closing(tools, terminal))
 }
 
 /// Native path: call the running backend's native tool API with a real `tools`

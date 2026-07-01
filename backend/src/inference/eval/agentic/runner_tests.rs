@@ -877,68 +877,6 @@ async fn live_filesystem_env_returns_real_content_end_to_end() {
 }
 
 #[tokio::test]
-#[ignore = "live: verifies the bookend format mandate (prompt.rs) reduces ReportedInProse on gemma4 (prompt path)"]
-async fn live_gemma4_prompt_path_calls_reply_instead_of_prose() {
-    // The exact cart/run_tests/reply scenario that originally triggered ReportedInProse
-    // (a content-correct answer delivered as plain text instead of a `reply` call). With the
-    // new head+tail format mandate (`leading_mandate` + the strengthened `terminal_closing`),
-    // gemma4 on the PROMPT path (JSON-instructed, not native tool-calling) should call `reply`.
-    use crate::inference::backend::backend_kind::BackendKind;
-    use crate::inference::eval::toolcall::tasks::ToolSchema;
-
-    let tool = |name: &str, props: serde_json::Value| ToolSchema {
-        name: name.into(),
-        description: format!("Agent tool '{name}'."),
-        parameters: json!({ "type": "object", "properties": props }),
-    };
-    let tools = vec![tool("run_tests", json!({ "module": { "type": "string" } })), tool("reply", json!({ "text": { "type": "string" } }))];
-    let cart = DeterministicSandbox::new(
-        "Run the test suite for module 'cart'. If it fails, report which test failed. Do not edit any source.".into(),
-        tools,
-        vec![MockResponse {
-            call: Call { name: "run_tests".into(), args: json!({ "module": "cart" }) },
-            response: r#"{"failed":["test_apply_discount_negative_total"]}"#.into(),
-        }],
-        // RequireAll (not RequireSequence): its matcher is wildcard-aware
-        // (`checkpoint_matches_v2`/`args_match_v2`), so the `text` glob actually completes the
-        // run against the model's own wording. RequireSequence uses exact `args_match` — a
-        // glob there never satisfies the checkpoint, so a real prose-free reply would just
-        // loop as UnknownTool instead of proving the fix.
-        EndStateRule::RequireAll(vec![
-            TaskCheckpoint { tool: "run_tests".into(), args: json!({ "module": "cart" }) },
-            TaskCheckpoint { tool: "reply".into(), args: json!({ "text": "*test_apply_discount_negative_total*" }) },
-        ]),
-    );
-    let model = crate::inference::eval::agentic::model_turn::BackendTurn {
-        backend: BackendKind::Ollama,
-        endpoint: "http://localhost:11434".into(),
-        model: "gemma4:e4b".into(),
-        cancel: CancellationToken::new(),
-        options: None,
-        keep_alive: None,
-        // gemma4:e4b is a thinking-tagged model: at the 256-token terse budget its
-        // <think> scratchpad eats the whole turn and the reply call truncates mid-JSON
-        // (MalformedJson) — a token-budget artifact, not a format-mandate failure. Use the
-        // Easy-tier thinking budget (`max_tokens_for`) so the call actually completes.
-        is_thinking: true,
-        max_tokens: 1536,
-        stop_cache: Default::default(),
-    };
-    let (tx, mut rx) = unbounded_channel();
-    let report = run_agentic(&model, &cart, AgenticConfig { k: 1, max_steps: 5, ..Default::default() }, &tx).await.unwrap();
-    drop(tx);
-
-    let steps = drain(&mut rx);
-    for s in &steps {
-        eprintln!("step {} kind={:?}\n  raw={}", s.step_index, s.kind, s.raw_output);
-    }
-    eprintln!("report = {report:?}");
-
-    assert_eq!(report.failures.reported_in_prose_calls, 0, "the format mandate should stop gemma4 from answering in prose");
-    assert_eq!(report.passes, 1, "gemma4 should call reply with matching content and reach the end state");
-}
-
-#[tokio::test]
 async fn filesystem_forbidden_write_file_springs_the_trap_env_agnostically() {
     // The forbidden-trap path is environment-agnostic: a model that "helpfully" edits a file
     // in the simulated FILESYSTEM env (violating 'do not modify') must spring the must_not_call
