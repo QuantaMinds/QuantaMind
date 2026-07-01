@@ -91,7 +91,45 @@ That's it. The first run opens a native window. Open the **Tests** tab, pick the
 | **Ollama** | latest | required — the default backend |
 | **llama.cpp** (`llama-server`) | latest | optional — run GGUF models directly |
 | **MLX** (`pip install mlx-lm`) | latest | optional — Apple Silicon only |
-| **whisper.cpp** (`brew install whisper-cpp`) | latest | optional — speech-to-text, set up in-app under Models → Speech-to-Text |
+| **whisper.cpp** | latest | optional — speech-to-text; macOS `brew install whisper-cpp`, Windows/Linux direct download from [whisper.cpp releases](https://github.com/ggerganov/whisper.cpp/releases) |
+
+</details>
+
+<details>
+<summary><b>Windows dev shell</b> — one-time environment setup for <code>pnpm tauri dev</code></summary>
+
+On Windows you need two things sourced into your PowerShell session before `cargo` (and therefore `pnpm tauri dev`) can run: **the Rust bin dir on PATH** (rustup adds it to the *User* env var, so only shells started *after* rustup install pick it up), and the **MSVC linker + include/lib env** from Visual Studio's `vcvars64.bat`. macOS and Linux need neither.
+
+If you hit `program not found: cargo metadata` or `linker link.exe not found`, paste this at the top of your shell:
+
+```powershell
+# Add Rust + pnpm + Ollama to PATH (already permanent on the User env var —
+# this refreshes the current session so you don't have to reopen the shell).
+$env:Path = "$env:USERPROFILE\.cargo\bin;$env:APPDATA\npm;$env:LOCALAPPDATA\Programs\Ollama;$env:Path"
+
+# Source MSVC env (link.exe, INCLUDE, LIB) into PowerShell. Adjust the path
+# for VS 2022 (17.x) — the folder is `2022\BuildTools` or `2022\Community`
+# instead of `18\Community` for VS 2026.
+$vcvars = "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat"
+cmd /c "call `"$vcvars`" && set" |
+  Where-Object { $_ -match "^(INCLUDE|LIB|Path|LIBPATH)=" } |
+  ForEach-Object {
+    $n,$v = $_ -split "=", 2
+    Set-Item -Path "env:$n" -Value $v
+  }
+
+# Sanity check — both should print without error.
+cargo --version
+link.exe /?
+
+# Launch the app.
+cd path\to\QuantaMind\frontend
+pnpm tauri dev
+```
+
+**pnpm 11 quirk (`ERR_PNPM_IGNORED_BUILDS: esbuild@…`).** pnpm 11's supply-chain gate blocks `pnpm install` (and every command that triggers it) until you explicitly approve `esbuild`'s postinstall script. The repo's `frontend/pnpm-workspace.yaml` pre-approves it (`allowBuilds: { esbuild: true }`), so a fresh clone Just Works — if you see the error on a stale worktree, re-pull `main` or add the same key locally.
+
+**Save it as a script** if you spin up dev shells often — drop the block into `run-dev.ps1` at the repo root and run `.\run-dev.ps1` in a fresh PowerShell.
 
 </details>
 
