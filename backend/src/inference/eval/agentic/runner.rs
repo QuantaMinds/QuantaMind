@@ -429,6 +429,9 @@ async fn run_steps<M: ModelTurn>(
                         cache_n: None, // no model response on a timeout
                         prefill_tokens: None,
                         prefill_ms: None,
+                        reasoning_tokens: None,
+                        context_used: None,
+                        context_window: None,
                     });
                     return Ok(RunOutcome::failure(step_index + 1, output_tokens, FailureKind::TurnTimeout)
                         .with_schema(hit_schema_error, schema_recovered)
@@ -474,7 +477,10 @@ async fn run_steps<M: ModelTurn>(
         let prefill_tokens = stats.prompt_eval_count; // prompt_n = recomputed; total = cache_n + this
         let prefill_ms = stats.prompt_eval_ms;
         let send = |kind: StepKind, injection: Option<String>, env: EnvView| {
-            let _ = tx.send(TrajectoryStep { run_index, step_index, raw_output: raw.clone(), injection, kind, env, cache_n, prefill_tokens, prefill_ms });
+            let _ = tx.send(TrajectoryStep {
+                run_index, step_index, raw_output: raw.clone(), injection, kind, env, cache_n, prefill_tokens, prefill_ms,
+                reasoning_tokens: None, context_used: None, context_window: None,
+            });
         };
 
         // For a reasoning model, parse and persist the `<think>`-stripped output: its inner
@@ -499,13 +505,44 @@ async fn run_steps<M: ModelTurn>(
                 // Yielded (no call) without completing the required checkpoints / reaching the
                 // target UI state.
                 EndStateRule::RequireSequence(_) | EndStateRule::RequireAll(_) | EndStateRule::RequireEndState(_) => {
-                    let (kind, failure) = if stats.finish_reason.as_deref() == Some("length") {
-                        // The turn was cut off at the output cap and (after the context-clamped
-                        // retry above, if any) still parsed to zero calls — a harness/hardware
-                        // truncation, NOT a capability failure. Checked FIRST so a length-cut
-                        // turn is never laundered into Malformed / Hallucinated / EmptyOutput.
-                        (StepKind::Truncated, FailureKind::Truncated)
-                    } else if is_empty_output(&clean) {
+                    // A length-cut turn with zero parseable calls (after the retry) — checked FIRST
+                    // so it's never laundered into Malformed/Hallucinated/EmptyOutput. Classify WHICH
+                    // limit fired, with usage numbers, so the UI distinguishes a SETTING
+                    // (reasoning-overrun → raise the preset) from HARDWARE (context-bound → bigger
+                    // machine); they have OPPOSITE fixes and must never be blended (D9).
+                    if stats.finish_reason.as_deref() == Some("length") {
+                        let reasoning_tokens = stats.eval_count.unwrap_or(0); // answer starved ⇒ ≈ all reasoning
+                        let occupancy = stats.prompt_eval_count.unwrap_or(0).saturating_add(stats.cache_n.unwrap_or(0));
+                        let context_used = occupancy.saturating_add(reasoning_tokens);
+                        // Context-bound (HARDWARE) when the window is the binding limit — the budget
+                        // couldn't fit the remaining window, or the fill reached ~90% of it.
+                        // Otherwise the per-turn token BUDGET (a setting) capped reasoning first.
+                        let context_bound = occupancy.saturating_add(base_predict) >= num_ctx
+                            || context_used.saturating_mul(100) >= num_ctx.saturating_mul(90);
+                        // Only claim ReasoningOverrun with POSITIVE evidence: the generated tokens
+                        // reached ~the per-turn budget (so the BUDGET, not the window, capped it).
+                        // Without a token count (backend didn't report `eval_count`) we can't tell,
+                        // so we default to the honest `Truncated` — never assert over-reasoning blind.
+                        let budget_maxed = stats
+                            .eval_count
+                            .is_some_and(|e| e.saturating_mul(10) >= base_predict.saturating_mul(9));
+                        let (kind, failure) = if !context_bound && budget_maxed {
+                            (StepKind::ReasoningOverrun, FailureKind::ReasoningOverrun)
+                        } else {
+                            (StepKind::Truncated, FailureKind::Truncated)
+                        };
+                        let _ = tx.send(TrajectoryStep {
+                            run_index, step_index, raw_output: raw.clone(), injection: None, kind, env: EnvView::None,
+                            cache_n, prefill_tokens, prefill_ms,
+                            reasoning_tokens: Some(reasoning_tokens),
+                            context_used: Some(context_used),
+                            context_window: Some(num_ctx),
+                        });
+                        return Ok(RunOutcome::failure(step_index + 1, output_tokens, failure)
+                            .with_schema(hit_schema_error, schema_recovered)
+                            .with_unknown_tools(unknown_tools));
+                    }
+                    let (kind, failure) = if is_empty_output(&clean) {
                         // The model produced nothing usable (empty / whitespace / a lone
                         // punctuation char before its stop token). A generation/template
                         // artifact, NOT a claimed-but-false completion. Checked first: an
@@ -722,6 +759,9 @@ async fn run_steps<M: ModelTurn>(
                 cache_n: None, // synthetic terminal step, no model response
                 prefill_tokens: None,
                 prefill_ms: None,
+                reasoning_tokens: None,
+                context_used: None,
+                context_window: None,
             });
             return Ok(RunOutcome::failure(step_index + 1, output_tokens, FailureKind::InfiniteLoop)
                 .with_schema(hit_schema_error, schema_recovered)
@@ -739,6 +779,9 @@ async fn run_steps<M: ModelTurn>(
         cache_n: None, // synthetic terminal step, no model response
         prefill_tokens: None,
         prefill_ms: None,
+        reasoning_tokens: None,
+        context_used: None,
+        context_window: None,
     });
     Ok(RunOutcome::failure(max_steps, output_tokens, FailureKind::InfiniteLoop)
         .with_schema(hit_schema_error, schema_recovered)

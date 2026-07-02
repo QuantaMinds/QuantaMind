@@ -43,8 +43,17 @@ pub enum FailureKind {
     /// first retries with a larger, context-clamped budget; only when the retry is impossible
     /// (context-bound) or still truncates does the run end here. Distinct from `Malformed`
     /// (broke real JSON) / `Hallucinated` (claimed done) / `EmptyOutput` (said nothing) so a
-    /// harness/hardware limit is never laundered into a model-capability verdict.
+    /// harness/hardware limit is never laundered into a model-capability verdict. When the run
+    /// carries usage numbers, `Truncated` specifically means CONTEXT-BOUND — the context window
+    /// filled up (a HARDWARE limit; the fix is a bigger machine), as opposed to `ReasoningOverrun`.
     Truncated,
+    /// The model spent its whole per-turn token BUDGET reasoning and never emitted the call,
+    /// WHILE the context window still had room. This is a SETTING limit, not memory — the fix is a
+    /// bigger thinking budget (a larger preset), OR it's a genuine over-thinking capability failure
+    /// (a model that can't stop reasoning). Kept as a real fail (not laundered into Pass or a
+    /// hardware verdict): it's a common, expensive, deployment-relevant failure. Distinguished from
+    /// `Truncated` (context-bound / hardware) so the UI can say "raise a setting" vs "buy hardware".
+    ReasoningOverrun,
 }
 
 /// The result of ONE agentic attempt — the unit the Pass^k loop folds into an
@@ -166,6 +175,12 @@ pub struct FailureTracker {
     /// isn't laundered into `malformed_json`/`hallucinated`. `#[serde(default)]` for back-compat.
     #[serde(default)]
     pub truncated_calls: u32,
+    /// Runs where the model spent its whole per-turn token budget reasoning and never emitted the
+    /// call, while the context window still had room — a SETTING limit (raise the thinking preset)
+    /// or genuine over-thinking, NOT a memory limit. Kept separate from `truncated_calls`
+    /// (context-bound / hardware) so the two are never blended. `#[serde(default)]` for back-compat.
+    #[serde(default)]
+    pub reasoning_overrun_calls: u32,
 }
 
 impl FailureTracker {
@@ -181,6 +196,7 @@ impl FailureTracker {
             FailureKind::ForeignDialect => self.foreign_dialect_calls += 1,
             FailureKind::EmptyOutput => self.empty_output_calls += 1,
             FailureKind::Truncated => self.truncated_calls += 1,
+            FailureKind::ReasoningOverrun => self.reasoning_overrun_calls += 1,
         }
     }
 
@@ -198,6 +214,7 @@ impl FailureTracker {
         self.foreign_dialect_calls += o.foreign_dialect_calls;
         self.empty_output_calls += o.empty_output_calls;
         self.truncated_calls += o.truncated_calls;
+        self.reasoning_overrun_calls += o.reasoning_overrun_calls;
     }
 
     /// The most common failure mode (argmax). Ties resolve by severity order:
@@ -214,6 +231,9 @@ impl FailureTracker {
             (self.turn_timeouts, TopError::TurnTimeout),
             (self.infinite_loop_hits, TopError::InfiniteLoop),
             (self.hallucinated_completions, TopError::Hallucinated),
+            // A real capability failure (over-reasons, never delivers) — ranks with the capability
+            // cluster, ABOVE the harness/hardware artifacts (truncated/empty), so it isn't buried.
+            (self.reasoning_overrun_calls, TopError::ReasoningOverrun),
             (self.schema_unrecovered_calls, TopError::MalformedSchema),
             (self.malformed_json_calls, TopError::MalformedJson),
             (self.foreign_dialect_calls, TopError::ForeignDialect),
@@ -242,6 +262,7 @@ pub enum TopError {
     ForeignDialect,
     EmptyOutput,
     Truncated,
+    ReasoningOverrun,
 }
 
 /// The Pass^k payload: how many of `total_runs` reached the end state, the
