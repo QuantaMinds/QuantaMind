@@ -3,6 +3,7 @@ use crate::commands::llama::llama_runtime::{
     spawn_stderr_tail, wait_until_ready, SpawnMeta, JINJA_UNSUPPORTED_MSG, PORT, PROBE_TIMEOUT_MS,
 };
 use crate::commands::system::hardware::snapshot;
+use crate::inference::eval::readiness::hardware::hwclass::agentic_ctx_ceiling;
 use crate::commands::llama::llama_server_types::{LlamaServerState, LlamaStartResult, SpawnReadout};
 use crate::commands::llama::llama_templates::{model_stem, resolve_template_file};
 use crate::errors::AppError;
@@ -69,7 +70,15 @@ pub async fn start_llama_server(
     // + a Q8 KV cache (so the requested context fits instead of OOM-wedging llama.cpp), plus a
     // user-facing note describing the constraint. On a roomy machine this is the old behaviour
     // (full-precision KV, no forced flags, no note).
-    let plan = plan_launch(model_bytes, dims, snapshot().total_memory_bytes, gguf_ctx, num_ctx);
+    // D3 (llama.cpp -c lockstep): llama.cpp fixes its window at launch — `num_ctx` never reaches
+    // its per-request API. So when the user leaves "Context window" unset, default the launch `-c`
+    // to the eval's hardware-adaptive ceiling (NOT the flat 8K), or a reasoning model's agentic
+    // `num_ctx` (which equals this ceiling) would silently truncate at 8192 on llama.cpp.
+    // `plan_launch`'s RAM ceiling + flash-attn/Q8 downshift still bound it, so this can't OOM; on a
+    // tight host it self-limits (and emits the user note). An explicit user `num_ctx` still wins.
+    let total = snapshot().total_memory_bytes;
+    let requested = num_ctx.or_else(|| Some(agentic_ctx_ceiling(total)));
+    let plan = plan_launch(model_bytes, dims, total, gguf_ctx, requested);
     let ctx = plan.ctx;
     // Already serving this exact (model, context)? No-op. A changed context falls
     // through and relaunches with the new `-c`.

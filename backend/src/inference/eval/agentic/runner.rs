@@ -12,7 +12,7 @@ use crate::inference::eval::toolcall::parse::{
     extract_calls_dialect, is_empty_output, looks_like_broken_json, looks_like_foreign_dialect, strip_think,
     ToolCallDialect,
 };
-use crate::inference::eval::toolcall::prompt::{build_system_for, TerminalGuidance};
+use crate::inference::eval::toolcall::prompt::{agentic_system, TerminalGuidance};
 use crate::inference::generate::generate_options::{GenerateOptions, EVAL_REPEAT_PENALTY};
 use crate::inference::generate::generate_spec::GenerateSpec;
 use tokio::sync::mpsc::UnboundedSender;
@@ -57,14 +57,25 @@ const TRUNCATION_RETRY_LIMIT: u32 = 2;
 const NUM_CTX_BASE: u32 = 2048; // system prompt (with decoys) + initial prompt headroom
 const NUM_CTX_PER_STEP: u32 = 384; // ≈ assistant turn (≤256) + tool result + formatting
 const NUM_CTX_FLOOR: u32 = 4096;
-const NUM_CTX_CEILING: u32 = 16384; // memory-safe on a 16GB host; covers Easy→Hard fully
+/// Fallback ceiling when the hardware-derived one isn't threaded in (scripted/test/native turns).
+/// The live path passes a per-hardware ceiling via `ModelTurn::ctx_ceiling` (see
+/// `hwclass::agentic_ctx_ceiling`).
+pub(crate) const NUM_CTX_CEILING: u32 = 16384;
 
-/// Context window for a run of `max_steps` steps: cover the worst-case transcript, but
-/// never exceed the memory-safe ceiling. See [`NUM_CTX_CEILING`].
-fn agentic_num_ctx(max_steps: u32) -> u32 {
-    NUM_CTX_BASE
-        .saturating_add(max_steps.saturating_mul(NUM_CTX_PER_STEP))
-        .clamp(NUM_CTX_FLOOR, NUM_CTX_CEILING)
+/// Context window (`num_ctx`) for a run. `ceiling` is the HARDWARE-adaptive upper bound (bigger
+/// machine → bigger window; see `hwclass::agentic_ctx_ceiling`) — the one knob hardware moves.
+/// A reasoning model gets the FULL ceiling: its (fixed, machine-independent) per-turn budget +
+/// scratchpad + growing transcript need the whole window, and whether that fits is exactly what
+/// hardware decides (a box too small yields an honest `Truncated`). A terse model keeps the
+/// step-sized window (enough for its transcript), still capped by the hardware ceiling.
+fn agentic_num_ctx(max_steps: u32, is_thinking: bool, ceiling: u32) -> u32 {
+    if is_thinking {
+        ceiling.max(NUM_CTX_FLOOR)
+    } else {
+        NUM_CTX_BASE
+            .saturating_add(max_steps.saturating_mul(NUM_CTX_PER_STEP))
+            .clamp(NUM_CTX_FLOOR, ceiling)
+    }
 }
 
 /// Push the raw model turn to the transcript exactly once per turn, lazily — the
@@ -338,7 +349,7 @@ async fn run_steps<M: ModelTurn>(
             TerminalGuidance::MustUseTools
         }
     };
-    let system = build_system_for(&sandbox.tools, terminal);
+    let system = agentic_system(&sandbox.tools, terminal);
     let mut convo = Conversation::new(sandbox.initial_prompt.clone());
     let mut output_tokens = 0u32;
     let mut next_cp = 0usize; // progress through a RequireSequence end-state
@@ -365,7 +376,7 @@ async fn run_steps<M: ModelTurn>(
     // Sized once per run from the step cap: the transcript only grows within this run,
     // so a single window covers every step. Keeps the prefix-KV cache from being busted
     // by an overflow-driven context-shift (see `agentic_num_ctx`).
-    let num_ctx = agentic_num_ctx(max_steps);
+    let num_ctx = agentic_num_ctx(max_steps, turn.is_thinking(), turn.ctx_ceiling());
     for step_index in 0..max_steps {
         // The per-turn output cap. A reasoning model gets a tier-scaled budget so its
         // `<think>` scratchpad doesn't truncate the call; both thinking and non-thinking now
@@ -401,6 +412,7 @@ async fn run_steps<M: ModelTurn>(
                     ..Default::default()
                 }),
                 keep_alive: None,
+                think: None, // BackendTurn::run overrides this from `is_thinking` for Ollama
             };
             let (raw, stats) = match tokio::time::timeout(step_timeout, turn.run(&spec)).await {
                 Ok(r) => r?, // backend returned; an Err propagates (infra fault → run skipped upstream)
@@ -417,6 +429,9 @@ async fn run_steps<M: ModelTurn>(
                         cache_n: None, // no model response on a timeout
                         prefill_tokens: None,
                         prefill_ms: None,
+                        reasoning_tokens: None,
+                        context_used: None,
+                        context_window: None,
                     });
                     return Ok(RunOutcome::failure(step_index + 1, output_tokens, FailureKind::TurnTimeout)
                         .with_schema(hit_schema_error, schema_recovered)
@@ -443,7 +458,11 @@ async fn run_steps<M: ModelTurn>(
                 if let Some(prefill) = occupancy {
                     let headroom = num_ctx.saturating_sub(prefill);
                     if headroom > base_predict {
-                        attempt_predict = base_predict.saturating_mul(2).min(headroom);
+                        // Compound off the CURRENT attempt (not `base_predict`), so a second retry
+                        // actually grows (base → 2·base → 4·base) toward the full headroom instead
+                        // of re-issuing the same doubled value — the prior code doubled the constant
+                        // `base_predict` every iteration, making retry #2 a no-op.
+                        attempt_predict = attempt_predict.saturating_mul(2).min(headroom);
                         truncation_retries += 1;
                         continue; // re-run this same step; transcript untouched
                     }
@@ -458,7 +477,10 @@ async fn run_steps<M: ModelTurn>(
         let prefill_tokens = stats.prompt_eval_count; // prompt_n = recomputed; total = cache_n + this
         let prefill_ms = stats.prompt_eval_ms;
         let send = |kind: StepKind, injection: Option<String>, env: EnvView| {
-            let _ = tx.send(TrajectoryStep { run_index, step_index, raw_output: raw.clone(), injection, kind, env, cache_n, prefill_tokens, prefill_ms });
+            let _ = tx.send(TrajectoryStep {
+                run_index, step_index, raw_output: raw.clone(), injection, kind, env, cache_n, prefill_tokens, prefill_ms,
+                reasoning_tokens: None, context_used: None, context_window: None,
+            });
         };
 
         // For a reasoning model, parse and persist the `<think>`-stripped output: its inner
@@ -483,13 +505,44 @@ async fn run_steps<M: ModelTurn>(
                 // Yielded (no call) without completing the required checkpoints / reaching the
                 // target UI state.
                 EndStateRule::RequireSequence(_) | EndStateRule::RequireAll(_) | EndStateRule::RequireEndState(_) => {
-                    let (kind, failure) = if stats.finish_reason.as_deref() == Some("length") {
-                        // The turn was cut off at the output cap and (after the context-clamped
-                        // retry above, if any) still parsed to zero calls — a harness/hardware
-                        // truncation, NOT a capability failure. Checked FIRST so a length-cut
-                        // turn is never laundered into Malformed / Hallucinated / EmptyOutput.
-                        (StepKind::Truncated, FailureKind::Truncated)
-                    } else if is_empty_output(&clean) {
+                    // A length-cut turn with zero parseable calls (after the retry) — checked FIRST
+                    // so it's never laundered into Malformed/Hallucinated/EmptyOutput. Classify WHICH
+                    // limit fired, with usage numbers, so the UI distinguishes a SETTING
+                    // (reasoning-overrun → raise the preset) from HARDWARE (context-bound → bigger
+                    // machine); they have OPPOSITE fixes and must never be blended (D9).
+                    if stats.finish_reason.as_deref() == Some("length") {
+                        let reasoning_tokens = stats.eval_count.unwrap_or(0); // answer starved ⇒ ≈ all reasoning
+                        let occupancy = stats.prompt_eval_count.unwrap_or(0).saturating_add(stats.cache_n.unwrap_or(0));
+                        let context_used = occupancy.saturating_add(reasoning_tokens);
+                        // Context-bound (HARDWARE) when the window is the binding limit — the budget
+                        // couldn't fit the remaining window, or the fill reached ~90% of it.
+                        // Otherwise the per-turn token BUDGET (a setting) capped reasoning first.
+                        let context_bound = occupancy.saturating_add(base_predict) >= num_ctx
+                            || context_used.saturating_mul(100) >= num_ctx.saturating_mul(90);
+                        // Only claim ReasoningOverrun with POSITIVE evidence: the generated tokens
+                        // reached ~the per-turn budget (so the BUDGET, not the window, capped it).
+                        // Without a token count (backend didn't report `eval_count`) we can't tell,
+                        // so we default to the honest `Truncated` — never assert over-reasoning blind.
+                        let budget_maxed = stats
+                            .eval_count
+                            .is_some_and(|e| e.saturating_mul(10) >= base_predict.saturating_mul(9));
+                        let (kind, failure) = if !context_bound && budget_maxed {
+                            (StepKind::ReasoningOverrun, FailureKind::ReasoningOverrun)
+                        } else {
+                            (StepKind::Truncated, FailureKind::Truncated)
+                        };
+                        let _ = tx.send(TrajectoryStep {
+                            run_index, step_index, raw_output: raw.clone(), injection: None, kind, env: EnvView::None,
+                            cache_n, prefill_tokens, prefill_ms,
+                            reasoning_tokens: Some(reasoning_tokens),
+                            context_used: Some(context_used),
+                            context_window: Some(num_ctx),
+                        });
+                        return Ok(RunOutcome::failure(step_index + 1, output_tokens, failure)
+                            .with_schema(hit_schema_error, schema_recovered)
+                            .with_unknown_tools(unknown_tools));
+                    }
+                    let (kind, failure) = if is_empty_output(&clean) {
                         // The model produced nothing usable (empty / whitespace / a lone
                         // punctuation char before its stop token). A generation/template
                         // artifact, NOT a claimed-but-false completion. Checked first: an
@@ -706,6 +759,9 @@ async fn run_steps<M: ModelTurn>(
                 cache_n: None, // synthetic terminal step, no model response
                 prefill_tokens: None,
                 prefill_ms: None,
+                reasoning_tokens: None,
+                context_used: None,
+                context_window: None,
             });
             return Ok(RunOutcome::failure(step_index + 1, output_tokens, FailureKind::InfiniteLoop)
                 .with_schema(hit_schema_error, schema_recovered)
@@ -723,6 +779,9 @@ async fn run_steps<M: ModelTurn>(
         cache_n: None, // synthetic terminal step, no model response
         prefill_tokens: None,
         prefill_ms: None,
+        reasoning_tokens: None,
+        context_used: None,
+        context_window: None,
     });
     Ok(RunOutcome::failure(max_steps, output_tokens, FailureKind::InfiniteLoop)
         .with_schema(hit_schema_error, schema_recovered)

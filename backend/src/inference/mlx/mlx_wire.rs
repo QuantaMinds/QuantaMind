@@ -21,6 +21,17 @@ pub struct ChatRequest {
     pub top_k: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub repetition_penalty: Option<f32>,
+    /// Controls a reasoning model's thinking. mlx_lm.server forwards `chat_template_kwargs` into the
+    /// jinja template; Qwen3/`has_thinking` models read `enable_thinking`. Sent explicitly (both
+    /// true and false) so an `is_thinking=false` eval run is TRULY non-thinking — otherwise a
+    /// `has_thinking` model reasons by default and blows the smaller non-thinking budget. Ignored by
+    /// non-reasoning templates (jinja drops unknown kwargs). Verified vs ml-explore/mlx-lm#1352.
+    pub chat_template_kwargs: ChatTemplateKwargs,
+}
+
+#[derive(Serialize)]
+pub struct ChatTemplateKwargs {
+    pub enable_thinking: bool,
 }
 
 #[derive(Serialize)]
@@ -35,6 +46,7 @@ impl ChatRequest {
         prompt: String,
         system: Option<&str>,
         opts: Option<GenerateOptions>,
+        think: Option<bool>,
     ) -> Self {
         let o = opts.unwrap_or_default();
         let mut messages = Vec::new();
@@ -51,6 +63,7 @@ impl ChatRequest {
             top_p: o.top_p,
             top_k: o.top_k,
             repetition_penalty: o.repeat_penalty,
+            chat_template_kwargs: ChatTemplateKwargs { enable_thinking: matches!(think, Some(true)) },
         }
     }
 }

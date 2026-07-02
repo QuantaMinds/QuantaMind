@@ -14,6 +14,10 @@ pub(crate) struct GenerateRequest<'a> {
     pub options: Option<GenerateOptions>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub keep_alive: Option<i32>,
+    /// `think:true` routes a reasoning model's scratchpad into the response's `thinking` field
+    /// so the harness can capture it. Omitted (`None`) for non-reasoning turns.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub think: Option<bool>,
     pub stream: bool,
 }
 
@@ -23,6 +27,11 @@ pub(crate) struct GenerateRequest<'a> {
 pub(crate) struct GenerateChunk {
     #[serde(default)]
     pub response: String,
+    /// A reasoning model's scratchpad delta when `think:true` was requested — Ollama streams it
+    /// here, NOT in `response`. Captured so the harness isn't blind to (or mis-budgeting) the
+    /// reasoning. Empty on non-reasoning turns / backends that don't split the channel.
+    #[serde(default)]
+    pub thinking: String,
     pub done: bool,
     /// Why generation stopped on the final chunk: `"stop"` (natural end) vs `"length"`
     /// (hit the `num_predict` cap → truncated). The agentic runner reads this to retry a
@@ -66,15 +75,44 @@ mod tests {
     fn keep_alive_serializes_when_set_and_is_omitted_when_none() {
         let with = GenerateRequest {
             model: "m", prompt: "p", system: None, options: None,
-            keep_alive: Some(-1), stream: true,
+            keep_alive: Some(-1), think: None, stream: true,
         };
         let json = serde_json::to_string(&with).unwrap();
         assert!(json.contains("\"keep_alive\":-1"), "{json}");
 
         let without = GenerateRequest {
             model: "m", prompt: "p", system: None, options: None,
-            keep_alive: None, stream: true,
+            keep_alive: None, think: None, stream: true,
         };
         assert!(!serde_json::to_string(&without).unwrap().contains("keep_alive"));
+    }
+
+    /// `think:true` is sent for a reasoning turn and OMITTED otherwise (so a non-thinking
+    /// request is byte-identical to before this field existed).
+    #[test]
+    fn think_serializes_only_when_requested() {
+        let thinking = GenerateRequest {
+            model: "m", prompt: "p", system: None, options: None,
+            keep_alive: None, think: Some(true), stream: true,
+        };
+        assert!(serde_json::to_string(&thinking).unwrap().contains("\"think\":true"));
+
+        let plain = GenerateRequest {
+            model: "m", prompt: "p", system: None, options: None,
+            keep_alive: None, think: None, stream: true,
+        };
+        assert!(!serde_json::to_string(&plain).unwrap().contains("think"));
+    }
+
+    /// A chunk carrying Ollama's split `thinking` channel deserializes it; an old-shape chunk
+    /// (no `thinking` key) defaults to empty — back-compat.
+    #[test]
+    fn chunk_captures_thinking_and_defaults_empty() {
+        let c: GenerateChunk =
+            serde_json::from_str(r#"{"response":"","thinking":"let me reason","done":false}"#).unwrap();
+        assert_eq!(c.thinking, "let me reason");
+        assert_eq!(c.response, "");
+        let old: GenerateChunk = serde_json::from_str(r#"{"response":"hi","done":true}"#).unwrap();
+        assert_eq!(old.thinking, "", "absent thinking key defaults empty");
     }
 }

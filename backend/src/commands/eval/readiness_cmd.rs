@@ -250,6 +250,7 @@ pub async fn run_context_cliff(
         is_thinking: false,
         max_tokens: answer_tokens_for(Tier::Easy),
         cpu_offloaded: false, // liveness probe, not a scored run — no need to grant extra time
+        ctx_ceiling: crate::inference::eval::agentic::runner::NUM_CTX_CEILING, // probe: fixed fallback window
         stop_cache: Default::default(),
     };
 

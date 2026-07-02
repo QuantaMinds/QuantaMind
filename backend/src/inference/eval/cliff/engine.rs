@@ -256,6 +256,7 @@ async fn run_position<M: ModelTurn>(
             // metric stays comparable; a header value still overrides it.
             options: Some(GenerateOptions { temperature: Some(0.0), repeat_penalty: Some(EVAL_REPEAT_PENALTY), num_predict: Some(MAX_OUTPUT), ..Default::default() }),
             keep_alive: None,
+            think: None,
         };
         let (raw, stats) = turn.run(&spec).await?;
         let verdict = score(&task.expected, extract_calls(&raw).as_deref());

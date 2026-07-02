@@ -83,6 +83,15 @@ pub trait ModelTurn {
     fn slow_inference(&self) -> bool {
         false
     }
+
+    /// The HARDWARE-adaptive `num_ctx` ceiling for this run — bigger on a bigger machine (see
+    /// `hwclass::agentic_ctx_ceiling`), the one knob hardware moves. A reasoning model gets this
+    /// whole window to hold its fixed per-turn budget + transcript. Default is the fixed fallback
+    /// (`runner::NUM_CTX_CEILING`) for scripted/test/native turns; `BackendTurn` overrides it with
+    /// the value probed from the host's memory at construction.
+    fn ctx_ceiling(&self) -> u32 {
+        crate::inference::eval::agentic::runner::NUM_CTX_CEILING
+    }
 }
 
 /// Real path: dispatch by `BackendKind` (the trait isn't object-safe), accumulate
@@ -111,6 +120,11 @@ pub struct BackendTurn {
     /// `is_thinking` — it makes a turn `slow_inference`, and the runner grants a larger per-step
     /// timeout. `false` for a fully-resident model / llama.cpp / MLX / tests.
     pub cpu_offloaded: bool,
+    /// The hardware-adaptive `num_ctx` ceiling (from `hwclass::agentic_ctx_ceiling(total_ram)`),
+    /// precomputed at construction where the hardware snapshot is in scope. The runner reads it
+    /// via `ctx_ceiling()` to size a reasoning model's window. Defaulted to `NUM_CTX_CEILING` at
+    /// non-eval sites.
+    pub ctx_ceiling: u32,
     /// Per-turn-instance memo of the resolved stop tokens (see `resolve_model_stops`).
     /// Resolved lazily on the first `run` and reused for every subsequent turn of this
     /// model, so the agentic loop pays at most one `/api/show` per run. A `BackendTurn` is
@@ -183,6 +197,9 @@ impl ModelTurn for BackendTurn {
             model: self.model.clone(),
             options,
             keep_alive: self.keep_alive.or(spec.keep_alive),
+            // Reasoning models: ask Ollama to split out the `thinking` channel so the harness can
+            // capture the scratchpad (see `stream_generate`). Ignored by llama.cpp/MLX.
+            think: self.is_thinking.then_some(true),
             ..spec.clone()
         };
         let stats = match self.backend {
@@ -207,6 +224,10 @@ impl ModelTurn for BackendTurn {
         self.is_thinking || self.cpu_offloaded
     }
 
+    fn ctx_ceiling(&self) -> u32 {
+        self.ctx_ceiling
+    }
+
     /// Issue a 1-token generation to force the model resident (honoring `keep_alive` so
     /// it stays loaded across this model's tasks). The output is discarded; only the
     /// load side-effect matters. Bypasses the global eval `options` so warming is cheap.
@@ -217,6 +238,7 @@ impl ModelTurn for BackendTurn {
             system: None,
             options: Some(GenerateOptions { num_predict: Some(1), temperature: Some(0.0), ..Default::default() }),
             keep_alive: self.keep_alive,
+            think: None, // 1-token warm-up; reasoning split is irrelevant
         };
         let cancel = self.cancel.clone();
         let sink = |_: &str| {};

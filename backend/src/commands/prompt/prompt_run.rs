@@ -39,6 +39,7 @@ pub async fn run_prompt_inner(
         system: system.map(str::to_string),
         options,
         keep_alive,
+        think: None,
     };
     match backend {
         BackendKind::Ollama => {

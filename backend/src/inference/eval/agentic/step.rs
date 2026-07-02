@@ -49,8 +49,14 @@ pub enum StepKind {
     /// The turn hit the per-turn `num_predict` cap (`finish_reason == "length"`) and, after a
     /// context-clamped retry, still produced no parseable call — the output was cut off, not a
     /// capability failure. Rendered as a harness-limit note ("Output Truncated at Token Cap"),
-    /// distinct from MalformedJson / HallucinatedCompletion / EmptyOutput.
+    /// distinct from MalformedJson / HallucinatedCompletion / EmptyOutput. When usage numbers are
+    /// present, `Truncated` specifically means CONTEXT-BOUND (the window filled — a hardware limit).
     Truncated,
+    /// The model spent its whole per-turn token budget reasoning and never emitted the call, while
+    /// the context window still had room — a SETTING limit (raise the thinking preset) or genuine
+    /// over-thinking, NOT memory. Rendered distinctly ("Reasoning-overrun") so the UI can say
+    /// "raise a setting" instead of "buy a bigger machine".
+    ReasoningOverrun,
 }
 
 /// One turn of an agentic run, streamed to the UI as it happens. `injection` is
@@ -84,4 +90,14 @@ pub struct TrajectoryStep {
     /// cache bust re-incurs. `None` when the backend doesn't report it / no model response.
     #[serde(default)]
     pub prefill_ms: Option<u64>,
+    /// D9 usage accounting, populated on a `Truncated` / `ReasoningOverrun` turn so the UI can show
+    /// BOTH bars and name which limit fired. `reasoning_tokens` = tokens this turn spent reasoning
+    /// (≈ generated tokens when the answer was starved); `context_used`/`context_window` = how full
+    /// the context window got (`context_used ≈ context_window` ⇒ hardware-bound). `None` otherwise.
+    #[serde(default)]
+    pub reasoning_tokens: Option<u32>,
+    #[serde(default)]
+    pub context_used: Option<u32>,
+    #[serde(default)]
+    pub context_window: Option<u32>,
 }

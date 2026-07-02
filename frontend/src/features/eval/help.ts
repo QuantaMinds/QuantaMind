@@ -41,6 +41,10 @@ export const TOOL_HELP = {
     title: "Anti-Saturation (Decoy Tools)",
     body: "Shuffles N never-correct 'decoy' tools into every agentic task's presented tool list — plausible-looking distractors the model must avoid. It tests whether a model is misled into calling the wrong tool as the menu grows, resisting benchmark saturation. Off (default) leaves each task's authored decoys untouched. No effect on single-turn tasks.",
   },
+  thinkingBudget: {
+    title: "Thinking Budget",
+    body: "How many tokens a reasoning model may spend thinking before it must emit its tool call, per turn. Reasoning eats the same output budget as the answer, so too small a budget starves the answer and the run fails as Truncated even for a capable model. Lean / Standard / Deep are fixed presets (not a free slider) so results stay reproducible and comparable — the same tier is the same number on every machine. Deep is a large fixed cap for the chattiest models, never 'unlimited'. The budget is the SAME on every machine (reasoning length depends on the model and task, not your RAM); only the context window scales with hardware. A model that burns its whole budget without answering is scored 'Reasoning-overrun' (raise the preset), not out-of-memory. Verdicts are labeled with the preset they were run under.",
+  },
 } satisfies Record<string, Help>;
 
 /// How each metric is computed. Used both in InfoButtons and as clip-safe Tooltip

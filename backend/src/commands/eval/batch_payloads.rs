@@ -71,6 +71,9 @@ mod tests {
                 cache_n: Some(42),
                 prefill_tokens: Some(8),
                 prefill_ms: Some(12),
+                reasoning_tokens: None,
+                context_used: None,
+                context_window: None,
             },
         };
         let v = serde_json::to_value(&payload).unwrap();

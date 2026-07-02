@@ -187,8 +187,9 @@ Everything runs on-device. HTTP-only to your local backend. No weights bundled, 
 
 - **Backends:** Ollama, llama.cpp, and MLX over HTTP — no weights bundled.
 - **pass^k scoring:** *k*-of-*k* success per task tier (Easy / Medium / Hard), not a single pass.
-- **Hardware-aware:** the verdict accounts for your machine — quantization, VRAM headroom, spawn-time footprint, prefix-cache behaviour, and the llama.cpp context window (sized to what your RAM actually holds).
-- **Failure-mode classification:** surfaces *how* a model breaks — `ForbiddenCall` (out-of-scope tool), `LoopCap` (step budget hit), silent `FakeDone`, and more — not just a pass/fail number.
+- **Hardware-aware:** the verdict accounts for your machine — quantization, VRAM headroom, spawn-time footprint, prefix-cache behaviour, and the context window (sized to what your RAM actually holds; only the *window* scales with hardware, never the per-tier token budget, so a tier means the same thing on every machine).
+- **Reasoning models, done right:** captures the model's separate reasoning stream (Ollama `thinking` / llama.cpp inline `<think>`) so it isn't discarded, and gives it a fixed, generous per-tier thinking budget via a **Lean / Standard / Deep** preset. A run that fails is diagnosed honestly — `Reasoning-overrun` (spent its whole budget thinking with memory to spare → raise the preset, a *setting*) vs `Truncated (context-bound)` (the window filled → a *hardware* limit) — so you never buy hardware to fix a budget knob.
+- **Failure-mode classification:** surfaces *how* a model breaks — `ForbiddenCall` (out-of-scope tool), `LoopCap` (step budget hit), silent `FakeDone`, `Reasoning-overrun`, and more — not just a pass/fail number.
 - **Quant comparison:** diff a quantized model against a Q8 baseline to catch behaviour that a raw score hides.
 
 What a spec sheet and a cloud eval structurally cannot show: the same model at Q4 vs Q8 can hold the same score while changing *how* it fails. QuantaMind shows you that.

@@ -29,6 +29,8 @@ const KIND_LABEL: Record<StepKind, string> = {
   reported_in_prose: "answered in prose",
   foreign_dialect: "foreign tool dialect",
   empty_output: "empty output",
+  truncated: "truncated (context full)",
+  reasoning_overrun: "reasoning overrun",
 };
 
 function formatElapsed(ms: number): string {

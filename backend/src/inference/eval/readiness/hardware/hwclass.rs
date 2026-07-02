@@ -39,6 +39,26 @@ pub fn classify_bytes(total_bytes: u64) -> HardwareClass {
     classify(gb_round(total_bytes))
 }
 
+/// The agentic-eval context window (`num_ctx`) ceiling for a hardware class — the ONE place
+/// hardware adaptivity belongs. Reasoning models need a large window to HOLD their (fixed,
+/// machine-independent) per-turn budget + the growing transcript; a bigger machine can afford a
+/// bigger window. This does NOT change the budget or the tier difficulty — it only decides
+/// whether the fixed budget FITS. A box whose ceiling can't hold the budget yields an honest
+/// `Truncated` (a true result on that hardware). Each class's ceiling comfortably holds the tier
+/// it's expected to run (`default_required_tier`): Mainstream→Medium, Workstation→Hard, etc.
+pub fn agentic_ctx_ceiling(total_bytes: u64) -> u32 {
+    match classify_bytes(total_bytes) {
+        HardwareClass::Constrained => 8192,
+        HardwareClass::Mainstream => 16384,
+        HardwareClass::Workstation => 32768,
+        // Frontier is 65536 (not 49152) so the Extreme Deep preset (32768 thinking) genuinely fits:
+        // a late Extreme turn holds ~10–15k accumulated transcript + 32768 thinking + ~2k answer
+        // ≈ 45–50k, which 49152 would truncate even on the flagship. Extreme Deep therefore needs a
+        // Frontier host; on a Workstation it honestly reads `Truncated (context-bound)`.
+        HardwareClass::Frontier => 65536,
+    }
+}
+
 /// The difficulty tier a class is expected to clear by default. Seeds the built-in
 /// readiness profiles; users can still edit/save their own `required_tier`.
 pub fn default_required_tier(c: HardwareClass) -> Tier {

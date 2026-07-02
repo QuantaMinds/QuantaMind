@@ -103,6 +103,12 @@ async fn stream_chat(
     // chunk — keep the latest so prefill/predict ms reach GenerateStats (and the
     // Inspector's TTFT breakdown), which token-count-only `usage` can't give.
     let mut timings = None;
+    // Modern llama-server streams a reasoning model's scratchpad in `delta.reasoning_content` (not
+    // `content`) BEFORE the answer. Re-emit it as an inline `<think>…</think>` block so the runner's
+    // `strip_think` + D9 accounting handle llama.cpp identically to Ollama. `think_open` tracks the
+    // open tag: closed when the answer (`content`) starts or the stream ends. A terse model (or
+    // `--reasoning-format none`) sends no `reasoning_content`, so this stays a no-op.
+    let mut think_open = false;
     loop {
         tokio::select! {
             _ = cancel.cancelled() => return Ok(Some(GenerateStats::default())),
@@ -113,17 +119,26 @@ async fn stream_chat(
                 while let Some(line) = next_line(&mut buf) {
                     let payload = strip_sse(&line);
                     if payload.is_empty() { continue; }
-                    if payload == b"[DONE]" { return Ok(Some(chat_stats(timings))); }
+                    if payload == b"[DONE]" {
+                        if think_open { on_token("</think>"); }
+                        return Ok(Some(chat_stats(timings)));
+                    }
                     if payload.first() != Some(&b'{') { continue; }
                     let chunk: ChatStreamChunk = serde_json::from_slice(payload)
                         .map_err(|e| AppError::Inference(format!("bad chunk: {e}")))?;
                     if chunk.timings.is_some() { timings = chunk.timings; }
                     if let Some(choice) = chunk.choices.into_iter().next() {
+                        if let Some(text) = choice.delta.reasoning_content.filter(|t| !t.is_empty()) {
+                            if !think_open { on_token("<think>"); think_open = true; }
+                            on_token(&text);
+                        }
                         if let Some(text) = choice.delta.content.filter(|t| !t.is_empty()) {
+                            if think_open { on_token("</think>"); think_open = false; }
                             on_token(&text);
                         }
                         if cancel.is_cancelled() { return Ok(Some(GenerateStats::default())); }
                         if choice.finish_reason.is_some() {
+                            if think_open { on_token("</think>"); }
                             // Carry "stop" vs "length" so the agentic runner can tell a real
                             // failure from a `num_predict` truncation it can retry (see runner).
                             let mut stats = chat_stats(timings);
@@ -135,6 +150,7 @@ async fn stream_chat(
             }
         }
     }
+    if think_open { on_token("</think>"); }
     Ok(Some(chat_stats(timings)))
 }
 
@@ -212,10 +228,74 @@ async fn stream_completion(
     Ok(Some(GenerateStats::default()))
 }
 
+/// The context window (`n_ctx`) the running llama-server was launched with — read from `/props`
+/// (`default_generation_settings.n_ctx`, with a bare `n_ctx` fallback for older builds). llama.cpp
+/// fixes this at launch and IGNORES per-request `num_ctx`, so the eval must size its `num_ctx` to
+/// THIS actual window (which `plan_launch` may have RAM-clamped below the requested ceiling), or
+/// the truncation-retry headroom math over-grants budget the runtime can't hold. `None` when the
+/// server is unreachable / the field is absent — the caller falls back to the hardware-class band.
+pub async fn probe_llama_n_ctx(endpoint: &str) -> Option<u32> {
+    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(3)).build().ok()?;
+    let resp = client.get(format!("{endpoint}/props")).send().await.ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let v: serde_json::Value = resp.json().await.ok()?;
+    v.get("default_generation_settings")
+        .and_then(|g| g.get("n_ctx"))
+        .or_else(|| v.get("n_ctx"))
+        .and_then(|n| n.as_u64())
+        .map(|n| n as u32)
+        .filter(|&n| n > 0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use mockito::Server;
+
+    /// A reasoning model on modern llama-server streams its scratchpad in `delta.reasoning_content`
+    /// (extracted out of `content`). We must re-wrap it inline as `<think>…</think>` so `strip_think`
+    /// + D9 accounting see it — identical to the Ollama `thinking` field. Without this the reasoning
+    /// is silently dropped on llama.cpp (proven live: qwen3.5 emitted 187 reasoning_content chunks,
+    /// 0 captured before this fix).
+    #[tokio::test]
+    async fn reasoning_content_is_rewrapped_inline_as_think() {
+        let mut s = Server::new_async().await;
+        let _m = s.mock("POST", "/v1/chat/completions").with_status(200)
+            .with_body(concat!(
+                "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"let me think\"},\"finish_reason\":null}]}\n\n",
+                "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\" harder\"},\"finish_reason\":null}]}\n\n",
+                "data: {\"choices\":[{\"delta\":{\"content\":\"{\\\"name\\\":\\\"go\\\"}\"},\"finish_reason\":null}]}\n\n",
+                "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+            ))
+            .create_async().await;
+        let mut out = String::new();
+        stream_generate(&s.url(), "m", "hi", None, None, CancellationToken::new(), |t| out.push_str(t)).await.unwrap();
+        // Reasoning is captured, wrapped, and CLOSED before the answer — so strip_think leaves just the call.
+        assert_eq!(out, "<think>let me think harder</think>{\"name\":\"go\"}");
+    }
+
+    /// `/props` → the launched `n_ctx` (from `default_generation_settings`), the actual window the
+    /// eval must clamp to. Falls back to a bare `n_ctx`; `None` when absent or the server errors.
+    #[tokio::test]
+    async fn probe_n_ctx_reads_the_launched_window_from_props() {
+        let mut s = Server::new_async().await;
+        let _m = s.mock("GET", "/props").with_status(200)
+            .with_body(r#"{"default_generation_settings":{"n_ctx":16384},"total_slots":1}"#)
+            .create_async().await;
+        assert_eq!(probe_llama_n_ctx(&s.url()).await, Some(16384));
+    }
+
+    #[tokio::test]
+    async fn probe_n_ctx_falls_back_to_bare_field_and_none_on_error() {
+        let mut s = Server::new_async().await;
+        let _bare = s.mock("GET", "/props").with_status(200).with_body(r#"{"n_ctx":8192}"#).create_async().await;
+        assert_eq!(probe_llama_n_ctx(&s.url()).await, Some(8192));
+        let mut s2 = Server::new_async().await;
+        let _err = s2.mock("GET", "/props").with_status(500).create_async().await;
+        assert_eq!(probe_llama_n_ctx(&s2.url()).await, None, "unreachable/error → None → caller uses the band");
+    }
 
     /// The templated /v1/chat/completions endpoint is PRIMARY — when it answers,
     /// /completion is never hit (no `expect` on it, so a stray call would 501).

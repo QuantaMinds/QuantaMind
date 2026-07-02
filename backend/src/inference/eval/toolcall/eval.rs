@@ -111,6 +111,7 @@ pub(crate) async fn trace_one_with<M: ModelTurn>(turn: &M, model: &str, task: &T
         system: Some(system_message.clone()),
         options: Some(GenerateOptions { temperature: Some(0.0), repeat_penalty: Some(EVAL_REPEAT_PENALTY), num_predict: Some(MAX_TOKENS), ..Default::default() }),
         keep_alive: None,
+        think: None,
     };
     let (raw_output, stats) = turn.run(&spec).await?;
     let verdict = score(&task.expected, extract_calls(&raw_output).as_deref());
@@ -121,7 +122,7 @@ pub(crate) async fn trace_one_with<M: ModelTurn>(turn: &M, model: &str, task: &T
 /// execution: `run_eval` loops over it and the pipeline visualizer calls it
 /// directly. Dispatches by `BackendKind` via `BackendTurn`.
 pub async fn trace_one(backend: BackendKind, endpoint: &str, model: &str, task: &ToolTask, options: Option<GenerateOptions>) -> AppResult<TraceResult> {
-    let turn = BackendTurn { backend, endpoint: endpoint.to_string(), model: model.to_string(), cancel: CancellationToken::new(), options, keep_alive: None, is_thinking: false, max_tokens: answer_tokens_for(Tier::Easy), cpu_offloaded: false, stop_cache: Default::default() };
+    let turn = BackendTurn { backend, endpoint: endpoint.to_string(), model: model.to_string(), cancel: CancellationToken::new(), options, keep_alive: None, is_thinking: false, max_tokens: answer_tokens_for(Tier::Easy), cpu_offloaded: false, ctx_ceiling: crate::inference::eval::agentic::runner::NUM_CTX_CEILING, stop_cache: Default::default() };
     trace_one_with(&turn, model, task).await
 }
 
