@@ -29,6 +29,22 @@ const UNKNOWN_TOOL: &str =
 /// checkpoint resets the counter, so legitimate multi-step progress is never cut short.
 const STALL_REPEAT_LIMIT: u32 = 3;
 
+/// The looser stall guard: how many consecutive turns may advance NO checkpoint before the run
+/// is failed as `InfiniteLoop`, REGARDLESS of whether the calls varied. `STALL_REPEAT_LIMIT`
+/// only catches byte-identical repeats; a "busy loop" that keeps changing its calls slightly
+/// (e.g. re-searching the same two symbols every turn) dodges it and burns the whole horizon.
+/// Set well above `STALL_REPEAT_LIMIT` so legitimate multi-turn exploration (read→read→write,
+/// no checkpoint until the write) is never cut short — only a genuinely stuck agent reaches it.
+const STALL_NO_PROGRESS_LIMIT: u32 = 8;
+
+/// How many times a single step may be re-run when the turn was cut off at the `num_predict`
+/// cap (`finish_reason == "length"`) and parsed to zero calls. Each retry doubles the budget,
+/// clamped to the context headroom left this turn; a re-roll does NOT advance `step_index`, so
+/// fitting the output never costs the model a turn of its horizon. Small: 2 doublings (e.g.
+/// 3072 → 6144 → 12288) clears any realistic batched tool-call payload, and a turn that still
+/// truncates after that is context-bound, labeled honestly as `Truncated`.
+const TRUNCATION_RETRY_LIMIT: u32 = 2;
+
 /// `num_ctx` sizing for the agentic loop. The transcript re-sent every step grows by
 /// ~one assistant turn + tool result per step; left at the model default (~4096) a
 /// multi-step transcript overflows, triggering Ollama context-shift that BOTH busts
@@ -257,7 +273,12 @@ pub async fn run_once<M: ModelTurn>(
     run_index: u32,
     tx: &UnboundedSender<TrajectoryStep>,
 ) -> AppResult<RunOutcome> {
-    run_once_inner(turn, sandbox, max_steps, max_recovery, STEP_TIMEOUT, run_index, tx).await
+    // A slow turn (reasoning model, or a model Ollama spilled onto the CPU) gets a much larger
+    // per-step cap so a genuinely-progressing generation isn't killed as a false `TurnTimeout`
+    // — the same "don't score a hardware limit as a capability failure" principle as the
+    // num_predict fix. A terse, fully-resident model keeps the tight default.
+    let step_timeout = if turn.slow_inference() { STEP_TIMEOUT.saturating_mul(SLOW_STEP_MULTIPLIER) } else { STEP_TIMEOUT };
+    run_once_inner(turn, sandbox, max_steps, max_recovery, step_timeout, run_index, tx).await
 }
 
 /// Per-step wall-clock budget. The streaming HTTP client has no body deadline, so a
@@ -265,6 +286,13 @@ pub async fn run_once<M: ModelTurn>(
 /// the run as `TurnTimeout`. Generous vs. local tok/s so a legitimately slow turn
 /// (long generation, a fault-injected retry) isn't killed.
 const STEP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(180);
+
+/// How much the per-step cap is multiplied for a `slow_inference` turn (a reasoning model, or
+/// a model spilled onto the CPU). CPU-offloaded generation runs several times slower than
+/// resident GPU inference, and a `<think>` scratchpad is a long generation on top; 180s×4 = 12
+/// minutes/turn keeps a legitimately-slow-but-progressing turn alive while `PER_RUN_BUDGET`
+/// (whole-run) and the loop's own stall guards still bound a truly wedged model.
+const SLOW_STEP_MULTIPLIER: u32 = 4;
 
 /// `run_once` with an injectable per-step timeout (so the timeout path is testable
 /// without waiting the full budget).
@@ -332,49 +360,96 @@ async fn run_steps<M: ModelTurn>(
     let mut unknown_tools = 0u32; // decoy / unknown-tool calls this run (Phase 9 distraction signal)
     let mut prev_turn_sig: Option<Vec<String>> = None; // canonical calls of the previous turn
     let mut stalled_repeats = 0u32; // consecutive identical, no-progress turns (loop detector)
+    let mut no_progress_streak = 0u32; // consecutive no-checkpoint turns, sig-agnostic (busy-loop guard)
 
     // Sized once per run from the step cap: the transcript only grows within this run,
     // so a single window covers every step. Keeps the prefix-KV cache from being busted
     // by an overflow-driven context-shift (see `agentic_num_ctx`).
     let num_ctx = agentic_num_ctx(max_steps);
     for step_index in 0..max_steps {
-        let spec = GenerateSpec {
-            model: String::new(),
-            prompt: convo.render(),
-            system: Some(system.clone()),
-            options: Some(GenerateOptions {
-                temperature: Some(0.0),
-                // Harness default: stop greedy repetition collapse. Header-supplied
-                // value still wins (see `merge_eval_options`).
-                repeat_penalty: Some(EVAL_REPEAT_PENALTY),
-                // Per-turn output cap. A reasoning model gets a tier-scaled budget so its
-                // `<think>` scratchpad doesn't truncate the call; a terse model keeps 256.
-                num_predict: Some(turn.max_output_tokens()),
-                num_ctx: Some(num_ctx),
-                ..Default::default()
-            }),
-            keep_alive: None,
-        };
-        let (raw, stats) = match tokio::time::timeout(step_timeout, turn.run(&spec)).await {
-            Ok(r) => r?, // backend returned; an Err propagates (infra fault → run skipped upstream)
-            Err(_elapsed) => {
-                // The turn blew the wall-clock — a stalled model. Terminal: a hanging
-                // agent isn't production-ready, so it counts as a failure (not a skip).
-                let _ = tx.send(TrajectoryStep {
-                    run_index,
-                    step_index,
-                    raw_output: String::new(),
-                    injection: None,
-                    kind: StepKind::TurnTimeout,
-                    env: EnvView::None,
-                    cache_n: None, // no model response on a timeout
-                    prefill_tokens: None,
-                    prefill_ms: None,
-                });
-                return Ok(RunOutcome::failure(step_index + 1, output_tokens, FailureKind::TurnTimeout)
-                    .with_schema(hit_schema_error, schema_recovered)
-                    .with_unknown_tools(unknown_tools));
+        // The per-turn output cap. A reasoning model gets a tier-scaled budget so its
+        // `<think>` scratchpad doesn't truncate the call; both thinking and non-thinking now
+        // clear a batched multi-call turn (see `difficulty::passk::max_tokens_for`).
+        let base_predict = turn.max_output_tokens();
+
+        // Run the turn, retrying ONLY when it was cut off at the `num_predict` cap
+        // (`finish_reason == "length"`) AND parsed to zero calls. The retry re-runs the SAME
+        // step against the SAME transcript with a larger, context-clamped budget: the truncated
+        // partial is discarded (never appended — `convo` is untouched, so `convo.render()` is
+        // identical across attempts), and this loop does NOT advance `step_index`, so a re-roll
+        // never costs the model a turn of its horizon. Eval runs at temperature 0, so a larger
+        // budget on the same prompt deterministically resumes the same generation rather than
+        // rolling a different one. Only the KEPT attempt's tokens count toward effort (a
+        // discarded re-roll must not inflate `output_tokens`).
+        let mut attempt_predict = base_predict;
+        let mut truncation_retries = 0u32;
+        let (raw, stats) = loop {
+            // Built inline (not a closure) so no borrow of `convo` outlives this loop — the
+            // step below needs `&mut convo`. `convo` is untouched across retries, so
+            // `convo.render()` is identical each attempt (the "discard partial" guarantee).
+            let spec = GenerateSpec {
+                model: String::new(),
+                prompt: convo.render(),
+                system: Some(system.clone()),
+                options: Some(GenerateOptions {
+                    temperature: Some(0.0),
+                    // Harness default: stop greedy repetition collapse. Header-supplied
+                    // value still wins (see `merge_eval_options`).
+                    repeat_penalty: Some(EVAL_REPEAT_PENALTY),
+                    num_predict: Some(attempt_predict),
+                    num_ctx: Some(num_ctx),
+                    ..Default::default()
+                }),
+                keep_alive: None,
+            };
+            let (raw, stats) = match tokio::time::timeout(step_timeout, turn.run(&spec)).await {
+                Ok(r) => r?, // backend returned; an Err propagates (infra fault → run skipped upstream)
+                Err(_elapsed) => {
+                    // The turn blew the wall-clock — a stalled model. Terminal: a hanging
+                    // agent isn't production-ready, so it counts as a failure (not a skip).
+                    let _ = tx.send(TrajectoryStep {
+                        run_index,
+                        step_index,
+                        raw_output: String::new(),
+                        injection: None,
+                        kind: StepKind::TurnTimeout,
+                        env: EnvView::None,
+                        cache_n: None, // no model response on a timeout
+                        prefill_tokens: None,
+                        prefill_ms: None,
+                    });
+                    return Ok(RunOutcome::failure(step_index + 1, output_tokens, FailureKind::TurnTimeout)
+                        .with_schema(hit_schema_error, schema_recovered)
+                        .with_unknown_tools(unknown_tools));
+                }
+            };
+            let truncated = stats.finish_reason.as_deref() == Some("length");
+            let zero_calls = {
+                let clean = if turn.is_thinking() { strip_think(&raw) } else { raw.clone() };
+                extract_calls_dialect(&clean).is_none()
+            };
+            if truncated && zero_calls && truncation_retries < TRUNCATION_RETRY_LIMIT {
+                // Context-safety guard: clamp the retry to the generation room ACTUALLY left this
+                // turn. True prompt occupancy is `cache_n + prompt_eval_count` (llama.cpp serves
+                // most of a reused prefix from cache and reports only the recomputed part as
+                // `prompt_eval_count`, so ignoring `cache_n` would wildly overstate headroom). If
+                // occupancy is unknown (missing/0) OR the transcript leaves no room for even the
+                // base budget, retrying would over-grant and overflow `num_ctx` — so we DON'T
+                // retry; the no-call ladder below labels it honestly as `Truncated`.
+                let occupancy = stats
+                    .prompt_eval_count
+                    .map(|p| p.saturating_add(stats.cache_n.unwrap_or(0)))
+                    .filter(|&p| p > 0);
+                if let Some(prefill) = occupancy {
+                    let headroom = num_ctx.saturating_sub(prefill);
+                    if headroom > base_predict {
+                        attempt_predict = base_predict.saturating_mul(2).min(headroom);
+                        truncation_retries += 1;
+                        continue; // re-run this same step; transcript untouched
+                    }
+                }
             }
+            break (raw, stats);
         };
         output_tokens += stats.eval_count.unwrap_or(0);
         // Per-turn prompt-cache reuse (llama.cpp `timings.cache_n`); None for other
@@ -408,7 +483,13 @@ async fn run_steps<M: ModelTurn>(
                 // Yielded (no call) without completing the required checkpoints / reaching the
                 // target UI state.
                 EndStateRule::RequireSequence(_) | EndStateRule::RequireAll(_) | EndStateRule::RequireEndState(_) => {
-                    let (kind, failure) = if is_empty_output(&clean) {
+                    let (kind, failure) = if stats.finish_reason.as_deref() == Some("length") {
+                        // The turn was cut off at the output cap and (after the context-clamped
+                        // retry above, if any) still parsed to zero calls — a harness/hardware
+                        // truncation, NOT a capability failure. Checked FIRST so a length-cut
+                        // turn is never laundered into Malformed / Hallucinated / EmptyOutput.
+                        (StepKind::Truncated, FailureKind::Truncated)
+                    } else if is_empty_output(&clean) {
                         // The model produced nothing usable (empty / whitespace / a lone
                         // punctuation char before its stop token). A generation/template
                         // artifact, NOT a claimed-but-false completion. Checked first: an
@@ -599,9 +680,12 @@ async fn run_steps<M: ModelTurn>(
         };
         send(kind, injection, final_env);
 
-        // Loop detector: a turn that re-emits the exact same calls as the previous turn
-        // AND advanced no checkpoint is a stall. After `STALL_REPEAT_LIMIT` such turns in a
-        // row, end the run as `InfiniteLoop` rather than grinding the whole step budget.
+        // Loop detector, two tiers. (a) A turn that re-emits the EXACT same calls as the
+        // previous turn AND advanced no checkpoint is a hard stall — fail fast after
+        // `STALL_REPEAT_LIMIT`. (b) A turn that advances NO checkpoint for
+        // `STALL_NO_PROGRESS_LIMIT` turns in a row, EVEN IF its calls vary slightly, is a
+        // busy loop (the 37-step "keep re-searching" trajectory that dodges the exact-match
+        // check) — also `InfiniteLoop`. Either resets on real checkpoint progress.
         let progressed = next_cp + satisfied.iter().filter(|&&s| s).count() > progress_before;
         let sig: Vec<String> = calls.iter().map(canonical).collect();
         if !progressed && prev_turn_sig.as_ref() == Some(&sig) {
@@ -610,7 +694,8 @@ async fn run_steps<M: ModelTurn>(
             stalled_repeats = 0;
         }
         prev_turn_sig = Some(sig);
-        if stalled_repeats + 1 >= STALL_REPEAT_LIMIT {
+        no_progress_streak = if progressed { 0 } else { no_progress_streak + 1 };
+        if stalled_repeats + 1 >= STALL_REPEAT_LIMIT || no_progress_streak >= STALL_NO_PROGRESS_LIMIT {
             let _ = tx.send(TrajectoryStep {
                 run_index,
                 step_index: step_index + 1,

@@ -38,6 +38,13 @@ pub enum FailureKind {
     /// from `Hallucinated` (which claims completion in real words) — naming it honestly keeps
     /// "the model said nothing" from reading as "the model lied about finishing".
     EmptyOutput,
+    /// The turn hit the `num_predict` output cap (`finish_reason == "length"`) and produced no
+    /// parseable call — the output was cut off mid-string, NOT a capability failure. The runner
+    /// first retries with a larger, context-clamped budget; only when the retry is impossible
+    /// (context-bound) or still truncates does the run end here. Distinct from `Malformed`
+    /// (broke real JSON) / `Hallucinated` (claimed done) / `EmptyOutput` (said nothing) so a
+    /// harness/hardware limit is never laundered into a model-capability verdict.
+    Truncated,
 }
 
 /// The result of ONE agentic attempt — the unit the Pass^k loop folds into an
@@ -153,6 +160,12 @@ pub struct FailureTracker {
     /// completion. `#[serde(default)]` so reports persisted before this load as 0.
     #[serde(default)]
     pub empty_output_calls: u32,
+    /// Runs the model couldn't finish because the turn hit the `num_predict` cap and, after a
+    /// context-clamped retry, still produced no parseable call (or the retry was impossible
+    /// because the transcript left no headroom). A harness/hardware limit, named honestly so it
+    /// isn't laundered into `malformed_json`/`hallucinated`. `#[serde(default)]` for back-compat.
+    #[serde(default)]
+    pub truncated_calls: u32,
 }
 
 impl FailureTracker {
@@ -167,6 +180,7 @@ impl FailureTracker {
             FailureKind::ReportedInProse => self.reported_in_prose_calls += 1,
             FailureKind::ForeignDialect => self.foreign_dialect_calls += 1,
             FailureKind::EmptyOutput => self.empty_output_calls += 1,
+            FailureKind::Truncated => self.truncated_calls += 1,
         }
     }
 
@@ -183,14 +197,17 @@ impl FailureTracker {
         self.reported_in_prose_calls += o.reported_in_prose_calls;
         self.foreign_dialect_calls += o.foreign_dialect_calls;
         self.empty_output_calls += o.empty_output_calls;
+        self.truncated_calls += o.truncated_calls;
     }
 
     /// The most common failure mode (argmax). Ties resolve by severity order:
     /// forbidden-call > turn-timeout > infinite-loop > hallucinated >
-    /// malformed-schema > malformed-json > foreign-dialect > empty-output >
-    /// reported-in-prose. Count wins first (a model that MOSTLY reports-in-prose still
-    /// headlines it — the G3 honesty payload), but on a tie `ReportedInProse` is LAST so any
-    /// genuinely worse failure dominates the verdict. `None` when there were no failures.
+    /// malformed-schema > malformed-json > foreign-dialect > truncated > empty-output >
+    /// reported-in-prose. `Truncated` sits low in the artifact cluster (with foreign-dialect /
+    /// empty-output): it's a harness/hardware limit, not a capability lie, so a genuine
+    /// capability failure in the same batch outranks it. Count wins first (a model that MOSTLY
+    /// reports-in-prose still headlines it — the G3 honesty payload), but on a tie
+    /// `ReportedInProse` is LAST so any genuinely worse failure dominates. `None` when clean.
     pub(crate) fn top(&self) -> TopError {
         [
             (self.forbidden_calls, TopError::ForbiddenCall),
@@ -200,6 +217,7 @@ impl FailureTracker {
             (self.schema_unrecovered_calls, TopError::MalformedSchema),
             (self.malformed_json_calls, TopError::MalformedJson),
             (self.foreign_dialect_calls, TopError::ForeignDialect),
+            (self.truncated_calls, TopError::Truncated),
             (self.empty_output_calls, TopError::EmptyOutput),
             (self.reported_in_prose_calls, TopError::ReportedInProse),
         ]
@@ -223,6 +241,7 @@ pub enum TopError {
     ReportedInProse,
     ForeignDialect,
     EmptyOutput,
+    Truncated,
 }
 
 /// The Pass^k payload: how many of `total_runs` reached the end state, the
@@ -352,6 +371,36 @@ mod tests {
     #[test]
     fn top_error_is_none_with_no_failures() {
         assert_eq!(FailureTracker::default().top(), TopError::None);
+    }
+
+    #[test]
+    fn truncated_is_tallied_headlined_and_merged_in_lockstep() {
+        // from_outcomes records it, top() headlines it, merge() sums it — the three sites a new
+        // FailureKind must reach together, or a truncation gets silently dropped/mislabeled.
+        let outcomes = vec![
+            RunOutcome::failure(1, 10, FailureKind::Truncated),
+            RunOutcome::failure(1, 10, FailureKind::Truncated),
+            RunOutcome::success(2, 20),
+        ];
+        let r = AgenticReport::from_outcomes(&outcomes);
+        assert_eq!(r.failures.truncated_calls, 2);
+        assert_eq!(r.top_error, TopError::Truncated);
+
+        let mut agg = FailureTracker::default();
+        agg.merge(&r.failures);
+        agg.merge(&r.failures);
+        assert_eq!(agg.truncated_calls, 4);
+        assert_eq!(agg.top(), TopError::Truncated);
+    }
+
+    #[test]
+    fn a_real_capability_failure_outranks_a_truncation_artifact_on_a_tie() {
+        // Truncated sits in the artifact cluster: on an equal count, a genuine capability
+        // failure (hallucinated) must headline, not the harness limit.
+        let mut f = FailureTracker::default();
+        f.truncated_calls = 2;
+        f.hallucinated_completions = 2;
+        assert_eq!(f.top(), TopError::Hallucinated);
     }
 
     #[test]

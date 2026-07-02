@@ -56,7 +56,7 @@ pub async fn is_reachable(timeout_ms: u64) -> bool {
 /// `template_file` is an OPTIONAL `.jinja` override (`--chat-template-file`), used
 /// only when a model's embedded template is broken (resolved by `llama_templates`).
 /// `None` ⇒ the embedded template via `--jinja` — the default for every model.
-pub fn build_spawn_args(gguf_path: &str, port: u16, ctx: u32, template_file: Option<&str>) -> Vec<String> {
+pub fn build_spawn_args(gguf_path: &str, port: u16, plan: &LaunchPlan, template_file: Option<&str>) -> Vec<String> {
     let mut args = vec![
         "-m".into(),
         gguf_path.into(),
@@ -66,8 +66,23 @@ pub fn build_spawn_args(gguf_path: &str, port: u16, ctx: u32, template_file: Opt
         port.to_string(),
         "--jinja".into(),
         "-c".into(),
-        ctx.to_string(),
+        plan.ctx.to_string(),
     ];
+    // Memory-safety flags, applied ONLY when the plan calls for them (a tight host that
+    // couldn't otherwise hold the requested context). Flash Attention shrinks the attention
+    // compute buffer; a Q8 KV cache halves the per-token KV memory — together they hold ~2×
+    // the context in the same RAM and avert the Metal `kIOGPUCommandBufferCallbackErrorOutOfMemory`
+    // wedge. A Q8 cache REQUIRES flash attention, so the two are set together (`plan` guarantees it).
+    if plan.flash_attn {
+        args.push("-fa".into());
+        args.push("on".into());
+    }
+    if plan.kv == KvType::Q8 {
+        args.push("-ctk".into());
+        args.push("q8_0".into());
+        args.push("-ctv".into());
+        args.push("q8_0".into());
+    }
     if let Some(path) = template_file {
         args.push("--chat-template-file".into());
         args.push(path.into());
@@ -155,6 +170,15 @@ pub fn spawn_meta(gguf_path: &str) -> SpawnMeta {
 pub fn hardware_ctx_ceiling(model_bytes: u64, dims: Option<KvDims>, total_bytes: u64) -> u32 {
     let Some(d) = dims else { return u32::MAX };
     let per_token = calculate_kv_cache_bytes(d.layers, d.head_count, d.head_count_kv, d.embedding_length, 1);
+    ceiling_from_per_token(model_bytes, total_bytes, per_token)
+}
+
+/// The largest `-c` whose KV cache (at `per_token` bytes/token) fits usable RAM alongside
+/// the weights. Extracted from `hardware_ctx_ceiling` so the Q8-KV plan can pass HALF the
+/// per-token cost (a quantized cache) and get the correspondingly larger ceiling. `per_token`
+/// of 0 (unknown dims) ⇒ no clamp (`u32::MAX`), the safe direction (never silently cap an
+/// explicit window). Pure.
+fn ceiling_from_per_token(model_bytes: u64, total_bytes: u64, per_token: u64) -> u32 {
     if per_token == 0 {
         return u32::MAX;
     }
@@ -162,6 +186,82 @@ pub fn hardware_ctx_ceiling(model_bytes: u64, dims: Option<KvDims>, total_bytes:
     let budget = usable.saturating_sub(model_bytes);
     let raw = (budget / per_token).min(u32::MAX as u64) as u32;
     (raw / CTX_STEP * CTX_STEP).max(MIN_CONTEXT)
+}
+
+/// KV-cache element precision the launch will request. `F16` is llama.cpp's default (2 bytes
+/// per element); `Q8` (1 byte) halves KV memory but REQUIRES flash attention, so a plan that
+/// picks `Q8` always also sets `flash_attn`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KvType {
+    F16,
+    Q8,
+}
+
+/// The hardware-aware launch decision: the `-c` window, whether to force flash attention, the
+/// KV-cache precision, and an OPTIONAL user-facing `note` explaining any memory constraint that
+/// was applied (and how the server is now running safely). `note` is `Some` ONLY when a
+/// constraint kicked in — a roomy machine launches exactly as before with no message.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LaunchPlan {
+    pub ctx: u32,
+    pub flash_attn: bool,
+    pub kv: KvType,
+    pub note: Option<String>,
+}
+
+/// Decide how to launch `llama-server` for THIS (model, machine): pick the largest safe context
+/// and, when full-precision KV won't fit the desired window, enable flash attention + a Q8 KV
+/// cache (halving KV memory, ~2× the reachable context) instead of silently shrinking the
+/// window. Returns a user-facing `note` whenever it had to intervene, so the app can tell the
+/// user what constraint was detected and how the server is running safely.
+///
+/// `desired` is the window the user asked for (their `num_ctx`, else the GGUF default capped at
+/// `MAX_CONTEXT`), bounded by the model's own max. If it already fits full-precision KV, we
+/// launch plainly (F16, no forced flags, no note). If it doesn't, Q8 KV raises the ceiling; we
+/// take the min of `desired` and that Q8 ceiling — so even Q8 can't OOM the pre-allocated cache.
+/// When dims/weights are unmeasurable we can't reason about memory, so we launch plainly at the
+/// desired window (never fabricate a constraint). Pure: the caller supplies total memory.
+pub fn plan_launch(
+    model_bytes: Option<u64>,
+    dims: Option<KvDims>,
+    total_bytes: u64,
+    gguf_ctx: Option<u32>,
+    requested: Option<u32>,
+) -> LaunchPlan {
+    let desired = match requested {
+        Some(r) if r > 0 => gguf_ctx.map_or(r, |max| r.min(max)),
+        _ => cap_context(gguf_ctx),
+    }
+    .max(MIN_CONTEXT);
+
+    // Without measurable weights AND dims we can't budget memory — launch plainly (legacy path).
+    let (Some(mb), Some(d)) = (model_bytes, dims) else {
+        return LaunchPlan { ctx: desired, flash_attn: false, kv: KvType::F16, note: None };
+    };
+    let per_token_f16 = calculate_kv_cache_bytes(d.layers, d.head_count, d.head_count_kv, d.embedding_length, 1);
+    let f16_ceiling = ceiling_from_per_token(mb, total_bytes, per_token_f16);
+    if desired <= f16_ceiling {
+        // Fits at full precision — nothing to do, no message.
+        return LaunchPlan { ctx: desired, flash_attn: false, kv: KvType::F16, note: None };
+    }
+
+    // Full-precision KV won't hold the desired window. Q8 halves the per-token cost.
+    let q8_ceiling = ceiling_from_per_token(mb, total_bytes, per_token_f16 / 2);
+    let ctx = desired.min(q8_ceiling).max(MIN_CONTEXT);
+    let gb = total_bytes as f64 / 1_000_000_000.0;
+    let note = Some(if ctx < desired {
+        format!(
+            "Detected {gb:.0} GB of RAM — not enough to hold a {desired}-token context for this model \
+             at full precision. Running safely: enabled Flash Attention and a Q8 KV cache (half the \
+             memory) and capped the context to {ctx} tokens so the GPU can't run out of memory."
+        )
+    } else {
+        format!(
+            "Detected {gb:.0} GB of RAM. Running safely: enabled Flash Attention and a Q8 KV cache \
+             (half the memory) so the {ctx}-token context fits without a GPU out-of-memory error."
+        )
+    });
+    LaunchPlan { ctx, flash_attn: true, kv: KvType::Q8, note }
 }
 
 /// The `-c` value: the GGUF's declared context, capped at `MAX_CONTEXT`; the

@@ -10,7 +10,16 @@ use std::sync::Mutex;
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum LlamaStartResult {
     AlreadyRunning,
-    Started { pid: u32, port: u16 },
+    /// `note` carries a user-facing message ONLY when a hardware constraint was applied at
+    /// launch (flash attention / Q8 KV cache / capped context on a memory-tight host) — so the
+    /// UI can tell the user what was detected and how the server is running safely. `None` on a
+    /// roomy machine that launched at full precision.
+    Started {
+        pid: u32,
+        port: u16,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        note: Option<String>,
+    },
     NotBundled { note: String },
     StartFailed { error: String },
 }

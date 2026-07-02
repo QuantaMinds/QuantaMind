@@ -18,6 +18,13 @@ pub struct GenerateStats {
     /// don't report it (Ollama, MLX). On an agentic turn whose transcript prefix
     /// was reused, this is high and `prompt_eval_ms` ≈ 0.
     pub cache_n: Option<u32>,
+    /// Why generation stopped, from the backend's final chunk: `"stop"` (natural end /
+    /// stop token) vs `"length"` (hit the `num_predict` output cap → the turn was
+    /// TRUNCATED mid-output). llama.cpp/MLX report `finish_reason`; Ollama reports
+    /// `done_reason` (mapped to `"length"` on cap). `None` for backends/paths that
+    /// don't surface it. The agentic runner reads this to distinguish a real capability
+    /// failure from a harness-truncation it can retry with a larger budget.
+    pub finish_reason: Option<String>,
 }
 
 /// Nanoseconds → whole milliseconds (Ollama reports ns durations).

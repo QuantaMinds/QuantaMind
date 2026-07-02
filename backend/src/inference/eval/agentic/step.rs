@@ -46,6 +46,11 @@ pub enum StepKind {
     /// lone `.` before its stop token). A generation/template artifact, distinct from a
     /// hallucinated completion.
     EmptyOutput,
+    /// The turn hit the per-turn `num_predict` cap (`finish_reason == "length"`) and, after a
+    /// context-clamped retry, still produced no parseable call — the output was cut off, not a
+    /// capability failure. Rendered as a harness-limit note ("Output Truncated at Token Cap"),
+    /// distinct from MalformedJson / HallucinatedCompletion / EmptyOutput.
+    Truncated,
 }
 
 /// One turn of an agentic run, streamed to the UI as it happens. `injection` is

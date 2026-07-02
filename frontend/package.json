@@ -8,6 +8,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "cd .. && tauri",
+    "clean": "node -e \"require('fs').rmSync('../backend/target/release/bundle',{recursive:true,force:true})\"",
     "test": "vitest run",
     "test:watch": "vitest"
   },

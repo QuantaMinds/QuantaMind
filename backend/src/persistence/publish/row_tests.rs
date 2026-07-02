@@ -27,6 +27,8 @@ fn verdict(model: &str, pass_k: Option<f64>, quant: Option<&str>) -> ModelVerdic
             TierStat { tier: Tier::Medium, tasks_passed: 6, tasks_total: 8, avg_steps: Some(4.0), failures: FailureTracker::default() },
         ],
         failures: FailureTracker { hallucinated_completions: 2, forbidden_calls: 1, reported_in_prose_calls: 3, ..Default::default() },
+        passes: 0,
+        total_runs: 0,
     }
 }
 

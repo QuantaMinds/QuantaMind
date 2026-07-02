@@ -30,6 +30,7 @@ impl Timings {
             load_ms: None,
             total_ms: None,
             cache_n: self.cache_n,
+            finish_reason: None, // set by the caller from the chunk's choice.finish_reason
         }
     }
 }

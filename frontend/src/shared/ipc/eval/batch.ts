@@ -102,6 +102,7 @@ export const TopErrorSchema = z.enum([
   "reported_in_prose",
   "foreign_dialect",
   "empty_output",
+  "truncated",
 ]);
 export type TopError = z.infer<typeof TopErrorSchema>;
 
@@ -124,6 +125,10 @@ export const FailureTrackerSchema = z.object({
   // Empty / whitespace / punctuation-only output (the model produced nothing usable) — a
   // generation/template artifact, distinct from a hallucinated completion.
   empty_output_calls: z.number().int().optional(),
+  // Turn cut off at the per-turn num_predict cap (finish_reason="length") that still parsed
+  // to zero calls after a context-clamped retry — a harness/hardware limit, NOT a capability
+  // gap. `.optional()` so pre-fix reports parse (absent → 0).
+  truncated_calls: z.number().int().optional(),
 });
 export type FailureTracker = z.infer<typeof FailureTrackerSchema>;
 

@@ -57,6 +57,8 @@ mod tests {
             cliff: CliffStatus::NotProbed,
             by_tier: Vec::new(),
             failures: Default::default(),
+            passes: 0,
+            total_runs: 0,
         }
     }
 

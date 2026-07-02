@@ -4,7 +4,7 @@ use crate::inference::generate::generate_stats::GenerateStats;
 use crate::inference::http::http::{body_or_note, streaming_client};
 use crate::inference::http::ndjson::next_line;
 use crate::inference::llama::llama_wire::{
-    context_overflow_hint, strip_sse, ChatRequest, ChatStreamChunk, CompletionChunk,
+    llama_error_hint, strip_sse, ChatRequest, ChatStreamChunk, CompletionChunk,
     CompletionRequest,
 };
 use futures_util::StreamExt;
@@ -89,9 +89,10 @@ async fn stream_chat(
     }
     if !status.is_success() {
         let body_text = body_or_note(resp).await;
-        // A context overflow gets actionable copy (raise Context window + restart);
-        // anything else keeps the self-explaining URL+status+body.
-        let msg = context_overflow_hint(&body_text)
+        // A context overflow or GPU compute error (Metal OOM) gets actionable copy
+        // (raise/lower Context window, restart, smaller model); anything else keeps the
+        // self-explaining URL+status+body.
+        let msg = llama_error_hint(&body_text)
             .unwrap_or_else(|| format!("llama-server POST {url} → HTTP {status}: {body_text}"));
         return Err(AppError::Inference(msg));
     }
@@ -122,7 +123,13 @@ async fn stream_chat(
                             on_token(&text);
                         }
                         if cancel.is_cancelled() { return Ok(Some(GenerateStats::default())); }
-                        if choice.finish_reason.is_some() { return Ok(Some(chat_stats(timings))); }
+                        if choice.finish_reason.is_some() {
+                            // Carry "stop" vs "length" so the agentic runner can tell a real
+                            // failure from a `num_predict` truncation it can retry (see runner).
+                            let mut stats = chat_stats(timings);
+                            stats.finish_reason = choice.finish_reason;
+                            return Ok(Some(stats));
+                        }
                     }
                 }
             }
@@ -169,9 +176,10 @@ async fn stream_completion(
     }
     if !status.is_success() {
         let body_text = body_or_note(resp).await;
-        // A context overflow gets actionable copy (raise Context window + restart);
-        // anything else keeps the self-explaining URL+status+body.
-        let msg = context_overflow_hint(&body_text)
+        // A context overflow or GPU compute error (Metal OOM) gets actionable copy
+        // (raise/lower Context window, restart, smaller model); anything else keeps the
+        // self-explaining URL+status+body.
+        let msg = llama_error_hint(&body_text)
             .unwrap_or_else(|| format!("llama-server POST {url} → HTTP {status}: {body_text}"));
         return Err(AppError::Inference(msg));
     }

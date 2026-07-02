@@ -79,7 +79,7 @@ const FlagIcon = () => (
 
 const getStepIcon = (kind: string, isError: boolean): React.ReactNode => {
   if (kind === "tool_call") return <GearIcon />;
-  if (kind === "tool_error" || kind === "schema_error" || kind === "malformed_json" || kind === "turn_timeout" || kind === "foreign_dialect" || kind === "empty_output") return <ErrorIcon />;
+  if (kind === "tool_error" || kind === "schema_error" || kind === "malformed_json" || kind === "turn_timeout" || kind === "foreign_dialect" || kind === "empty_output" || kind === "truncated") return <ErrorIcon />;
   if (kind === "infinite_loop") return <LoopIcon />;
   if (kind === "hallucinated_completion" || kind === "forbidden_call" || kind === "reported_in_prose") return <StopIcon />;
   if (kind === "end_state_reached") return <FlagIcon />;
@@ -100,7 +100,8 @@ export const isErrorKind = (kind: string): boolean =>
   kind === "turn_timeout" ||
   kind === "reported_in_prose" ||
   kind === "foreign_dialect" ||
-  kind === "empty_output";
+  kind === "empty_output" ||
+  kind === "truncated";
 
 export const getStepTitle = (kind: string, isError: boolean) => {
   if (kind === "tool_call") return "Model Outputs Tool Call";
@@ -115,6 +116,7 @@ export const getStepTitle = (kind: string, isError: boolean) => {
   if (kind === "reported_in_prose") return "Reported In Prose (Wrong Channel)";
   if (kind === "foreign_dialect") return "Foreign Tool Dialect (Unparseable)";
   if (kind === "empty_output") return "Empty Output (No Usable Response)";
+  if (kind === "truncated") return "Output Truncated at Token Cap (Harness Limit)";
   if (kind === "end_state_reached") return "End State Verification";
   return isError ? "Execution Failure" : "Model Output Success";
 };
@@ -154,6 +156,12 @@ export const verdictLabel = (topError: string): { title: string; detail: string 
         title: "REPORTED IN PROSE",
         detail: "Correct content, but the model answered in plain text instead of calling the required tool — a wrong-channel failure, not a hallucination.",
       };
+    case "truncated":
+      return {
+        title: "OUTPUT TRUNCATED AT TOKEN CAP",
+        detail:
+          "The turn was cut off at the per-turn output-token cap (finish_reason=length) and, after an automatic larger-budget retry, still parsed to zero calls — a harness/hardware limit, not a capability failure. If the transcript left no room to retry, the run is context-bound at this hardware.",
+      };
     default:
       return { title: "EVALUATION FAILED", detail: "The run did not reach the expected end state on every iteration." };
   }
@@ -162,8 +170,10 @@ export const verdictLabel = (topError: string): { title: string; detail: string 
 /// Verdict-header color. `reported_in_prose` is the mildest failure (content correct,
 /// wrong channel) so it renders TEAL — distinct from the red of a genuine failure — to
 /// carry that a wrong-channel model is meaningfully more capable than one that fails hard.
+/// `truncated` is a harness/hardware limit (not the model's fault) so it renders AMBER,
+/// signalling "a setting/hardware cause" rather than a red capability failure.
 export const verdictColor = (topError: string): string =>
-  topError === "reported_in_prose" ? "#0f766e" : "#991b1b";
+  topError === "reported_in_prose" ? "#0f766e" : topError === "truncated" ? "#b45309" : "#991b1b";
 
 const getStepDescription = (kind: string, raw_output: string) => {
   if (kind === "schema_error") {

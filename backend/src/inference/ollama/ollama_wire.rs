@@ -24,6 +24,11 @@ pub(crate) struct GenerateChunk {
     #[serde(default)]
     pub response: String,
     pub done: bool,
+    /// Why generation stopped on the final chunk: `"stop"` (natural end) vs `"length"`
+    /// (hit the `num_predict` cap → truncated). The agentic runner reads this to retry a
+    /// truncated turn instead of scoring it as a capability failure.
+    #[serde(default)]
+    done_reason: Option<String>,
     #[serde(default)]
     load_duration: Option<u64>,
     #[serde(default)]
@@ -48,6 +53,7 @@ impl GenerateChunk {
             load_ms: self.load_duration.map(ns_to_ms),
             total_ms: self.total_duration.map(ns_to_ms),
             cache_n: None, // Ollama's /api/generate reports no prompt-cache count
+            finish_reason: self.done_reason.clone(), // "stop" | "length"
         }
     }
 }

@@ -8,7 +8,7 @@ use crate::commands::llama::llama_server_types::{LlamaProbeReadiness, LlamaServe
 use crate::errors::AppError;
 use crate::inference::backend::backend_kind::BackendKind;
 use crate::inference::backend::endpoint;
-use crate::inference::eval::agentic::difficulty::passk::NON_THINKING_MAX_TOKENS;
+use crate::inference::eval::agentic::difficulty::passk::answer_tokens_for;
 use crate::inference::eval::agentic::model_turn::BackendTurn;
 use crate::inference::eval::agentic::spec::Tier;
 use crate::inference::eval::readiness::hardware::hwclass::{classify_bytes, default_required_tier, HardwareClass};
@@ -245,10 +245,11 @@ pub async fn run_context_cliff(
         cancel: cancel.clone(),
         options: Some(options),
         keep_alive: None,
-        // Readiness is a minimal liveness probe, not a scored agentic run — keep the legacy
-        // terse-model budget regardless of the model's thinking flag.
+        // Readiness is a minimal liveness probe, not a scored agentic run — keep the non-thinking
+        // budget, but at the answer floor so the probe's own tool call can't truncate.
         is_thinking: false,
-        max_tokens: NON_THINKING_MAX_TOKENS,
+        max_tokens: answer_tokens_for(Tier::Easy),
+        cpu_offloaded: false, // liveness probe, not a scored run — no need to grant extra time
         stop_cache: Default::default(),
     };
 

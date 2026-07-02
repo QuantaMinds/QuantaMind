@@ -131,6 +131,13 @@ export const ModelVerdictSchema = z.object({
   // fixtures may omit it) — the deep-dive components treat absent as "no agentic run".
   by_tier: z.array(TierStatSchema).optional(),
   failures: FailureTrackerSchema.optional(),
+  // Run-level pass tally: `passes` of `total_runs` individual runs succeeded. Distinct from
+  // `pass_k` (the STRICT all-k gate), so a 14/16 shows pass_k=0 yet passes/total_runs=14/16.
+  // Shown beside the strict badge so a very-good model doesn't read as a flat ✗. `.optional()`
+  // (like `by_tier`/`failures`) so fixtures/pre-fix payloads omit them; the Rust side always
+  // sends them (serde default 0). Absent/0 total → rendered "N/A".
+  passes: z.number().int().optional(),
+  total_runs: z.number().int().optional(),
 });
 export type ModelVerdict = z.infer<typeof ModelVerdictSchema>;
 

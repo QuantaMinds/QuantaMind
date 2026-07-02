@@ -183,3 +183,39 @@ export async function importCustomCollection(sourcePath: string): Promise<string
 export async function readTextCapped(sourcePath: string): Promise<string> {
   return z.string().parse(await invoke("read_text_capped", { sourcePath }));
 }
+
+// --- Collection validation (the offline "answer key works" oracle check) ---
+
+/// Per-task oracle verdict. `reachable`: "yes" (a perfect agent reaches the end state),
+/// "no" (the answer key is broken — bad checkpoint tool/args/wildcard), or "not_checkable"
+/// (stateful/abstain end-state — confirm with a real run). `discriminating`: whether a
+/// do-nothing agent correctly FAILS it (null when N/A). `detail` is the human explanation.
+export const TaskValidationSchema = z.object({
+  id: z.string(),
+  reachable: z.enum(["yes", "no", "not_checkable"]),
+  discriminating: z.boolean().nullable(),
+  detail: z.string(),
+});
+export type TaskValidation = z.infer<typeof TaskValidationSchema>;
+
+/// Whole-collection verdict. `ok` iff no structural error AND no task is definitively broken.
+/// `structural_error` is set when the schema trust-boundary rejected the collection outright
+/// (then `tasks` is empty).
+export const CollectionValidationSchema = z.object({
+  ok: z.boolean(),
+  structural_error: z.string().nullable(),
+  tasks: z.array(TaskValidationSchema),
+});
+export type CollectionValidation = z.infer<typeof CollectionValidationSchema>;
+
+/// Deep-validate a SAVED custom collection offline (structural + oracle answer-key proof).
+/// No model, no server — proves each task is solvable and discriminating before a real run.
+export async function validateCustomCollection(name: string): Promise<CollectionValidation> {
+  return CollectionValidationSchema.parse(await invoke("validate_custom_collection", { name }));
+}
+
+/// Dry-run the same deep validation on an external `.json` by PATH BEFORE importing it, so a
+/// broken collection is caught (and its bad tasks named) without being written to disk.
+export async function validateCollectionFile(sourcePath: string): Promise<CollectionValidation> {
+  return CollectionValidationSchema.parse(await invoke("validate_collection_file", { sourcePath }));
+}

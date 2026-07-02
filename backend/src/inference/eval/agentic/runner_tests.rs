@@ -38,6 +38,22 @@ impl ModelTurn for ScriptedModel {
     }
 }
 
+/// Scripted `(text, GenerateStats)` replies in order (repeating the last) so a test can drive
+/// `finish_reason` / `prompt_eval_count` / `eval_count` per call — needed to exercise the
+/// truncation-retry path (a turn cut off at the `num_predict` cap).
+struct StatsScriptedModel {
+    replies: Vec<(String, GenerateStats)>,
+    next: AtomicUsize,
+}
+
+impl ModelTurn for StatsScriptedModel {
+    async fn run(&self, _spec: &GenerateSpec) -> AppResult<(String, GenerateStats)> {
+        let i = self.next.fetch_add(1, Ordering::SeqCst).min(self.replies.len() - 1);
+        let (text, stats) = &self.replies[i];
+        Ok((text.clone(), stats.clone()))
+    }
+}
+
 /// A backend that errors on specific call indices (0-based) and otherwise returns
 /// `END_CALL` → an immediate success. With single-turn runs, the call index equals
 /// the run index, so this simulates Ollama failing on a specific Pass^k attempt.
@@ -182,6 +198,177 @@ async fn pass_k_counts_successes_and_failures_with_isolation() {
 
     // One TrajectoryStep per run (each is single-turn).
     assert_eq!(drain(&mut rx).len(), 5);
+}
+
+// A turn cut off at the num_predict cap (finish_reason=="length") parses to zero calls.
+const TRUNCATED_PARTIAL: &str = r#"{"name":"execute_transfer","args":{"amount":45"#; // no closing braces
+
+#[tokio::test]
+async fn truncation_retry_completes_the_turn_without_consuming_a_step() {
+    // First attempt is cut off at the cap (length + broken JSON); the retry (same step, larger
+    // budget) completes it. The step counter must NOT advance for the re-roll, and only the
+    // KEPT attempt's tokens count toward effort — never the discarded truncated attempt's.
+    let truncated = GenerateStats {
+        finish_reason: Some("length".into()),
+        prompt_eval_count: Some(100), // known, small → headroom clamp permits the retry
+        eval_count: Some(50),         // these tokens are discarded, must not be summed
+        ..Default::default()
+    };
+    let completed = GenerateStats { finish_reason: Some("stop".into()), eval_count: Some(30), ..Default::default() };
+    let model = StatsScriptedModel {
+        replies: vec![(TRUNCATED_PARTIAL.into(), truncated), (END_CALL.into(), completed)],
+        next: AtomicUsize::new(0),
+    };
+    let (tx, mut rx) = unbounded_channel();
+    let outcome = run_once(&model, &sandbox(), 8, 2, 0, &tx).await.unwrap();
+    drop(tx);
+
+    assert!(outcome.reached_end);
+    assert_eq!(outcome.steps, 1, "the truncation re-roll must not advance the step counter");
+    assert_eq!(outcome.output_tokens, 30, "only the kept attempt's tokens count, not the discarded re-roll");
+
+    let steps = drain(&mut rx);
+    assert_eq!(steps.len(), 1);
+    assert_eq!(steps[0].kind, StepKind::EndStateReached);
+}
+
+#[tokio::test]
+async fn persistent_truncation_is_labeled_truncated_not_hallucinated() {
+    // Every attempt truncates: the retry budget exhausts and the run ends as `Truncated` — an
+    // honest harness/hardware label, NOT `Hallucinated`/`Malformed`. Still one step (retries
+    // are internal to the step), so re-rolls never eat the horizon.
+    let truncated = GenerateStats {
+        finish_reason: Some("length".into()),
+        prompt_eval_count: Some(100),
+        eval_count: Some(50),
+        ..Default::default()
+    };
+    let model = StatsScriptedModel {
+        replies: vec![(TRUNCATED_PARTIAL.into(), truncated)],
+        next: AtomicUsize::new(0),
+    };
+    let (tx, mut rx) = unbounded_channel();
+    let outcome = run_once(&model, &sandbox(), 8, 2, 0, &tx).await.unwrap();
+    drop(tx);
+
+    assert!(!outcome.reached_end);
+    assert_eq!(outcome.failure, Some(FailureKind::Truncated));
+    assert_eq!(outcome.steps, 1, "retries are internal to one step");
+
+    let steps = drain(&mut rx);
+    assert_eq!(steps.last().unwrap().kind, StepKind::Truncated);
+}
+
+/// LIVE E2E (ignored by default): drive the REAL fixed runner against llama.cpp on :8081 with
+/// the forensic model (qwen3.5-9b). Proves end-to-end that the batched budget lets the real
+/// model emit a parseable tool call (the 256-cap truncation artifact is gone) and that
+/// finish_reason threading + parsing + retry + labeling all work against the real model — the
+/// turn must NOT be mislabeled Truncated/Malformed/Empty. Run:
+///   cargo test --release --lib live_llama -- --ignored --nocapture
+#[tokio::test]
+#[ignore]
+async fn live_llama_finishes_a_tool_call_with_the_batched_budget() {
+    use crate::inference::backend::backend_kind::BackendKind;
+    use crate::inference::eval::agentic::difficulty::passk::max_tokens_for;
+    use crate::inference::eval::agentic::model_turn::BackendTurn;
+    use crate::inference::eval::agentic::spec::Tier;
+
+    let turn = BackendTurn {
+        backend: BackendKind::LlamaCpp,
+        endpoint: "http://localhost:8081".into(),
+        model: "qwen3.5-9b_q8_0.gguf".into(),
+        cancel: CancellationToken::new(),
+        options: None,
+        keep_alive: None,
+        is_thinking: true,                            // qwen3.5 emits a <think> scratchpad
+        max_tokens: max_tokens_for(Tier::Hard, true), // the NEW batched budget (4608), not 256
+        cpu_offloaded: false, stop_cache: Default::default(),
+    };
+    let (tx, mut rx) = unbounded_channel();
+    let outcome = run_once(&turn, &sandbox(), 8, 2, 0, &tx).await.unwrap();
+    drop(tx);
+    let steps = drain(&mut rx);
+    eprintln!(
+        "\nLIVE outcome: reached_end={} steps={} failure={:?} tokens={}",
+        outcome.reached_end, outcome.steps, outcome.failure, outcome.output_tokens
+    );
+    for s in &steps {
+        let raw: String = s.raw_output.replace('\n', " ").chars().take(140).collect();
+        eprintln!("  step {} kind={:?}  raw={raw}", s.step_index, s.kind);
+    }
+    // The batched budget must let the real model finish a parseable call — it must NEVER be
+    // mislabeled as the truncation/format artifacts the fix removes.
+    assert_ne!(outcome.failure, Some(FailureKind::Truncated), "still truncating at the batched budget");
+    assert_ne!(outcome.failure, Some(FailureKind::Malformed), "cut-off JSON — a truncation artifact");
+    assert_ne!(outcome.failure, Some(FailureKind::EmptyOutput), "empty output — a truncation artifact");
+}
+
+/// LIVE E2E (ignored): a BENIGN task the model won't refuse, to show a clean end-to-end SUCCESS
+/// through the fixed runner at the new budget. Run:
+///   cargo test --release --lib live_llama_completes -- --ignored --nocapture
+#[tokio::test]
+#[ignore]
+async fn live_llama_completes_a_benign_task_end_to_end() {
+    use crate::inference::backend::backend_kind::BackendKind;
+    use crate::inference::eval::agentic::difficulty::passk::max_tokens_for;
+    use crate::inference::eval::agentic::model_turn::BackendTurn;
+    use crate::inference::eval::agentic::spec::Tier;
+    use crate::inference::eval::toolcall::tasks::ToolSchema;
+
+    let sb = DeterministicSandbox::new(
+        "Record a note by calling the note tool with text set to exactly: ok".into(),
+        vec![ToolSchema {
+            name: "note".into(),
+            description: "Record a short note".into(),
+            parameters: json!({ "type": "object", "properties": { "text": { "type": "string" } }, "required": ["text"] }),
+        }],
+        vec![],
+        EndStateRule::RequireSequence(vec![TaskCheckpoint { tool: "note".into(), args: json!({ "text": "ok" }) }]),
+    );
+    let turn = BackendTurn {
+        backend: BackendKind::LlamaCpp,
+        endpoint: "http://localhost:8081".into(),
+        model: "qwen3.5-9b_q8_0.gguf".into(),
+        cancel: CancellationToken::new(),
+        options: None,
+        keep_alive: None,
+        is_thinking: true,
+        max_tokens: max_tokens_for(Tier::Easy, true), // 2560
+        cpu_offloaded: false, stop_cache: Default::default(),
+    };
+    let (tx, mut rx) = unbounded_channel();
+    let outcome = run_once(&turn, &sb, 8, 2, 0, &tx).await.unwrap();
+    drop(tx);
+    let steps = drain(&mut rx);
+    eprintln!("\nLIVE benign: reached_end={} steps={} failure={:?}", outcome.reached_end, outcome.steps, outcome.failure);
+    for s in &steps {
+        let raw: String = s.raw_output.replace('\n', " ").chars().take(140).collect();
+        eprintln!("  step {} kind={:?}  raw={raw}", s.step_index, s.kind);
+    }
+    assert!(outcome.reached_end, "a benign single-call task should complete through the fixed runner");
+}
+
+#[tokio::test]
+async fn busy_loop_with_varying_calls_is_caught_before_the_step_cap() {
+    // Every turn calls a decoy tool with a DIFFERENT query — the signatures never repeat, so the
+    // exact-match stall detector (STALL_REPEAT_LIMIT) never fires. No checkpoint ever advances,
+    // so this is the "keep re-searching" busy loop that used to burn the whole horizon. The
+    // looser no-progress guard must catch it at STALL_NO_PROGRESS_LIMIT (8), far below the cap.
+    let replies: Vec<(String, u32)> = (0..40)
+        .map(|i| (format!(r#"{{"name":"search_web","args":{{"q":"q{i}"}}}}"#), 5))
+        .collect();
+    let model = ScriptedModel { replies, next: AtomicUsize::new(0) };
+    let (tx, mut rx) = unbounded_channel();
+    let outcome = run_once(&model, &sandbox(), 48, 2, 0, &tx).await.unwrap();
+    drop(tx);
+
+    assert!(!outcome.reached_end);
+    assert_eq!(outcome.failure, Some(FailureKind::InfiniteLoop));
+    assert_eq!(outcome.steps, 8, "caught at STALL_NO_PROGRESS_LIMIT, not the 48-step cap");
+    assert!(outcome.steps < 48);
+
+    let steps = drain(&mut rx);
+    assert_eq!(steps.last().unwrap().kind, StepKind::InfiniteLoop);
 }
 
 #[tokio::test]
@@ -382,7 +569,7 @@ async fn live_gemma_verdict_matches_its_actual_output() {
         keep_alive: None,
         is_thinking: false,
         max_tokens: 512,
-        stop_cache: Default::default(),
+        cpu_offloaded: false, stop_cache: Default::default(),
     };
     let (tx, mut rx) = unbounded_channel();
     let report = run_agentic(&model, &cart, AgenticConfig { k: 1, max_steps: 3, ..Default::default() }, &tx)
@@ -449,7 +636,7 @@ async fn live_gemma_prompt_path_lint_task_raw_output() {
         keep_alive: None,
         is_thinking: false,
         max_tokens: 512,
-        stop_cache: Default::default(),
+        cpu_offloaded: false, stop_cache: Default::default(),
     };
     let (tx, mut rx) = unbounded_channel();
     let report = run_agentic(&model, &lint, AgenticConfig { k: 1, max_steps: 5, ..Default::default() }, &tx).await.unwrap();
@@ -669,7 +856,7 @@ async fn live_web_corpus_runs_on_the_prompt_path() {
         keep_alive: None,
         is_thinking: false,
         max_tokens: 1024,
-        stop_cache: Default::default(),
+        cpu_offloaded: false, stop_cache: Default::default(),
     };
     let (tx, mut rx) = unbounded_channel();
     let outcome = run_once(&model, &sandbox, cfg.max_steps, cfg.max_recovery, 0, &tx).await.unwrap();
@@ -852,7 +1039,7 @@ async fn live_filesystem_env_returns_real_content_end_to_end() {
         keep_alive: None,
         is_thinking: false,
         max_tokens: 256,
-        stop_cache: Default::default(),
+        cpu_offloaded: false, stop_cache: Default::default(),
     };
     let (tx, mut rx) = unbounded_channel();
     let outcome = run_once(&model, &sandbox, cfg.max_steps, cfg.max_recovery, 0, &tx).await.unwrap();
@@ -1941,7 +2128,7 @@ async fn live_web_ui_runs_on_the_prompt_path() {
         keep_alive: None,
         is_thinking: false,
         max_tokens: 1024,
-        stop_cache: Default::default(),
+        cpu_offloaded: false, stop_cache: Default::default(),
     };
     let (tx, mut rx) = unbounded_channel();
     let outcome = run_once(&model, &sandbox, cfg.max_steps, cfg.max_recovery, 0, &tx).await.unwrap();
@@ -2012,7 +2199,7 @@ async fn live_web_ui_enable_setting_prompt() {
         keep_alive: None,
         is_thinking: false,
         max_tokens: 1024,
-        stop_cache: Default::default(),
+        cpu_offloaded: false, stop_cache: Default::default(),
     };
     let (tx, mut rx) = unbounded_channel();
     let outcome = run_once(&model, &sandbox, cfg.max_steps, cfg.max_recovery, 0, &tx).await.unwrap();
