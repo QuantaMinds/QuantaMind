@@ -12,7 +12,7 @@ use crate::inference::eval::toolcall::parse::{
     extract_calls_dialect, is_empty_output, looks_like_broken_json, looks_like_foreign_dialect, strip_think,
     ToolCallDialect,
 };
-use crate::inference::eval::toolcall::prompt::{build_system_for, TerminalGuidance};
+use crate::inference::eval::toolcall::prompt::{agentic_system, TerminalGuidance};
 use crate::inference::generate::generate_options::{GenerateOptions, EVAL_REPEAT_PENALTY};
 use crate::inference::generate::generate_spec::GenerateSpec;
 use tokio::sync::mpsc::UnboundedSender;
@@ -349,7 +349,7 @@ async fn run_steps<M: ModelTurn>(
             TerminalGuidance::MustUseTools
         }
     };
-    let system = build_system_for(&sandbox.tools, terminal);
+    let system = agentic_system(&sandbox.tools, terminal);
     let mut convo = Conversation::new(sandbox.initial_prompt.clone());
     let mut output_tokens = 0u32;
     let mut next_cp = 0usize; // progress through a RequireSequence end-state

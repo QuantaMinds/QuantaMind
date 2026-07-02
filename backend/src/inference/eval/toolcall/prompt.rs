@@ -72,14 +72,25 @@ pub fn build_system_for(tools: &[ToolSchema], terminal: TerminalGuidance) -> Str
          When a tool is needed, respond with ONLY a JSON object of the form \
          {{\"name\": \"<tool>\", \"args\": {{...}}}}. To call several tools, respond \
          with a JSON array of such objects. Do not add prose, explanation, or \
-         markdown around the JSON. {closing}\n\n\
-         Reasoning discipline: think only as much as the task needs, then emit the tool \
-         call — always finish with the call even if your reasoning is incomplete; a \
-         delivered call beats perfect thinking that never ships. If you are missing \
-         information, call a tool to get it rather than reasoning about what it might be. \
-         Do not restate the task or re-derive the same conclusion twice. If you notice you \
-         are looping or not making progress, stop reasoning and act on your best option."
+         markdown around the JSON. {closing}"
     )
+}
+
+/// D4: the reasoning-discipline nudge, appended to the AGENTIC system prompt only (see
+/// `agentic_system`). Kept OUT of the base `build_system_for` so the single-turn and
+/// context-stress (cliff) paths — which are not multi-step reasoning tasks and whose token
+/// budgeting is sensitive to prompt length — are unchanged. A nudge, not a control.
+pub const REASONING_DISCIPLINE: &str = "Reasoning discipline: think only as much as the task \
+     needs, then emit the tool call — always finish with the call even if your reasoning is \
+     incomplete; a delivered call beats perfect thinking that never ships. If you are missing \
+     information, call a tool to get it rather than reasoning about what it might be. Do not \
+     restate the task or re-derive the same conclusion twice. If you notice you are looping or \
+     not making progress, stop reasoning and act on your best option.";
+
+/// The system prompt for the AGENTIC loop = the base tool prompt + the reasoning-discipline nudge.
+/// Applied uniformly (every model, every tier) so it changes neither difficulty nor reproducibility.
+pub fn agentic_system(tools: &[ToolSchema], terminal: TerminalGuidance) -> String {
+    format!("{}\n\n{}", build_system_for(tools, terminal), REASONING_DISCIPLINE)
 }
 
 #[cfg(test)]
@@ -132,14 +143,18 @@ mod tests {
         assert!(p.contains("plain text"));
     }
 
-    /// D4: the reasoning-discipline nudge is present on every agentic prompt (uniform → doesn't
-    /// change difficulty or reproducibility). A nudge, not a hard cap — the load-bearing fix is the
-    /// budget (D2) + honest labeling (D9), but this reduces overrun and improves trace readability.
+    /// D4: the reasoning-discipline nudge is on the AGENTIC system prompt (uniform → doesn't change
+    /// difficulty or reproducibility) but NOT on the base/single-turn/cliff prompt (whose token
+    /// budgeting must not shift). A nudge, not a hard cap — the load-bearing fix is the budget (D2)
+    /// + honest labeling (D9), but this reduces overrun and improves trace readability.
     #[test]
-    fn agentic_prompt_includes_the_reasoning_discipline_nudge() {
-        let p = build_system(&multi_tool_task());
-        assert!(p.contains("Reasoning discipline"), "the nudge block is present");
-        assert!(p.contains("always finish with the call"), "prioritizes delivering the call over exhaustive thinking");
+    fn reasoning_nudge_is_on_the_agentic_prompt_only_not_the_base_prompt() {
+        let tools = multi_tool_task().tools;
+        let agentic = agentic_system(&tools, TerminalGuidance::PlainTextOk);
+        assert!(agentic.contains("Reasoning discipline"), "agentic prompt carries the nudge");
+        assert!(agentic.contains("always finish with the call"), "prioritizes delivering the call");
+        // The base prompt (single-turn + cliff probe) stays clean so their token budgeting is unchanged.
+        assert!(!build_system_for(&tools, TerminalGuidance::PlainTextOk).contains("Reasoning discipline"));
     }
 
     #[test]
