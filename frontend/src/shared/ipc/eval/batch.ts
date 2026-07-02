@@ -25,6 +25,8 @@ export const StepKindSchema = z.enum([
   "reported_in_prose",
   "foreign_dialect",
   "empty_output",
+  "truncated",
+  "reasoning_overrun",
 ]);
 export type StepKind = z.infer<typeof StepKindSchema>;
 
@@ -88,6 +90,12 @@ export const TrajectoryStepSchema = z.object({
   // prefill_tokens, and reuseRatio = cache_n / total drives the green/amber state.
   prefill_tokens: z.number().int().nonnegative().nullable().optional(),
   prefill_ms: z.number().int().nonnegative().nullable().optional(),
+  // D9 usage accounting on a truncated / reasoning-overrun turn — drives the two-bar diagnostic
+  // (thinking-budget % vs context %) so the user can tell "raise a setting" from "buy hardware".
+  // Null/absent on every other turn (and backends that don't report token counts).
+  reasoning_tokens: z.number().int().nonnegative().nullable().optional(),
+  context_used: z.number().int().nonnegative().nullable().optional(),
+  context_window: z.number().int().nonnegative().nullable().optional(),
 });
 export type TrajectoryStep = z.infer<typeof TrajectoryStepSchema>;
 
@@ -103,6 +111,7 @@ export const TopErrorSchema = z.enum([
   "foreign_dialect",
   "empty_output",
   "truncated",
+  "reasoning_overrun",
 ]);
 export type TopError = z.infer<typeof TopErrorSchema>;
 
@@ -126,9 +135,13 @@ export const FailureTrackerSchema = z.object({
   // generation/template artifact, distinct from a hallucinated completion.
   empty_output_calls: z.number().int().optional(),
   // Turn cut off at the per-turn num_predict cap (finish_reason="length") that still parsed
-  // to zero calls after a context-clamped retry — a harness/hardware limit, NOT a capability
-  // gap. `.optional()` so pre-fix reports parse (absent → 0).
+  // to zero calls after a context-clamped retry — CONTEXT-BOUND (window near full), a hardware
+  // limit. `.optional()` so pre-fix reports parse (absent → 0).
   truncated_calls: z.number().int().optional(),
+  // Reasoning model spent its whole per-turn BUDGET thinking and never emitted the call while the
+  // context window still had room — a SETTING limit (raise the preset), NOT memory. Kept distinct
+  // from truncated_calls so the UI never says "out of memory" for a budget problem.
+  reasoning_overrun_calls: z.number().int().optional(),
 });
 export type FailureTracker = z.infer<typeof FailureTrackerSchema>;
 

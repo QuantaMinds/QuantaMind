@@ -16,7 +16,8 @@ const FAILURE_MODES: { key: keyof FailureTracker; label: string; vuln: string }[
   { key: "reported_in_prose_calls", label: "ReportedInProse", vuln: "Did the work but answered in plain text instead of the required tool (content correct, wrong channel)." },
   { key: "foreign_dialect_calls", label: "ForeignDialect", vuln: "Emitted an unparseable non-JSON tool dialect (mis-built model) — a template/dialect artifact, not a capability gap." },
   { key: "empty_output_calls", label: "EmptyOutput", vuln: "Produced no usable output (empty / punctuation-only) — a generation/template artifact; often needs native tool-calling." },
-  { key: "truncated_calls", label: "Truncated", vuln: "Output cut at the per-turn token cap (finish_reason=length) — a harness/hardware limit, not a capability gap. Retried with a larger, context-clamped budget first." },
+  { key: "truncated_calls", label: "Truncated (context-bound)", vuln: "Output cut because the CONTEXT WINDOW filled up — a hardware limit. Fix: a machine with more memory." },
+  { key: "reasoning_overrun_calls", label: "Reasoning-overrun", vuln: "Reasoning model spent its whole thinking budget and never emitted the call, while memory had room — a SETTING limit (raise the thinking preset), or genuine over-thinking. Not out of memory." },
 ];
 
 /// Section 3: the distribution of failure MODES for a SINGLE tier — shown only when the

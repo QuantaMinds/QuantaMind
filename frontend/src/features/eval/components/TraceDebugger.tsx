@@ -79,7 +79,7 @@ const FlagIcon = () => (
 
 const getStepIcon = (kind: string, isError: boolean): React.ReactNode => {
   if (kind === "tool_call") return <GearIcon />;
-  if (kind === "tool_error" || kind === "schema_error" || kind === "malformed_json" || kind === "turn_timeout" || kind === "foreign_dialect" || kind === "empty_output" || kind === "truncated") return <ErrorIcon />;
+  if (kind === "tool_error" || kind === "schema_error" || kind === "malformed_json" || kind === "turn_timeout" || kind === "foreign_dialect" || kind === "empty_output" || kind === "truncated" || kind === "reasoning_overrun") return <ErrorIcon />;
   if (kind === "infinite_loop") return <LoopIcon />;
   if (kind === "hallucinated_completion" || kind === "forbidden_call" || kind === "reported_in_prose") return <StopIcon />;
   if (kind === "end_state_reached") return <FlagIcon />;
@@ -101,7 +101,8 @@ export const isErrorKind = (kind: string): boolean =>
   kind === "reported_in_prose" ||
   kind === "foreign_dialect" ||
   kind === "empty_output" ||
-  kind === "truncated";
+  kind === "truncated" ||
+  kind === "reasoning_overrun";
 
 export const getStepTitle = (kind: string, isError: boolean) => {
   if (kind === "tool_call") return "Model Outputs Tool Call";
@@ -116,7 +117,8 @@ export const getStepTitle = (kind: string, isError: boolean) => {
   if (kind === "reported_in_prose") return "Reported In Prose (Wrong Channel)";
   if (kind === "foreign_dialect") return "Foreign Tool Dialect (Unparseable)";
   if (kind === "empty_output") return "Empty Output (No Usable Response)";
-  if (kind === "truncated") return "Output Truncated at Token Cap (Harness Limit)";
+  if (kind === "truncated") return "Output Truncated — Context Window Full (Hardware Limit)";
+  if (kind === "reasoning_overrun") return "Reasoning Overrun — Thinking Budget Maxed (Setting)";
   if (kind === "end_state_reached") return "End State Verification";
   return isError ? "Execution Failure" : "Model Output Success";
 };
@@ -348,6 +350,50 @@ export function CacheBadge({ s }: { s: TrajectoryStep }) {
     <span data-testid="cache-badge-hit" title="The transcript prefix was reused from llama.cpp's prefix cache this turn — only the new tokens were recomputed (prefill ≈ 0)." style={{ ...base, background: "#f0fdf4", color: "#15803d", border: "1px solid #dcfce7" }}>
       PREFIX CACHE · {cr.cached} reused / {cr.recomputed} recomputed
     </span>
+  );
+}
+
+/// D9: the two-bar diagnostic for a truncated / reasoning-overrun turn. Shows how many tokens the
+/// model spent reasoning AND how full the context window got, then names WHICH limit fired and the
+/// fix — a SETTING (raise the thinking preset) vs HARDWARE (bigger machine). The whole point is to
+/// keep a budget problem (memory had room) from ever reading as "out of memory".
+export function BudgetDiagnostic({ s }: { s: TrajectoryStep }) {
+  const reasoning = s.reasoning_tokens ?? 0;
+  const used = s.context_used ?? 0;
+  const window = s.context_window ?? 0;
+  const ctxPct = window > 0 ? Math.min(100, Math.round((used / window) * 100)) : 0;
+  const overrun = s.kind === "reasoning_overrun";
+  const bar = (label: string, pct: number, note: string, color: string) => (
+    <div style={{ marginTop: 6 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#64748b", fontFamily: "Inter, sans-serif" }}>
+        <span>{label}</span>
+        <span>{note}</span>
+      </div>
+      <div style={{ height: 6, background: "#f1f5f9", borderRadius: 3, overflow: "hidden", marginTop: 2 }}>
+        <div style={{ width: `${pct}%`, height: "100%", background: color }} />
+      </div>
+    </div>
+  );
+  return (
+    <div data-testid="budget-diagnostic" style={{ marginTop: 8, padding: "8px 10px", borderRadius: 6, background: "#fafafa", border: "1px solid #e2e8f0" }}>
+      {/* Thinking spend: for an overrun it maxed the budget → show ~full amber; context has room. */}
+      {bar("🧠 Thinking budget", overrun ? 100 : Math.min(100, ctxPct), `${reasoning.toLocaleString()} reasoning tokens`, overrun ? "#f59e0b" : "#94a3b8")}
+      {bar("🖥️ Context window", ctxPct, `${used.toLocaleString()} / ${window.toLocaleString()} (${ctxPct}%)`, ctxPct >= 90 ? "#dc2626" : "#94a3b8")}
+      <div style={{ marginTop: 8, fontSize: 11, fontFamily: "Inter, sans-serif", color: overrun ? "#92400e" : "#991b1b" }}>
+        {overrun ? (
+          <>
+            <b>Setting, not memory.</b> The model spent its whole thinking budget reasoning ({reasoning.toLocaleString()} tok)
+            while the context window was only {ctxPct}% full. <b>Fix:</b> raise the thinking preset (Standard → Deep), or the
+            model genuinely over-thinks and can't stop.
+          </>
+        ) : (
+          <>
+            <b>Hardware limit.</b> The context window filled to {ctxPct}% ({used.toLocaleString()}/{window.toLocaleString()}) —
+            this model needs more memory than this machine has. <b>Fix:</b> a bigger machine.
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -715,6 +761,14 @@ export function TraceDebugger({
                                       <pre style={codeBlockStyle}>
                                         {desc}
                                       </pre>
+
+                                      {/* D9: on a truncated / reasoning-overrun turn, show BOTH the
+                                          reasoning spend and the context-window fill, and name which
+                                          limit fired (setting vs hardware) — so the user never
+                                          mistakes a budget problem for "out of memory". */}
+                                      {s.reasoning_tokens != null && s.context_window != null && s.context_used != null && (
+                                        <BudgetDiagnostic s={s} />
+                                      )}
 
                                       {/* Sandbox Intercept (if injection context present) */}
                                       {s.injection && (
