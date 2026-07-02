@@ -72,7 +72,13 @@ pub fn build_system_for(tools: &[ToolSchema], terminal: TerminalGuidance) -> Str
          When a tool is needed, respond with ONLY a JSON object of the form \
          {{\"name\": \"<tool>\", \"args\": {{...}}}}. To call several tools, respond \
          with a JSON array of such objects. Do not add prose, explanation, or \
-         markdown around the JSON. {closing}"
+         markdown around the JSON. {closing}\n\n\
+         Reasoning discipline: think only as much as the task needs, then emit the tool \
+         call — always finish with the call even if your reasoning is incomplete; a \
+         delivered call beats perfect thinking that never ships. If you are missing \
+         information, call a tool to get it rather than reasoning about what it might be. \
+         Do not restate the task or re-derive the same conclusion twice. If you notice you \
+         are looping or not making progress, stop reasoning and act on your best option."
     )
 }
 
@@ -124,6 +130,16 @@ mod tests {
         assert!(p.contains("ONLY a JSON object"));
         assert!(p.contains("JSON array"));
         assert!(p.contains("plain text"));
+    }
+
+    /// D4: the reasoning-discipline nudge is present on every agentic prompt (uniform → doesn't
+    /// change difficulty or reproducibility). A nudge, not a hard cap — the load-bearing fix is the
+    /// budget (D2) + honest labeling (D9), but this reduces overrun and improves trace readability.
+    #[test]
+    fn agentic_prompt_includes_the_reasoning_discipline_nudge() {
+        let p = build_system(&multi_tool_task());
+        assert!(p.contains("Reasoning discipline"), "the nudge block is present");
+        assert!(p.contains("always finish with the call"), "prioritizes delivering the call over exhaustive thinking");
     }
 
     #[test]
