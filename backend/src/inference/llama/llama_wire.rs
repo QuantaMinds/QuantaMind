@@ -73,6 +73,14 @@ pub struct ChatChoice {
 pub struct ChatDelta {
     #[serde(default)]
     pub content: Option<String>,
+    /// A reasoning model's separate thinking stream. Modern llama-server (`--reasoning-format`
+    /// default) EXTRACTS the `<think>` block out of `content` into this field; only the final
+    /// answer stays in `content`. Captured and re-wrapped as inline `<think>…</think>` (mirroring
+    /// the Ollama `thinking` field) so the runner's `strip_think` + the D9 accounting see reasoning
+    /// on llama.cpp identically to Ollama. `None`/absent for a terse model or `--reasoning-format none`
+    /// (which leaves `<think>` inline in `content`, still handled by `strip_think`).
+    #[serde(default)]
+    pub reasoning_content: Option<String>,
 }
 
 /// llama-server `/v1/chat/completions` request (OpenAI-compatible). This is the

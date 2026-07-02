@@ -103,6 +103,12 @@ async fn stream_chat(
     // chunk — keep the latest so prefill/predict ms reach GenerateStats (and the
     // Inspector's TTFT breakdown), which token-count-only `usage` can't give.
     let mut timings = None;
+    // Modern llama-server streams a reasoning model's scratchpad in `delta.reasoning_content` (not
+    // `content`) BEFORE the answer. Re-emit it as an inline `<think>…</think>` block so the runner's
+    // `strip_think` + D9 accounting handle llama.cpp identically to Ollama. `think_open` tracks the
+    // open tag: closed when the answer (`content`) starts or the stream ends. A terse model (or
+    // `--reasoning-format none`) sends no `reasoning_content`, so this stays a no-op.
+    let mut think_open = false;
     loop {
         tokio::select! {
             _ = cancel.cancelled() => return Ok(Some(GenerateStats::default())),
@@ -113,17 +119,26 @@ async fn stream_chat(
                 while let Some(line) = next_line(&mut buf) {
                     let payload = strip_sse(&line);
                     if payload.is_empty() { continue; }
-                    if payload == b"[DONE]" { return Ok(Some(chat_stats(timings))); }
+                    if payload == b"[DONE]" {
+                        if think_open { on_token("</think>"); }
+                        return Ok(Some(chat_stats(timings)));
+                    }
                     if payload.first() != Some(&b'{') { continue; }
                     let chunk: ChatStreamChunk = serde_json::from_slice(payload)
                         .map_err(|e| AppError::Inference(format!("bad chunk: {e}")))?;
                     if chunk.timings.is_some() { timings = chunk.timings; }
                     if let Some(choice) = chunk.choices.into_iter().next() {
+                        if let Some(text) = choice.delta.reasoning_content.filter(|t| !t.is_empty()) {
+                            if !think_open { on_token("<think>"); think_open = true; }
+                            on_token(&text);
+                        }
                         if let Some(text) = choice.delta.content.filter(|t| !t.is_empty()) {
+                            if think_open { on_token("</think>"); think_open = false; }
                             on_token(&text);
                         }
                         if cancel.is_cancelled() { return Ok(Some(GenerateStats::default())); }
                         if choice.finish_reason.is_some() {
+                            if think_open { on_token("</think>"); }
                             // Carry "stop" vs "length" so the agentic runner can tell a real
                             // failure from a `num_predict` truncation it can retry (see runner).
                             let mut stats = chat_stats(timings);
@@ -135,6 +150,7 @@ async fn stream_chat(
             }
         }
     }
+    if think_open { on_token("</think>"); }
     Ok(Some(chat_stats(timings)))
 }
 
@@ -237,6 +253,28 @@ pub async fn probe_llama_n_ctx(endpoint: &str) -> Option<u32> {
 mod tests {
     use super::*;
     use mockito::Server;
+
+    /// A reasoning model on modern llama-server streams its scratchpad in `delta.reasoning_content`
+    /// (extracted out of `content`). We must re-wrap it inline as `<think>…</think>` so `strip_think`
+    /// + D9 accounting see it — identical to the Ollama `thinking` field. Without this the reasoning
+    /// is silently dropped on llama.cpp (proven live: qwen3.5 emitted 187 reasoning_content chunks,
+    /// 0 captured before this fix).
+    #[tokio::test]
+    async fn reasoning_content_is_rewrapped_inline_as_think() {
+        let mut s = Server::new_async().await;
+        let _m = s.mock("POST", "/v1/chat/completions").with_status(200)
+            .with_body(concat!(
+                "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"let me think\"},\"finish_reason\":null}]}\n\n",
+                "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\" harder\"},\"finish_reason\":null}]}\n\n",
+                "data: {\"choices\":[{\"delta\":{\"content\":\"{\\\"name\\\":\\\"go\\\"}\"},\"finish_reason\":null}]}\n\n",
+                "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+            ))
+            .create_async().await;
+        let mut out = String::new();
+        stream_generate(&s.url(), "m", "hi", None, None, CancellationToken::new(), |t| out.push_str(t)).await.unwrap();
+        // Reasoning is captured, wrapped, and CLOSED before the answer — so strip_think leaves just the call.
+        assert_eq!(out, "<think>let me think harder</think>{\"name\":\"go\"}");
+    }
 
     /// `/props` → the launched `n_ctx` (from `default_generation_settings`), the actual window the
     /// eval must clamp to. Falls back to a bare `n_ctx`; `None` when absent or the server errors.

@@ -477,12 +477,19 @@ the budget is too small, reasoning eats the whole cap and the answer comes back 
 capable model is then mis-scored `Truncated`. Proven live: qwen3.5:9b spent ~3700/4096 tokens
 thinking → empty answer. The fix, across the runner / `model_turn` / `difficulty::passk` /
 `hwclass` / `report` / `step`:
-- **Capture the reasoning (D1):** `BackendTurn::run` sends Ollama `think:true` for a thinking
-  model; `ollama::stream_generate` reads the streamed `thinking` and re-emits it wrapped in
-  inline `<think>…</think>`, so the runner's existing `strip_think` handles every backend
-  uniformly (llama.cpp already emits inline `<think>`). **MLX is unverified** — its template may
-  emit untagged reasoning, in which case `strip_think` no-ops and MLX would regress; treated as a
-  known gap until an MLX reasoning model can be inspected (`inference/mlx`).
+- **Capture the reasoning (D1):** both backends stream the scratchpad in a SEPARATE field, which
+  `stream_generate` reads and re-emits wrapped in inline `<think>…</think>` so the runner's
+  `strip_think` + the D9 accounting handle every backend uniformly. Ollama: `think:true` → the
+  `thinking` field. **llama.cpp: modern llama-server (`--jinja`, default `--reasoning-format`)
+  EXTRACTS `<think>` out of `content` into a `reasoning_content` field** — it does NOT leave it
+  inline, contrary to an earlier assumption. Proven live: qwen3.5-9b emitted 187 `reasoning_content`
+  chunks with 0 captured until `ChatDelta.reasoning_content` + the `<think>`-wrap were added
+  (`llama::stream_chat`); after the fix, 14 `<think>` turns captured on the same collection. A terse
+  model, or `--reasoning-format none` (which keeps `<think>` inline), sends no `reasoning_content`
+  and the wrap is a no-op. **MLX is unverified** — its template may emit untagged reasoning, in which
+  case `strip_think` no-ops and MLX would regress; a known gap until an MLX reasoning model can be
+  inspected (`inference/mlx`). The lesson: reasoning-channel behavior MUST be verified per backend
+  live, never assumed from another backend's docs.
 - **Fixed per-tier budget, NOT hardware-scaled (D2):** `passk::think_tokens_for_preset(tier,
   ThinkPreset)` — `Lean/Standard/Deep` presets, each a constant. Reasoning length is a property of
   the task and model, not the tester's RAM; scaling the budget by hardware would make the same
