@@ -16,6 +16,7 @@ fn config() -> RunConfig {
         prompt: true,
         tier: None,
         decoy_tools: None,
+        think_preset: Default::default(),
     }
 }
 

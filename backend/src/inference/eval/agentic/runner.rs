@@ -57,14 +57,25 @@ const TRUNCATION_RETRY_LIMIT: u32 = 2;
 const NUM_CTX_BASE: u32 = 2048; // system prompt (with decoys) + initial prompt headroom
 const NUM_CTX_PER_STEP: u32 = 384; // ≈ assistant turn (≤256) + tool result + formatting
 const NUM_CTX_FLOOR: u32 = 4096;
-const NUM_CTX_CEILING: u32 = 16384; // memory-safe on a 16GB host; covers Easy→Hard fully
+/// Fallback ceiling when the hardware-derived one isn't threaded in (scripted/test/native turns).
+/// The live path passes a per-hardware ceiling via `ModelTurn::ctx_ceiling` (see
+/// `hwclass::agentic_ctx_ceiling`).
+pub(crate) const NUM_CTX_CEILING: u32 = 16384;
 
-/// Context window for a run of `max_steps` steps: cover the worst-case transcript, but
-/// never exceed the memory-safe ceiling. See [`NUM_CTX_CEILING`].
-fn agentic_num_ctx(max_steps: u32) -> u32 {
-    NUM_CTX_BASE
-        .saturating_add(max_steps.saturating_mul(NUM_CTX_PER_STEP))
-        .clamp(NUM_CTX_FLOOR, NUM_CTX_CEILING)
+/// Context window (`num_ctx`) for a run. `ceiling` is the HARDWARE-adaptive upper bound (bigger
+/// machine → bigger window; see `hwclass::agentic_ctx_ceiling`) — the one knob hardware moves.
+/// A reasoning model gets the FULL ceiling: its (fixed, machine-independent) per-turn budget +
+/// scratchpad + growing transcript need the whole window, and whether that fits is exactly what
+/// hardware decides (a box too small yields an honest `Truncated`). A terse model keeps the
+/// step-sized window (enough for its transcript), still capped by the hardware ceiling.
+fn agentic_num_ctx(max_steps: u32, is_thinking: bool, ceiling: u32) -> u32 {
+    if is_thinking {
+        ceiling.max(NUM_CTX_FLOOR)
+    } else {
+        NUM_CTX_BASE
+            .saturating_add(max_steps.saturating_mul(NUM_CTX_PER_STEP))
+            .clamp(NUM_CTX_FLOOR, ceiling)
+    }
 }
 
 /// Push the raw model turn to the transcript exactly once per turn, lazily — the
@@ -365,7 +376,7 @@ async fn run_steps<M: ModelTurn>(
     // Sized once per run from the step cap: the transcript only grows within this run,
     // so a single window covers every step. Keeps the prefix-KV cache from being busted
     // by an overflow-driven context-shift (see `agentic_num_ctx`).
-    let num_ctx = agentic_num_ctx(max_steps);
+    let num_ctx = agentic_num_ctx(max_steps, turn.is_thinking(), turn.ctx_ceiling());
     for step_index in 0..max_steps {
         // The per-turn output cap. A reasoning model gets a tier-scaled budget so its
         // `<think>` scratchpad doesn't truncate the call; both thinking and non-thinking now
@@ -401,6 +412,7 @@ async fn run_steps<M: ModelTurn>(
                     ..Default::default()
                 }),
                 keep_alive: None,
+                think: None, // BackendTurn::run overrides this from `is_thinking` for Ollama
             };
             let (raw, stats) = match tokio::time::timeout(step_timeout, turn.run(&spec)).await {
                 Ok(r) => r?, // backend returned; an Err propagates (infra fault → run skipped upstream)
@@ -443,7 +455,11 @@ async fn run_steps<M: ModelTurn>(
                 if let Some(prefill) = occupancy {
                     let headroom = num_ctx.saturating_sub(prefill);
                     if headroom > base_predict {
-                        attempt_predict = base_predict.saturating_mul(2).min(headroom);
+                        // Compound off the CURRENT attempt (not `base_predict`), so a second retry
+                        // actually grows (base → 2·base → 4·base) toward the full headroom instead
+                        // of re-issuing the same doubled value — the prior code doubled the constant
+                        // `base_predict` every iteration, making retry #2 a no-op.
+                        attempt_predict = attempt_predict.saturating_mul(2).min(headroom);
                         truncation_retries += 1;
                         continue; // re-run this same step; transcript untouched
                     }

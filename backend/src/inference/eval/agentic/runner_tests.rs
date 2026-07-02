@@ -281,8 +281,8 @@ async fn live_llama_finishes_a_tool_call_with_the_batched_budget() {
         options: None,
         keep_alive: None,
         is_thinking: true,                            // qwen3.5 emits a <think> scratchpad
-        max_tokens: max_tokens_for(Tier::Hard, true), // the NEW batched budget (4608), not 256
-        cpu_offloaded: false, stop_cache: Default::default(),
+        max_tokens: max_tokens_for(Tier::Hard, true), // the fixed answer+scratchpad budget, not 256
+        cpu_offloaded: false, ctx_ceiling: crate::inference::eval::agentic::runner::NUM_CTX_CEILING, stop_cache: Default::default(),
     };
     let (tx, mut rx) = unbounded_channel();
     let outcome = run_once(&turn, &sandbox(), 8, 2, 0, &tx).await.unwrap();
@@ -334,7 +334,7 @@ async fn live_llama_completes_a_benign_task_end_to_end() {
         keep_alive: None,
         is_thinking: true,
         max_tokens: max_tokens_for(Tier::Easy, true), // 2560
-        cpu_offloaded: false, stop_cache: Default::default(),
+        cpu_offloaded: false, ctx_ceiling: crate::inference::eval::agentic::runner::NUM_CTX_CEILING, stop_cache: Default::default(),
     };
     let (tx, mut rx) = unbounded_channel();
     let outcome = run_once(&turn, &sb, 8, 2, 0, &tx).await.unwrap();
@@ -569,7 +569,7 @@ async fn live_gemma_verdict_matches_its_actual_output() {
         keep_alive: None,
         is_thinking: false,
         max_tokens: 512,
-        cpu_offloaded: false, stop_cache: Default::default(),
+        cpu_offloaded: false, ctx_ceiling: crate::inference::eval::agentic::runner::NUM_CTX_CEILING, stop_cache: Default::default(),
     };
     let (tx, mut rx) = unbounded_channel();
     let report = run_agentic(&model, &cart, AgenticConfig { k: 1, max_steps: 3, ..Default::default() }, &tx)
@@ -636,7 +636,7 @@ async fn live_gemma_prompt_path_lint_task_raw_output() {
         keep_alive: None,
         is_thinking: false,
         max_tokens: 512,
-        cpu_offloaded: false, stop_cache: Default::default(),
+        cpu_offloaded: false, ctx_ceiling: crate::inference::eval::agentic::runner::NUM_CTX_CEILING, stop_cache: Default::default(),
     };
     let (tx, mut rx) = unbounded_channel();
     let report = run_agentic(&model, &lint, AgenticConfig { k: 1, max_steps: 5, ..Default::default() }, &tx).await.unwrap();
@@ -856,7 +856,7 @@ async fn live_web_corpus_runs_on_the_prompt_path() {
         keep_alive: None,
         is_thinking: false,
         max_tokens: 1024,
-        cpu_offloaded: false, stop_cache: Default::default(),
+        cpu_offloaded: false, ctx_ceiling: crate::inference::eval::agentic::runner::NUM_CTX_CEILING, stop_cache: Default::default(),
     };
     let (tx, mut rx) = unbounded_channel();
     let outcome = run_once(&model, &sandbox, cfg.max_steps, cfg.max_recovery, 0, &tx).await.unwrap();
@@ -1039,7 +1039,7 @@ async fn live_filesystem_env_returns_real_content_end_to_end() {
         keep_alive: None,
         is_thinking: false,
         max_tokens: 256,
-        cpu_offloaded: false, stop_cache: Default::default(),
+        cpu_offloaded: false, ctx_ceiling: crate::inference::eval::agentic::runner::NUM_CTX_CEILING, stop_cache: Default::default(),
     };
     let (tx, mut rx) = unbounded_channel();
     let outcome = run_once(&model, &sandbox, cfg.max_steps, cfg.max_recovery, 0, &tx).await.unwrap();
@@ -1767,15 +1767,27 @@ async fn single_element_array_matches_a_bare_object() {
 }
 
 #[test]
-fn num_ctx_scales_with_max_steps_and_clamps_to_the_memory_safe_window() {
+fn num_ctx_non_thinking_scales_with_steps_and_clamps_to_the_hardware_ceiling() {
     use crate::inference::eval::agentic::runner::agentic_num_ctx;
+    let ceiling = 16384; // a Mainstream-class ceiling
     // Floor: a tiny run never drops below the minimum window.
-    assert_eq!(agentic_num_ctx(1), 4096);
+    assert_eq!(agentic_num_ctx(1, false, ceiling), 4096);
     // Hard (~20 steps): covered in full, no overflow, well under the ceiling.
-    assert_eq!(agentic_num_ctx(20), 2048 + 20 * 384); // 9728
-    // Extreme (85 steps): would need ~35k but clamps to the 16GB-safe ceiling.
-    assert_eq!(agentic_num_ctx(85), 16384);
-    assert_eq!(agentic_num_ctx(u32::MAX), 16384); // saturating, never overflows
+    assert_eq!(agentic_num_ctx(20, false, ceiling), 2048 + 20 * 384); // 9728
+    // Extreme (85 steps): would need ~35k but clamps to the hardware ceiling.
+    assert_eq!(agentic_num_ctx(85, false, ceiling), 16384);
+    assert_eq!(agentic_num_ctx(u32::MAX, false, ceiling), 16384); // saturating, never overflows
+}
+
+#[test]
+fn num_ctx_thinking_gets_the_full_hardware_ceiling_regardless_of_steps() {
+    use crate::inference::eval::agentic::runner::agentic_num_ctx;
+    // A reasoning model gets the WHOLE hardware-adaptive window (to hold its fixed budget +
+    // transcript), independent of step count — and a bigger machine's ceiling gives a bigger
+    // window (the one knob hardware moves). Same step count, different ceiling → different window.
+    assert_eq!(agentic_num_ctx(16, true, 16384), 16384, "Mainstream: full ceiling");
+    assert_eq!(agentic_num_ctx(16, true, 32768), 32768, "Workstation: bigger window, same tier");
+    assert_eq!(agentic_num_ctx(1, true, 32768), 32768, "step count doesn't shrink a thinking window");
 }
 
 #[tokio::test]
@@ -2128,7 +2140,7 @@ async fn live_web_ui_runs_on_the_prompt_path() {
         keep_alive: None,
         is_thinking: false,
         max_tokens: 1024,
-        cpu_offloaded: false, stop_cache: Default::default(),
+        cpu_offloaded: false, ctx_ceiling: crate::inference::eval::agentic::runner::NUM_CTX_CEILING, stop_cache: Default::default(),
     };
     let (tx, mut rx) = unbounded_channel();
     let outcome = run_once(&model, &sandbox, cfg.max_steps, cfg.max_recovery, 0, &tx).await.unwrap();
@@ -2199,7 +2211,7 @@ async fn live_web_ui_enable_setting_prompt() {
         keep_alive: None,
         is_thinking: false,
         max_tokens: 1024,
-        cpu_offloaded: false, stop_cache: Default::default(),
+        cpu_offloaded: false, ctx_ceiling: crate::inference::eval::agentic::runner::NUM_CTX_CEILING, stop_cache: Default::default(),
     };
     let (tx, mut rx) = unbounded_channel();
     let outcome = run_once(&model, &sandbox, cfg.max_steps, cfg.max_recovery, 0, &tx).await.unwrap();

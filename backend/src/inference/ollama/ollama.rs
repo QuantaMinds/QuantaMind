@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
 
+#[allow(clippy::too_many_arguments)]
 pub async fn stream_generate(
     endpoint: &str,
     model: &str,
@@ -18,12 +19,13 @@ pub async fn stream_generate(
     system: Option<&str>,
     options: Option<GenerateOptions>,
     keep_alive: Option<i32>,
+    think: Option<bool>,
     cancel: CancellationToken,
     mut on_token: impl FnMut(&str),
 ) -> AppResult<GenerateStats> {
     let client = streaming_client()?;
     let options = options.filter(|o| !o.is_empty());
-    let body = GenerateRequest { model, prompt, system, options, keep_alive, stream: true };
+    let body = GenerateRequest { model, prompt, system, options, keep_alive, think, stream: true };
     let resp = client
         .post(format!("{endpoint}/api/generate"))
         .json(&body)
@@ -45,6 +47,12 @@ pub async fn stream_generate(
 
     let mut bytes = resp.bytes_stream();
     let mut buf: Vec<u8> = Vec::new();
+    // When `think:true`, Ollama streams the scratchpad in `thinking` (not `response`) BEFORE the
+    // answer. We re-emit it as an inline `<think>…</think>` block so the runner's `strip_think`
+    // handles Ollama identically to llama.cpp. `think_open` tracks the open tag: it's closed when
+    // the answer starts OR at `done` — the latter is the truncation case (reasoning ate the whole
+    // `num_predict`, `response` empty), where closing keeps the captured reasoning well-formed.
+    let mut think_open = false;
     loop {
         tokio::select! {
             _ = cancel.cancelled() => return Ok(GenerateStats::default()),
@@ -58,15 +66,24 @@ pub async fn stream_generate(
                     if trimmed.is_empty() { continue; }
                     let chunk: GenerateChunk = serde_json::from_slice(trimmed)
                         .map_err(|e| AppError::Inference(format!("bad chunk: {e}")))?;
+                    if !chunk.thinking.is_empty() {
+                        if !think_open { on_token("<think>"); think_open = true; }
+                        on_token(&chunk.thinking);
+                    }
                     if !chunk.response.is_empty() {
+                        if think_open { on_token("</think>"); think_open = false; }
                         on_token(&chunk.response);
                     }
                     if cancel.is_cancelled() { return Ok(GenerateStats::default()); }
-                    if chunk.done { return Ok(chunk.stats()); }
+                    if chunk.done {
+                        if think_open { on_token("</think>"); }
+                        return Ok(chunk.stats());
+                    }
                 }
             }
         }
     }
+    if think_open { on_token("</think>"); }
     Ok(GenerateStats::default())
 }
 

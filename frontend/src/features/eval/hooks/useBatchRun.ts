@@ -9,6 +9,7 @@ import {
   EVENT_BATCH_PROGRESS,
   runBatchEval,
   stopBatchEval,
+  type ThinkPreset,
 } from "../../../shared/ipc/eval/batch";
 import { formatIpcError } from "../../../shared/ipc/core/error";
 import { healthFor } from "../../../shared/ipc/core/client";
@@ -88,6 +89,7 @@ export function useBatchRun() {
       tier?: Tier,
       decoyTools?: number,
       runPromptBased?: boolean,
+      thinkPreset?: ThinkPreset,
     ) => {
       // Pre-flight: actively probe EVERY backend this run uses (a run can mix
       // backends), so a down server fails fast with a clear message instead of
@@ -130,6 +132,7 @@ export function useBatchRun() {
           tier,
           decoyTools,
           runPromptBased,
+          thinkPreset,
         );
       } catch (e) {
         useBatchStore.getState().setError(formatIpcError(e));

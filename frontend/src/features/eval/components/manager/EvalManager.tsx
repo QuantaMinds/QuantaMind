@@ -16,6 +16,7 @@ import {
   type CollectionValidation,
 } from "../../../../shared/ipc/eval/registry";
 import { ollamaModelPlacement } from "../../../../shared/ipc/models/ollama_start";
+import { THINK_PRESET_TOKENS, type ThinkPreset } from "../../../../shared/ipc/eval/batch";
 import type { Tier } from "../../../../shared/ipc/eval/readiness";
 import type { HardwareTier } from "../../../../shared/ipc/compare/hardware";
 import { batchToCsv, download } from "../../exportBatch";
@@ -102,6 +103,9 @@ export function EvalManager({
   // no-`tools` models.
   const [nativeFc, setNativeFc] = useState(true); // Tool-Calling (native)
   const [promptBased, setPromptBased] = useState(false); // Prompt-based proxy
+  // Thinking-budget preset (D8): fixed Lean/Standard/Deep, not a free slider — keeps verdicts
+  // reproducible. Drives the reasoning scratchpad budget; verdicts are labeled with it.
+  const [thinkPreset, setThinkPreset] = useState<ThinkPreset>("standard");
   // The running backend drives which native tool API is used; the UI says so for
   // llama.cpp (jinja templating) while leaving the Ollama view unchanged.
   const selectedBackend = useBackendStore((s) => s.selectedBackend);
@@ -249,6 +253,7 @@ export function EvalManager({
       effectiveTier,
       decoyEnabled ? decoyCount : undefined,
       promptBased,
+      thinkPreset,
     );
   };
 
@@ -411,6 +416,45 @@ export function EvalManager({
             {hwTier && (
               <span style={{ fontSize: 11, color: "#94a3b8", fontFamily: "Inter, sans-serif" }} data-testid="eval-hw-hint">
                 HW: {gbLabel(hwTier.total_memory_bytes)} · {hwTier.class} · {cap(hwTier.recommended_tier)} recommended
+              </span>
+            )}
+          </div>
+
+          {/* Thinking Budget preset (D8) — fixed Lean/Standard/Deep (not a slider); shows the
+              resolved token number for the current tier. Reproducible + labeled onto the verdict. */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }} data-testid="eval-think-preset">
+            <span style={{ ...controlLabelStyle, display: "inline-flex", alignItems: "center", gap: 6 }}>
+              Thinking Budget:
+              <InfoButton {...TOOL_HELP.thinkingBudget} align="left" testId="thinking-budget" />
+            </span>
+            <div style={{ display: "flex", gap: 4 }}>
+              {(["lean", "standard", "deep"] as ThinkPreset[]).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setThinkPreset(p)}
+                  data-testid={`eval-think-preset-${p}`}
+                  style={{
+                    flex: 1,
+                    padding: "5px 0",
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontFamily: "Inter, sans-serif",
+                    textTransform: "capitalize",
+                    cursor: "pointer",
+                    border: `1px solid ${thinkPreset === p ? "#2563eb" : "#cbd5e1"}`,
+                    background: thinkPreset === p ? "#eff6ff" : "#ffffff",
+                    color: thinkPreset === p ? "#1d4ed8" : "#475569",
+                    fontWeight: thinkPreset === p ? 600 : 400,
+                  }}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+            {effectiveTier && (
+              <span style={{ fontSize: 11, color: "#94a3b8", fontFamily: "Inter, sans-serif" }} data-testid="eval-think-preset-resolved">
+                {cap(thinkPreset)} · {cap(effectiveTier)} → {THINK_PRESET_TOKENS[thinkPreset][effectiveTier].toLocaleString()} thinking tokens
               </span>
             )}
           </div>

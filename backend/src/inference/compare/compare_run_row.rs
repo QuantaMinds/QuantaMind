@@ -59,6 +59,7 @@ pub(crate) async fn run_one_row(
         system: system.map(str::to_string),
         options,
         keep_alive,
+        think: None,
     };
     let row_endpoint = endpoint_for(endpoint, row.backend);
     let result = match row.backend {

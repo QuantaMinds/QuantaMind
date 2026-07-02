@@ -297,6 +297,7 @@ export async function runBatchEval(
   tier?: Tier,
   decoyTools?: number,
   runPromptBased?: boolean,
+  thinkPreset?: ThinkPreset,
 ): Promise<BatchReport> {
   return BatchReportSchema.parse(
     await invoke("run_batch_eval", {
@@ -311,9 +312,22 @@ export async function runBatchEval(
       tier,
       decoyTools,
       runPromptBased,
+      thinkPreset,
     }),
   );
 }
+
+/// The thinking-budget preset (D8 sidebar) — a fixed set, NOT a free slider, so verdicts stay
+/// reproducible/comparable. Mirrors the Rust `ThinkPreset` (snake_case wire form).
+export type ThinkPreset = "lean" | "standard" | "deep";
+
+/// The resolved per-tier thinking-token budget for each preset (mirrors `think_tokens_for_preset`).
+/// Shown in the sidebar so the user sees exactly what they're testing at.
+export const THINK_PRESET_TOKENS: Record<ThinkPreset, Record<Tier, number>> = {
+  lean: { easy: 1024, medium: 2048, hard: 4096, extreme: 6144 },
+  standard: { easy: 2048, medium: 6144, hard: 10240, extreme: 16384 },
+  deep: { easy: 4096, medium: 12288, hard: 20480, extreme: 32768 },
+};
 
 export async function stopBatchEval(): Promise<void> {
   await invoke("stop_batch_eval");

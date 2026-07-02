@@ -7,7 +7,7 @@ use crate::commands::eval::toolcall_cmd::endpoint_for;
 use crate::commands::prompt::prompt_options::{to_generate_options, validate_params};
 use crate::errors::AppError;
 use crate::inference::backend::backend_kind::BackendKind;
-use crate::inference::eval::agentic::difficulty::passk::{max_tokens_for, pass_k_for};
+use crate::inference::eval::agentic::difficulty::passk::{max_tokens_for_preset, pass_k_for, ThinkPreset};
 use crate::inference::eval::agentic::model_turn::{BackendTurn, NativeToolTurn};
 use crate::inference::eval::agentic::sandbox::EndStateRule;
 use crate::inference::eval::agentic::spec::Tier;
@@ -21,6 +21,8 @@ use crate::inference::eval::batch::{
 };
 use crate::inference::eval::toolcall::matrix::ModelTarget;
 use crate::inference::eval::toolcall::tasks::{validate_tasks, ToolTask};
+use crate::commands::system::hardware::snapshot;
+use crate::inference::eval::readiness::hardware::hwclass::agentic_ctx_ceiling;
 use crate::inference::ollama::ollama_placement::probe_placement;
 use crate::inference::ollama::ollama_show::{probe_ollama_version, probe_supports_tools};
 use crate::persistence::eval_history;
@@ -207,6 +209,7 @@ pub async fn run_batch_eval(
     tier: Option<Tier>,
     decoy_tools: Option<u32>,
     run_prompt_based: Option<bool>,
+    think_preset: Option<ThinkPreset>,
 ) -> Result<BatchReport, AppError> {
     validate_tasks(&tasks)?;
     if let Some(p) = &params {
@@ -226,6 +229,7 @@ pub async fn run_batch_eval(
         prompt: run_prompt_based.unwrap_or(true),
         tier,
         decoy_tools,
+        think_preset: think_preset.unwrap_or_default(),
     };
     // Start a fresh job log (header only) — a leftover log means an interrupted run.
     queue::create(&queue::run_path(&jobs_dir(&app)?, &collection_id), &config)?;
@@ -314,7 +318,7 @@ pub(crate) async fn run_passes(
                     tools: task.tools.clone(),
                     options: native_options.clone(),
                     terminal,
-                    max_tokens: max_tokens_for(tier, true),
+                    max_tokens: max_tokens_for_preset(tier, true, config.think_preset),
                     is_thinking,
                 }
             },
@@ -349,6 +353,13 @@ pub(crate) async fn run_passes(
         }
     }
 
+    // The hardware-adaptive `num_ctx` ceiling for THIS machine (bigger box → bigger window that
+    // can hold a reasoning model's fixed per-turn budget + transcript). This is the ONLY knob
+    // hardware moves; the budget itself (`max_tokens_for`) is a machine-independent constant so the
+    // tier stays reproducible. Same for every target on this host.
+    let ctx_ceiling = agentic_ctx_ceiling(snapshot().total_memory_bytes);
+    let think_preset = config.think_preset; // captured by the sync per-turn closure below
+
     // Prompt pass — only when selected. When it's NOT, the report is the column skeleton that the
     // native aggregates merge into (a native-only run). At least one pass is guaranteed by the UI.
     let mut report = if config.prompt {
@@ -366,8 +377,9 @@ pub(crate) async fn run_passes(
                 options: options.clone(),
                 keep_alive,
                 is_thinking: t.is_thinking,
-                max_tokens: max_tokens_for(tier, t.is_thinking),
+                max_tokens: max_tokens_for_preset(tier, t.is_thinking, think_preset),
                 cpu_offloaded: cpu_offload.get(&t.model).copied().unwrap_or(false),
+                ctx_ceiling,
                 stop_cache: Default::default(),
             },
             prior,
@@ -600,8 +612,8 @@ mod override_tests {
         let tasks = apply_overrides(vec![agentic("a", None, Tier::Hard, None)], None, None, None, None);
         assert_eq!(effective_tier(&tasks), Tier::Hard);
         // And it composes to the right thinking budget (the symptom the user saw): the Hard
-        // answer floor (2560) plus the reasoning scratchpad (2048) under the separate-budget fix.
-        assert_eq!(max_tokens_for(effective_tier(&tasks), true), 2560 + 2048);
+        // answer floor (2560) plus the FIXED reasoning scratchpad (see `think_tokens_for`).
+        assert_eq!(max_tokens_for(effective_tier(&tasks), true), 2560 + 10240);
     }
 
     #[test]

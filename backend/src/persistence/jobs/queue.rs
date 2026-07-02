@@ -42,6 +42,12 @@ pub struct RunConfig {
     /// same back-compat reason as `tier`.
     #[serde(default)]
     pub decoy_tools: Option<u32>,
+    /// The user-chosen thinking-budget preset (D8 sidebar). Drives the per-turn scratchpad budget
+    /// for reasoning models (`think_tokens_for_preset`). `#[serde(default)]` = `Standard`, so a job
+    /// log written before this field resumes at the default preset. Stamped onto the verdict so a
+    /// result is only ever compared to others produced under the SAME preset (reproducibility).
+    #[serde(default)]
+    pub think_preset: crate::inference::eval::agentic::difficulty::passk::ThinkPreset,
 }
 
 /// serde default for `RunConfig::prompt` — an interrupted job written before the field existed

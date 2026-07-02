@@ -10,6 +10,11 @@ vi.mock("../../../../shared/ipc/eval/batch", () => ({
   EVENT_BATCH_PROGRESS: "batch-progress",
   EVENT_AGENTIC_STEP: "agentic-step",
   EVENT_BATCH_COMPLETE: "batch-complete",
+  THINK_PRESET_TOKENS: {
+    lean: { easy: 1024, medium: 2048, hard: 4096, extreme: 6144 },
+    standard: { easy: 2048, medium: 6144, hard: 10240, extreme: 16384 },
+    deep: { easy: 4096, medium: 12288, hard: 20480, extreme: 32768 },
+  },
 }));
 // The batch run pre-flights the backend's health; treat it as up here so the run
 // proceeds (the pre-flight itself is tested in useBatchRun.test).
@@ -289,6 +294,7 @@ describe("EvalManager Sidebar Controls", () => {
         "medium", // tier still flows (for spec.tier)
         undefined, // decoyTools — off by default
         false, // runPromptBased — off by default (Tool-Calling is the default method)
+        "standard", // thinkPreset — Standard by default
       );
     });
   });
@@ -339,6 +345,7 @@ describe("EvalManager Sidebar Controls", () => {
         "easy",
         4, // decoyTools
         false, // runPromptBased — off by default
+        "standard", // thinkPreset — Standard by default
       );
     });
   });
