@@ -31,6 +31,8 @@ use quantamind_lib::inference::eval::agentic::spec::Tier;
 use quantamind_lib::inference::eval::agentic::step::{StepKind, TrajectoryStep};
 use quantamind_lib::inference::eval::agentic::v2::collection::load_v2_collection;
 use quantamind_lib::inference::eval::agentic::v2::scenarios::V2_SCENARIOS;
+use quantamind_lib::commands::system::hardware::snapshot;
+use quantamind_lib::inference::eval::readiness::hardware::hwclass::agentic_ctx_ceiling;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio_util::sync::CancellationToken;
 
@@ -110,6 +112,9 @@ async fn sweep_all_collections_k1() {
     let model = model();
     let endpoint = endpoint_for(backend);
     let thinking = is_thinking();
+    // The hardware-adaptive num_ctx ceiling for this machine (the D3 knob). For llama.cpp the eval
+    // clamps to the actual launched -c; here we use the class band, matching the live batch path.
+    let ctx_ceiling = agentic_ctx_ceiling(snapshot().total_memory_bytes);
 
     println!("\n================ AGENTIC TRUNCATION SWEEP (k=1) ================");
     println!("backend={backend:?} model={model} endpoint={endpoint} is_thinking={thinking}");
@@ -153,6 +158,8 @@ async fn sweep_all_collections_k1() {
                 keep_alive: None,
                 is_thinking: thinking,
                 max_tokens,
+                cpu_offloaded: false,
+                ctx_ceiling,
                 stop_cache: Default::default(),
             };
             let (sandbox, mut cfg) = match sandbox_for(task) {
