@@ -15,6 +15,7 @@ pub fn from_usage(usage: Option<Usage>) -> GenerateStats {
         load_ms: None,
         total_ms: None,
         cache_n: None,
+        finish_reason: None, // set by the caller from the chunk's choice.finish_reason
     }
 }
 

@@ -13,6 +13,7 @@ const READY: ModelVerdict = {
   model: "llama3.1:8b", backend: "ollama",
   verdict: { status: "ready", blocking: [], conditions: [], path: "native_fc" },
   pass_k: 0.85, effort: 1.23, avg_steps: 3.0, quantization: "Q4_K_M",
+  passes: 14, total_runs: 16, // run-level 88%, distinct from the strict pass_k
 };
 
 const UNMEASURED: ModelVerdict = {
@@ -38,14 +39,14 @@ describe("buildReadinessMarkdown", () => {
     expect(md).toContain("Apple M3 Pro");
     expect(md).toContain("Apple Silicon, unified");
     expect(md).toContain("**Profile gates (Coding agent):**");
-    expect(md).toContain("| Model | Backend | Readiness | Pass^k | Effort | Steps |");
-    expect(md).toContain("|---|---|---|---|---|---|");
-    expect(md).toContain("| llama3.1:8b | ollama | READY | 85% | 1.23 | 3.0 |");
+    expect(md).toContain("| Model | Backend | Readiness | Pass^k | Runs | Effort | Steps |");
+    expect(md).toContain("|---|---|---|---|---|---|---|");
+    expect(md).toContain("| llama3.1:8b | ollama | READY | 85% | 14/16 (88%) | 1.23 | 3.0 |");
   });
 
   it("maps every unmeasured metric to N/A and never leaks an undefined literal", () => {
     const md = buildReadinessMarkdown([UNMEASURED], PROFILE, "agentic-3", ISO, HW);
-    expect(md).toContain("| mistral:7b | llama_cpp | NOT READY | N/A | N/A | N/A |");
+    expect(md).toContain("| mistral:7b | llama_cpp | NOT READY | N/A | N/A | N/A | N/A |");
     expect(md).not.toContain("undefined");
   });
 

@@ -4,7 +4,8 @@ import type { TierCardParams } from "./components/TierProgressionMatrix";
 
 /// Bump when the JSON-export shape changes (e.g. when the deferred per-tier `top_error` or
 /// decoy-name drill-down lands), so old exports stay unambiguous.
-export const DEEP_DIVE_SCHEMA_VERSION = 1;
+/// v2: added run-level `passes`/`total_runs` (distinct from the strict `pass_k`).
+export const DEEP_DIVE_SCHEMA_VERSION = 2;
 
 const range = (nums: number[], suffix = ""): string | null => {
   if (nums.length === 0) return null;
@@ -46,6 +47,8 @@ export function deepDiveJson(verdict: ModelVerdict, collectionId: string, profil
     backend: verdict.backend,
     verdict: verdict.verdict,
     pass_k: verdict.pass_k ?? null,
+    passes: verdict.passes ?? 0,
+    total_runs: verdict.total_runs ?? 0,
     by_tier: verdict.by_tier,
     failures: verdict.failures ?? null,
   };

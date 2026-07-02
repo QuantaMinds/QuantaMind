@@ -8,6 +8,10 @@ export const LlamaStartResultSchema = z.discriminatedUnion("status", [
     status: z.literal("started"),
     pid: z.number().int().nonnegative(),
     port: z.number().int().nonnegative(),
+    // Present ONLY when the backend applied a hardware constraint at launch (flash attention /
+    // Q8 KV cache / capped context on a memory-tight host). The UI surfaces it so the user
+    // learns what was detected and how the server is running safely.
+    note: z.string().optional(),
   }),
   z.object({ status: z.literal("not_bundled"), note: z.string() }),
   z.object({ status: z.literal("start_failed"), error: z.string() }),

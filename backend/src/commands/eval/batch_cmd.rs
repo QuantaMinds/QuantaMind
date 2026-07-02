@@ -21,6 +21,7 @@ use crate::inference::eval::batch::{
 };
 use crate::inference::eval::toolcall::matrix::ModelTarget;
 use crate::inference::eval::toolcall::tasks::{validate_tasks, ToolTask};
+use crate::inference::ollama::ollama_placement::probe_placement;
 use crate::inference::ollama::ollama_show::{probe_ollama_version, probe_supports_tools};
 use crate::persistence::eval_history;
 use crate::persistence::jobs::queue::{self, RunConfig};
@@ -334,6 +335,20 @@ pub(crate) async fn run_passes(
         HashMap::new()
     };
 
+    // Where Ollama placed each model's weights: a model spilled onto the CPU (didn't fit in VRAM)
+    // runs several times slower, so the runner must grant it a larger per-step timeout (else a
+    // progressing turn is killed as a false `TurnTimeout`). Probed once per target up front (the
+    // per-turn closure is sync). llama.cpp/MLX report nothing here → not offloaded. The UI reads
+    // the same placement via `ollama_model_placement` to show the "running on CPU" notice.
+    let mut cpu_offload: HashMap<String, bool> = HashMap::new();
+    for t in &config.targets {
+        if t.backend == BackendKind::Ollama {
+            if let Some(p) = probe_placement(&endpoint_for(t.backend), &t.model).await {
+                cpu_offload.insert(t.model.clone(), p.on_cpu);
+            }
+        }
+    }
+
     // Prompt pass — only when selected. When it's NOT, the report is the column skeleton that the
     // native aggregates merge into (a native-only run). At least one pass is guaranteed by the UI.
     let mut report = if config.prompt {
@@ -352,6 +367,7 @@ pub(crate) async fn run_passes(
                 keep_alive,
                 is_thinking: t.is_thinking,
                 max_tokens: max_tokens_for(tier, t.is_thinking),
+                cpu_offloaded: cpu_offload.get(&t.model).copied().unwrap_or(false),
                 stop_cache: Default::default(),
             },
             prior,
@@ -583,8 +599,9 @@ mod override_tests {
         // authored tier, and the effective tier must be that — NOT Easy.
         let tasks = apply_overrides(vec![agentic("a", None, Tier::Hard, None)], None, None, None, None);
         assert_eq!(effective_tier(&tasks), Tier::Hard);
-        // And it composes to the right thinking budget (the symptom the user saw).
-        assert_eq!(max_tokens_for(effective_tier(&tasks), true), 3072);
+        // And it composes to the right thinking budget (the symptom the user saw): the Hard
+        // answer floor (2560) plus the reasoning scratchpad (2048) under the separate-budget fix.
+        assert_eq!(max_tokens_for(effective_tier(&tasks), true), 2560 + 2048);
     }
 
     #[test]

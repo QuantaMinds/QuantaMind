@@ -1,4 +1,5 @@
 use crate::errors::{AppError, AppResult};
+use crate::inference::eval::agentic::v2::oracle::{validate_collection_deep, CollectionValidation};
 use crate::inference::eval::toolcall::tasks::ToolTask;
 use crate::persistence::evals;
 use std::path::PathBuf;
@@ -33,6 +34,29 @@ pub fn save_custom_collection(
 #[tauri::command]
 pub fn delete_custom_collection(app: tauri::AppHandle, name: String) -> Result<(), AppError> {
     evals::delete(&evals_dir(&app)?, &name)
+}
+
+/// Deep-validate a saved custom collection: structural schema check + the oracle "answer key
+/// works" proof (each task reachable by a perfect agent, and a do-nothing agent fails it). Runs
+/// entirely offline — no model, no server — so the author can confirm their tasks are solvable
+/// and discriminating in seconds before spending a real run. A `no`/non-discriminating task
+/// means the ANSWER KEY is broken, not that models are bad at it.
+#[tauri::command]
+pub async fn validate_custom_collection(
+    app: tauri::AppHandle,
+    name: String,
+) -> Result<CollectionValidation, AppError> {
+    let tasks = evals::load(&evals_dir(&app)?, &name)?;
+    Ok(validate_collection_deep(&tasks).await)
+}
+
+/// Dry-run the same deep validation on an external `.json` file BEFORE importing it — so a
+/// broken collection is caught (and its bad tasks named) without being written into the managed
+/// dir. The frontend never reads file contents; it passes the picked path.
+#[tauri::command]
+pub async fn validate_collection_file(source_path: PathBuf) -> Result<CollectionValidation, AppError> {
+    let tasks = evals::read_capped(&source_path)?;
+    Ok(validate_collection_deep(&tasks).await)
 }
 
 /// Read a picked text file (e.g. a CSV) by PATH with the size cap, returning its

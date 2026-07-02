@@ -191,6 +191,42 @@ pub fn context_overflow_hint(body: &str) -> Option<String> {
     ))
 }
 
+/// Turn a llama-server `500 Compute error` body into actionable copy. This is the
+/// Metal/GPU compute failure — almost always the GPU (unified memory) running out
+/// of room for the KV cache + compute buffer (`kIOGPUCommandBufferCallbackErrorOutOfMemory`
+/// in the server's stderr, which the client never sees). CRITICAL: once it fires,
+/// llama.cpp's backend is left "in an error state" and EVERY later request 500s the
+/// same way until the server is restarted — so a silent generic error makes the whole
+/// eval look like a model failure. The cure names the wedge AND the knobs (restart +
+/// shrink the memory footprint). Pure, so the wording is tested without a live server.
+pub fn compute_error_hint(body: &str) -> Option<String> {
+    let parsed: LlamaErrorBody = serde_json::from_str(body).ok()?;
+    let m = &parsed.error.message;
+    let is_compute = m.contains("Compute error")
+        || m.contains("failed to decode")
+        || m.contains("OutOfMemory")
+        || m.contains("out of memory");
+    if !is_compute {
+        return None;
+    }
+    Some(
+        "llama.cpp hit a GPU compute error — the Mac's GPU (unified memory) ran out of room \
+         for the model's context (KV cache). The server is now wedged and will fail every \
+         request until you restart it: Stop & Start llama.cpp. To stop it recurring, lower \
+         \"Context window\", load a smaller model or a lighter quant (e.g. Q4 instead of Q8), \
+         or enable Flash Attention with a quantized KV cache."
+            .to_string(),
+    )
+}
+
+/// The single entry point the streaming paths use to rewrite a non-success llama-server
+/// body: context-overflow copy first, then compute-error copy, else `None` (caller keeps
+/// the raw status+body). Ordered so the more specific overflow message wins when both
+/// could match.
+pub fn llama_error_hint(body: &str) -> Option<String> {
+    context_overflow_hint(body).or_else(|| compute_error_hint(body))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -234,6 +270,36 @@ mod tests {
     fn context_overflow_hint_ignores_unrelated_errors() {
         assert!(context_overflow_hint(r#"{"error":{"type":"server_error","message":"boom"}}"#).is_none());
         assert!(context_overflow_hint("boom").is_none(), "non-JSON body → None");
+    }
+
+    /// The exact `500 Compute error` body a Metal-OOM wedge returns → actionable copy that
+    /// names the wedge (restart) AND the memory knobs (Context window / smaller model / quant),
+    /// NOT the raw `{"message":"Compute error."}` that reads as a model failure.
+    #[test]
+    fn compute_error_hint_rewrites_the_500_body() {
+        let body = r#"{"error":{"code":500,"message":"Compute error.","type":"server_error"}}"#;
+        let msg = compute_error_hint(body).expect("compute-error body should produce a hint");
+        assert!(msg.contains("GPU"), "names the GPU/memory cause: {msg}");
+        assert!(msg.to_lowercase().contains("restart"), "tells the user to restart the wedged server: {msg}");
+        assert!(msg.contains("Context window"), "names a knob to shrink the footprint: {msg}");
+    }
+
+    /// `failed to decode` (the other shape the same Metal-OOM wedge surfaces) also maps.
+    #[test]
+    fn compute_error_hint_matches_failed_to_decode() {
+        let body = r#"{"error":{"code":500,"message":"failed to decode, ret = -3","type":"server_error"}}"#;
+        assert!(compute_error_hint(body).is_some(), "failed-to-decode is the same wedge");
+    }
+
+    /// The combined entry point prefers the specific overflow copy, falls through to compute,
+    /// and leaves a genuinely unrelated error for the caller's raw fallback.
+    #[test]
+    fn llama_error_hint_routes_overflow_then_compute_then_none() {
+        let overflow = r#"{"error":{"code":400,"message":"exceeds the available context size","type":"exceed_context_size_error","n_prompt_tokens":9,"n_ctx":8}}"#;
+        assert!(llama_error_hint(overflow).unwrap().contains("Context window"));
+        let compute = r#"{"error":{"code":500,"message":"Compute error.","type":"server_error"}}"#;
+        assert!(llama_error_hint(compute).unwrap().contains("GPU"));
+        assert!(llama_error_hint(r#"{"error":{"type":"server_error","message":"boom"}}"#).is_none());
     }
 
     #[test]

@@ -186,7 +186,20 @@ function MetricsLine({ v }: { v: ModelVerdict }) {
       data-testid="readiness-metrics"
       className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-500 font-mono mt-1.5"
     >
-      <span data-testid="metric-passk">Pass^k {pct(v.pass_k)}</span>
+      <span data-testid="metric-passk" title="Strict Pass^k: fraction of tasks where EVERY one of the k runs passed (the reliability gate)">
+        Pass^k {pct(v.pass_k)}
+      </span>
+      {v.total_runs != null && v.total_runs > 0 && (
+        <>
+          <span className="text-slate-300">·</span>
+          <span
+            data-testid="metric-runs"
+            title="Run-level pass rate: individual runs that passed. A 14/16 shows here even when the strict all-k Pass^k gate reads 0%."
+          >
+            {v.passes ?? 0}/{v.total_runs} runs ({Math.round(((v.passes ?? 0) / v.total_runs) * 100)}%)
+          </span>
+        </>
+      )}
       <span className="text-slate-300">·</span>
       <span data-testid="metric-steps">{num1(v.avg_steps)} steps</span>
       <span className="text-slate-300">·</span>

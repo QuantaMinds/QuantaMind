@@ -12,7 +12,7 @@ export function LlamaServerControl() {
   const model = useSelectedModelStore((s) =>
     s.selectedModels.find((m) => m.backend === "llama_cpp") ?? null,
   );
-  const { start, status: startStatus, error: startError } = useStartLlamaServer();
+  const { start, status: startStatus, error: startError, notice: startNotice } = useStartLlamaServer();
   const { stop, status: stopStatus } = useStopLlamaServer();
   const path = model?.path;
   // The user's "Context window" param drives the launch `-c` for llama.cpp
@@ -35,6 +35,11 @@ export function LlamaServerControl() {
       {startError && (
         <p data-testid="llama-start-error" className="px-2 text-[10px] text-red-600">
           {startError}
+        </p>
+      )}
+      {startNotice && (
+        <p data-testid="llama-start-notice" className="px-2 text-[10px] text-amber-600">
+          {startNotice}
         </p>
       )}
     </div>

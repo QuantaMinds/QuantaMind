@@ -25,6 +25,8 @@ fn verdict(model: &str, pass_k: Option<f64>, quant: Option<&str>) -> ModelVerdic
         cliff: CliffStatus::NotProbed,
         by_tier: Vec::new(),
         failures: Default::default(),
+        passes: 0,
+        total_runs: 0,
     }
 }
 

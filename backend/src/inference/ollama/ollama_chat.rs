@@ -28,6 +28,10 @@ struct ChatRequest<'a> {
 struct ChatResponse {
     #[serde(default)]
     message: ChatResponseMessage,
+    /// `"stop"` vs `"length"` (num_predict cap → truncated); read by the agentic
+    /// runner to retry a truncated turn rather than score it as a real failure.
+    #[serde(default)]
+    done_reason: Option<String>,
     #[serde(default)]
     load_duration: Option<u64>,
     #[serde(default)]
@@ -87,6 +91,7 @@ impl ChatResponse {
             load_ms: self.load_duration.map(ns_to_ms),
             total_ms: self.total_duration.map(ns_to_ms),
             cache_n: None, // Ollama's /api/chat reports no prompt-cache count
+            finish_reason: self.done_reason.clone(), // "stop" | "length"
         }
     }
 }

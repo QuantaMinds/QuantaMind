@@ -1,8 +1,13 @@
 use super::*;
 
+/// A plain full-precision plan at `ctx` — the roomy-machine path (no forced flags, no note).
+fn plain(ctx: u32) -> LaunchPlan {
+    LaunchPlan { ctx, flash_attn: false, kv: KvType::F16, note: None }
+}
+
 #[test]
 fn spawn_args_pass_model_path_host_port_jinja_and_context() {
-    let args = build_spawn_args("/models/foo.gguf", 8081, 8192, None);
+    let args = build_spawn_args("/models/foo.gguf", 8081, &plain(8192), None);
     assert_eq!(
         args,
         vec![
@@ -21,7 +26,7 @@ fn spawn_args_pass_model_path_host_port_jinja_and_context() {
 
 #[test]
 fn spawn_args_reflect_a_custom_port() {
-    let args = build_spawn_args("/m/x.gguf", 9090, 4096, None);
+    let args = build_spawn_args("/m/x.gguf", 9090, &plain(4096), None);
     assert!(args.windows(2).any(|w| w == ["--port", "9090"]));
 }
 
@@ -29,7 +34,7 @@ fn spawn_args_reflect_a_custom_port() {
 /// template; its absence is the loop bug, so guard it explicitly.
 #[test]
 fn spawn_args_always_include_jinja() {
-    let args = build_spawn_args("/m/x.gguf", 8081, 4096, None);
+    let args = build_spawn_args("/m/x.gguf", 8081, &plain(4096), None);
     assert!(args.iter().any(|a| a == "--jinja"));
 }
 
@@ -37,10 +42,67 @@ fn spawn_args_always_include_jinja() {
 /// no such flag (the embedded template via `--jinja` is the default).
 #[test]
 fn spawn_args_append_chat_template_file_only_when_present() {
-    let with = build_spawn_args("/m/x.gguf", 8081, 4096, Some("/cfg/chat_templates/gemma.jinja"));
+    let with = build_spawn_args("/m/x.gguf", 8081, &plain(4096), Some("/cfg/chat_templates/gemma.jinja"));
     assert!(with.windows(2).any(|w| w == ["--chat-template-file", "/cfg/chat_templates/gemma.jinja"]));
-    let without = build_spawn_args("/m/x.gguf", 8081, 4096, None);
+    let without = build_spawn_args("/m/x.gguf", 8081, &plain(4096), None);
     assert!(!without.iter().any(|a| a == "--chat-template-file"));
+}
+
+/// The roomy-machine plan adds NO memory flags — byte-identical to the legacy launch.
+#[test]
+fn spawn_args_omit_memory_flags_on_a_plain_plan() {
+    let args = build_spawn_args("/m/x.gguf", 8081, &plain(8192), None);
+    assert!(!args.iter().any(|a| a == "-fa"), "no flash-attn flag on a roomy host");
+    assert!(!args.iter().any(|a| a == "-ctk"), "no quantized-KV flag on a roomy host");
+}
+
+/// A memory-constrained plan emits flash attention AND the Q8 KV-cache flags together
+/// (a Q8 cache requires flash attention) — the exact flags that avert the Metal OOM wedge.
+#[test]
+fn spawn_args_emit_flash_attn_and_q8_kv_on_a_constrained_plan() {
+    let plan = LaunchPlan { ctx: 16_384, flash_attn: true, kv: KvType::Q8, note: Some("tight".into()) };
+    let args = build_spawn_args("/m/x.gguf", 8081, &plan, None);
+    assert!(args.windows(2).any(|w| w == ["-fa", "on"]), "flash attention forced on");
+    assert!(args.windows(2).any(|w| w == ["-ctk", "q8_0"]), "K cache quantized");
+    assert!(args.windows(2).any(|w| w == ["-ctv", "q8_0"]), "V cache quantized");
+    assert!(args.windows(2).any(|w| w == ["-c", "16384"]));
+}
+
+/// KV dims of a ~9B model: enough per-token cost that f16 can't hold a 16K window on 16 GB,
+/// so the plan must fall back to flash-attn + Q8 KV and say so.
+fn nineb_dims() -> KvDims {
+    KvDims { layers: 36, head_count: 40, head_count_kv: 8, embedding_length: 5120 }
+}
+
+/// Roomy host (128 GB): the desired window fits at full precision → plain plan, no note.
+#[test]
+fn plan_launch_leaves_a_roomy_host_untouched() {
+    let plan = plan_launch(Some(9_000_000_000), Some(nineb_dims()), 128 * 1_000_000_000, Some(32_768), Some(16_384));
+    assert_eq!(plan.kv, KvType::F16);
+    assert!(!plan.flash_attn);
+    assert_eq!(plan.ctx, 16_384);
+    assert!(plan.note.is_none(), "no constraint → no user message");
+}
+
+/// Tight host (16 GB) asked for a big window a 9B can't hold at f16 → flash-attn + Q8 KV,
+/// and a note that names the safe config so the UI can show it.
+#[test]
+fn plan_launch_engages_flash_attn_and_q8_and_notifies_on_a_tight_host() {
+    let plan = plan_launch(Some(9_000_000_000), Some(nineb_dims()), 16 * 1_000_000_000, Some(32_768), Some(16_384));
+    assert_eq!(plan.kv, KvType::Q8, "quantize the KV cache to fit");
+    assert!(plan.flash_attn, "Q8 KV requires flash attention");
+    assert!(plan.ctx >= MIN_CONTEXT && plan.ctx <= 16_384);
+    let note = plan.note.expect("a constraint was applied → the user must be told");
+    assert!(note.contains("Flash Attention") && note.contains("Q8"), "note names the safe config: {note}");
+    assert!(note.to_lowercase().contains("safely"), "note frames it as running safely: {note}");
+}
+
+/// Unmeasurable dims → we can't budget memory, so never fabricate a constraint: plain plan.
+#[test]
+fn plan_launch_is_plain_when_dims_are_unknown() {
+    let plan = plan_launch(Some(9_000_000_000), None, 16 * 1_000_000_000, Some(32_768), Some(16_384));
+    assert_eq!(plan.kv, KvType::F16);
+    assert!(plan.note.is_none());
 }
 
 /// The `-c` value must be CAPPED: a GGUF's declared context is the model MAX

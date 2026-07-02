@@ -80,7 +80,13 @@ pub async fn stream_generate(
                             on_token(&text);
                         }
                         if cancel.is_cancelled() { return Ok(GenerateStats::default()); }
-                        if choice.finish_reason.is_some() { return Ok(from_usage(usage)); }
+                        if choice.finish_reason.is_some() {
+                            // Carry "stop" vs "length" so the agentic runner can tell a real
+                            // failure from a `num_predict` truncation it can retry (see runner).
+                            let mut stats = from_usage(usage);
+                            stats.finish_reason = choice.finish_reason;
+                            return Ok(stats);
+                        }
                     }
                 }
             }

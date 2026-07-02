@@ -35,30 +35,50 @@ pub fn max_steps_for(tier: Tier) -> u32 {
     }
 }
 
-/// The per-turn output-token budget (`num_predict`). A non-thinking model gets the legacy
-/// 256 cap — enough for a tool call, nothing wasted. A reasoning model emits a
-/// `<think>…</think>` scratchpad BEFORE the call: at 256 tokens it is truncated mid-thought
-/// and never emits the call (scored Malformed/Hallucinated), which is why a terse small model
-/// can out-score a far larger reasoner for a purely structural reason. So when `is_thinking`,
-/// the budget must clear the 1–2k tokens reasoning models routinely spend PLUS ~256 for the
-/// call itself — anything tighter just re-creates the truncation bug at a higher number. Easy
-/// is 1536 (not 1024) for exactly that reason: 1024 sits at the bottom of the scratchpad range.
-/// Each tier scales up because a harder task reasons longer. Every value fits inside
-/// `agentic_num_ctx` (Hard 14336 / Extreme 16384); because `<think>` is stripped before the
-/// transcript append, the larger budget costs only one turn's generation buffer and never
-/// accumulates across the step horizon.
-pub const NON_THINKING_MAX_TOKENS: u32 = 256;
+/// The per-turn output-token budget (`num_predict`) is SEPARATELY budgeted (arXiv 2605.07686):
+/// a *solution/answer* portion every model gets, plus a *reasoning scratchpad* portion added
+/// only for thinking models. The old flat 256 cap for non-thinking models was a structural
+/// failure guarantee — a `write_file(content=…)` payload cannot fit in 256 tokens, so the call
+/// was truncated mid-string, parsed to zero calls, and scored Malformed/Hallucinated regardless
+/// of model SIZE. Token budget is a hidden correctness parameter; sizing it so truncation
+/// approaches zero is what lets the eval measure real capability rather than the harness's cap.
+/// This is pure I/O plumbing, NOT a difficulty axis: `pass_k_for` / `max_steps_for` / decoys /
+/// traps are unchanged, so the tiers stay exactly as hard.
 
-pub fn max_tokens_for(tier: Tier, is_thinking: bool) -> u32 {
-    if !is_thinking {
-        return NON_THINKING_MAX_TOKENS;
-    }
+/// The solution/answer budget: enough for a TYPICAL BATCHED turn (several tool calls — e.g.
+/// multiple file writes — in one JSON array), NOT a single file. The FLOOR for EVERY model,
+/// thinking or not, because the deliverable is identical. A capable agent batches writes in one
+/// turn (good behavior); a single-file floor would make batched turns truncate→retry→thrash and
+/// could label an efficient batcher `Truncated`. The headroom-clamped retry (see runner.rs)
+/// covers the rare oversized batch; this floor keeps the common batched turn off the retry path.
+pub fn answer_tokens_for(tier: Tier) -> u32 {
     match tier {
         Tier::Easy => 1536,
         Tier::Medium => 2048,
-        Tier::Hard => 3072,
-        Tier::Extreme => 4096,
+        Tier::Hard => 2560,
+        Tier::Extreme => 3072,
     }
+}
+
+/// The reasoning-scratchpad budget, ADDED only for thinking models (the `<think>…</think>`
+/// block, stripped before the transcript append so it never accumulates across the horizon).
+/// Covers the 1–2k range reasoning models routinely spend, scaling with task complexity. Every
+/// resulting total fits inside `agentic_num_ctx` (Hard 14336 / Extreme 16384) as a single turn's
+/// generation buffer.
+pub fn think_tokens_for(tier: Tier) -> u32 {
+    match tier {
+        Tier::Easy => 1024,
+        Tier::Medium => 1536,
+        Tier::Hard => 2048,
+        Tier::Extreme => 2048,
+    }
+}
+
+/// Per-turn output cap = answer floor + (scratchpad iff the model reasons). Non-thinking gets
+/// the answer floor alone (1024–2048, up from the fatal 256); thinking gets answer + scratchpad
+/// (2048–4096). Call sites (`build.rs` / `batch_cmd.rs`) are unchanged — same signature.
+pub fn max_tokens_for(tier: Tier, is_thinking: bool) -> u32 {
+    answer_tokens_for(tier) + if is_thinking { think_tokens_for(tier) } else { 0 }
 }
 
 #[cfg(test)]
@@ -84,26 +104,39 @@ mod tests {
     }
 
     #[test]
-    fn non_thinking_budget_is_the_legacy_cap_at_every_tier() {
+    fn non_thinking_budget_is_the_answer_floor_and_clears_a_batched_turn() {
+        // The old flat 256 truncated any write_file payload. The floor now carries a BATCHED
+        // multi-call turn at every tier, and monotonically more for harder (bigger-batch) tasks.
+        assert_eq!(max_tokens_for(Tier::Easy, false), 1536);
+        assert_eq!(max_tokens_for(Tier::Medium, false), 2048);
+        assert_eq!(max_tokens_for(Tier::Hard, false), 2560);
+        assert_eq!(max_tokens_for(Tier::Extreme, false), 3072);
+        // Every non-thinking budget clears a TYPICAL BATCHED turn (~3-file batch), not just a
+        // single-file write — the forensic case is multifile/batched, so single-file is the
+        // wrong maximum. 1536 is the ~3-file batch estimate; below it, batched turns thrash.
         for tier in [Tier::Easy, Tier::Medium, Tier::Hard, Tier::Extreme] {
-            assert_eq!(max_tokens_for(tier, false), 256);
+            assert!(max_tokens_for(tier, false) >= 1536);
         }
+        assert!(max_tokens_for(Tier::Easy, false) <= max_tokens_for(Tier::Extreme, false));
     }
 
     #[test]
-    fn thinking_budget_clears_the_scratchpad_range_and_scales_monotonically() {
-        // Load-bearing numbers — every tier must exceed the 1–2k scratchpad reasoning
-        // models spend, or the budget just re-creates the truncation bug it exists to fix.
-        assert_eq!(max_tokens_for(Tier::Easy, true), 1536);
-        assert_eq!(max_tokens_for(Tier::Medium, true), 2048);
-        assert_eq!(max_tokens_for(Tier::Hard, true), 3072);
-        assert_eq!(max_tokens_for(Tier::Extreme, true), 4096);
-        // Even the smallest thinking budget clears the top of the 1–2k range plus the call.
-        assert!(max_tokens_for(Tier::Easy, true) > 1024);
+    fn thinking_budget_is_answer_plus_scratchpad_and_scales_monotonically() {
+        // Thinking = answer floor + reasoning scratchpad. Load-bearing totals; every tier
+        // clears the 1–2k scratchpad range PLUS the batched answer, so the call is never truncated.
+        assert_eq!(max_tokens_for(Tier::Easy, true), 1536 + 1024);
+        assert_eq!(max_tokens_for(Tier::Medium, true), 2048 + 1536);
+        assert_eq!(max_tokens_for(Tier::Hard, true), 2560 + 2048);
+        assert_eq!(max_tokens_for(Tier::Extreme, true), 3072 + 2048);
         assert!(max_tokens_for(Tier::Easy, true) < max_tokens_for(Tier::Extreme, true));
-        // Thinking is strictly more generous than the terse cap at every tier.
+        // Thinking is strictly more generous than the answer-only floor at every tier, and the
+        // difference is exactly the scratchpad budget (the separate-budgeting invariant).
         for tier in [Tier::Easy, Tier::Medium, Tier::Hard, Tier::Extreme] {
             assert!(max_tokens_for(tier, true) > max_tokens_for(tier, false));
+            assert_eq!(
+                max_tokens_for(tier, true) - max_tokens_for(tier, false),
+                think_tokens_for(tier)
+            );
         }
     }
 }

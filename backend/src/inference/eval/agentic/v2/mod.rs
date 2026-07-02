@@ -8,6 +8,7 @@ pub mod env_fs;
 pub mod env_webui;
 pub mod generator;
 pub mod r#match;
+pub mod oracle;
 pub mod scenarios;
 pub mod transpile;
 pub mod world_state;

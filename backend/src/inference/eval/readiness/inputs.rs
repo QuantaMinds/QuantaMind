@@ -194,6 +194,8 @@ pub fn verdicts_for_column(
             cliff,
             by_tier: Vec::new(),
             failures: Default::default(),
+            passes: 0,
+            total_runs: 0,
         }];
     }
     let native = col_native_status(col);
@@ -217,6 +219,8 @@ pub fn verdicts_for_column(
                 cliff,
                 by_tier,
                 failures: source.map(|a| a.failures.clone()).unwrap_or_default(),
+                passes: source.map(|a| a.passes).unwrap_or(0),
+                total_runs: source.map(|a| a.total_runs).unwrap_or(0),
             }
         })
         .collect()

@@ -10,15 +10,22 @@ export type StartLlamaStatus =
 export function useStartLlamaServer() {
   const [status, setStatus] = useState<StartLlamaStatus>("idle");
   const [error, setError] = useState<string | null>(null);
+  // A benign, user-facing note when the backend applied a hardware constraint at launch
+  // (flash attention / Q8 KV cache / capped context on a tight host) — distinct from `error`:
+  // the server DID start, this just explains how it's running safely.
+  const [notice, setNotice] = useState<string | null>(null);
 
   const start = useCallback(async (modelPath: string, numCtx?: number | null) => {
     setError(null);
+    setNotice(null);
     setStatus("starting");
     try {
       const result = await startLlamaServer(modelPath, numCtx);
       switch (result.status) {
-        case "already_running":
         case "started":
+        case "already_running":
+          // A fresh start may carry a hardware-constraint note; an already-running server can't.
+          if (result.status === "started" && result.note) setNotice(result.note);
           useBackendStore.getState().setLlamaHealthy(true);
           setStatus("idle");
           return;
@@ -37,5 +44,5 @@ export function useStartLlamaServer() {
     }
   }, []);
 
-  return { status, error, start };
+  return { status, error, notice, start };
 }

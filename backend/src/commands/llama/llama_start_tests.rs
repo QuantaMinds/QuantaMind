@@ -24,8 +24,17 @@ fn already_running_serializes_with_status_tag() {
 
 #[test]
 fn started_serializes_with_pid_and_port() {
-    let json = serde_json::to_string(&LlamaStartResult::Started { pid: 42, port: 8081 }).unwrap();
+    // No constraint applied → `note` omitted (serde skips `None`), so the roomy-machine
+    // payload is unchanged from before the hardware-plan field was added.
+    let json = serde_json::to_string(&LlamaStartResult::Started { pid: 42, port: 8081, note: None }).unwrap();
     assert_eq!(json, r#"{"status":"started","pid":42,"port":8081}"#);
+}
+
+#[test]
+fn started_includes_note_when_a_hardware_constraint_was_applied() {
+    let json =
+        serde_json::to_string(&LlamaStartResult::Started { pid: 42, port: 8081, note: Some("Q8 KV".into()) }).unwrap();
+    assert!(json.contains(r#""note":"Q8 KV""#), "the constraint note reaches the UI: {json}");
 }
 
 #[test]

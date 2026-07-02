@@ -10,7 +10,12 @@ import { useBatchRun } from "../../hooks/useBatchRun";
 import { useBackendStore } from "../../../../shared/state/backendStore";
 import { formatIpcError } from "../../../../shared/ipc/core/error";
 import { useToast } from "../../../../shared/ui/Toast";
-import type { ToolTask } from "../../../../shared/ipc/eval/registry";
+import {
+  validateCustomCollection,
+  type ToolTask,
+  type CollectionValidation,
+} from "../../../../shared/ipc/eval/registry";
+import { ollamaModelPlacement } from "../../../../shared/ipc/models/ollama_start";
 import type { Tier } from "../../../../shared/ipc/eval/readiness";
 import type { HardwareTier } from "../../../../shared/ipc/compare/hardware";
 import { batchToCsv, download } from "../../exportBatch";
@@ -86,6 +91,11 @@ export function EvalManager({
   const [error, setError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [csvOpen, setCsvOpen] = useState(false);
+  // Offline oracle validation of the selected collection ("does my answer key work?").
+  const [validating, setValidating] = useState(false);
+  const [validation, setValidation] = useState<CollectionValidation | null>(null);
+  // "Running on CPU (slower)" notice — set while an Ollama run is offloaded to system RAM.
+  const [cpuNotice, setCpuNotice] = useState<string | null>(null);
   // Calling method(s) to measure — pick either or both (at least one). Tool-Calling (native)
   // is the DEFAULT; Prompt-based (JSON-in-text proxy) is opt-in. Native follows the running
   // backend (Ollama /api/chat, llama.cpp /v1/chat/completions with --jinja); N/A for MLX /
@@ -112,6 +122,38 @@ export function EvalManager({
   useEffect(() => {
     void init().catch((e) => setError(`Couldn't load eval collections: ${formatIpcError(e)}`));
   }, [init]);
+
+  // Drop stale validation results when the active collection changes — a verdict is only
+  // meaningful for the collection it was run against.
+  useEffect(() => {
+    setValidation(null);
+  }, [selected]);
+
+  // While an Ollama run is active, poll where the model landed (VRAM vs CPU). Ollama loads the
+  // model on the first request, so we poll (not one-shot) to catch a CPU spill once it's
+  // resident — then show "running on CPU (slower)". Cleared when the run ends or the backend
+  // isn't Ollama (llama.cpp/MLX report no placement).
+  useEffect(() => {
+    if (!running || selectedBackend !== "ollama" || !model) {
+      setCpuNotice(null);
+      return;
+    }
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const placement = await ollamaModelPlacement(model);
+        if (!cancelled) setCpuNotice(placement?.on_cpu ? (placement.note ?? "Running on CPU (slower).") : null);
+      } catch {
+        /* best-effort — a probe failure just leaves the notice as-is */
+      }
+    };
+    void poll();
+    const id = setInterval(() => void poll(), 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [running, selectedBackend, model]);
 
   const handleDataSourceChange = async (source: "custom" | "builtin") => {
     setError(null);
@@ -144,6 +186,24 @@ export function EvalManager({
       }
     } catch (e) {
       setError(formatIpcError(e));
+    }
+  };
+
+  // Offline oracle check: proves each task's answer key is reachable by a perfect agent and
+  // that a do-nothing agent fails it — so the author knows a real-model FAIL is the model, not
+  // a broken task. Runs with no model/server (seconds), on the selected collection.
+  const handleValidate = async () => {
+    if (!selected) return;
+    setError(null);
+    setValidation(null);
+    setValidating(true);
+    try {
+      const result = await validateCustomCollection(selected);
+      setValidation(result);
+    } catch (e) {
+      setError(formatIpcError(e));
+    } finally {
+      setValidating(false);
     }
   };
 
@@ -470,7 +530,43 @@ export function EvalManager({
                 <button type="button" onClick={() => setCsvOpen(true)} style={actionBtnStyle} data-testid="eval-manager-import-csv">
                   [↓] Import CSV
                 </button>
+                <button
+                  type="button"
+                  onClick={() => void handleValidate()}
+                  disabled={!selected || tasks.length === 0 || validating}
+                  style={{ ...actionBtnStyle, opacity: !selected || tasks.length === 0 ? 0.4 : 1, cursor: !selected || tasks.length === 0 ? "not-allowed" : "pointer" }}
+                  title="Offline check: proves each task's answer key is solvable and discriminating — no model needed"
+                  data-testid="eval-validate-collection"
+                >
+                  {validating ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Spinner color="#2563eb" /> Validating…</span> : "✓ Validate collection"}
+                </button>
               </div>
+
+              {validation && (
+                <div
+                  style={{ marginTop: 6, padding: "8px 10px", borderRadius: 6, fontSize: 11, fontFamily: "Inter, sans-serif", border: `1px solid ${validation.ok ? "#bbf7d0" : "#fecaca"}`, background: validation.ok ? "#f0fdf4" : "#fef2f2" }}
+                  data-testid="eval-validation-result"
+                >
+                  <div style={{ fontWeight: 700, color: validation.ok ? "#166534" : "#b91c1c", marginBottom: 4 }}>
+                    {validation.ok ? "✓ Answer keys valid — solvable & discriminating" : "✗ Problems found — fix before running a model"}
+                  </div>
+                  {validation.structural_error && (
+                    <div style={{ color: "#b91c1c" }} data-testid="eval-validation-structural">Schema error: {validation.structural_error}</div>
+                  )}
+                  {validation.tasks.map((t) => {
+                    const bad = t.reachable === "no" || t.discriminating === false;
+                    const badge = t.reachable === "yes" ? "✓" : t.reachable === "no" ? "✗" : "?";
+                    const color = t.reachable === "no" ? "#b91c1c" : t.reachable === "not_checkable" ? "#b45309" : "#166534";
+                    return (
+                      <div key={t.id} style={{ display: "flex", gap: 6, padding: "1px 0", color: bad ? "#b91c1c" : "#334155" }} data-testid={`eval-validation-task-${t.id}`}>
+                        <span style={{ color, fontWeight: 700 }}>{badge}</span>
+                        <span style={{ fontFamily: "'JetBrains Mono', monospace", flexShrink: 0 }}>{t.id}</span>
+                        <span style={{ color: "#64748b", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }} title={t.detail}>— {t.detail}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -581,6 +677,14 @@ export function EvalManager({
           {running && (
             <div style={{ fontSize: 11, color: "#64748b", fontFamily: "Inter, sans-serif", textAlign: "center", marginTop: -6 }}>
               Evaluating… click to cancel.
+            </div>
+          )}
+          {running && cpuNotice && (
+            <div
+              style={{ fontSize: 11, color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 6, padding: "6px 10px", fontFamily: "Inter, sans-serif" }}
+              data-testid="eval-cpu-notice"
+            >
+              🖥️ {cpuNotice}
             </div>
           )}
 

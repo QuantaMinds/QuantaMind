@@ -1,7 +1,6 @@
 use crate::commands::llama::llama_runtime::{
-    bin_name, build_spawn_args, hardware_ctx_ceiling, is_reachable, jinja_unsupported,
-    resolve_launch_ctx, spawn_meta, spawn_server, spawn_stderr_tail, wait_until_ready, SpawnMeta,
-    JINJA_UNSUPPORTED_MSG, PORT, PROBE_TIMEOUT_MS,
+    bin_name, build_spawn_args, is_reachable, jinja_unsupported, plan_launch, spawn_meta, spawn_server,
+    spawn_stderr_tail, wait_until_ready, SpawnMeta, JINJA_UNSUPPORTED_MSG, PORT, PROBE_TIMEOUT_MS,
 };
 use crate::commands::system::hardware::snapshot;
 use crate::commands::llama::llama_server_types::{LlamaServerState, LlamaStartResult, SpawnReadout};
@@ -66,11 +65,12 @@ pub async fn start_llama_server(
     // memory (a stable per-machine capacity), not momentary free RAM. If the weight
     // size is unknown we can't measure a budget → no clamp (u32::MAX), never a bogus
     // cap that would defeat an explicit window; the unset default still caps at 8K.
-    let hw_ceiling = match model_bytes {
-        Some(mb) => hardware_ctx_ceiling(mb, dims, snapshot().total_memory_bytes),
-        None => u32::MAX,
-    };
-    let ctx = resolve_launch_ctx(gguf_ctx, num_ctx, hw_ceiling);
+    // Hardware-aware launch plan: the safe `-c` plus, on a memory-tight host, flash attention
+    // + a Q8 KV cache (so the requested context fits instead of OOM-wedging llama.cpp), plus a
+    // user-facing note describing the constraint. On a roomy machine this is the old behaviour
+    // (full-precision KV, no forced flags, no note).
+    let plan = plan_launch(model_bytes, dims, snapshot().total_memory_bytes, gguf_ctx, num_ctx);
+    let ctx = plan.ctx;
     // Already serving this exact (model, context)? No-op. A changed context falls
     // through and relaunches with the new `-c`.
     if is_reachable(PROBE_TIMEOUT_MS).await && state.is_current(&model_path, ctx) {
@@ -87,7 +87,7 @@ pub async fn start_llama_server(
     // Stamp the load window right before exec: spawn → first `/health`-ready is the
     // model-load time (coarse, bounded by the 500ms poll), excluding our arg-prep.
     let load_start = std::time::Instant::now();
-    let mut child = match spawn_server(&dir, &build_spawn_args(&model_path, PORT, ctx, template_arg)) {
+    let mut child = match spawn_server(&dir, &build_spawn_args(&model_path, PORT, &plan, template_arg)) {
         Ok(c) => c,
         Err(error) => return Ok(LlamaStartResult::StartFailed { error }),
     };
@@ -100,7 +100,7 @@ pub async fn start_llama_server(
         // Ready: record the one-time spawn readout (only on success → no bogus
         // load_ms for a failed/never-ready start).
         state.set_readout(SpawnReadout { model_bytes, load_ms: load_start.elapsed().as_millis() as u64 });
-        Ok(LlamaStartResult::Started { pid, port: PORT })
+        Ok(LlamaStartResult::Started { pid, port: PORT, note: plan.note })
     } else {
         let _ = state.stop();
         let stale = tail

@@ -2,7 +2,8 @@ use crate::errors::AppResult;
 use crate::inference::backend::backend::InferenceBackend;
 use crate::inference::backend::backend_kind::BackendKind;
 use crate::inference::chat::chat_templates::detect_template;
-use crate::inference::eval::agentic::difficulty::passk::NON_THINKING_MAX_TOKENS;
+use crate::inference::eval::agentic::difficulty::passk::answer_tokens_for;
+use crate::inference::eval::agentic::spec::Tier;
 use crate::inference::eval::toolcall::prompt::{terminal_closing, TerminalGuidance};
 use crate::inference::eval::toolcall::tasks::ToolSchema;
 use crate::inference::generate::generate_options::GenerateOptions;
@@ -67,11 +68,20 @@ pub trait ModelTurn {
     }
 
     /// The per-turn output-token budget (`num_predict`) the runner pins on the spec.
-    /// Default is the legacy 256 cap; a thinking model returns a tier-scaled budget that
-    /// clears the scratchpad range so the call survives. See
+    /// Default is the Easy answer floor — enough to carry a tool-call payload; a real turn
+    /// overrides this with a tier-scaled budget (thinking adds the scratchpad). See
     /// `difficulty::passk::max_tokens_for`.
     fn max_output_tokens(&self) -> u32 {
-        NON_THINKING_MAX_TOKENS
+        answer_tokens_for(Tier::Easy)
+    }
+
+    /// Is a single turn intrinsically SLOW for this model on this machine — a reasoning model
+    /// (long `<think>` generation) OR a model Ollama had to spill onto the CPU (partial/full
+    /// offload)? The runner multiplies the per-step wall-clock cap for a slow turn so a
+    /// genuinely-progressing generation isn't killed as a false `TurnTimeout`. Default `false`:
+    /// scripted test models and the native-FC path keep the terse-model timeout.
+    fn slow_inference(&self) -> bool {
+        false
     }
 }
 
@@ -92,10 +102,15 @@ pub struct BackendTurn {
     /// This model is a reasoning model (the sidebar "thinking" checkbox). Drives the
     /// raised token budget + `<think>` stripping in the runner.
     pub is_thinking: bool,
-    /// The per-turn `num_predict` for this model: tier-scaled when `is_thinking`, else 256.
-    /// Precomputed at construction (`difficulty::passk::max_tokens_for`), where the tier is
-    /// known, so the runner doesn't need the tier threaded in.
+    /// The per-turn `num_predict` for this model: the tier's answer floor, plus the scratchpad
+    /// budget when `is_thinking`. Precomputed at construction (`difficulty::passk::max_tokens_for`),
+    /// where the tier is known, so the runner doesn't need the tier threaded in.
     pub max_tokens: u32,
+    /// Ollama had to spill this model's weights onto the CPU (it didn't fully fit in VRAM),
+    /// probed from `/api/ps` at construction. CPU inference is several times slower, so — like
+    /// `is_thinking` — it makes a turn `slow_inference`, and the runner grants a larger per-step
+    /// timeout. `false` for a fully-resident model / llama.cpp / MLX / tests.
+    pub cpu_offloaded: bool,
     /// Per-turn-instance memo of the resolved stop tokens (see `resolve_model_stops`).
     /// Resolved lazily on the first `run` and reused for every subsequent turn of this
     /// model, so the agentic loop pays at most one `/api/show` per run. A `BackendTurn` is
@@ -184,6 +199,12 @@ impl ModelTurn for BackendTurn {
 
     fn max_output_tokens(&self) -> u32 {
         self.max_tokens
+    }
+
+    /// A reasoning model OR a CPU-offloaded one is slow per turn — the runner grants a larger
+    /// per-step timeout so a progressing turn isn't killed as a false `TurnTimeout`.
+    fn slow_inference(&self) -> bool {
+        self.is_thinking || self.cpu_offloaded
     }
 
     /// Issue a 1-token generation to force the model resident (honoring `keep_alive` so

@@ -150,4 +150,13 @@ pub struct ModelVerdict {
     /// Taxonomy. `#[serde(default)]` so pre-9B verdicts deserialize.
     #[serde(default)]
     pub failures: FailureTracker,
+    /// The RUN-LEVEL pass tally across the collection: `passes` of `total_runs` individual
+    /// runs succeeded. Distinct from `pass_k`, which is the STRICT all-k gate (fraction of
+    /// tasks where EVERY run passed) — so a 14/16 shows `pass_k = 0` yet `passes/total_runs`
+    /// = 14/16. Surfaced beside the strict badge so a merely-very-good model doesn't read as a
+    /// flat failure. `#[serde(default)]` (0/0 → rendered "N/A") for back-compat.
+    #[serde(default)]
+    pub passes: u32,
+    #[serde(default)]
+    pub total_runs: u32,
 }
