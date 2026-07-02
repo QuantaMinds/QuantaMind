@@ -79,9 +79,19 @@ pub enum ThinkPreset {
 /// the leaderboard must never do). Hardware adaptivity lives ONLY in `num_ctx` (whether the window
 /// can HOLD this budget); a box that genuinely can't is an honest `Truncated (context-bound)`.
 ///
-/// These are PLACEHOLDERS until §5 locks them from a cross-MODEL histogram (P95 of the chattiest
-/// model per tier — models vary ~2.5×). Hard/Extreme are biased up but still likely low (the
-/// 15–18k figure in the literature is competition MATH; coding reasoning here is unmeasured).
+/// §5 measurement (live, `backend/tests/agentic_truncation_sweep.rs` with the per-tier `<think>`
+/// histogram) across TWO reasoning models on coding — qwen3.5:9b (Ollama) and OmniCoder-9B (MLX):
+/// per-turn reasoning is SHORT and well within these caps. qwen3.5 coding est-tokens P95 = Easy 113
+/// / Medium 341 / Hard 414 (max 1083); MLX capture confirms the same order, and BOTH ran with ZERO
+/// `finish=length` truncation at these budgets on all three backends. So these are now
+/// DATA-VALIDATED as sufficient (not placeholders) — with 15–25× headroom over the coding P95.
+/// The headroom is DELIBERATE and stays: (a) task variance dwarfs the median — a constraint-heavy
+/// task measured ~3,700 reasoning tokens (~9× the coding P95), and MATH reasons longer than coding
+/// (both under-represented in this coding-only sweep); (b) cross-model variance (~2.5×) means a
+/// chattier model than these two needs the margin. Do NOT trim toward the coding P95 — that would
+/// re-introduce the exact truncation bug for math / constraint-heavy / chattier models. A future
+/// downward retune is only safe once math + Extreme + a chattier model are measured. Fixed per
+/// tier, never hardware-scaled (see above).
 pub fn think_tokens_for_preset(tier: Tier, preset: ThinkPreset) -> u32 {
     use ThinkPreset::*;
     match (tier, preset) {
