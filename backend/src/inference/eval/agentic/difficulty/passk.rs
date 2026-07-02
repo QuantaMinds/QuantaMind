@@ -79,19 +79,22 @@ pub enum ThinkPreset {
 /// the leaderboard must never do). Hardware adaptivity lives ONLY in `num_ctx` (whether the window
 /// can HOLD this budget); a box that genuinely can't is an honest `Truncated (context-bound)`.
 ///
-/// §5 measurement (live, `backend/tests/agentic_truncation_sweep.rs` with the per-tier `<think>`
-/// histogram) across TWO reasoning models on coding — qwen3.5:9b (Ollama) and OmniCoder-9B (MLX):
-/// per-turn reasoning is SHORT and well within these caps. qwen3.5 coding est-tokens P95 = Easy 113
-/// / Medium 341 / Hard 414 (max 1083); MLX capture confirms the same order, and BOTH ran with ZERO
-/// `finish=length` truncation at these budgets on all three backends. So these are now
-/// DATA-VALIDATED as sufficient (not placeholders) — with 15–25× headroom over the coding P95.
-/// The headroom is DELIBERATE and stays: (a) task variance dwarfs the median — a constraint-heavy
-/// task measured ~3,700 reasoning tokens (~9× the coding P95), and MATH reasons longer than coding
-/// (both under-represented in this coding-only sweep); (b) cross-model variance (~2.5×) means a
-/// chattier model than these two needs the margin. Do NOT trim toward the coding P95 — that would
-/// re-introduce the exact truncation bug for math / constraint-heavy / chattier models. A future
-/// downward retune is only safe once math + Extreme + a chattier model are measured. Fixed per
-/// tier, never hardware-scaled (see above).
+/// §5 is PROVISIONAL, not closed. Live measurement (`backend/tests/agentic_truncation_sweep.rs`,
+/// per-tier `<think>` histogram) so far covers a NARROW envelope: two reasoning models that are
+/// BOTH Qwen-family (qwen3.5:9b via Ollama, OmniCoder-9B via MLX), Easy/Medium/Hard only, CODING
+/// only. In that envelope reasoning is short — qwen3.5 est-tokens P95 = Easy 113 / Medium 341 /
+/// Hard 414 (max 1083) — with ZERO `finish=length` on all three backends. That validates CONSISTENCY
+/// (two near-identical points) + that these caps hold for Qwen-coding — it does NOT validate the
+/// two things §5 exists for:
+///   • CROSS-FAMILY spread (~2.5×): both models are Qwen; a genuinely different family (a
+///     DeepSeek-R1 distill, GLM, …) — which reason far longer — is UNTESTED.
+///   • EXTREME: no histogram row exists for it; it's the longest-horizon, highest-reasoning tier,
+///     the one most likely to blow a budget, and it was never run.
+/// So the caps are KEPT (a constraint-heavy task already measured ~3,700 ≈ 9× the coding P95, and
+/// math/Extreme/chatty-family all reason MORE — trimming toward the coding P95 would re-introduce
+/// the truncation bug). But "sized right for the population" is UNPROVEN until a different family +
+/// Extreme + math are measured. Do not read the zero-truncation coding result as settling Extreme.
+/// Fixed per tier, never hardware-scaled (see above).
 pub fn think_tokens_for_preset(tier: Tier, preset: ThinkPreset) -> u32 {
     use ThinkPreset::*;
     match (tier, preset) {
