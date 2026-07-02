@@ -32,6 +32,7 @@ impl InferenceBackend for MlxBackend {
             &spec.prompt,
             spec.system.as_deref(),
             spec.options.clone(),
+            spec.think,
             cancel,
             on_token,
         )

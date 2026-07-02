@@ -25,6 +25,13 @@ pub struct Choice {
 pub struct Delta {
     #[serde(default)]
     pub content: Option<String>,
+    /// A reasoning model's thinking stream. mlx_lm.server (≥0.31) puts it in a `reasoning` field
+    /// (NOT `content`, NOT llama.cpp's `reasoning_content`, NOT Ollama's `thinking` — a THIRD name;
+    /// verified live + against ml-explore/mlx-lm#1352). When a `has_thinking` model reasons, this
+    /// carries the scratchpad and `content` holds only the answer. Captured and re-wrapped as inline
+    /// `<think>…</think>` so `strip_think` + D9 accounting handle MLX like the other backends.
+    #[serde(default)]
+    pub reasoning: Option<String>,
 }
 
 #[derive(Deserialize, Default, Clone)]

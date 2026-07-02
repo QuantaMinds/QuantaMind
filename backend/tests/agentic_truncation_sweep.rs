@@ -39,6 +39,7 @@ use tokio_util::sync::CancellationToken;
 fn backend() -> BackendKind {
     match std::env::var("QM_BACKEND").unwrap_or_else(|_| "llama".into()).to_lowercase().as_str() {
         "ollama" => BackendKind::Ollama,
+        "mlx" => BackendKind::Mlx,
         _ => BackendKind::LlamaCpp,
     }
 }
@@ -68,6 +69,26 @@ fn snip(s: &str, n: usize) -> String {
     } else {
         one
     }
+}
+
+/// §5 sizing: estimate the reasoning tokens in ONE turn's captured `<think>…</think>` block.
+/// No model tokenizer here, so ~4 chars/token — an ESTIMATE, honest and adequate for setting a
+/// budget WITH margin (cross-checked against the hard fact that these runs never hit finish=length,
+/// i.e. reasoning fit under the current budget). `None` when the turn has no captured reasoning.
+fn think_est_tokens(raw: &str) -> Option<u32> {
+    let start = raw.find("<think>")? + "<think>".len();
+    let end = raw[start..].find("</think>").map(|e| start + e).unwrap_or(raw.len());
+    let chars = raw[start..end].chars().count();
+    (chars > 0).then_some((chars / 4) as u32)
+}
+
+/// Nearest-rank percentile of a SORTED slice (empty → 0). Used for the per-tier P50/P95 histogram.
+fn percentile(sorted: &[u32], p: f64) -> u32 {
+    if sorted.is_empty() {
+        return 0;
+    }
+    let idx = (((sorted.len() as f64 - 1.0) * p).round() as usize).min(sorted.len() - 1);
+    sorted[idx]
 }
 
 /// Every failure bucket the tracker holds, as `(label, count)` — printed as a
@@ -124,6 +145,9 @@ async fn sweep_all_collections_k1() {
     let mut total_tasks = 0u32;
     let mut total_passes = 0u32;
     let mut top_tally: std::collections::BTreeMap<String, u32> = Default::default();
+    // §5: per-tier reasoning-token estimates, one entry per turn that emitted a `<think>` block.
+    // The distribution (P95) sets `think_tokens_for(tier)` above the chattiest observed turn.
+    let mut reasoning_by_tier: std::collections::BTreeMap<String, Vec<u32>> = Default::default();
 
     // Optional substring filter (QM_ONLY=coding runs only matching collections) — lets a
     // smoke run hit one small collection before the full multi-hour sweep.
@@ -179,6 +203,12 @@ async fn sweep_all_collections_k1() {
                 steps.push(s);
             }
             let kinds: Vec<StepKind> = steps.iter().map(|s| s.kind.clone()).collect();
+            // §5: record each turn's reasoning-token estimate under its tier.
+            for s in &steps {
+                if let Some(t) = think_est_tokens(&s.raw_output) {
+                    reasoning_by_tier.entry(format!("{tier:?}")).or_default().push(t);
+                }
+            }
 
             total_tasks += 1;
             match report {
@@ -244,6 +274,24 @@ async fn sweep_all_collections_k1() {
     println!("\nKEY: `truncated` = honestly-labeled cap hit (the fix working). A NON-zero");
     println!("`malformed_json` / `hallucinated` / `empty_output` on a batched-write task is");
     println!("the laundering the fix is meant to eliminate — cross-check those trajectories.");
+
+    // §5: the reasoning-token distribution per tier — the evidence for locking the presets.
+    println!("\n============ §5 REASONING-TOKEN HISTOGRAM (est) ============");
+    println!("model={model}  (est tokens ≈ <think> chars / 4; one sample per reasoning turn)");
+    println!("  {:<9} {:>5} {:>7} {:>7} {:>7}   Standard preset (current)", "tier", "n", "P50", "P95", "max");
+    for (tier, vals) in &mut reasoning_by_tier {
+        vals.sort_unstable();
+        println!(
+            "  {:<9} {:>5} {:>7} {:>7} {:>7}",
+            tier,
+            vals.len(),
+            percentile(vals, 0.50),
+            percentile(vals, 0.95),
+            vals.last().copied().unwrap_or(0),
+        );
+    }
+    println!("Lock rule: think_tokens_for(tier) ≥ P95 × ~1.5 (margin for chattier models than this one).");
+    println!("Single-model sample — the population lock needs several reasoning models (see §5).");
     println!("===========================================================\n");
 
     // Sanity floor: the sweep actually exercised the engine end-to-end.
