@@ -212,10 +212,52 @@ async fn stream_completion(
     Ok(Some(GenerateStats::default()))
 }
 
+/// The context window (`n_ctx`) the running llama-server was launched with — read from `/props`
+/// (`default_generation_settings.n_ctx`, with a bare `n_ctx` fallback for older builds). llama.cpp
+/// fixes this at launch and IGNORES per-request `num_ctx`, so the eval must size its `num_ctx` to
+/// THIS actual window (which `plan_launch` may have RAM-clamped below the requested ceiling), or
+/// the truncation-retry headroom math over-grants budget the runtime can't hold. `None` when the
+/// server is unreachable / the field is absent — the caller falls back to the hardware-class band.
+pub async fn probe_llama_n_ctx(endpoint: &str) -> Option<u32> {
+    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(3)).build().ok()?;
+    let resp = client.get(format!("{endpoint}/props")).send().await.ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let v: serde_json::Value = resp.json().await.ok()?;
+    v.get("default_generation_settings")
+        .and_then(|g| g.get("n_ctx"))
+        .or_else(|| v.get("n_ctx"))
+        .and_then(|n| n.as_u64())
+        .map(|n| n as u32)
+        .filter(|&n| n > 0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use mockito::Server;
+
+    /// `/props` → the launched `n_ctx` (from `default_generation_settings`), the actual window the
+    /// eval must clamp to. Falls back to a bare `n_ctx`; `None` when absent or the server errors.
+    #[tokio::test]
+    async fn probe_n_ctx_reads_the_launched_window_from_props() {
+        let mut s = Server::new_async().await;
+        let _m = s.mock("GET", "/props").with_status(200)
+            .with_body(r#"{"default_generation_settings":{"n_ctx":16384},"total_slots":1}"#)
+            .create_async().await;
+        assert_eq!(probe_llama_n_ctx(&s.url()).await, Some(16384));
+    }
+
+    #[tokio::test]
+    async fn probe_n_ctx_falls_back_to_bare_field_and_none_on_error() {
+        let mut s = Server::new_async().await;
+        let _bare = s.mock("GET", "/props").with_status(200).with_body(r#"{"n_ctx":8192}"#).create_async().await;
+        assert_eq!(probe_llama_n_ctx(&s.url()).await, Some(8192));
+        let mut s2 = Server::new_async().await;
+        let _err = s2.mock("GET", "/props").with_status(500).create_async().await;
+        assert_eq!(probe_llama_n_ctx(&s2.url()).await, None, "unreachable/error → None → caller uses the band");
+    }
 
     /// The templated /v1/chat/completions endpoint is PRIMARY — when it answers,
     /// /completion is never hit (no `expect` on it, so a stray call would 501).
