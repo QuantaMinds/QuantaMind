@@ -468,8 +468,47 @@ FaultInjection::TransientError { status_code, clears_after } => {
   `clamp(2048 + max_steps·384, 4096, 16384)`. Left at the model default (~4096) a
   multi-step transcript overflows → Ollama context-shift, which busts the automatic
   prefix-KV cache (full re-prefill every turn — the stall) AND silently drops the
-  earliest turns. The 16384 ceiling is memory-safe on a 16GB host; the deepest Extreme
-  (85-step ≈ 30k-token) runs still shift there — a hardware limit, not a regression.
+  earliest turns.
+
+### Reasoning-model budget handling (D1–D9)
+A reasoning model's `<think>` scratchpad is charged against the SAME `num_predict` as the
+answer, and Ollama routes it into a separate `thinking` field. If the harness ignores that and
+the budget is too small, reasoning eats the whole cap and the answer comes back empty — a
+capable model is then mis-scored `Truncated`. Proven live: qwen3.5:9b spent ~3700/4096 tokens
+thinking → empty answer. The fix, across the runner / `model_turn` / `difficulty::passk` /
+`hwclass` / `report` / `step`:
+- **Capture the reasoning (D1):** `BackendTurn::run` sends Ollama `think:true` for a thinking
+  model; `ollama::stream_generate` reads the streamed `thinking` and re-emits it wrapped in
+  inline `<think>…</think>`, so the runner's existing `strip_think` handles every backend
+  uniformly (llama.cpp already emits inline `<think>`). **MLX is unverified** — its template may
+  emit untagged reasoning, in which case `strip_think` no-ops and MLX would regress; treated as a
+  known gap until an MLX reasoning model can be inspected (`inference/mlx`).
+- **Fixed per-tier budget, NOT hardware-scaled (D2):** `passk::think_tokens_for_preset(tier,
+  ThinkPreset)` — `Lean/Standard/Deep` presets, each a constant. Reasoning length is a property of
+  the task and model, not the tester's RAM; scaling the budget by hardware would make the same
+  model pass a tier on a big box and fail on a small one → a non-reproducible tier. Values are
+  placeholders until a cross-model histogram (P95 of the chattiest model per tier) locks them.
+- **Only `num_ctx` is hardware-adaptive (D3):** `agentic_num_ctx(max_steps, is_thinking, ceiling)`
+  gives a thinking model the WHOLE window; `ceiling = hwclass::agentic_ctx_ceiling(total_ram)`
+  (Constrained 8192 · Mainstream 16384 · Workstation 32768 · Frontier 65536), threaded onto
+  `BackendTurn.ctx_ceiling` from the batch command's hardware snapshot. Hardware decides *whether*
+  the fixed budget fits, never *how much* the model may think; a box too small yields an honest
+  `Truncated (context-bound)`. (Precise per-model ceiling + llama.cpp launch-`-c` lockstep are a
+  tracked follow-up; the class band covers the Ollama case.)
+- **Honest labels (D7/D9):** on a length-cut, zero-call turn the runner classifies with usage
+  numbers (`stats.eval_count` vs `base_predict`; `prompt_eval_count + cache_n` vs `num_ctx`):
+  `FailureKind::ReasoningOverrun` when the per-turn BUDGET capped generation while the window had
+  room (a SETTING — raise the preset), vs `FailureKind::Truncated` when the window filled (context
+  -bound, HARDWARE) or usage is unknown (the honest default — never assert over-reasoning blind).
+  The two must never be blended: one is fixed by a knob, the other needs a bigger machine. The
+  `TrajectoryStep` carries `reasoning_tokens` / `context_used` / `context_window` so the UI shows
+  both bars and names the fix.
+- **Prompt nudge (D4):** a uniform reasoning-discipline block in `toolcall::prompt::build_system_for`
+  (finish with the call even if reasoning is incomplete; gather info by calling a tool). A nudge,
+  not a control — the load-bearing fixes are the budget + honest labeling.
+
+The 16384 num_ctx figure is now the *fallback* ceiling; the live ceiling is the hardware-class
+value above.
 
 ### File: `endstate.rs`
 - **Responsibility:** Checkpoint matching + Driver-D semantic schema validation.
@@ -484,8 +523,9 @@ FaultInjection::TransientError { status_code, clears_after } => {
 - **Responsibility:** The streamed per-turn event type.
 - **What:** `StepKind::{ToolCall, ToolError, UnknownTool, SchemaError, MalformedJson,
   HallucinatedCompletion, EndStateReached, InfiniteLoop, ForbiddenCall, TurnTimeout,
-  ReportedInProse}`;
-  `TrajectoryStep{run_index, step_index, raw_output, injection: Option<String>, kind}`.
+  ReportedInProse, ForeignDialect, EmptyOutput, Truncated, ReasoningOverrun}`;
+  `TrajectoryStep{run_index, step_index, raw_output, injection, kind, …, reasoning_tokens,
+  context_used, context_window}` (the last three drive the D9 two-bar diagnostic).
   `ReportedInProse` (G3) = did all the work but answered in plain text instead of the
   required reporter tool (content-correct, wrong-channel); the UI renders it TEAL — the
   mildest failure, distinct from a hard red fail.

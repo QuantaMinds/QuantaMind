@@ -42,7 +42,7 @@ heavy report lands once on completion. Crash-recovery (`check_unfinished_run` �
 | Panel / group | Shows | IPC command(s) | Store |
 |---|---|---|---|
 | **EvalPage** | The Eval-tab layout (Manager + Scoreboard + TraceDebugger + PerformanceMatrix) | — (orchestrates) | all four |
-| **EvalManager** | Difficulty-tier–filtered collection picker, model, editable k / maxSteps, native-FC toggle, Run/Stop, New Collection/Import/Export | `run_batch_eval` / `stop_batch_eval` (via `useBatchRun`) | `evalRegistryStore`, `batchStore` |
+| **EvalManager** | Difficulty-tier–filtered collection picker, model, editable k / maxSteps, native-FC toggle, **Thinking-Budget preset** (Lean/Standard/Deep — fixed presets, not a slider, so verdicts stay reproducible; shows the resolved per-tier token number, threaded to `run_batch_eval` as `thinkPreset` and stamped on the verdict), Run/Stop, New Collection/Import/Export/Validate | `run_batch_eval` / `stop_batch_eval` (via `useBatchRun`) | `evalRegistryStore`, `batchStore` |
 | **MatrixScoreboard** ("Simulator") | Per-task Pass/Fail/Partial table + live progress (read-only; authoring lives in the sidebar) | reads streamed events | `batchStore`, `evalRegistryStore` |
 | **TraceDebugger** ("Evaluator") | One (model,task) pipeline: Config→System→Stream→Verify + agentic step timeline | reads cached outcome/steps | `batchStore`, `evalRegistryStore` |
 | **PerformanceMatrix** | One row per model: Pass^k, native FC, avg-steps, effort, schema-resil, **context limit**, top-error | reads `report`; pre-fills cliff | `batchStore`, `cliffStore` |
@@ -128,6 +128,14 @@ Exposes pure helpers `isErrorKind` / `getStepTitle` / `verdictLabel`: a step's
 a green "success" card), and the failing-run header reads the report's actual
 `top_error` (Malformed JSON / Hallucinated / Turn Timeout / Forbidden / Step Budget)
 instead of a hardcoded "sequence violation".
+
+**D9 budget diagnostic (`BudgetDiagnostic`).** On a `truncated` or `reasoning_overrun`
+step (both carry `reasoning_tokens` / `context_used` / `context_window` from the backend),
+the card renders TWO bars — thinking-budget and context-window fill — and a plain-language
+cause + fix: **Reasoning-overrun** ("spent its whole thinking budget with memory to spare →
+raise the preset", a *setting*) vs **Truncated (context-bound)** ("the window filled → a
+*hardware* limit, bigger machine"). This keeps a budget problem from ever reading as
+out-of-memory. `FailureTaxonomy` splits the two counts for the same reason.
 
 **Pass^k run grouping.** `stepsByKey` holds every run's `TrajectoryStep`s in one
 flat array (each agentic task runs k times; `step_index` restarts at 0 per run).
