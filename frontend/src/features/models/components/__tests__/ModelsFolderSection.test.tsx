@@ -27,8 +27,10 @@ beforeEach(() => {
 describe("ModelsFolderSection", () => {
   it("shows the resolved weights folder", async () => {
     render(<ModelsFolderSection />);
-    expect(await screen.findByTestId("models-folder-path"))
-      .toHaveTextContent("/home/u/.quantamind/gguf");
+    await waitFor(() =>
+      expect(screen.getByTestId("models-folder-path"))
+        .toHaveTextContent("/home/u/.quantamind/gguf"),
+    );
   });
 
   it("Change… picks a folder and persists it", async () => {
