@@ -254,6 +254,23 @@ whatever model happens to be loaded).
 - If the window won't go higher, this machine's memory caps it there — reduce the
   prompt / Context Stress Test length to fit the largest window it will launch.
 
+**Ollama / MLX won't-fit pre-flight.** Ollama (and MLX) size `num_ctx` per request, so
+a too-deep Context Stress Test would silently spill to CPU or OOM mid-ladder rather than
+fail at launch. For **Ollama** the probe estimates the deepest rung's footprint (exact
+weights + real KV cache at that depth) against the device memory cap and refuses up front
+with a "reduce Max Tokens to about N" message when it won't fit; the panel also shows an
+advisory banner *before* you click Execute. This is separate from (and additive to) the
+llama.cpp model-identity guard above — the two backends fail differently, so they're
+guarded differently.
+
+**Context Stress Test — tool-calling method.** The panel has a **Native FC / Prompt-based**
+toggle (default Native FC), so the cliff is measured on the same path you'll deploy on.
+Native drives the backend's structured `tool_calls` (Ollama `/api/chat` tools, llama.cpp
+`/v1/chat/completions` with `--jinja`); prompt-based uses the JSON-in-text proxy. A model
+whose template lacks tool support (or MLX, which has no native tool API) is refused with
+"switch to Prompt-based". A native cliff is saved under its own key so it never overwrites
+the prompt-based cliff the readiness verdict reads.
+
 ### Backend server down — batch pre-flight {#batch-preflight}
 
 Every backend's server health is polled into the header dots every 5s — Ollama, MLX,

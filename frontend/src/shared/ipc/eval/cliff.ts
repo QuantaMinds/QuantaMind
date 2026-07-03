@@ -114,9 +114,14 @@ export async function runContextCliff(
   /// the running llama-server to refuse a probe when the wrong model is loaded or its
   /// launch `-c` is too small, instead of 400-ing on every deep rung.
   modelPath?: string,
+  /// Which tool-calling path to probe on — chosen by the user on the test page. `true`
+  /// drives native function-calling (structured `tool_calls`), `false`/undefined the
+  /// prompt-based JSON-in-text proxy. The backend refuses native on a model/backend that
+  /// can't do it (MLX / no tool template).
+  runNativeFc?: boolean,
 ): Promise<CliffReport> {
   return CliffReportSchema.parse(
-    await invoke("run_context_cliff", { runId, model, backend, collectionId, tasks, source, maxTokens: Math.round(maxTokens), steps, params, modelPath: modelPath ?? null }),
+    await invoke("run_context_cliff", { runId, model, backend, collectionId, tasks, source, maxTokens: Math.round(maxTokens), steps, params, modelPath: modelPath ?? null, runNativeFc: runNativeFc ?? false }),
   );
 }
 

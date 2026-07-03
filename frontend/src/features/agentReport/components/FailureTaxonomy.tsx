@@ -58,7 +58,7 @@ export function FailureTaxonomy({ tier }: { tier: TierStat | null }) {
                     </div>
                     <span className="font-semibold text-slate-800 w-28">{r.label}</span>
                   </div>
-                  <p className="text-[11px] text-slate-500 pl-[3.75rem]">{r.vuln}</p>
+                  <p className="text-xs leading-relaxed text-slate-500 pl-[3.75rem]">{r.vuln}</p>
                 </div>
               );
             })}

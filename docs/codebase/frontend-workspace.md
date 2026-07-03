@@ -271,7 +271,7 @@ reflects the **active** backend, not always Ollama; metrics via `formatMetrics`.
 | --- | --- |
 | `ServerControl.tsx` | Dispatches the single header Play/Stop to `OllamaControl` / `MlxServerControl` / `LlamaServerControl` by `selectedBackend`. |
 | `OllamaControl.tsx` | `PlayStopButton` over `useStartOllama` / `useStopOllama`; hidden until health known (`null`). |
-| `LlamaServerControl.tsx` | Play/Stop the `llama-server` sidecar on the selected llama.cpp model's GGUF (`model.path`); disabled with no path; shows start error. |
+| `LlamaServerControl.tsx` | Play/Stop the `llama-server` sidecar on the selected llama.cpp model's GGUF (`model.path`); disabled with no path. A start error or hardware-constraint note (from `useStartLlamaServer`) renders as a compact ⚠ chip (`LlamaStartBadge`, folded into the file) — the full text opens in a hover popover (auto-shown once per new message, then hover-only) so the long note can't crush the header row. Error chip wins over the notice chip. |
 | `MlxServerControl.tsx` | Play/Stop the app-managed `mlx_lm.server` on the selected MLX model's dir; the busy spinner covers the multi-minute first-run weight load. |
 | `OllamaEmptyState.tsx` | Ollama-down recovery card: Start / Install (opens download page) / Retry, with `starting` / `success` / `not_installed` / `error` states. |
 | `backendStatus.ts` | Pure: dot+label+aria per backend — Ollama names its version; llama.cpp/MLX name the loaded model and their run state. |

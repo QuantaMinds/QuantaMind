@@ -1,9 +1,61 @@
+import { useEffect, useRef, useState } from "react";
 import { useBackendStore } from "../../../../shared/state/backendStore";
 import { useSelectedModelStore } from "../../../../shared/state/selectedModelStore";
 import { useParamsStore } from "../../../../shared/state/paramsStore";
 import { useStartLlamaServer } from "../../hooks/useStartLlamaServer";
 import { useStopLlamaServer } from "../../hooks/useStopLlamaServer";
 import { PlayStopButton } from "../../../../shared/ui/PlayStopButton";
+
+/// A compact status chip for the llama-server launch note/failure. The backend's
+/// message is long prose (a hardware-constraint note, or a start error); rendered inline
+/// it crushed the header row, so it collapses to a small ⚠ chip and the full text lives
+/// in a hover popover. A FRESH message auto-opens the popover once (keyed on the message
+/// content, so a second distinct message re-greets), then a timer collapses it to
+/// hover-only. The full text stays mounted in the popover (visibility-toggled) so it's
+/// always in the DOM under `testId` — the header stays a single clean row either way.
+function LlamaStartBadge({ kind, message, testId }: { kind: "error" | "notice"; message: string; testId: string }) {
+  const [open, setOpen] = useState(true);
+  const hovering = useRef(false);
+  useEffect(() => {
+    setOpen(true);
+    const id = setTimeout(() => {
+      if (!hovering.current) setOpen(false);
+    }, 6000);
+    return () => clearTimeout(id);
+  }, [message]);
+
+  const isError = kind === "error";
+  const chip = isError
+    ? "border-red-200 bg-red-50 text-red-600"
+    : "border-amber-200 bg-amber-50 text-amber-600";
+  return (
+    <span
+      data-testid={testId}
+      className="relative inline-flex"
+      onMouseEnter={() => {
+        hovering.current = true;
+        setOpen(true);
+      }}
+      onMouseLeave={() => {
+        hovering.current = false;
+        setOpen(false);
+      }}
+    >
+      <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium cursor-default ${chip}`}>
+        <span aria-hidden>⚠</span> {isError ? "Start failed" : "Running safely"}
+      </span>
+      <span
+        role="tooltip"
+        data-testid={`${testId}-popup`}
+        className={`absolute left-0 top-6 z-30 w-72 rounded-lg border border-white/15 bg-slate-800 p-3 text-[11px] leading-relaxed text-slate-100 shadow-xl transition-opacity ${
+          open ? "opacity-100" : "pointer-events-none opacity-0"
+        }`}
+      >
+        {message}
+      </span>
+    </span>
+  );
+}
 
 /// Header play/stop for the llama-server sidecar. Play launches the server on the
 /// global llama.cpp model's GGUF (one model at a time); stop kills it.
@@ -32,16 +84,13 @@ export function LlamaServerControl() {
         playTestId="llama-start"
         stopTestId="llama-stop"
       />
-      {startError && (
-        <p data-testid="llama-start-error" className="px-2 text-[10px] text-red-600">
-          {startError}
-        </p>
-      )}
-      {startNotice && (
-        <p data-testid="llama-start-notice" className="px-2 text-[10px] text-amber-600">
-          {startNotice}
-        </p>
-      )}
+      {/* A long backend note/error would crush the header inline — collapse it to a compact
+          chip whose full text opens in a hover popover (error wins if both are present). */}
+      {startError ? (
+        <LlamaStartBadge kind="error" message={startError} testId="llama-start-error" />
+      ) : startNotice ? (
+        <LlamaStartBadge kind="notice" message={startNotice} testId="llama-start-notice" />
+      ) : null}
     </div>
   );
 }

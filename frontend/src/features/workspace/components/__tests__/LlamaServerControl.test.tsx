@@ -47,4 +47,28 @@ describe("LlamaServerControl", () => {
     fireEvent.click(screen.getByTestId("llama-start"));
     await waitFor(() => expect(useBackendStore.getState().llamaHealthy).toBe(true));
   });
+
+  it("shows the hardware-constraint note as a chip with the full text in its popover", async () => {
+    vi.mocked(startLlamaServer).mockResolvedValue({
+      status: "started",
+      pid: 1,
+      port: 8080,
+      note: "Detected 17 GB of RAM. Running safely: enabled Flash Attention and a Q8 KV cache.",
+    });
+    render(<LlamaServerControl />);
+    fireEvent.click(screen.getByTestId("llama-start"));
+    const chip = await screen.findByTestId("llama-start-notice");
+    // Compact chip label — the header stays a single clean row…
+    expect(chip).toHaveTextContent(/running safely/i);
+    // …and the full backend message is present in the popover under the same test id.
+    expect(screen.getByTestId("llama-start-notice-popup")).toHaveTextContent(/Flash Attention and a Q8 KV cache/i);
+  });
+
+  it("prefers the error chip over the notice when both could apply", async () => {
+    vi.mocked(startLlamaServer).mockResolvedValue({ status: "start_failed", error: "port in use" });
+    render(<LlamaServerControl />);
+    fireEvent.click(screen.getByTestId("llama-start"));
+    expect(await screen.findByTestId("llama-start-error")).toHaveTextContent(/start failed/i);
+    expect(screen.queryByTestId("llama-start-notice")).toBeNull();
+  });
 });

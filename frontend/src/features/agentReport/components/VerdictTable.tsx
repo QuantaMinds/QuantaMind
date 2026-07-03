@@ -209,16 +209,20 @@ function MetricsLine({ v }: { v: ModelVerdict }) {
         cliff {cliffLabel(v.cliff)}
       </span>
       {/* Reasoning-budget context — only for a thinking model, so its token `effort` reads in
-          context. Nothing rendered for a terse model (no N/A). */}
+          context. Grouped into one violet pill so the reasoning-budget segment stands apart
+          from the neutral pass^k/steps/effort/cliff tokens instead of blending into the row.
+          Nothing rendered for a terse model (no N/A). */}
       {v.is_thinking && (
-        <>
-          <span className="text-slate-300">·</span>
+        <span
+          data-testid="metric-thinking-group"
+          className="inline-flex items-center gap-1.5 rounded border border-violet-200 bg-violet-50 px-2 py-0.5 text-violet-700"
+        >
           <span data-testid="metric-thinking" title="Reasoning model — Thinking-Budget preset (scratchpad allowance). Its token effort is not comparable to a terse model's.">
-            🧠 thinking: {thinkLabel(v.think_preset ?? "standard")}
+            thinking: {thinkLabel(v.think_preset ?? "standard")}
           </span>
           {v.ctx_ceiling != null && (
             <>
-              <span className="text-slate-300">·</span>
+              <span className="text-violet-300" aria-hidden>·</span>
               <span data-testid="metric-ctx" title="Hardware-adaptive context window (num_ctx ceiling) this run used.">
                 ctx {ctxLabel(v.ctx_ceiling)}
               </span>
@@ -226,13 +230,13 @@ function MetricsLine({ v }: { v: ModelVerdict }) {
           )}
           {v.cpu_offloaded && (
             <>
-              <span className="text-slate-300">·</span>
+              <span className="text-violet-300" aria-hidden>·</span>
               <span data-testid="metric-offload" title="Ollama spilled this model onto the CPU (didn't fit in VRAM) — slower per turn.">
                 cpu-offloaded
               </span>
             </>
           )}
-        </>
+        </span>
       )}
     </div>
   );

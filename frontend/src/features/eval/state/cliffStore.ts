@@ -14,6 +14,7 @@ import { formatIpcError } from "../../../shared/ipc/core/error";
 import { type CliffPoint } from "../cliff";
 import type { ToolTask } from "../../../shared/ipc/eval/registry";
 import type { BackendKind } from "../../../shared/ipc/models/storage";
+import type { AgentPath } from "../../../shared/ipc/eval/readiness";
 import type { InferenceParams } from "../../../shared/ipc/workspace/prompts";
 
 /// What the Matrix carries to the Audit panel so the probe lands pre-filled
@@ -43,6 +44,10 @@ export interface RunProbeArgs {
   /// against the running llama-server so the probe can refuse to run when the wrong
   /// model is loaded or its launch `-c` is too small — rather than 400 on every rung.
   modelPath?: string;
+  /// Which tool-calling path to probe on, chosen by the user on the test page:
+  /// `"native_fc"` drives native function-calling, `"prompt_based"` the JSON-in-text proxy.
+  /// A single-method probe (not the batch's run-both), so it's a scalar, not two booleans.
+  method: AgentPath;
 }
 
 interface CliffStore {
@@ -180,7 +185,7 @@ export const useCliffStore = create<CliffStore>((set, get) => ({
   wasProbed: (collectionId, model) => get().probed[collectionId]?.[model] === true,
   hasBrokenBaseline: (collectionId, model) => get().brokenBaseline[collectionId]?.[model] === true,
 
-  runProbe: async ({ model, backend, collectionId, tasks, maxTokens, steps, source, params, modelPath }) => {
+  runProbe: async ({ model, backend, collectionId, tasks, maxTokens, steps, source, params, modelPath, method }) => {
     // GUARDRAIL 2: clear all prior state BEFORE dispatching — never append to a
     // stale series (that corrupts the chart and the persisted cliff).
     const myRun = ++activeRun;
@@ -222,7 +227,7 @@ export const useCliffStore = create<CliffStore>((set, get) => ({
         }),
       );
 
-      const report = await runContextCliff(model, backend, collectionId, tasks, source, maxTokens, steps, params, myRun, modelPath);
+      const report = await runContextCliff(model, backend, collectionId, tasks, source, maxTokens, steps, params, myRun, modelPath, method === "native_fc");
       if (activeRun !== myRun) return; // stopped or superseded mid-run
 
       // The report is authoritative — replace the live series with its verified rungs

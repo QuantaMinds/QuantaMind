@@ -25,6 +25,7 @@ const args = (over: Partial<RunProbeArgs> = {}): RunProbeArgs => ({
   maxTokens: 8000,
   steps: 3,
   source: { kind: "preset", preset: "corporate_policy" },
+  method: "prompt_based",
   ...over,
 });
 
@@ -62,7 +63,14 @@ describe("cliffStore", () => {
     expect(call[4]).toEqual({ kind: "preset", preset: "corporate_policy" }); // source
     expect(call[5]).toBe(8000); // maxTokens
     expect(call[6]).toBe(3); // steps
+    expect(call[10]).toBe(false); // runNativeFc — "prompt_based" method
     expect(s.cliffFor("finance", "qwen2.5-coder:7b")).toBe(8000); // collapse depth, colon key preserved
+  });
+
+  it("forwards the chosen method to the backend as runNativeFc", async () => {
+    vi.mocked(runContextCliff).mockResolvedValue(reportOf({ status: "NoCliff", tested: 4000 }, 4000, [rung(4000, 1.0)]) as never);
+    await useCliffStore.getState().runProbe(args({ method: "native_fc" }));
+    expect(vi.mocked(runContextCliff).mock.calls[0][10]).toBe(true); // native_fc → runNativeFc true
   });
 
   it("resets the series before a re-run — never appends to the old run (guardrail 2)", async () => {

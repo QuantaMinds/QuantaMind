@@ -92,9 +92,12 @@ describe("VerdictTable", () => {
     };
     render(<VerdictTable verdicts={[thinking, ...VERDICTS]} />);
     const row = screen.getByTestId("readiness-row-qwen3-thinking");
-    expect(within(row).getByTestId("metric-thinking")).toHaveTextContent("thinking: Deep");
-    expect(within(row).getByTestId("metric-ctx")).toHaveTextContent("ctx 32k");
-    expect(within(row).getByTestId("metric-offload")).toBeInTheDocument();
+    // The reasoning-budget items live inside one grouped pill (thinking + ctx + offload
+    // together), so the segment reads as a unit instead of blending into the metric row.
+    const group = within(row).getByTestId("metric-thinking-group");
+    expect(within(group).getByTestId("metric-thinking")).toHaveTextContent("thinking: Deep");
+    expect(within(group).getByTestId("metric-ctx")).toHaveTextContent("ctx 32k");
+    expect(within(group).getByTestId("metric-offload")).toBeInTheDocument();
     // A terse model shows no thinking metric at all (no N/A).
     const terse = screen.getByTestId("readiness-row-qwen2.5-coder");
     expect(within(terse).queryByTestId("metric-thinking")).toBeNull();

@@ -6,12 +6,16 @@ import { useEvalRegistryStore, DEFAULT_PRESET } from "../state/evalRegistryStore
 import { PresetOptGroups } from "./PresetOptGroups";
 import { getBuiltinCollection, loadCustomCollection, type ToolTask } from "../../../shared/ipc/eval/registry";
 import { useVramFit } from "../../quant/useVramFit";
+import { useHardwareSnapshot } from "../../models/hooks/useHardwareSnapshot";
+import { loadedModels, type LoadedModel } from "../../../shared/ipc/system/vram";
+import { formatBytes } from "../../../shared/format/bytes";
 import { useCliffStore } from "../state/cliffStore";
 import { InfoButton } from "../../../shared/ui/InfoButton";
 import { TOOL_HELP, METRIC_HELP } from "../help";
 import { classifyCliff } from "../cliff";
 import { ContextCliffChart } from "./ContextCliffChart";
 import type { BackendKind } from "../../../shared/ipc/models/storage";
+import type { AgentPath } from "../../../shared/ipc/eval/readiness";
 import type { CliffPreset } from "../../../shared/ipc/eval/cliff";
 
 interface ProbeModel {
@@ -38,6 +42,9 @@ export function ContextCliffPanel() {
   // verified depth, char-boundary-safe). The probe is always greedy (temp 0) — a
   // diagnostic must reproduce — so the backend pins it; there is no local toggle.
   const [preset, setPreset] = useState<CliffPreset>("corporate_policy");
+  // Which tool-calling path the probe runs — the USER picks it on this page (default native, like
+  // the batch). MLX has no native tool API, so native falls back to prompt-based there.
+  const [method, setMethod] = useState<AgentPath>("native_fc");
   // The probe runs ONE of the global header models + global params. With 2+
   // selected (Ollama), a small dropdown picks which one; default the first. A
   // pre-fill request from the Matrix can OVERRIDE that with any batch-target model.
@@ -115,7 +122,7 @@ export function ContextCliffPanel() {
 
   // Cap the padding ladder at the model's real context window when known
   // (Ollama /api/show dims); fall back to a fixed ceiling otherwise.
-  const { dims } = useVramFit(selected?.name, selected?.backend, maxTokens);
+  const { dims, kvBytes } = useVramFit(selected?.name, selected?.backend, maxTokens);
   const sliderMax = dims?.context_length ? Math.max(4096, dims.context_length) : FALLBACK_MAX_TOKENS;
   // Default Max Tokens to the model's FULL context window once it's known — a model's
   // cliff can sit anywhere up to its real window, so the probe should sweep the whole
@@ -169,6 +176,41 @@ export function ContextCliffPanel() {
   // show a wild first guess. It's an estimate, labelled "~", never presented as exact.
   const etaS = frac > 0.03 && frac < 1 && elapsedS > 3 ? (elapsedS * (1 - frac)) / frac : null;
 
+  // Pre-flight memory advisory. Ollama sizes num_ctx per request; the backend hard-stops a
+  // won't-fit run, this warns BEFORE the click so the user can dial Max Tokens down first.
+  // Device cap = unified → system RAM, discrete → VRAM. Estimate = model weights (from a
+  // loaded Ollama model) + KV cache at the requested depth. Renders nothing unless it can be
+  // MEASURED (cap + KV both present) — never a guessed alarm. Ollama only (where weights are
+  // readable); llama.cpp/MLX have their own guards.
+  const { snapshot } = useHardwareSnapshot();
+  const [loaded, setLoaded] = useState<LoadedModel[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    loadedModels()
+      .then((l) => !cancelled && setLoaded(l))
+      .catch(() => !cancelled && setLoaded([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [selected?.name]);
+  const deviceCap: number | null = snapshot?.gpu?.unified
+    ? snapshot.total_memory_bytes
+    : snapshot?.gpu?.vram_total_bytes ?? null;
+  const weightsBytes = loaded.find((m) => m.name === selected?.name)?.size_bytes ?? null;
+  const neededCtxK = Math.round((maxTokens + 2048) / 1000); // mirrors the backend CLIFF_CTX_HEADROOM
+  const footprint = kvBytes != null ? (weightsBytes ?? 0) + kvBytes : null;
+  const fitWarning: string | null =
+    selected?.backend === "ollama" && deviceCap != null && footprint != null && footprint > deviceCap * 0.85
+      ? footprint > deviceCap
+        ? `This machine (${formatBytes(deviceCap)}) likely can't hold ~${neededCtxK}k tokens for ${selected.name} — needs ≈${formatBytes(footprint)}. Reduce Max Tokens (or use a smaller model/quant) before running.`
+        : `High memory pressure: ~${neededCtxK}k tokens for ${selected.name} needs ≈${formatBytes(footprint)} of ${formatBytes(deviceCap)} — close to the limit, so the run may spill to CPU (slow).`
+      : null;
+
+  // MLX has no native tool-calling API, so native isn't offered there — the run always uses the
+  // effective method (native falls back to prompt-based on MLX).
+  const nativeAvailable = selected?.backend !== "mlx";
+  const effectiveMethod: AgentPath = nativeAvailable ? method : "prompt_based";
+
   const handleRun = () => {
     if (!selected) return;
     setOpenTrace(null); // a fresh run rebuilds the rungs — drop any expanded trace
@@ -182,6 +224,7 @@ export function ContextCliffPanel() {
       source: { kind: "preset", preset },
       params: globalParams,
       modelPath: selected.path, // llama.cpp: backend matches it to the running server
+      method: effectiveMethod, // native vs prompt-based — the user's choice on this page
     });
   };
   const handleStop = () => stopProbe();
@@ -502,6 +545,62 @@ export function ContextCliffPanel() {
         </div>
       </div>
 
+      {/* ── Method: native vs prompt-based tool-calling (the user's choice drives the probe) ── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 20px 0" }} data-testid="cliff-method">
+        <span
+          style={{
+            fontSize: 12,
+            color: "#64748b",
+            fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
+            whiteSpace: "nowrap",
+            minWidth: 70,
+          }}
+        >
+          Method
+        </span>
+        <div style={{ display: "flex", gap: 4 }}>
+          {(["native_fc", "prompt_based"] as AgentPath[]).map((m) => {
+            const isNative = m === "native_fc";
+            const disabled = isNative && !nativeAvailable;
+            const activeBtn = effectiveMethod === m;
+            return (
+              <button
+                key={m}
+                type="button"
+                disabled={disabled}
+                onClick={() => setMethod(m)}
+                data-testid={`cliff-method-${isNative ? "native" : "prompt"}`}
+                title={
+                  disabled
+                    ? "MLX has no native tool-calling API — use Prompt-based"
+                    : isNative
+                      ? "Probe native function-calling (structured tool_calls)"
+                      : "Probe the prompt-based JSON-in-text tool proxy"
+                }
+                style={{
+                  padding: "4px 12px",
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
+                  cursor: disabled ? "not-allowed" : "pointer",
+                  border: `1px solid ${activeBtn ? "#2563eb" : "#cbd5e1"}`,
+                  background: activeBtn ? "#eff6ff" : "#ffffff",
+                  color: disabled ? "#cbd5e1" : activeBtn ? "#1d4ed8" : "#475569",
+                  fontWeight: activeBtn ? 600 : 400,
+                }}
+              >
+                {isNative ? "Native FC" : "Prompt-based"}
+              </button>
+            );
+          })}
+        </div>
+        {!nativeAvailable && (
+          <span style={{ fontSize: 11, color: "#94a3b8", fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif" }}>
+            MLX: prompt-based only
+          </span>
+        )}
+      </div>
+
       {/* ── Sliders ── */}
       <div
         style={{
@@ -615,6 +714,25 @@ export function ContextCliffPanel() {
 
       {/* ── Progress + Execute / Stop ── */}
       <div style={{ padding: "14px 20px" }}>
+        {/* Pre-flight memory advisory (Ollama) — warns before the click; the backend still
+            hard-stops a run that truly won't fit. Advisory only, so it never disables Execute. */}
+        {fitWarning && !running && (
+          <div
+            data-testid="cliff-fit-warning"
+            style={{
+              marginBottom: 12,
+              fontSize: 11,
+              fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
+              color: "#92400e",
+              background: "#fffbeb",
+              border: "1px solid #fde68a",
+              borderRadius: 6,
+              padding: "6px 10px",
+            }}
+          >
+            ⚠ {fitWarning}
+          </div>
+        )}
         {running && (
           <div data-testid="cliff-progress" style={{ marginBottom: 12 }}>
             {/* Headline: which rung + the depth it's padding to, plus an overall % so the

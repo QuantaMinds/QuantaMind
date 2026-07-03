@@ -48,7 +48,7 @@ heavy report lands once on completion. Crash-recovery (`check_unfinished_run` �
 | **PerformanceMatrix** | One row per model: Pass^k, native FC, avg-steps, effort, schema-resil, **context limit**, top-error | reads `report`; pre-fills cliff | `batchStore`, `cliffStore` |
 | **CollectionEditor** | Task list + Task/Sandbox configurator (authoring) | registry CRUD (via store) | `evalRegistryStore` |
 | **CsvImportModal** | Live-validated CSV → tasks | `read_text_capped`, `import`/`save_custom_collection` | `evalRegistryStore` |
-| **ContextCliffPanel** + Chart | Cliff probe controls, rung table, accuracy-vs-depth chart | `run_context_cliff` / `stop_context_cliff` / `get_cliff_results` | `cliffStore` |
+| **ContextCliffPanel** + Chart | Cliff probe controls, rung table, accuracy-vs-depth chart. A **Native FC / Prompt-based** method toggle (default native; disabled → prompt-only on MLX) picks the tool-calling path the probe measures. A pre-flight amber banner (`cliff-fit-warning`) warns before Execute when the requested depth won't fit device memory on Ollama (`useHardwareSnapshot` cap + `useVramFit` KV + loaded-model weights). | `run_context_cliff` / `stop_context_cliff` / `get_cliff_results` | `cliffStore` |
 | **RunRecoveryDialog** | Resume/Discard an interrupted batch | `check_unfinished_run` / `resume_batch_eval` / `discard_run` | `batchStore` |
 | **PipelinePanel** *(standalone)* | Single-task Config→System Pkg→Stream→Verify stepper | `trace_toolcall_task` / `load_toolcall_trace` | `evalRegistryStore` |
 | **MatrixPanel / MatrixGrid** *(standalone)* | Tasks×models P/T/A grid + regression timeline | `run_collection_matrix` / `load_collection_history` | `evalRegistryStore` |
@@ -67,7 +67,7 @@ heavy report lands once on completion. Crash-recovery (`check_unfinished_run` �
 | Wrapper | Command | Args → Returns |
 |---|---|---|
 | `runBatchEval` / `stopBatchEval` (`batch.ts`) | `run_batch_eval` / `stop_batch_eval` | `(collectionId, targets, tasks, k?, maxSteps?, params?, keepAlive?, runNativeFc?)` → `BatchReport` |
-| `runContextCliff` / `stopContextCliff` (`cliff.ts`) | `run_context_cliff` / `stop_context_cliff` | `(model, backend, collectionId, tasks, source, maxTokens, steps, params?, runId)` → `CliffReport` |
+| `runContextCliff` / `stopContextCliff` (`cliff.ts`) | `run_context_cliff` / `stop_context_cliff` | `(model, backend, collectionId, tasks, source, maxTokens, steps, params?, runId, modelPath?, runNativeFc?)` → `CliffReport` |
 | `saveCliffResult` / `getCliffResults` | `save_cliff_result` / `get_cliff_results` | → `void` / `Record<model, CliffStatus>` |
 | `runEvalTask` / `listEvals` (`evals.ts`) | `run_eval_task` / `list_evals` | `(taskId, model, backend)` → `EvalRunResult` |
 | `runCollectionMatrix` / `loadCollectionHistory` (`matrix.ts`) | `run_collection_matrix` / `load_collection_history` | → `MatrixReport` / `RunSummary[]` |

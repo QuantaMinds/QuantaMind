@@ -237,6 +237,36 @@ async fn a_cancel_during_a_rung_aborts_before_emitting_that_rung() {
     assert_eq!(emitted, 0, "the half-generated rung is never emitted");
 }
 
+#[tokio::test]
+async fn a_per_task_turn_factory_scores_identically_to_a_shared_turn() {
+    // The native path drives the cliff through `run_cliff_with_factory` (a fresh turn built per
+    // task); a factory returning the SAME scripted model must yield the same report as the
+    // shared-turn `run_cliff`, proving the factory seam is behavior-preserving — only the turn
+    // construction differs, never the padding/sweep/scoring/classification.
+    let tasks = [task()];
+    let ladder = [0u32, 4000, 8000];
+    let shared = run_cliff(&CliffModel { threshold: 5000, good: GOOD.into() }, "m", &tasks, &source(), &ladder, &DEFAULT_DEPTHS)
+        .await
+        .unwrap();
+    let make = |_: &ToolTask| CliffModel { threshold: 5000, good: GOOD.into() };
+    let factory = run_cliff_with_factory(
+        &make,
+        "m",
+        &tasks,
+        &source(),
+        &ladder,
+        &DEFAULT_DEPTHS,
+        &CancellationToken::new(),
+        &mut |_, _, _| {},
+        &mut |_| {},
+    )
+    .await
+    .unwrap();
+    assert_eq!(shared.status, factory.status, "same classified status");
+    assert_eq!(shared.cliff_tokens, factory.cliff_tokens, "same cliff depth");
+    assert_eq!(shared.points.len(), factory.points.len(), "same rungs probed");
+}
+
 #[test]
 fn build_ladder_spans_zero_to_max_across_steps() {
     assert_eq!(build_ladder(16000, 5), vec![0, 4000, 8000, 12000, 16000]);

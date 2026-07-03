@@ -476,7 +476,7 @@ pub struct UnfinishedRun {
 /// support simply yields no `tool_calls`, which the harness labels honestly); MLX
 /// has no native tool API. Mirrors the prompt path's backend dispatch so native
 /// FC follows whichever server is running.
-async fn probe_native_tools(backend: BackendKind, endpoint: &str, model: &str) -> bool {
+pub(crate) async fn probe_native_tools(backend: BackendKind, endpoint: &str, model: &str) -> bool {
     match backend {
         BackendKind::Ollama => probe_supports_tools(endpoint, model).await,
         BackendKind::LlamaCpp => true,
