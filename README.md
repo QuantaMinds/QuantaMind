@@ -21,6 +21,10 @@ Benchmark any **Ollama**, **llama.cpp**, or **MLX** model for *agentic readiness
 
 [![Repo](https://img.shields.io/badge/GitHub-QuantaMinds%2FQuantaMind-181717?logo=github)](https://github.com/QuantaMinds/QuantaMind)
 
+<br/>
+
+![QuantaMind — the readiness gate for local AI agents: qualify the exact model, quantization, runtime, and hardware you will deploy, and get one answer: Ready, Conditional, or Not Ready. Fully offline.](docs/screenshots/hero.png)
+
 </div>
 
 ---
@@ -177,6 +181,8 @@ Point it at a model running locally. It drives that model through real agentic t
 - **Conditional** — works for some task tiers, not others. The report tells you which.
 - **NotReady** — fails the tasks that matter, with the failure mode named.
 
+![The Tests scoreboard: a batch run of qwen3.5-9b at Q4_K_M scoring a 100% pass rate on Easy-tier agentic tasks, with a per-model Pass^k summary below.](docs/screenshots/tests-scoreboard.png)
+
 Reliability is scored with **pass^k** — does the model succeed *k* times out of *k*, not once by luck. For an agent, consistency is the whole game.
 
 Everything runs on-device. HTTP-only to your local backend. No weights bundled, no telemetry, no account required.
@@ -276,6 +282,9 @@ A cloud SaaS can't answer that, because it doesn't run on your machine and local
 - Recommends the best size↔quality↔fit trade-off for your use case and context length
 
 ### Agent Report
+
+![The Agent Report tab: the Local Agent Readiness Validator with host thresholds, a per-model verdict row, and an Executive Verdict reading READY with the tier-progression detail below.](docs/screenshots/agent-report.png)
+
 - Per-model **Ready / Conditional / Not Ready** verdict with the exact blocking + conditional reasons
 - Hardware-aware: VRAM fit (exact weights + KV cache vs an allocation cap, with a pressure flag)
 - Configurable readiness profiles (min Pass^k, forbid loops/false-done, require full VRAM, min context, require native FC)
