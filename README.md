@@ -52,7 +52,9 @@ Reliability is scored with **pass^k** — does the model succeed *k* of *k* time
 
 ## Quick start
 
-**Zero to a running window in ~5 minutes.** macOS is first-class today; Windows and Linux dev builds run too, with sidecar lifecycles being rewired phase-by-phase (see [Roadmap](#roadmap)). There are no prebuilt downloads yet — run from source.
+**Just want to run it?** Download a prebuilt build from **[quantamind.co](https://quantamind.co/)** and launch — no toolchain needed. You'll still need [Ollama](https://ollama.com/) running with a model pulled ([Step 2](#quick-start) below).
+
+**Building from source** takes ~5 minutes. macOS is first-class today; Windows and Linux dev builds run too, with sidecar lifecycles being rewired phase-by-phase (see [Roadmap](#roadmap)).
 
 **1 · Install toolchains** (skip any you already have)
 
