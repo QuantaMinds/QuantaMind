@@ -41,8 +41,12 @@ graduated tier verdict (`status`, `eval_method`, `tier_tested`, `cleared_tier`,
 `hardware_class`, `recommended_tier`), the per-tier saturation curve
 (`by_tier: [{tier, pass_k_rate, k, avg_steps?, decoy_count?}]`), the failure
 **distribution** (`failure_distribution` — counts by mode, never the failing runs),
-the collection identity (`collection_name` + `collection_hash`), and build provenance
-(`schema_version`, `engine_version`, `build_hash`). The row is built by **allowlist**:
+the **reasoning-budget context** (schema v2: `is_thinking`, `think_preset` = the
+Lean/Standard/Deep thinking budget, `think_budget?` = the scratchpad token cap at the
+tier tested — `None` for a terse model, never a fabricated 0, `ctx_ceiling?`, and
+`cpu_offloaded`), so the board can read a reasoning model's token `effort`/reliability
+in context, the collection identity (`collection_name` + `collection_hash`), and build
+provenance (`schema_version`, `engine_version`, `build_hash`). The row is built by **allowlist**:
 everything in `ModelVerdict` not named here (verdict reasons, memory profile, backend
 internals, traces) is dropped, so a new `ModelVerdict` field is private until someone
 adds it to `project` on purpose. Rows are serialized to **canonical JSON** (sorted
@@ -350,9 +354,12 @@ publish-specific semantics are below.
     tracker counter never auto-publishes).
   - `PublishRow { model, quant, cohort_key, tool_version, metrics, params, status,
     eval_method, tier_tested?, cleared_tier?, hardware_class, recommended_tier, by_tier,
-    failure_distribution, collection_name, collection_hash, schema_version, engine_version,
+    failure_distribution, is_thinking, think_preset, think_budget?, ctx_ceiling?,
+    cpu_offloaded, collection_name, collection_hash, schema_version, engine_version,
     build_hash }`. Run-wide fields are repeated per row (matching the `cohort_key`/
     `tool_version` precedent) so the canonical hash stays one hash over `[PublishRow]`.
+    `think_budget` is computed in `project` = `think_tokens_for_preset(tier_tested, preset)`
+    when `is_thinking`, else `None`. `PUBLISH_SCHEMA_VERSION = 2` (reasoning-budget extension).
   - `project(v, ctx) -> Option<PublishRow>` returns **`None` unless the verdict has a
     measured `pass_k`, a real `quantization`, AND `ctx.collection_hash` is `Some`** — i.e.
     **a row needs pass_k + quantization + a built-in collection to be publishable**. A

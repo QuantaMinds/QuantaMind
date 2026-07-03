@@ -44,6 +44,8 @@ fn col(passes: u32, total: u32, loops: u32, hall: u32, steps: Option<f64>) -> Ba
         agentic_native_fc: None,
         error: None,
         is_thinking: false,
+            cpu_offloaded: false,
+            ctx_ceiling: None,
     }
 }
 
@@ -75,6 +77,8 @@ fn no_agentic_column_yields_unmeasured_pass_k_core_gate() {
         agentic_native_fc: None,
         error: None,
         is_thinking: false,
+            cpu_offloaded: false,
+            ctx_ceiling: None,
     };
     let i = from_column(&c, None, false, CliffStatus::NotProbed);
     assert_eq!(i.pass_k, None);
@@ -190,6 +194,7 @@ fn ranking_puts_a_ready_model_first_regardless_of_column_order() {
     let report = BatchReport {
         collection_id: "c".into(),
         num_ctx: None, ollama_version: None, collection_hash: None,
+        think_preset: None,
         columns: vec![
             // NotReady first (no agentic → the core pass^k gate blocks)…
             BatchColumn {
@@ -200,6 +205,8 @@ fn ranking_puts_a_ready_model_first_regardless_of_column_order() {
                 agentic_native_fc: None,
                 error: None,
                 is_thinking: false,
+            cpu_offloaded: false,
+            ctx_ceiling: None,
             },
             col(5, 5, 0, 0, Some(2.0)), // …a clean Ready model ("m") second.
         ],
@@ -235,7 +242,7 @@ fn pass_k_of_is_native_first_then_prompt_then_none() {
     assert_eq!(pass_k_of(&col(4, 10, 0, 0, Some(2.0))), Some(0.4));
 
     // No agentic data → None (renders N/A, never fabricated).
-    let bare = BatchColumn { model: "m".into(), backend: BackendKind::Ollama, toolcall: None, agentic: None, agentic_native_fc: None, error: None, is_thinking: false };
+    let bare = BatchColumn { model: "m".into(), backend: BackendKind::Ollama, toolcall: None, agentic: None, agentic_native_fc: None, error: None, is_thinking: false, cpu_offloaded: false, ctx_ceiling: None };
     assert_eq!(pass_k_of(&bare), None);
 }
 
@@ -272,6 +279,7 @@ fn assess_report_grades_clean_models_and_short_circuits_errors() {
     let report = BatchReport {
         collection_id: "c".into(),
         num_ctx: None, ollama_version: None, collection_hash: None,
+        think_preset: None,
         columns: vec![
             col(5, 5, 0, 0, Some(2.0)), // clean → Ready
             BatchColumn {
@@ -282,6 +290,8 @@ fn assess_report_grades_clean_models_and_short_circuits_errors() {
                 agentic_native_fc: None,
                 error: Some("backend offline".into()),
                 is_thinking: false,
+            cpu_offloaded: false,
+            ctx_ceiling: None,
             },
         ],
     };
@@ -315,7 +325,7 @@ fn model_verdict_carries_by_tier_and_failures_from_the_native_first_source() {
     native.failures = FailureTracker { forbidden_calls: 3, ..Default::default() };
     c.agentic_native_fc = Some(native);
 
-    let report = BatchReport { collection_id: "c".into(), num_ctx: None, ollama_version: None, collection_hash: None, columns: vec![c] };
+    let report = BatchReport { collection_id: "c".into(), num_ctx: None, ollama_version: None, collection_hash: None, think_preset: None, columns: vec![c] };
     let v = &assess_report(&report, &general)[0];
     assert_eq!(v.by_tier.len(), 1);
     assert_eq!(v.by_tier[0].tier, Tier::Hard); // native, NOT the prompt's Easy
@@ -328,7 +338,7 @@ fn verdicts_for_column_emits_a_row_per_measured_path() {
     let general = builtins().into_iter().find(|p| p.id == "general-agent").unwrap();
     let mut c = col(9, 10, 0, 0, Some(2.0)); // prompt pass^k 0.9
     c.agentic_native_fc = Some(agg(7, 10, 0)); // native pass^k 0.7
-    let rows = verdicts_for_column(&c, None, false, CliffStatus::NotProbed, None, None, &general, &[]);
+    let rows = verdicts_for_column(&c, None, false, CliffStatus::NotProbed, None, None, &general, &[], Default::default());
     assert_eq!(rows.len(), 2); // one row per measured path
     // Native first (display order); each row's pass_k is sourced STRICTLY from its own pass.
     assert_eq!(rows[0].verdict.path, AgentPath::NativeFc);
@@ -341,7 +351,7 @@ fn verdicts_for_column_emits_a_row_per_measured_path() {
 fn verdicts_for_column_prompt_only_yields_one_row() {
     let general = builtins().into_iter().find(|p| p.id == "general-agent").unwrap();
     let rows =
-        verdicts_for_column(&col(9, 10, 0, 0, Some(2.0)), None, false, CliffStatus::NotProbed, None, None, &general, &[]);
+        verdicts_for_column(&col(9, 10, 0, 0, Some(2.0)), None, false, CliffStatus::NotProbed, None, None, &general, &[], Default::default());
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].verdict.path, AgentPath::PromptBased);
 }
@@ -357,8 +367,10 @@ fn verdicts_for_column_errored_column_is_one_not_ready_row() {
         agentic_native_fc: None,
         error: Some("backend offline".into()),
         is_thinking: false,
+            cpu_offloaded: false,
+            ctx_ceiling: None,
     };
-    let rows = verdicts_for_column(&c, None, false, CliffStatus::NotProbed, None, None, &general, &[]);
+    let rows = verdicts_for_column(&c, None, false, CliffStatus::NotProbed, None, None, &general, &[], Default::default());
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].verdict.status, Readiness::NotReady);
     assert!(rows[0].verdict.blocking[0].contains("backend offline"));
@@ -373,7 +385,7 @@ fn require_native_fc_does_not_block_the_prompt_row_of_a_native_capable_model() {
     p.require_native_fc = true;
     let mut c = col(9, 10, 0, 0, Some(2.0)); // prompt 0.9
     c.agentic_native_fc = Some(agg(9, 10, 0)); // native 0.9 → model-level Tested
-    let rows = verdicts_for_column(&c, None, false, CliffStatus::NotProbed, None, None, &p, &[]);
+    let rows = verdicts_for_column(&c, None, false, CliffStatus::NotProbed, None, None, &p, &[], Default::default());
     let prompt = rows.iter().find(|r| r.verdict.path == AgentPath::PromptBased).unwrap();
     assert_eq!(prompt.verdict.status, Readiness::Ready, "{:?}", prompt.verdict.blocking);
     assert!(!prompt.verdict.blocking.iter().any(|b| b.contains("native")));
@@ -408,6 +420,7 @@ fn report_with(model: &str, backend: BackendKind, tiers: Vec<crate::inference::e
     BatchReport {
         collection_id: "x".into(),
         num_ctx: None, ollama_version: None, collection_hash: None,
+        think_preset: None,
         columns: vec![BatchColumn {
             model: model.into(),
             backend,
@@ -416,6 +429,8 @@ fn report_with(model: &str, backend: BackendKind, tiers: Vec<crate::inference::e
             agentic_native_fc: None,
             error: None,
             is_thinking: false,
+            cpu_offloaded: false,
+            ctx_ceiling: None,
         }],
     }
 }
@@ -484,7 +499,7 @@ fn model_verdict_by_tier_falls_back_to_prompt_when_native_absent() {
         failures: FailureTracker { unknown_tool_calls: 4, ..Default::default() },
     }];
     c.agentic.as_mut().unwrap().failures = FailureTracker { unknown_tool_calls: 4, ..Default::default() };
-    let report = BatchReport { collection_id: "c".into(), num_ctx: None, ollama_version: None, collection_hash: None, columns: vec![c] };
+    let report = BatchReport { collection_id: "c".into(), num_ctx: None, ollama_version: None, collection_hash: None, think_preset: None, columns: vec![c] };
     let v = &assess_report(&report, &general)[0];
     assert_eq!(v.by_tier.len(), 1);
     assert_eq!(v.by_tier[0].tier, Tier::Medium);

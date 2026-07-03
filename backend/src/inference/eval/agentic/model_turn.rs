@@ -94,6 +94,31 @@ pub trait ModelTurn {
     }
 }
 
+/// Forward every method to the referent, so a caller with ONE reused turn can pass `&turn`
+/// through a per-task turn-FACTORY seam (`Fn(&ToolTask) -> impl ModelTurn`) — the cliff engine
+/// uses that seam so the prompt path reuses a shared `&BackendTurn` while the native path builds
+/// a fresh per-task `NativeToolTurn`. Both are then one uniform `T: ModelTurn`.
+impl<M: ModelTurn + Sync> ModelTurn for &M {
+    async fn run(&self, spec: &GenerateSpec) -> AppResult<(String, GenerateStats)> {
+        (**self).run(spec).await
+    }
+    async fn warm_up(&self) -> AppResult<()> {
+        (**self).warm_up().await
+    }
+    fn is_thinking(&self) -> bool {
+        (**self).is_thinking()
+    }
+    fn max_output_tokens(&self) -> u32 {
+        (**self).max_output_tokens()
+    }
+    fn slow_inference(&self) -> bool {
+        (**self).slow_inference()
+    }
+    fn ctx_ceiling(&self) -> u32 {
+        (**self).ctx_ceiling()
+    }
+}
+
 /// Real path: dispatch by `BackendKind` (the trait isn't object-safe), accumulate
 /// tokens into a `String`, return text + stats. Mirrors
 /// `toolcall::eval::generate_text`; shares one `CancellationToken` so a stop

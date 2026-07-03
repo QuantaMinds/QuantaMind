@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isErrorKind, getStepTitle, verdictLabel, verdictColor, groupStepsByRun, runPassed, expectedRunCount } from "../components/TraceDebugger";
+import { isErrorKind, getStepTitle, verdictLabel, verdictColor, groupStepsByRun, runPassed, expectedRunCount, runThinkingTokens } from "../components/TraceDebugger";
 import type { TrajectoryStep } from "../../../shared/ipc/eval/batch";
 
 const step = (run_index: number, step_index: number, kind: TrajectoryStep["kind"]): TrajectoryStep => ({
@@ -32,6 +32,22 @@ describe("getStepTitle", () => {
     expect(getStepTitle("forbidden_call", true)).toMatch(/forbidden/i);
     // A real success still reads as success.
     expect(getStepTitle("unknown_kind", false)).toBe("Model Output Success");
+  });
+});
+
+describe("runThinkingTokens", () => {
+  it("sums the measured reasoning tokens across a run's turns", () => {
+    const steps: TrajectoryStep[] = [
+      { ...step(0, 0, "tool_call"), reasoning_tokens: 800 },
+      { ...step(0, 1, "tool_call"), reasoning_tokens: 450 },
+      { ...step(0, 2, "end_state_reached"), reasoning_tokens: 120 },
+    ];
+    expect(runThinkingTokens(steps)).toBe(1370);
+  });
+
+  it("is 0 for a terse run whose turns carry no reasoning tokens (no fabricated value)", () => {
+    const steps = [step(0, 0, "tool_call"), step(0, 1, "end_state_reached")];
+    expect(runThinkingTokens(steps)).toBe(0);
   });
 });
 

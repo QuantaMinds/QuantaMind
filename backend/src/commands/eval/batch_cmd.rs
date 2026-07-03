@@ -96,6 +96,7 @@ fn skeleton_report(collection_id: &str, targets: &[ModelTarget]) -> BatchReport 
         num_ctx: None,
         ollama_version: None,
         collection_hash: None, // set on the FINAL report only (content-verified); intermediates stay unpublishable
+        think_preset: None,    // stamped on the final report
         columns: targets
             .iter()
             .map(|t| BatchColumn {
@@ -106,6 +107,8 @@ fn skeleton_report(collection_id: &str, targets: &[ModelTarget]) -> BatchReport 
                 agentic_native_fc: None,
                 error: None,
                 is_thinking: t.is_thinking,
+                cpu_offloaded: false, // stamped on the final report
+                ctx_ceiling: None,    // stamped on the final report
             })
             .collect(),
     }
@@ -371,6 +374,10 @@ pub(crate) async fn run_passes(
         ctx_ceilings.insert(t.model.clone(), ceiling);
     }
     let think_preset = config.think_preset; // captured by the sync per-turn closure below
+    // The per-turn closure below MOVES the two maps; keep copies to stamp onto the report columns
+    // after the run (the closure only reads via `.get()`, so a clone is faithful).
+    let cpu_offload_stamp = cpu_offload.clone();
+    let ctx_ceilings_stamp = ctx_ceilings.clone();
 
     // Prompt pass — only when selected. When it's NOT, the report is the column skeleton that the
     // native aggregates merge into (a native-only run). At least one pass is guaranteed by the UI.
@@ -407,8 +414,17 @@ pub(crate) async fn run_passes(
         if let Some(a) = native_aggs.get(&col.model) {
             col.agentic_native_fc = Some(a.clone());
         }
+        // Stamp the per-model reasoning-budget facts the run computed (the maps are keyed by model):
+        // whether Ollama spilled it onto the CPU, and the hardware-adaptive `num_ctx` ceiling it ran
+        // under. Both surface on the readiness verdict + publish payload so a slow/thinking run reads
+        // honestly instead of as incapability.
+        col.cpu_offloaded = cpu_offload_stamp.get(&col.model).copied().unwrap_or(false);
+        col.ctx_ceiling = ctx_ceilings_stamp.get(&col.model).copied();
     }
     report.num_ctx = config.params.as_ref().and_then(|p| p.num_ctx);
+    // The batch-wide Thinking-Budget preset (reasoning scratchpad allowance) — carried to the report
+    // so the verdict/report/publish can show "Ready @ Standard" and size `think_budget`.
+    report.think_preset = Some(config.think_preset);
     // Fork-on-edit guard: stamp the content-verified hash from the RECEIVED tasks (pre-override).
     // `Some` only for a pristine bundled collection; `None` for custom OR any edit → unpublishable.
     report.collection_hash = verified_collection_hash(&config.collection_id, &config.tasks);
@@ -460,7 +476,7 @@ pub struct UnfinishedRun {
 /// support simply yields no `tool_calls`, which the harness labels honestly); MLX
 /// has no native tool API. Mirrors the prompt path's backend dispatch so native
 /// FC follows whichever server is running.
-async fn probe_native_tools(backend: BackendKind, endpoint: &str, model: &str) -> bool {
+pub(crate) async fn probe_native_tools(backend: BackendKind, endpoint: &str, model: &str) -> bool {
     match backend {
         BackendKind::Ollama => probe_supports_tools(endpoint, model).await,
         BackendKind::LlamaCpp => true,

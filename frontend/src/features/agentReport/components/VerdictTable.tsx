@@ -208,9 +208,42 @@ function MetricsLine({ v }: { v: ModelVerdict }) {
       <span data-testid="metric-cliff" className={cliffColor(v.cliff)}>
         cliff {cliffLabel(v.cliff)}
       </span>
+      {/* Reasoning-budget context — only for a thinking model, so its token `effort` reads in
+          context. Grouped into one violet pill so the reasoning-budget segment stands apart
+          from the neutral pass^k/steps/effort/cliff tokens instead of blending into the row.
+          Nothing rendered for a terse model (no N/A). */}
+      {v.is_thinking && (
+        <span
+          data-testid="metric-thinking-group"
+          className="inline-flex items-center gap-1.5 rounded border border-violet-200 bg-violet-50 px-2 py-0.5 text-violet-700"
+        >
+          <span data-testid="metric-thinking" title="Reasoning model — Thinking-Budget preset (scratchpad allowance). Its token effort is not comparable to a terse model's.">
+            thinking: {thinkLabel(v.think_preset ?? "standard")}
+          </span>
+          {v.ctx_ceiling != null && (
+            <>
+              <span className="text-violet-300" aria-hidden>·</span>
+              <span data-testid="metric-ctx" title="Hardware-adaptive context window (num_ctx ceiling) this run used.">
+                ctx {ctxLabel(v.ctx_ceiling)}
+              </span>
+            </>
+          )}
+          {v.cpu_offloaded && (
+            <>
+              <span className="text-violet-300" aria-hidden>·</span>
+              <span data-testid="metric-offload" title="Ollama spilled this model onto the CPU (didn't fit in VRAM) — slower per turn.">
+                cpu-offloaded
+              </span>
+            </>
+          )}
+        </span>
+      )}
     </div>
   );
 }
+
+/// The Thinking-Budget preset as a display label ("standard" → "Standard").
+const thinkLabel = (p: NonNullable<ModelVerdict["think_preset"]>): string => p.charAt(0).toUpperCase() + p.slice(1);
 
 function Reasons({ v, profileName, vramFits }: { v: ModelVerdict["verdict"]; profileName: string; vramFits: boolean | null }) {
   return (
@@ -315,14 +348,14 @@ export function VerdictTable({
                   <div className="font-sans text-xs">
                     {status === "ready" && (
                       <div className="flex flex-wrap items-center gap-2 text-emerald-700 font-bold">
-                        <span>{memLabel}: {m.memory ? `${gb(m.memory.total_bytes)}GB` : "N/A"}</span>
                         {m.memory && (
                           <>
+                            <span>{memLabel}: {gb(m.memory.total_bytes)}GB</span>
                             <span className="text-slate-300">|</span>
                             <span>✓ Fits in {memLabel}</span>
+                            <span className="text-slate-300">|</span>
                           </>
                         )}
-                        <span className="text-slate-300">|</span>
                         <span>✓ Meets Perf. Targets</span>
                       </div>
                     )}
@@ -330,8 +363,12 @@ export function VerdictTable({
                     {status === "not_ready" && (
                       <div className="flex flex-col gap-1.5 font-bold text-rose-700">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span>{memLabel}: {m.memory ? `${gb(m.memory.total_bytes)}GB` : "N/A"}</span>
-                          <span className="text-slate-300">|</span>
+                          {m.memory && (
+                            <>
+                              <span>{memLabel}: {gb(m.memory.total_bytes)}GB</span>
+                              <span className="text-slate-300">|</span>
+                            </>
+                          )}
                           <span>
                             BLOCKING: {m.verdict.blocking.map(b => `[✗ ${getIndicatorLabel(b)}]`).join(" ")}
                           </span>
@@ -346,10 +383,12 @@ export function VerdictTable({
 
                     {status === "conditional" && (
                       <div className="flex flex-wrap items-center gap-2 text-amber-700 font-bold">
-                        <span>{memLabel}: {m.memory ? `${gb(m.memory.total_bytes)}GB` : "N/A"}</span>
+                        {m.memory && <span>{memLabel}: {gb(m.memory.total_bytes)}GB</span>}
                         {getConditionalBreakdown(m).map((item, idx) => (
                           <React.Fragment key={idx}>
-                            <span className="text-slate-300">|</span>
+                            {/* Separator before an item only when something precedes it — no leading
+                                "|" when memory is unmeasured (single-model backend). */}
+                            {(m.memory || idx > 0) && <span className="text-slate-300">|</span>}
                             <span>{item}</span>
                           </React.Fragment>
                         ))}

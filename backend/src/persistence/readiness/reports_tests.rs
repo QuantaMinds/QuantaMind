@@ -10,6 +10,7 @@ fn report(collection_id: &str, passes: u32) -> BatchReport {
         num_ctx: Some(8192),
         ollama_version: None,
         collection_hash: None,
+        think_preset: None,
         columns: vec![BatchColumn {
             model: "qwen".into(),
             backend: BackendKind::Ollama,
@@ -31,6 +32,8 @@ fn report(collection_id: &str, passes: u32) -> BatchReport {
             agentic_native_fc: None,
             error: None,
             is_thinking: false,
+            cpu_offloaded: false,
+            ctx_ceiling: None,
         }],
     }
 }

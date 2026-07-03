@@ -21,7 +21,8 @@ const PREVIEW = {
     model: "qwen", quant: "Q4_K_M", cohort_key: "c", tool_version: "0.2.0", metrics: { pass_k: 0.9 }, params: {},
     status: "ready" as const, eval_method: "native_fc" as const, hardware_class: "mainstream" as const, recommended_tier: "medium" as const, by_tier: [],
     failure_distribution: { infinite_loop: 0, hallucinated: 0, malformed_json: 0, schema_unrecovered: 0, unknown_tool_calls: 0, forbidden_calls: 0, turn_timeouts: 0, reported_in_prose: 0 },
-    collection_name: "easy-coding", collection_hash: "abc", schema_version: 1, engine_version: "0.2.0", build_hash: "testhash",
+    is_thinking: false, think_preset: "standard" as const, cpu_offloaded: false,
+    collection_name: "easy-coding", collection_hash: "abc", schema_version: 2, engine_version: "0.2.0", build_hash: "testhash",
   }],
   canonical_json: '[{"model":"qwen"}]', hash: "h", cohort_key: "c", excluded_count: 0, invalid: null,
 };

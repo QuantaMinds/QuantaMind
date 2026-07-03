@@ -321,6 +321,17 @@ the UI still shows the reasoning. The flag is carried onto `BatchColumn`/`RunSum
 because a thinking model's `effort` (output tokens) is higher by design and must not
 be ranked against a terse model's.
 
+**Reasoning-budget context on the verdict + publish.** `BatchColumn` also carries the
+per-model `cpu_offloaded` and hardware-adaptive `ctx_ceiling` (stamped by `batch_cmd`
+after the run from the placement probe + `agentic_ctx_ceiling` band), and `BatchReport`
+carries the batch-wide `think_preset` (Lean/Standard/Deep). `verdicts_for_column` threads
+all four (`is_thinking`, `cpu_offloaded`, `ctx_ceiling`, `think_preset`) onto every
+`ModelVerdict`, so the Agent Report shows the thinking budget and the publish payload can
+carry it (`PublishRow` schema v2; `think_budget` = `think_tokens_for_preset(tier_tested,
+preset)` for a reasoning model). The runner also populates each step's `reasoning_tokens`
+from the measured generated-token count on a thinking turn (not just on a `Truncated`/
+`ReasoningOverrun` turn), so the Trace Debugger can sum "how much it thought" per run.
+
 ### File: `mod.rs`
 - Declares `build, context, endstate, model_turn, report, runner, sandbox, spec, step`.
 
@@ -721,6 +732,14 @@ pub fn inject_at_depth(padding: &str, needle: &str, depth: f32) -> String {
   `CliffStatus::{Broken, Collapsed, NoCliff}`; `build_ladder(max_tokens, steps)`
   (ascending, `steps.max(2)`); `run_cliff` (no cancel) and the stoppable
   `run_cliff_with(..., cancel, on_rung)`.
+- **Per-task turn factory:** the engine runs over a `make_turn: Fn(&ToolTask) -> impl
+  ModelTurn` seam (`run_position`→`sweep`→`probe_rung`→`run_cliff_with_factory`), so the
+  prompt path reuses ONE shared `&BackendTurn` (a blanket `impl ModelTurn for &M` lets the
+  factory return the shared reference) while the native path builds a fresh per-task
+  `NativeToolTurn` carrying that task's tool schemas. `run_cliff`/`run_cliff_with` are thin
+  `&M` wrappers over `run_cliff_with_factory`. Native's structured `tool_calls` are
+  canonicalized to the same JSON the scorer parses, so padding/sweeping/scoring/classification
+  are byte-identical across methods — only the turn construction differs.
 - **Constants:** `BYTES_PER_TOKEN=4` (seed only), `MAX_ADJUST_ATTEMPTS=1`,
   `ADJUST_TOLERANCE=0.05`, `BASELINE_PASS=0.5`, `COLLAPSE_MARGIN=0.2`,
   `DEFAULT_DEPTHS=[0.1,0.5,0.9]`.
@@ -1050,8 +1069,18 @@ let _ = queue::delete(&job_path);
   model field) → `start_with_model_msg`; `Ready{ctx}` with `ctx < needed_ctx` →
   `raise_or_reduce_msg`. Returning `Err` before the ladder means a user-managed server
   loaded with the wrong model or too small a `-c` yields one honest message instead of a
-  400 on every deep rung (or a silently mis-scored model). Ollama/MLX size per request and
-  skip the check. `assess_readiness`
+  400 on every deep rung (or a silently mis-scored model). **Ollama VRAM pre-flight
+  (additive):** since Ollama sizes `num_ctx` per request, a separate branch estimates the
+  deepest rung's footprint (`vram_fit::try_profile` with the device cap from `snapshot()` via
+  `device_cap_bytes`) and returns `cliff_vram_msg` ("reduce Max Tokens to about N") when it
+  won't fit — kept distinct from the llama.cpp identity guard (different backends fail
+  differently). MLX has no readable weights/dims, so it's left to size per request.
+  **Native tool-calling:** `run_native_fc: Option<bool>` selects the path — prompt (a shared
+  `BackendTurn`) vs native (a per-task `NativeToolTurn` factory built via `cliff_terminal`),
+  run through `run_cliff_with_factory` (see `cliff::engine`). Native is gated by
+  `probe_native_tools` (reused from `batch_cmd`) — MLX / a no-tools template → refuse with
+  "switch to Prompt-based". A native cliff persists under a `"{model}::native_fc"` key so it
+  never clobbers the prompt-based cliff the readiness verdict reads. `assess_readiness`
   loads the persisted batch report, pulls real weights/quant from Ollama, computes
   per-column VRAM fit via `vram_fit::try_profile` (only when `cap_bytes` set),
   builds verdicts via `verdict_for`, then `recommend::rank`.

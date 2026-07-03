@@ -6,6 +6,7 @@ use crate::inference::eval::agentic::model_turn::ModelTurn;
 use crate::inference::eval::agentic::sandbox::DeterministicSandbox;
 use crate::inference::eval::agentic::scoring::report::{AgenticReport, FailureTracker, TopError};
 use crate::inference::eval::agentic::runner::{run_agentic_with, AgenticConfig};
+use crate::inference::eval::agentic::difficulty::passk::ThinkPreset;
 use crate::inference::eval::agentic::spec::Tier;
 use crate::inference::eval::agentic::step::TrajectoryStep;
 use crate::inference::eval::agentic::v2::generator;
@@ -252,6 +253,16 @@ pub struct BatchColumn {
     /// (and non-thinking columns) load as `false`.
     #[serde(default)]
     pub is_thinking: bool,
+    /// This model's turns were CPU-offloaded (Ollama spilled it past VRAM) — a slow-inference
+    /// signal the runner uses to grant a larger per-step budget. Surfaced so a slow verdict reads
+    /// as "offloaded", not "incapable". `#[serde(default)]` so older reports load as `false`.
+    #[serde(default)]
+    pub cpu_offloaded: bool,
+    /// The hardware-adaptive `num_ctx` ceiling this model actually ran under (bigger box → bigger
+    /// window; llama.cpp clamps to its launched `-c`). The one knob hardware moves. `None` when not
+    /// recorded / older report. `#[serde(default)]`.
+    #[serde(default)]
+    pub ctx_ceiling: Option<u32>,
 }
 
 /// The full batch result: one column per target model.
@@ -277,6 +288,11 @@ pub struct BatchReport {
     /// real bundled identity. `#[serde(default)]` so older reports load (as `None` = unpublishable).
     #[serde(default)]
     pub collection_hash: Option<String>,
+    /// The Thinking-Budget preset this batch ran under (reasoning models' scratchpad allowance —
+    /// Lean/Standard/Deep). Batch-wide, like `num_ctx`. `None` for a report saved before this field
+    /// existed. `#[serde(default)]`.
+    #[serde(default)]
+    pub think_preset: Option<ThinkPreset>,
 }
 
 fn mean_f64(xs: &[f64]) -> Option<f64> {
@@ -550,11 +566,14 @@ where
             agentic_native_fc: None, // filled by run_native_fc_pass when enabled
             error: col_error,
             is_thinking: target.is_thinking,
+            cpu_offloaded: false, // stamped by the command layer (needs the placement probe)
+            ctx_ceiling: None,    // stamped by the command layer (needs the hardware band)
         });
         prev = Some((target.model.clone(), target.backend));
     }
-    // The engine is param-agnostic; the command layer stamps `num_ctx`/`ollama_version` after.
-    Ok(BatchReport { collection_id: collection_id.to_string(), columns, num_ctx: None, ollama_version: None, collection_hash: None })
+    // The engine is param-agnostic; the command layer stamps `num_ctx`/`ollama_version`/reasoning
+    // budget after.
+    Ok(BatchReport { collection_id: collection_id.to_string(), columns, num_ctx: None, ollama_version: None, collection_hash: None, think_preset: None })
 }
 
 /// Build a partial `BatchReport` from already-completed units ONLY — no execution.
@@ -597,10 +616,12 @@ pub fn fold_report(
                 agentic_native_fc: (!native_reports.is_empty()).then(|| agg_agentic(&native_reports)),
                 error: col_error,
                 is_thinking: target.is_thinking,
+                cpu_offloaded: false, // stamped by the command layer
+                ctx_ceiling: None,    // stamped by the command layer
             }
         })
         .collect();
-    BatchReport { collection_id: collection_id.to_string(), columns, num_ctx: None, ollama_version: None, collection_hash: None }
+    BatchReport { collection_id: collection_id.to_string(), columns, num_ctx: None, ollama_version: None, collection_hash: None, think_preset: None }
 }
 
 fn unit_of(target: &ModelTarget, task: &ToolTask, outcome: TaskOutcome, is_native: bool) -> CompletedUnit {

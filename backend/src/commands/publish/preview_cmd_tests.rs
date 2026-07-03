@@ -27,6 +27,10 @@ fn verdict(model: &str, pass_k: Option<f64>, quant: Option<&str>) -> ModelVerdic
         failures: Default::default(),
         passes: 0,
         total_runs: 0,
+        is_thinking: false,
+        cpu_offloaded: false,
+        ctx_ceiling: None,
+        think_preset: Default::default(),
     }
 }
 

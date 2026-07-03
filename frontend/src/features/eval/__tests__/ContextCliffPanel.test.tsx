@@ -20,10 +20,14 @@ vi.mock("../../../shared/ipc/system/inspect", () => ({
   inspectModel: vi.fn(),
   estimateKvCacheBytes: vi.fn(),
 }));
+vi.mock("../../../shared/ipc/compare/hardware", () => ({ getHardwareSnapshot: vi.fn() }));
+vi.mock("../../../shared/ipc/system/vram", () => ({ loadedModels: vi.fn() }));
 
 import { runContextCliff } from "../../../shared/ipc/eval/cliff";
 import { getBuiltinCollection } from "../../../shared/ipc/eval/registry";
 import { inspectModel, estimateKvCacheBytes } from "../../../shared/ipc/system/inspect";
+import { getHardwareSnapshot } from "../../../shared/ipc/compare/hardware";
+import { loadedModels } from "../../../shared/ipc/system/vram";
 import { ContextCliffPanel } from "../components/ContextCliffPanel";
 import { useInstalledModelsStore } from "../../models/state/installedModelsStore";
 import { useSelectedModelStore } from "../../../shared/state/selectedModelStore";
@@ -54,6 +58,10 @@ beforeEach(() => {
   vi.mocked(getBuiltinCollection).mockResolvedValue(tasks as never);
   vi.mocked(inspectModel).mockResolvedValue({ dims: null } as never);
   vi.mocked(estimateKvCacheBytes).mockResolvedValue(0 as never);
+  // Default: no hardware read + no loaded model → the memory advisory stays hidden, so
+  // the existing tests are untouched. The fit-warning test overrides these.
+  vi.mocked(getHardwareSnapshot).mockResolvedValue(null as never);
+  vi.mocked(loadedModels).mockResolvedValue([] as never);
   useInstalledModelsStore.setState({
     list: [{ name: "m", size_bytes: 1, modified_at: "", family: "", parameter_size: "", quantization: "", backend: "ollama" }],
     status: "ready", error: null, lastRefreshedAt: 1,
@@ -73,6 +81,32 @@ describe("ContextCliffPanel", () => {
   it("defaults the padding source to the Corporate Policy preset", () => {
     render(<ContextCliffPanel />);
     expect((screen.getByTestId("cliff-source-select") as HTMLSelectElement).value).toBe("corporate_policy");
+  });
+
+  it("lets the user pick the tool-calling method, defaulting to Native FC", () => {
+    render(<ContextCliffPanel />);
+    // Native is the default active choice on this page…
+    expect(screen.getByTestId("cliff-method-native")).toBeEnabled();
+    expect(screen.getByTestId("cliff-method-prompt")).toBeEnabled();
+  });
+
+  it("disables Native FC on MLX (no native tool API) — prompt-based only", () => {
+    useSelectedModelStore.setState({ selectedModels: [{ name: "m", backend: "mlx", size_bytes: 1 }] });
+    render(<ContextCliffPanel />);
+    expect(screen.getByTestId("cliff-method-native")).toBeDisabled();
+    expect(screen.getByTestId("cliff-method-prompt")).toBeEnabled();
+  });
+
+  it("warns before running when the requested depth won't fit device memory (Ollama)", async () => {
+    const GB = 1024 ** 3;
+    vi.mocked(inspectModel).mockResolvedValue(dims(8192) as never);
+    vi.mocked(estimateKvCacheBytes).mockResolvedValue((20 * GB) as never); // huge KV at depth
+    vi.mocked(loadedModels).mockResolvedValue([{ name: "m", size_bytes: 5 * GB, size_vram_bytes: 5 * GB }] as never);
+    // 10 GB unified machine can't hold 5 GB weights + 20 GB KV.
+    vi.mocked(getHardwareSnapshot).mockResolvedValue({ total_memory_bytes: 10 * GB, gpu: { unified: true } } as never);
+    render(<ContextCliffPanel />);
+    const warn = await screen.findByTestId("cliff-fit-warning");
+    expect(warn).toHaveTextContent(/reduce max tokens/i);
   });
 
   it("plots the cliff at the model's REAL measured token depth from the backend report", async () => {

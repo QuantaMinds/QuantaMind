@@ -353,6 +353,13 @@ export function CacheBadge({ s }: { s: TrajectoryStep }) {
   );
 }
 
+/// The measured reasoning-token total a run spent thinking — summed across its turns. `0` for a
+/// terse model (its turns carry no `reasoning_tokens`), so the header hides the segment rather than
+/// show a fabricated N/A. A real measured value (backend generated tokens), never an estimate.
+export function runThinkingTokens(steps: TrajectoryStep[]): number {
+  return steps.reduce((sum, s) => sum + (s.reasoning_tokens ?? 0), 0);
+}
+
 /// D9: the two-bar diagnostic for a truncated / reasoning-overrun turn. Shows how many tokens the
 /// model spent reasoning AND how full the context window got, then names WHICH limit fired and the
 /// fix — a SETTING (raise the thinking preset) vs HARDWARE (bigger machine). The whole point is to
@@ -365,7 +372,7 @@ export function BudgetDiagnostic({ s }: { s: TrajectoryStep }) {
   const overrun = s.kind === "reasoning_overrun";
   const bar = (label: string, pct: number, note: string, color: string) => (
     <div style={{ marginTop: 6 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#64748b", fontFamily: "Inter, sans-serif" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#64748b", fontFamily: "Inter, sans-serif" }}>
         <span>{label}</span>
         <span>{note}</span>
       </div>
@@ -375,11 +382,14 @@ export function BudgetDiagnostic({ s }: { s: TrajectoryStep }) {
     </div>
   );
   return (
-    <div data-testid="budget-diagnostic" style={{ marginTop: 8, padding: "8px 10px", borderRadius: 6, background: "#fafafa", border: "1px solid #e2e8f0" }}>
+    <div data-testid="budget-diagnostic" style={{ marginTop: 8, padding: "10px 12px", borderRadius: 6, background: "#fafafa", border: "1px solid #e2e8f0" }}>
+      <div style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.04em", color: "#64748b", fontFamily: "Inter, sans-serif" }}>
+        Why this run stopped
+      </div>
       {/* Thinking spend: for an overrun it maxed the budget → show ~full amber; context has room. */}
-      {bar("🧠 Thinking budget", overrun ? 100 : Math.min(100, ctxPct), `${reasoning.toLocaleString()} reasoning tokens`, overrun ? "#f59e0b" : "#94a3b8")}
+      {bar("Thinking budget", overrun ? 100 : Math.min(100, ctxPct), `${reasoning.toLocaleString()} reasoning tokens`, overrun ? "#f59e0b" : "#94a3b8")}
       {bar("🖥️ Context window", ctxPct, `${used.toLocaleString()} / ${window.toLocaleString()} (${ctxPct}%)`, ctxPct >= 90 ? "#dc2626" : "#94a3b8")}
-      <div style={{ marginTop: 8, fontSize: 11, fontFamily: "Inter, sans-serif", color: overrun ? "#92400e" : "#991b1b" }}>
+      <div style={{ marginTop: 8, fontSize: 12, lineHeight: 1.5, fontFamily: "Inter, sans-serif", color: overrun ? "#92400e" : "#991b1b" }}>
         {overrun ? (
           <>
             <b>Setting, not memory.</b> The model spent its whole thinking budget reasoning ({reasoning.toLocaleString()} tok)
@@ -708,6 +718,15 @@ export function TraceDebugger({
                                 RUN {gi + 1} OF {totalRuns}
                               </span>
                               <span style={runChipStyle(status)}>{status.toUpperCase()}</span>
+                              {/* How much this run spent thinking — the measured reasoning-token sum
+                                  across its turns (a reasoning model only; hidden when 0/absent, never
+                                  a fabricated N/A). A subtle violet pill beside the status chip, not
+                                  jammed past the right-aligned turn count. */}
+                              {runThinkingTokens(group.steps) > 0 && (
+                                <span style={runThinkingStyle} title="Reasoning tokens this run spent thinking (the model's reasoning scratchpad across its turns).">
+                                  {runThinkingTokens(group.steps).toLocaleString()} thinking
+                                </span>
+                              )}
                               <span style={runStepCountStyle}>
                                 {group.steps.length} {group.steps.length === 1 ? "turn" : "turns"}
                               </span>
@@ -1057,6 +1076,20 @@ const runStepCountStyle: React.CSSProperties = {
   fontSize: 11,
   color: "#94a3b8",
   fontFamily: "Inter, sans-serif",
+};
+
+/// The per-run reasoning-token badge in the RUN header — a subtle violet PILL beside the
+/// PASS/FAIL chip so it reads as the model's "thinking" effort, distinct from the neutral
+/// turn count (which is right-aligned; the badge no longer hides past it).
+const runThinkingStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 600,
+  color: "#7c3aed",
+  fontFamily: "Inter, sans-serif",
+  background: "#f5f3ff",
+  border: "1px solid #ddd6fe",
+  borderRadius: 4,
+  padding: "2px 8px",
 };
 
 /// PASS (green) / FAIL (red) / RUNNING (blue) chip for a Pass^k run header.

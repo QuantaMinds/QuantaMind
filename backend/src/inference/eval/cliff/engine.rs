@@ -228,8 +228,8 @@ fn cliff_score(tasks: &[ToolTask], results: &[TaskResult]) -> (Option<f64>, Opti
 
 /// Run all tasks at one padding + one needle depth, returning each task's verdict
 /// and measured prompt tokens. Empty padding ⇒ the unpadded baseline.
-async fn run_position<M: ModelTurn>(
-    turn: &M,
+async fn run_position<T: ModelTurn, F: Fn(&ToolTask) -> T>(
+    make_turn: &F,
     model: &str,
     tasks: &[ToolTask],
     padding: &str,
@@ -258,6 +258,11 @@ async fn run_position<M: ModelTurn>(
             keep_alive: None,
             think: None,
         };
+        // Per-task turn: the prompt path reuses one shared `&BackendTurn` (the factory ignores
+        // the task); the native path builds a fresh `NativeToolTurn` carrying THIS task's tool
+        // schemas. A native turn ignores the prompt-based `system` above and builds its own, so
+        // scoring stays byte-identical across the two paths.
+        let turn = make_turn(task);
         let (raw, stats) = turn.run(&spec).await?;
         let verdict = score(&task.expected, extract_calls(&raw).as_deref());
         // Keep the padded input + raw completion for EVERY task (pass or fail), so the
@@ -285,8 +290,8 @@ async fn run_position<M: ModelTurn>(
 /// Sweep every needle depth for one fixed padding. Returns the per-depth scores,
 /// the mean verified token depth, and the worst-position composite.
 #[allow(clippy::too_many_arguments)]
-async fn sweep<M: ModelTurn>(
-    turn: &M,
+async fn sweep<T: ModelTurn, F: Fn(&ToolTask) -> T>(
+    make_turn: &F,
     model: &str,
     tasks: &[ToolTask],
     padding: &str,
@@ -308,7 +313,7 @@ async fn sweep<M: ModelTurn>(
         let mut on_task = |task: usize, total_tasks: usize| {
             on_step(StepProgress { rung, total_rungs, target_tokens: target, position: pi + 1, total_positions, task, total_tasks });
         };
-        let (results, pos_traces) = run_position(turn, model, tasks, padding, depth, &mut on_task).await?;
+        let (results, pos_traces) = run_position(make_turn, model, tasks, padding, depth, &mut on_task).await?;
         let (composite, prompt_tokens) = cliff_score(tasks, &results);
         let vt = prompt_tokens.map(|t| t.round() as u32).unwrap_or(0);
         if let Some(t) = prompt_tokens {
@@ -335,8 +340,8 @@ async fn sweep<M: ModelTurn>(
 /// own measurement. That turns verify-and-adjust from "re-sweep until close" into one
 /// sweep per rung in the common case — the main speed win.
 #[allow(clippy::too_many_arguments)]
-async fn probe_rung<M: ModelTurn>(
-    turn: &M,
+async fn probe_rung<T: ModelTurn, F: Fn(&ToolTask) -> T>(
+    make_turn: &F,
     model: &str,
     tasks: &[ToolTask],
     source_text: &str,
@@ -352,7 +357,7 @@ async fn probe_rung<M: ModelTurn>(
         let mut on_task = |task: usize, total_tasks: usize| {
             on_step(StepProgress { rung, total_rungs, target_tokens: 0, position: 1, total_positions: 1, task, total_tasks });
         };
-        let (results, pos_traces) = run_position(turn, model, tasks, "", 0.0, &mut on_task).await?;
+        let (results, pos_traces) = run_position(make_turn, model, tasks, "", 0.0, &mut on_task).await?;
         let (composite, prompt_tokens) = cliff_score(tasks, &results);
         let vt = prompt_tokens.map(|t| t.round() as u32).unwrap_or(0);
         let mut trace: Vec<TaskTrace> = Vec::new();
@@ -374,7 +379,7 @@ async fn probe_rung<M: ModelTurn>(
     let mut last: Option<(Vec<DepthScore>, u32, Option<f64>, Vec<TaskTrace>)> = None;
     for attempt in 0..=MAX_ADJUST_ATTEMPTS {
         let padding = build_padding(source_text, bytes);
-        let (per_depth, mean_tokens, worst, trace) = sweep(turn, model, tasks, &padding, depths, rung, total_rungs, target, on_step).await?;
+        let (per_depth, mean_tokens, worst, trace) = sweep(make_turn, model, tasks, &padding, depths, rung, total_rungs, target, on_step).await?;
         if mean_tokens > 0 {
             *rate = Some(bytes as f64 / mean_tokens as f64); // learn for the next rung
         }
@@ -431,7 +436,7 @@ pub fn build_ladder(max_tokens: u32, steps: u32) -> Vec<u32> {
 /// classify where accuracy collapses. Tauri-free — the command supplies the
 /// `ModelTurn` (with num_ctx large enough to fit the deepest rung) and persists the
 /// result.
-pub async fn run_cliff<M: ModelTurn>(
+pub async fn run_cliff<M: ModelTurn + Sync>(
     turn: &M,
     model: &str,
     tasks: &[ToolTask],
@@ -450,8 +455,31 @@ pub async fn run_cliff<M: ModelTurn>(
 /// look stuck. `cancel` lets the Stop button abort the sweep: it's checked before each
 /// (costly) rung and before classification, so a cancelled probe returns an error
 /// WITHOUT classifying or persisting a bogus outcome.
-pub async fn run_cliff_with<M: ModelTurn>(
+pub async fn run_cliff_with<M: ModelTurn + Sync>(
     turn: &M,
+    model: &str,
+    tasks: &[ToolTask],
+    source: &CliffSource,
+    ladder: &[u32],
+    depths: &[f32],
+    cancel: &CancellationToken,
+    on_rung: &mut (dyn FnMut(usize, usize, &CliffPoint) + Send),
+    on_step: StepSink<'_>,
+) -> AppResult<CliffReport> {
+    // One reused turn flows through the per-task factory seam via the blanket `&M` impl (the
+    // factory ignores the task and hands back the shared reference). The native path calls
+    // `run_cliff_with_factory` directly with a task-aware factory instead.
+    run_cliff_with_factory(&|_: &ToolTask| turn, model, tasks, source, ladder, depths, cancel, on_rung, on_step).await
+}
+
+/// The cliff engine over a per-task turn FACTORY: `make_turn(task)` yields the `ModelTurn` for
+/// that task. The prompt path passes a factory that returns one shared `&BackendTurn`; the
+/// native path passes one that builds a fresh `NativeToolTurn` carrying the task's tool schemas.
+/// Everything downstream (padding, sweeping, scoring, classification) is identical — only the
+/// turn construction differs.
+#[allow(clippy::too_many_arguments)]
+pub async fn run_cliff_with_factory<T: ModelTurn, F: Fn(&ToolTask) -> T>(
+    make_turn: &F,
     model: &str,
     tasks: &[ToolTask],
     source: &CliffSource,
@@ -474,7 +502,7 @@ pub async fn run_cliff_with<M: ModelTurn>(
         if cancel.is_cancelled() {
             return Err(AppError::Inference("context-cliff probe cancelled".into()));
         }
-        let point = probe_rung(turn, model, tasks, source_text, target, depths, &mut rate, i + 1, total, on_step).await?;
+        let point = probe_rung(make_turn, model, tasks, source_text, target, depths, &mut rate, i + 1, total, on_step).await?;
         // A Stop that fired DURING this rung leaves it half-generated (cancelled turns
         // return empty/partial text). Abort before emitting it, so a stopped/superseded
         // run never pushes a garbage rung into the chart or the report.
