@@ -102,6 +102,7 @@ impl Drop for SttServerState {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::disallowed_methods)] // test fixtures spawn powershell/cmd/sh directly
     use super::*;
     use std::process::{Command, Stdio};
 

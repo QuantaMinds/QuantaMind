@@ -1,7 +1,7 @@
 use crate::os::{EngineHost, Host};
 use std::net::TcpListener;
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 
 /// Find a free TCP port in `start..=start+10` by binding then releasing it.
 /// Returns `None` if the whole range is taken (never assume a fixed port is
@@ -25,9 +25,8 @@ pub fn build_spawn_args(model: &str, port: u16) -> Vec<String> {
 /// lifecycle. stderr is `piped` so a reader thread can report download/start
 /// phase and capture the tail on failure; stdin/stdout are discarded.
 pub fn spawn_server(exe: &Path, args: &[String]) -> Result<Child, String> {
-    let mut cmd = Command::new(exe);
+    let mut cmd = Host::command(exe);
     cmd.args(args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped());
-    Host::apply_spawn_flags(&mut cmd);
     cmd.spawn().map_err(|e| e.to_string())
 }
 

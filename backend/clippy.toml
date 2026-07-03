@@ -1,0 +1,9 @@
+# Every subprocess must be built via `os::Host::command`, which applies
+# CREATE_NO_WINDOW on Windows so a GUI-launched app never flashes a console
+# window (the "terminals flashing on launch" bug). Enforced as a hard error on
+# Windows by the crate-root `deny` in `src/lib.rs`; silenced on Unix, where the
+# vendored which/kill/git helpers legitimately call `Command::new` and no console
+# window exists. See `docs/architecture.md#robustness`.
+disallowed-methods = [
+    { path = "std::process::Command::new", reason = "spawn via os::Host::command so CREATE_NO_WINDOW is always applied" },
+]

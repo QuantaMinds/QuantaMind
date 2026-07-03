@@ -34,9 +34,8 @@ impl EngineHost for WindowsHost {
     fn resolve_on_path(bin: &str) -> Option<PathBuf> {
         // `where.exe` is the Windows analogue of `which`; ships on every SKU
         // from Vista onward and is on the default PATH.
-        let mut cmd = Command::new("where");
+        let mut cmd = Self::command("where");
         cmd.arg(bin);
-        Self::apply_spawn_flags(&mut cmd);
         let out = cmd.output().ok()?;
         if !out.status.success() {
             return None;
@@ -98,6 +97,7 @@ impl EngineHost for WindowsHost {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::disallowed_methods)] // test fixtures spawn cmd/true directly
     use super::*;
 
     #[test]

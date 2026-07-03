@@ -2,6 +2,13 @@
 // control) goes through safe crates. Deny it so a future `unsafe` block is a
 // conscious, reviewed exception, not an accident (guide Part 7).
 #![deny(unsafe_code)]
+// Force every subprocess spawn through `os::Host::command` (which applies
+// CREATE_NO_WINDOW) instead of a bare `Command::new`, so a probe or sidecar can
+// never flash a console window on a GUI-launched Windows app. The invariant is
+// Windows-only, so we only *deny* there; on Unix the vendored which/kill helpers
+// may call `Command::new` freely, so the lint is silenced. See `clippy.toml`.
+#![cfg_attr(target_os = "windows", deny(clippy::disallowed_methods))]
+#![cfg_attr(not(target_os = "windows"), allow(clippy::disallowed_methods))]
 
 pub mod commands;
 pub mod errors;

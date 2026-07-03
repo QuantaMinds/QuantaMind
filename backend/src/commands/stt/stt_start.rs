@@ -142,12 +142,11 @@ pub struct WhisperEnv {
 /// `0xC0000135` exit (Windows, missing DLL) — we return the diagnostic tail.
 fn dry_run(dir: &Path) -> Result<(), String> {
     use crate::os::{EngineHost, Host};
-    let mut cmd = std::process::Command::new(dir.join(bin_name()));
+    let mut cmd = Host::command(dir.join(bin_name()));
     cmd.arg("--help").current_dir(dir);
     for (k, v) in Host::envs_for_lib_dir(dir) {
         cmd.env(k, v);
     }
-    Host::apply_spawn_flags(&mut cmd);
     let out = cmd.output().map_err(|e| e.to_string())?;
     if out.status.success() {
         return Ok(());

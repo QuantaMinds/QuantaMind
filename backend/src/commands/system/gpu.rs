@@ -1,6 +1,5 @@
 use crate::os::{EngineHost, Host};
 use serde::Serialize;
-use std::process::Command;
 use std::sync::OnceLock;
 
 const MIB: u64 = 1024 * 1024;
@@ -30,9 +29,8 @@ pub fn parse_nvidia_csv(line: &str) -> Option<(String, u64, u64)> {
 }
 
 fn nvidia() -> Option<GpuInfo> {
-    let mut cmd = Command::new("nvidia-smi");
+    let mut cmd = Host::command("nvidia-smi");
     cmd.args(["--query-gpu=name,memory.total,memory.free", "--format=csv,noheader,nounits"]);
-    Host::apply_spawn_flags(&mut cmd);
     let out = cmd.output().ok()?;
     if !out.status.success() {
         return None;
@@ -77,9 +75,8 @@ pub fn parse_rocm_smi_json(bytes: &[u8]) -> Option<(String, u64, Option<u64>)> {
 }
 
 fn amd() -> Option<GpuInfo> {
-    let mut cmd = Command::new("rocm-smi");
+    let mut cmd = Host::command("rocm-smi");
     cmd.args(["--showmeminfo", "vram", "--showproductname", "--json"]);
-    Host::apply_spawn_flags(&mut cmd);
     let out = cmd.output().ok()?;
     if !out.status.success() {
         return None;
@@ -108,9 +105,8 @@ pub fn parse_xpu_smi_json(bytes: &[u8]) -> Option<(String, u64)> {
 }
 
 fn intel_xpu() -> Option<GpuInfo> {
-    let mut cmd = Command::new("xpu-smi");
+    let mut cmd = Host::command("xpu-smi");
     cmd.args(["discovery", "-j"]);
-    Host::apply_spawn_flags(&mut cmd);
     let out = cmd.output().ok()?;
     if !out.status.success() {
         return None;
@@ -170,9 +166,8 @@ fn dxgi() -> Option<GpuInfo> {
 
 #[cfg(target_os = "macos")]
 fn apple() -> Option<GpuInfo> {
-    let mut cmd = Command::new("sysctl");
+    let mut cmd = Host::command("sysctl");
     cmd.args(["-n", "machdep.cpu.brand_string"]);
-    Host::apply_spawn_flags(&mut cmd);
     let out = cmd.output().ok()?;
     let chip = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if !out.status.success() || chip.is_empty() {

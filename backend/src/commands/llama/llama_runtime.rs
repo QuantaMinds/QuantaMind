@@ -4,7 +4,7 @@ use reqwest::Client;
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
-use std::process::{Child, ChildStderr, Command, Stdio};
+use std::process::{Child, ChildStderr, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -315,7 +315,7 @@ pub fn bin_name() -> &'static str {
 /// and its stderr names the rejected flag.
 pub fn spawn_server(dir: &Path, args: &[String]) -> Result<Child, String> {
     use crate::os::{EngineHost, Host};
-    let mut cmd = Command::new(dir.join(bin_name()));
+    let mut cmd = Host::command(dir.join(bin_name()));
     cmd.args(args)
         .current_dir(dir)
         .stdin(Stdio::null())
@@ -324,10 +324,6 @@ pub fn spawn_server(dir: &Path, args: &[String]) -> Result<Child, String> {
     for (k, v) in Host::envs_for_lib_dir(dir) {
         cmd.env(k, v);
     }
-    // R1: on Windows, sets CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP so a
-    // subsequent `graceful_stop` targets the child (and its tree), not us.
-    // No-op on Unix.
-    Host::apply_spawn_flags(&mut cmd);
     cmd.spawn().map_err(|e| e.to_string())
 }
 

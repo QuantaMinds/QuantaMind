@@ -1,3 +1,4 @@
+#![allow(clippy::disallowed_methods)] // test fixtures spawn sleep directly
 use super::has_bin;
 use crate::commands::llama::llama_runtime::bin_name;
 use crate::commands::llama::llama_server_types::{

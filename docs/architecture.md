@@ -86,13 +86,14 @@ HTTP to a local Ollama server.
   in cfg-neutral files so their tests run on any CI runner; per-OS lifecycle
   code is only compiled + tested on its own OS runner (Phase 5 CI matrix
   covers all three). Adding a new engine = one adapter impl, no new cfg
-  blocks in the caller sites. **Every** subprocess spawn routes through
-  `apply_spawn_flags` — not just the long-lived sidecars but the short-lived
-  diagnostic probes too: `resolve_on_path`'s `where.exe`, the GPU vendor CLIs
-  (`nvidia-smi`/`rocm-smi`/`xpu-smi`), and whisper's `--help` dry-run. A probe
-  that skips the flag pops a transient console window on a GUI-launched Windows
-  app — the "flashing terminals on launch" bug — so the rule is *no bare
-  `Command::new(…).output()`/`.spawn()` in shipped paths*.
+  blocks in the caller sites. **Every** subprocess spawn — long-lived sidecars
+  and short-lived diagnostic probes alike (`resolve_on_path`'s `where.exe`, the
+  GPU vendor CLIs `nvidia-smi`/`rocm-smi`/`xpu-smi`, whisper's `--help` dry-run) —
+  is built via `Host::command`, which pre-applies `apply_spawn_flags`. A spawn
+  that skips it would pop a transient console window on a GUI-launched Windows
+  app (the "flashing terminals on launch" bug), so bare `Command::new` is banned
+  in shipped paths: a `disallowed_methods` clippy lint (`backend/clippy.toml`)
+  denies it on Windows, forcing new spawns through `Host::command`.
 - `inference/` — backend adapters behind the `InferenceBackend` trait
   (`backend.rs`). `OllamaBackend`, `LlamaCppBackend` (a `llama-server` sidecar),
   and `MlxBackend` (`mlx_lm.server`, Apple Silicon) today; callers build one by

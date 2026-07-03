@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -25,6 +26,22 @@ pub trait EngineHost {
     /// group flag is what makes `graceful_stop` target the child instead of
     /// killing QuantaMind itself. No-op on Unix.
     fn apply_spawn_flags(cmd: &mut Command);
+
+    /// The single sanctioned way to build a subprocess: a `Command` with
+    /// `apply_spawn_flags` already applied. Routing every spawn through this —
+    /// instead of `Command::new` directly — makes it impossible for a probe or
+    /// sidecar to forget CREATE_NO_WINDOW and flash a console window on Windows.
+    /// Enforced by the `disallowed_methods` clippy lint (`backend/clippy.toml` +
+    /// the Windows `deny` at the crate root); see `docs/architecture.md#robustness`.
+    #[allow(clippy::disallowed_methods)]
+    fn command<S: AsRef<OsStr>>(program: S) -> Command
+    where
+        Self: Sized,
+    {
+        let mut cmd = Command::new(program);
+        Self::apply_spawn_flags(&mut cmd);
+        cmd
+    }
 
     /// Best-effort request that pid exit cleanly. Unix: SIGTERM. Windows:
     /// GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid) — safe only because

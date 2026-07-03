@@ -3,7 +3,9 @@ use crate::inference::backend::endpoint;
 use reqwest::{Client, StatusCode};
 use std::collections::VecDeque;
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
+#[cfg(test)]
+use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -77,7 +79,7 @@ pub fn spawn_server(
     args: &[String],
 ) -> Result<(Child, Arc<Mutex<VecDeque<String>>>), String> {
     use crate::os::{EngineHost, Host};
-    let mut cmd = Command::new(dir.join(bin_name()));
+    let mut cmd = Host::command(dir.join(bin_name()));
     cmd.args(args)
         .current_dir(dir)
         .stdin(Stdio::null())
@@ -86,8 +88,6 @@ pub fn spawn_server(
     for (k, v) in Host::envs_for_lib_dir(dir) {
         cmd.env(k, v);
     }
-    // R1 spawn flags on Windows (CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP).
-    Host::apply_spawn_flags(&mut cmd);
     let mut child = cmd.spawn().map_err(|e| e.to_string())?;
     let tail = Arc::new(Mutex::new(VecDeque::new()));
     if let Some(stderr) = child.stderr.take() {
@@ -202,6 +202,7 @@ mod tests {
     // PowerShell is a heavier startup but reliably blocks under redirected
     // stdio, which is what the child-lifecycle tests need.
     #[cfg(test)]
+    #[allow(clippy::disallowed_methods)] // test fixture spawns powershell/sh directly
     fn spawn_spin_child_for_secs(secs: u32) -> std::process::Child {
         #[cfg(windows)]
         {

@@ -1,7 +1,7 @@
 use crate::os::{EngineHost, Host};
 use reqwest::Client;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::Duration;
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, Signal, System};
 
@@ -94,12 +94,11 @@ pub fn auto_start_supported() -> bool {
 /// Windows so the child is in its own process group; killing this PID cleanly
 /// stops the whole Ollama sidecar tree instead of QuantaMind itself.
 pub fn spawn_serve(bin: &PathBuf) -> Result<u32, String> {
-    let mut cmd = Command::new(bin);
+    let mut cmd = Host::command(bin);
     cmd.arg("serve")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    Host::apply_spawn_flags(&mut cmd);
     cmd.spawn().map(|c| c.id()).map_err(|e| e.to_string())
 }
 
@@ -169,6 +168,7 @@ pub fn kill_pid(pid: u32) -> Result<(), String> {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    use std::process::Command;
 
     #[test]
     fn pid_alive_tracks_a_real_process_lifecycle() {

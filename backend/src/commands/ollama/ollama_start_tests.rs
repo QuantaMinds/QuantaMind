@@ -1,3 +1,4 @@
+#![allow(clippy::disallowed_methods)] // test fixtures spawn sleep/true directly
 use super::*;
 
 #[test]
