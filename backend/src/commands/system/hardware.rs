@@ -55,9 +55,12 @@ pub fn snapshot() -> HardwareSnapshot {
     }
 }
 
+/// Async so the launch-time burst of callers doesn't tie up Tauri's synchronous
+/// command worker pool: `snapshot()` blocks on `sysinfo` + a memoized GPU probe,
+/// so it runs on the blocking pool and the first call warms the cache for the rest.
 #[tauri::command]
-pub fn get_hardware_snapshot() -> Result<HardwareSnapshot, AppError> {
-    Ok(snapshot())
+pub async fn get_hardware_snapshot() -> Result<HardwareSnapshot, AppError> {
+    tokio::task::spawn_blocking(snapshot).await.map_err(|e| AppError::Internal(e.to_string()))
 }
 
 #[cfg(test)]

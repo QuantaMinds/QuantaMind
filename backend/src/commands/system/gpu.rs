@@ -1,6 +1,7 @@
 use crate::os::{EngineHost, Host};
 use serde::Serialize;
 use std::process::Command;
+use std::sync::OnceLock;
 
 const MIB: u64 = 1024 * 1024;
 
@@ -186,10 +187,22 @@ fn apple() -> Option<GpuInfo> {
     None
 }
 
+/// Memoized GPU probe. Each vendor branch is a subprocess spawn, and
+/// `get_hardware_snapshot` is called by ~7 components that all mount at launch
+/// (App.tsx keeps every tab mounted), so an uncached probe fired the vendor CLIs
+/// in a burst — the launch-time stall. GPU identity and total VRAM are static for
+/// a session, so the whole `GpuInfo` is cached after the first successful probe.
+/// Tradeoff: `vram_free_bytes` freezes at first-probe time; a short-TTL refresh is
+/// a future consideration (see `docs/process.md#future-considerations`).
+pub fn probe_gpu() -> GpuInfo {
+    static CACHE: OnceLock<GpuInfo> = OnceLock::new();
+    CACHE.get_or_init(probe_gpu_uncached).clone()
+}
+
 /// Try NVIDIA (cross-OS via nvidia-smi), then AMD (rocm-smi), then Intel
 /// (xpu-smi), then Windows DXGI fallback, then Apple Silicon. Anything past
 /// the last successful probe is skipped. Otherwise an unavailable GpuInfo.
-pub fn probe_gpu() -> GpuInfo {
+fn probe_gpu_uncached() -> GpuInfo {
     nvidia().or_else(amd).or_else(intel_xpu).or_else(dxgi).or_else(apple).unwrap_or_default()
 }
 
@@ -257,6 +270,14 @@ mod tests {
     #[test]
     fn probe_never_panics() {
         let _ = probe_gpu();
+    }
+
+    #[test]
+    fn probe_gpu_is_memoized_and_consistent() {
+        // The burst of launch-time callers must all see the same cached value.
+        let first = probe_gpu();
+        let second = probe_gpu();
+        assert_eq!(first, second);
     }
 
     #[cfg(target_os = "windows")]

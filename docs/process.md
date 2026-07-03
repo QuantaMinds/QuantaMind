@@ -763,6 +763,18 @@ stack** (`#tech-stack`) gates behind a rationale PR — so they are proposals, n
   ports), `cargo-nextest` (suite runs in <1s), `async-trait` (backends use enum dispatch,
   no `dyn`). Revisit if the suite or the port surface grows.
 
+### GPU probe free-VRAM refresh (short TTL)
+
+`probe_gpu()` (`commands/system/gpu.rs`) is memoized in a `OnceLock` so the launch-time
+burst of `get_hardware_snapshot` callers collapses to a single vendor-CLI spawn. The
+tradeoff is that `vram_free_bytes` freezes at first-probe time — fine for the current
+snapshot (callers read it on mount, not on a timer), but stale if a model loads and the
+user then re-opens the Hardware/readiness view expecting live free VRAM. **Activate when:**
+a feature needs live free-VRAM headroom (e.g. a "will this model fit right now?" check).
+**How:** swap the `OnceLock` for a short-TTL cache (`Mutex<(Instant, GpuInfo)>`, refresh
+after a few seconds) so the burst still dedupes but later reads re-probe. Keep the static
+fields (name/total/unified) cached and only re-fetch the free figure.
+
 ### Full end-state agentic Context Stress Test
 
 The Context Stress Test now *includes* agentic collections, but scores them on JSON **well-formedness**
