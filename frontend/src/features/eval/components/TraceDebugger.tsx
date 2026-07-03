@@ -724,7 +724,7 @@ export function TraceDebugger({
                                   jammed past the right-aligned turn count. */}
                               {runThinkingTokens(group.steps) > 0 && (
                                 <span style={runThinkingStyle} title="Reasoning tokens this run spent thinking (the model's reasoning scratchpad across its turns).">
-                                  {runThinkingTokens(group.steps).toLocaleString()} thinking
+                                  {runThinkingTokens(group.steps).toLocaleString()} thinking tokens
                                 </span>
                               )}
                               <span style={runStepCountStyle}>

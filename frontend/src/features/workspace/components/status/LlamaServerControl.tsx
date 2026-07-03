@@ -72,7 +72,10 @@ export function LlamaServerControl() {
   const numCtx = useParamsStore((s) => s.globalParams.num_ctx);
 
   return (
-    <div className="space-y-0.5">
+    // Horizontal so the Play/Stop button and the status chip share the header row line —
+    // stacking them vertically made this control taller than the dropdowns and `items-center`
+    // shoved the button up out of the row.
+    <div className="flex items-center gap-1.5">
       <PlayStopButton
         running={!!healthy}
         busy={startStatus === "starting" || stopStatus === "stopping"}
