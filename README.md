@@ -52,23 +52,67 @@ Reliability is scored with **pass^k** — does the model succeed *k* of *k* time
 
 ## Quick start
 
-**Zero to a running window in ~5 minutes.** macOS is first-class today; Windows and Linux are landing in phases (see [Roadmap](#roadmap)). There are no prebuilt downloads yet — run from source.
+**Zero to a running window in ~5 minutes.** macOS is first-class today; Windows and Linux dev builds run too, with sidecar lifecycles being rewired phase-by-phase (see [Roadmap](#roadmap)). There are no prebuilt downloads yet — run from source.
+
+**1 · Install toolchains** (skip any you already have)
+
+<table>
+<tr><th>macOS</th><th>Linux (Debian / Ubuntu)</th><th>Windows</th></tr>
+<tr valign="top"><td>
 
 ```bash
-# 1) Toolchains (skip any you already have)
 brew install rust node pnpm ollama
 xcode-select --install
+```
 
-# 2) Start Ollama + pull a small model to gate
-ollama serve &
+</td><td>
+
+```bash
+# Tauri system deps
+sudo apt update && sudo apt install -y \
+  libwebkit2gtk-4.1-dev build-essential \
+  curl wget file libxdo-dev libssl-dev \
+  libayatana-appindicator3-dev \
+  librsvg2-dev patchelf
+# Rust, Node 20+, pnpm, Ollama
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - \
+  && sudo apt install -y nodejs
+corepack enable pnpm
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+</td><td>
+
+```powershell
+winget install Rustlang.Rustup OpenJS.NodeJS `
+  pnpm.pnpm Ollama.Ollama `
+  Microsoft.VisualStudio.2022.BuildTools
+# Add "Desktop development with C++" in the
+# VS installer (MSVC linker). WebView2 ships
+# with Windows 11. Then see the "Windows dev
+# shell" note below to source cargo + MSVC.
+```
+
+</td></tr></table>
+
+**2 · Start Ollama + pull a small model to gate**
+
+```bash
+ollama serve &                 # Windows: runs as a service after install
 ollama pull llama3.2:1b
+```
 
-# 3) Clone, install, run
+**3 · Clone, install, run**
+
+```bash
 git clone https://github.com/QuantaMinds/QuantaMind.git
 cd QuantaMind/frontend
 pnpm install
 pnpm tauri dev            # first build is slow; opens a native window
 ```
+
+> On **Windows**, `cargo` and the MSVC linker must be on PATH before `pnpm tauri dev` — see the **Windows dev shell** note below.
 
 Open the **Tests** tab, pick your model, run a built-in agentic collection for your first verdict — then check **Agent Report** for the per-model breakdown.
 
@@ -129,7 +173,7 @@ QuantaMind is a workbench, not a chat app — each surface answers one question 
 | ⌨️ **Workspace** | Monaco prompt editor with token-by-token streaming, per-run metrics (TTFT, tok/s), and YAML save/load. |
 | 🎙️ **Speech-to-Text** | Fully local transcription via whisper.cpp, with an optional voice → assistant pipeline. |
 | 📦 **Models** | Install from Ollama Library, Hugging Face, or a local `.gguf`; disk-safe, resumable, with a storage manager. |
-| 📊 **Analysis** | Multi-model compare and quantization diffing, with throughput/TTFT charts and Markdown/JSON export. |
+| 📊 **Analysis & Latency** | Multi-model compare and quantization diffing, with throughput/TTFT charts and Markdown/JSON export. |
 
 ![The Tests scoreboard: a batch run scoring a 100% pass rate on Easy-tier agentic tasks, with a per-model Pass^k summary below.](docs/screenshots/tests-scoreboard.png)
 
