@@ -34,7 +34,10 @@ impl EngineHost for WindowsHost {
     fn resolve_on_path(bin: &str) -> Option<PathBuf> {
         // `where.exe` is the Windows analogue of `which`; ships on every SKU
         // from Vista onward and is on the default PATH.
-        let out = Command::new("where").arg(bin).output().ok()?;
+        let mut cmd = Command::new("where");
+        cmd.arg(bin);
+        Self::apply_spawn_flags(&mut cmd);
+        let out = cmd.output().ok()?;
         if !out.status.success() {
             return None;
         }

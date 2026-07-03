@@ -1,3 +1,4 @@
+use crate::os::{EngineHost, Host};
 use std::net::TcpListener;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
@@ -24,13 +25,10 @@ pub fn build_spawn_args(model: &str, port: u16) -> Vec<String> {
 /// lifecycle. stderr is `piped` so a reader thread can report download/start
 /// phase and capture the tail on failure; stdin/stdout are discarded.
 pub fn spawn_server(exe: &Path, args: &[String]) -> Result<Child, String> {
-    Command::new(exe)
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| e.to_string())
+    let mut cmd = Command::new(exe);
+    cmd.args(args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped());
+    Host::apply_spawn_flags(&mut cmd);
+    cmd.spawn().map_err(|e| e.to_string())
 }
 
 /// Terminate the server. Idempotent: killing an already-exited child is success.

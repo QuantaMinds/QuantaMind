@@ -147,6 +147,7 @@ fn dry_run(dir: &Path) -> Result<(), String> {
     for (k, v) in Host::envs_for_lib_dir(dir) {
         cmd.env(k, v);
     }
+    Host::apply_spawn_flags(&mut cmd);
     let out = cmd.output().map_err(|e| e.to_string())?;
     if out.status.success() {
         return Ok(());
