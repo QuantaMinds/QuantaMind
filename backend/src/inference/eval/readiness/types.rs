@@ -1,5 +1,6 @@
 use super::vram_fit::MemoryProfile;
 use crate::inference::backend::backend_kind::BackendKind;
+use crate::inference::eval::agentic::difficulty::passk::ThinkPreset;
 use crate::inference::eval::agentic::scoring::report::FailureTracker;
 use crate::inference::eval::agentic::spec::Tier;
 use crate::inference::eval::batch::TierStat;
@@ -159,4 +160,21 @@ pub struct ModelVerdict {
     pub passes: u32,
     #[serde(default)]
     pub total_runs: u32,
+    /// This model ran as a reasoning model (sidebar "thinking" toggle). Its `effort` (output
+    /// tokens) is NOT comparable to a terse model's, so the report/leaderboard must show this flag
+    /// beside the token count rather than rank the two on it. `#[serde(default)]` = `false`.
+    #[serde(default)]
+    pub is_thinking: bool,
+    /// Ollama spilled this model's weights onto the CPU (didn't fit in VRAM) — a slow-inference
+    /// signal, surfaced so a slow verdict reads as "offloaded", not "incapable". `#[serde(default)]`.
+    #[serde(default)]
+    pub cpu_offloaded: bool,
+    /// The hardware-adaptive `num_ctx` ceiling this run used (the one knob hardware moves). `None`
+    /// when not recorded. `#[serde(default)]`.
+    #[serde(default)]
+    pub ctx_ceiling: Option<u32>,
+    /// The Thinking-Budget preset the run used (Lean/Standard/Deep) — the reasoning scratchpad
+    /// allowance. Batch-wide; `Standard` by default. `#[serde(default)]`.
+    #[serde(default)]
+    pub think_preset: ThinkPreset,
 }

@@ -5,7 +5,8 @@ import type { TierCardParams } from "./components/TierProgressionMatrix";
 /// Bump when the JSON-export shape changes (e.g. when the deferred per-tier `top_error` or
 /// decoy-name drill-down lands), so old exports stay unambiguous.
 /// v2: added run-level `passes`/`total_runs` (distinct from the strict `pass_k`).
-export const DEEP_DIVE_SCHEMA_VERSION = 2;
+/// v3: added the reasoning-budget context (is_thinking, think_preset, ctx_ceiling, cpu_offloaded).
+export const DEEP_DIVE_SCHEMA_VERSION = 3;
 
 const range = (nums: number[], suffix = ""): string | null => {
   if (nums.length === 0) return null;
@@ -51,5 +52,10 @@ export function deepDiveJson(verdict: ModelVerdict, collectionId: string, profil
     total_runs: verdict.total_runs ?? 0,
     by_tier: verdict.by_tier,
     failures: verdict.failures ?? null,
+    // Reasoning-budget context — measured, so a reasoning model's token effort reads honestly.
+    is_thinking: verdict.is_thinking ?? false,
+    think_preset: verdict.think_preset ?? "standard",
+    ctx_ceiling: verdict.ctx_ceiling ?? null,
+    cpu_offloaded: verdict.cpu_offloaded ?? false,
   };
 }

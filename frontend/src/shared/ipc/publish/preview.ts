@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { z } from "zod";
-import { AgentPathSchema, ReadinessSchema, TierSchema, type ModelVerdict } from "../eval/readiness";
+import { AgentPathSchema, ReadinessSchema, ThinkPresetSchema, TierSchema, type ModelVerdict } from "../eval/readiness";
 import { InferenceParamsSchema, type InferenceParams } from "../workspace/prompts";
 
 const PublishMetricsSchema = z.object({
@@ -53,6 +53,13 @@ export const PublishRowSchema = z.object({
   recommended_tier: TierSchema,
   by_tier: z.array(TierMetricSchema),
   failure_distribution: FailureDistributionSchema,
+  // Reasoning-budget context (mirror of Rust `PublishRow`) — so the board can interpret a
+  // reasoning model's token `effort`/reliability. `think_budget`/`ctx_ceiling` omitted when unset.
+  is_thinking: z.boolean(),
+  think_preset: ThinkPresetSchema,
+  think_budget: z.number().optional(),
+  ctx_ceiling: z.number().optional(),
+  cpu_offloaded: z.boolean(),
   // Collection identity + build provenance — same scenario set + dedup/verify.
   collection_name: z.string(),
   collection_hash: z.string(),

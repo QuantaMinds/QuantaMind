@@ -476,10 +476,16 @@ async fn run_steps<M: ModelTurn>(
         let cache_n = stats.cache_n;
         let prefill_tokens = stats.prompt_eval_count; // prompt_n = recomputed; total = cache_n + this
         let prefill_ms = stats.prompt_eval_ms;
+        // How much this turn spent thinking: the measured generated-token count for a reasoning
+        // model (its output is dominated by the `<think>` scratchpad; the tool-call answer is a
+        // small tail). `None` for a terse model — never a fabricated 0. The trace sums this per run
+        // to show "how much it thought" to reach the result. Same measured quantity the overrun
+        // path uses below.
+        let reasoning_tokens = turn.is_thinking().then(|| stats.eval_count).flatten();
         let send = |kind: StepKind, injection: Option<String>, env: EnvView| {
             let _ = tx.send(TrajectoryStep {
                 run_index, step_index, raw_output: raw.clone(), injection, kind, env, cache_n, prefill_tokens, prefill_ms,
-                reasoning_tokens: None, context_used: None, context_window: None,
+                reasoning_tokens, context_used: None, context_window: None,
             });
         };
 

@@ -70,6 +70,36 @@ describe("VerdictTable", () => {
     expect(row).toHaveTextContent("Loops on 2 runs");
   });
 
+  it("omits the memory pill entirely when memory is unmeasured — no bare 'VRAM: N/A'", () => {
+    render(<VerdictTable verdicts={VERDICTS} />);
+    // phi3.5 is not_ready with no measured memory (a single-model / run-error-shaped row): the
+    // row must read just its BLOCKING breakdown, never "VRAM: N/A |" (the reported display bug).
+    const row = screen.getByTestId("readiness-row-phi3.5");
+    expect(row).not.toHaveTextContent("VRAM: N/A");
+    expect(row).toHaveTextContent("BLOCKING:");
+  });
+
+  it("shows a thinking segment for a reasoning verdict and nothing for a terse one", () => {
+    const thinking: ModelVerdict = {
+      model: "qwen3-thinking",
+      backend: "ollama",
+      verdict: { status: "ready", blocking: [], conditions: [], path: "native_fc" },
+      pass_k: 0.9,
+      is_thinking: true,
+      think_preset: "deep",
+      ctx_ceiling: 32768,
+      cpu_offloaded: true,
+    };
+    render(<VerdictTable verdicts={[thinking, ...VERDICTS]} />);
+    const row = screen.getByTestId("readiness-row-qwen3-thinking");
+    expect(within(row).getByTestId("metric-thinking")).toHaveTextContent("thinking: Deep");
+    expect(within(row).getByTestId("metric-ctx")).toHaveTextContent("ctx 32k");
+    expect(within(row).getByTestId("metric-offload")).toBeInTheDocument();
+    // A terse model shows no thinking metric at all (no N/A).
+    const terse = screen.getByTestId("readiness-row-qwen2.5-coder");
+    expect(within(terse).queryByTestId("metric-thinking")).toBeNull();
+  });
+
   it("categorizes every backend blocking reason — never the meaningless 'System' fallback", () => {
     const verdicts: ModelVerdict[] = [
       {

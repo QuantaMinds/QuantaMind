@@ -454,6 +454,7 @@ pub async fn assess_readiness(
             quantization,
             &profile,
             &sibling_refs,
+            report.think_preset.unwrap_or_default(),
         ));
     }
     // Phase 7.3: rank best-first (Ready > Conditional > NotReady, ties by effort

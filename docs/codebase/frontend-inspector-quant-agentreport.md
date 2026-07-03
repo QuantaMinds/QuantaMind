@@ -364,7 +364,12 @@ the reason text via `getIndicatorLabel`) plus a details line; `conditional` rows
 list `! Latency / ! Efficiency / ! High Pressure` from the conditions. The
 `showNativeFc` toggle filters native-FC rows. Hidden mirror elements
 (`MetricsLine`, `MemoryLine`, `Reasons`) carry the raw `pass_k`/steps/effort/cliff
-+ VRAM line + escaped reasons for assertions/screen readers.
++ VRAM line + escaped reasons for assertions/screen readers. The memory pill
+(`{VRAM|Unified memory}: NGB`) renders **only when memory was measured** — an
+unmeasured row (single-model backend / run error) shows just its BLOCKING/targets, never
+a bare `… : N/A`. For a reasoning verdict `MetricsLine` also appends a `🧠 thinking: <preset>`
+segment (+ `ctx <ceiling>` / `cpu-offloaded` when set), from the `is_thinking`/`think_preset`/
+`ctx_ceiling`/`cpu_offloaded` fields threaded onto `ModelVerdict`; nothing renders for a terse model.
 
 ### Per-model deep-dive (Phase 9B) — `tierCurve.ts` + 3 components — **IMPORTANT**
 
@@ -406,7 +411,8 @@ verdict, so they can't disagree:
 **Why:** every cell escapes the `|` delimiter so a model name with a pipe can't
 break the table; unmeasured metrics render `N/A`, never fabricated; a leading
 disclaimer states verdicts are "measured against this profile, not objective
-truth"; hardware fields are dropped when unmeasured.
+truth"; hardware fields are dropped when unmeasured. The table's final **Thinking**
+column shows a reasoning model's `<preset> (· ctx <n>k · cpu)` and `—` for a terse model.
 
 ```ts
 const cell = (s) => s.replace(/\|/g, "\\|");

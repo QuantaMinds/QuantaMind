@@ -353,6 +353,13 @@ export function CacheBadge({ s }: { s: TrajectoryStep }) {
   );
 }
 
+/// The measured reasoning-token total a run spent thinking — summed across its turns. `0` for a
+/// terse model (its turns carry no `reasoning_tokens`), so the header hides the segment rather than
+/// show a fabricated N/A. A real measured value (backend generated tokens), never an estimate.
+export function runThinkingTokens(steps: TrajectoryStep[]): number {
+  return steps.reduce((sum, s) => sum + (s.reasoning_tokens ?? 0), 0);
+}
+
 /// D9: the two-bar diagnostic for a truncated / reasoning-overrun turn. Shows how many tokens the
 /// model spent reasoning AND how full the context window got, then names WHICH limit fired and the
 /// fix — a SETTING (raise the thinking preset) vs HARDWARE (bigger machine). The whole point is to
@@ -711,6 +718,14 @@ export function TraceDebugger({
                               <span style={runStepCountStyle}>
                                 {group.steps.length} {group.steps.length === 1 ? "turn" : "turns"}
                               </span>
+                              {/* How much this run spent thinking — the measured reasoning-token sum
+                                  across its turns (a reasoning model only; hidden when 0/absent, never
+                                  a fabricated N/A). Tells the user how much it thought to get here. */}
+                              {runThinkingTokens(group.steps) > 0 && (
+                                <span style={runThinkingStyle} title="Reasoning tokens this run spent thinking (the <think> scratchpad across its turns).">
+                                  🧠 {runThinkingTokens(group.steps).toLocaleString()} thinking
+                                </span>
+                              )}
                             </button>
                             {ioButtons(group.runIndex)}
                           </div>
@@ -1056,6 +1071,15 @@ const runStepCountStyle: React.CSSProperties = {
   marginLeft: "auto",
   fontSize: 11,
   color: "#94a3b8",
+  fontFamily: "Inter, sans-serif",
+};
+
+/// The per-run reasoning-token badge in the RUN header — a subtle violet so it reads as the
+/// model's "thinking" effort, distinct from the neutral turn count.
+const runThinkingStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 600,
+  color: "#7c3aed",
   fontFamily: "Inter, sans-serif",
 };
 

@@ -544,6 +544,7 @@ fn ollama_version_makes_a_native_garble_diagnosable_on_the_report() {
         num_ctx: None,
         ollama_version: Some("0.11.10".into()),
         collection_hash: None,
+        think_preset: None,
         columns: vec![BatchColumn {
             model: "qwen3".into(),
             backend: BackendKind::Ollama,
@@ -552,6 +553,8 @@ fn ollama_version_makes_a_native_garble_diagnosable_on_the_report() {
             agentic_native_fc: Some(garbled),
             error: None,
             is_thinking: false,
+            cpu_offloaded: false,
+            ctx_ceiling: None,
         }],
     };
     let round: BatchReport = serde_json::from_str(&serde_json::to_string(&report).unwrap()).unwrap();
@@ -594,6 +597,7 @@ async fn live_diag_app_native_pass_for_gemma4() {
         num_ctx: None,
         ollama_version: None,
         collection_hash: None,
+        think_preset: None,
         columns: vec![BatchColumn {
             model: GEMMA.into(),
             backend: BackendKind::Ollama,
@@ -602,6 +606,8 @@ async fn live_diag_app_native_pass_for_gemma4() {
             agentic_native_fc: None,
             error: None,
             is_thinking: false,
+            cpu_offloaded: false,
+            ctx_ceiling: None,
         }],
     };
     let sink = Arc::new(CountingSink::default());

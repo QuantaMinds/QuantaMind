@@ -3,6 +3,7 @@ use super::types::{AgentPath, CliffStatus, ModelVerdict, NativeFcStatus, Readine
 use super::verdict::assess;
 use super::vram_fit::MemoryProfile;
 use crate::inference::backend::backend_kind::BackendKind;
+use crate::inference::eval::agentic::difficulty::passk::ThinkPreset;
 use crate::inference::eval::batch::{AggAgentic, BatchColumn, BatchReport, TierStat};
 use crate::inference::gguf::gguf_quant::quant_from_filename;
 
@@ -173,6 +174,7 @@ pub fn verdicts_for_column(
     quantization: Option<String>,
     profile: &ReadinessProfile,
     siblings: &[&BatchReport],
+    think_preset: ThinkPreset,
 ) -> Vec<ModelVerdict> {
     if let Some(err) = &col.error {
         return vec![ModelVerdict {
@@ -196,6 +198,10 @@ pub fn verdicts_for_column(
             failures: Default::default(),
             passes: 0,
             total_runs: 0,
+            is_thinking: col.is_thinking,
+            cpu_offloaded: col.cpu_offloaded,
+            ctx_ceiling: col.ctx_ceiling,
+            think_preset,
         }];
     }
     let native = col_native_status(col);
@@ -221,6 +227,10 @@ pub fn verdicts_for_column(
                 failures: source.map(|a| a.failures.clone()).unwrap_or_default(),
                 passes: source.map(|a| a.passes).unwrap_or(0),
                 total_runs: source.map(|a| a.total_runs).unwrap_or(0),
+                is_thinking: col.is_thinking,
+                cpu_offloaded: col.cpu_offloaded,
+                ctx_ceiling: col.ctx_ceiling,
+                think_preset,
             }
         })
         .collect()
@@ -331,7 +341,7 @@ pub fn assess_report(report: &BatchReport, profile: &ReadinessProfile) -> Vec<Mo
         .iter()
         .flat_map(|col| {
             // No hardware path: VRAM unmeasured, cliff NotProbed, no quant registry, no siblings.
-            verdicts_for_column(col, None, false, CliffStatus::NotProbed, None, None, profile, &[])
+            verdicts_for_column(col, None, false, CliffStatus::NotProbed, None, None, profile, &[], report.think_preset.unwrap_or_default())
         })
         .collect()
 }

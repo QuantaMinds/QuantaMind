@@ -8,6 +8,11 @@ import { FailureTrackerSchema } from "./batch";
 export const TierSchema = z.enum(["easy", "medium", "hard", "extreme"]);
 export type Tier = z.infer<typeof TierSchema>;
 
+/// The reasoning Thinking-Budget preset (mirror of the Rust `ThinkPreset`, `snake_case`
+/// serialized). Sizes a reasoning model's `<think>` scratchpad allowance; `standard` by default.
+export const ThinkPresetSchema = z.enum(["lean", "standard", "deep"]);
+export type ThinkPreset = z.infer<typeof ThinkPresetSchema>;
+
 /// Tier → locked Pass^k (mirror of Rust `pass_k_for` in `passk.rs` — that is the
 /// source of truth; keep these in sync). Drives the eval page's read-only `k` field
 /// when a difficulty tier is selected, so the displayed `k` matches what the backend
@@ -138,6 +143,15 @@ export const ModelVerdictSchema = z.object({
   // sends them (serde default 0). Absent/0 total → rendered "N/A".
   passes: z.number().int().optional(),
   total_runs: z.number().int().optional(),
+  // Reasoning-budget context (mirror of the Rust `ModelVerdict` fields). `is_thinking` flags a
+  // reasoning model (its token `effort` isn't comparable to a terse model's); `think_preset` is the
+  // scratchpad-allowance preset; `ctx_ceiling` the hardware-adaptive window; `cpu_offloaded` whether
+  // Ollama spilled it to CPU. `.optional()` (like `passes`/`total_runs`) so fixtures/pre-fix payloads
+  // omit them; the Rust side always sends them (serde default). Absent → treated as terse/standard.
+  is_thinking: z.boolean().optional(),
+  cpu_offloaded: z.boolean().optional(),
+  ctx_ceiling: z.number().int().nullish(),
+  think_preset: ThinkPresetSchema.optional(),
 });
 export type ModelVerdict = z.infer<typeof ModelVerdictSchema>;
 

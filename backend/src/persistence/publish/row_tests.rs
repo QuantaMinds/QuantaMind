@@ -29,6 +29,10 @@ fn verdict(model: &str, pass_k: Option<f64>, quant: Option<&str>) -> ModelVerdic
         failures: FailureTracker { hallucinated_completions: 2, forbidden_calls: 1, reported_in_prose_calls: 3, ..Default::default() },
         passes: 0,
         total_runs: 0,
+        is_thinking: false,
+        cpu_offloaded: false,
+        ctx_ceiling: None,
+        think_preset: Default::default(),
     }
 }
 
@@ -83,4 +87,30 @@ fn projects_the_full_verdict_by_allowlist() {
     assert_eq!(r.failure_distribution.forbidden_calls, 1);
     assert_eq!(r.failure_distribution.reported_in_prose, 3);
     assert_eq!(r.failure_distribution.infinite_loop, 0);
+}
+
+#[test]
+fn reasoning_budget_projects_the_real_scratchpad_cap_at_the_tested_tier() {
+    use crate::inference::eval::agentic::difficulty::passk::{think_tokens_for_preset, ThinkPreset};
+    let ctx = PublishContext::test_ctx("apple-silicon/m3-pro/32-64gb", "0.2.0");
+
+    // A reasoning model at Deep: think_budget is the REAL scratchpad cap for the tested tier
+    // (Medium, the highest in by_tier), never fabricated. is_thinking/ctx_ceiling/preset carry through.
+    let mut thinking = verdict("qwen-thinking", Some(0.8), Some("Q4_K_M"));
+    thinking.is_thinking = true;
+    thinking.think_preset = ThinkPreset::Deep;
+    thinking.ctx_ceiling = Some(32768);
+    thinking.cpu_offloaded = true;
+    let r = PublishRow::project(&thinking, &ctx).expect("measured built-in projects");
+    assert!(r.is_thinking);
+    assert_eq!(r.think_preset, ThinkPreset::Deep);
+    assert_eq!(r.think_budget, Some(think_tokens_for_preset(Tier::Medium, ThinkPreset::Deep)));
+    assert_eq!(r.ctx_ceiling, Some(32768));
+    assert!(r.cpu_offloaded);
+
+    // A terse model NEVER gets a fabricated budget — think_budget is None.
+    let terse = verdict("llama-terse", Some(0.8), Some("Q4_K_M"));
+    let r = PublishRow::project(&terse, &ctx).expect("measured built-in projects");
+    assert!(!r.is_thinking);
+    assert_eq!(r.think_budget, None);
 }

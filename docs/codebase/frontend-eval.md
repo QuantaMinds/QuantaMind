@@ -143,6 +143,9 @@ The timeline splits them with the pure helper `groupStepsByRun(steps)` and rende
 each run as a **collapsible "Run N of K" section** with a PASS/FAIL/RUNNING chip
 (`runPassed` — terminal step is `end_state_reached`; the last group reads RUNNING
 while `running` since runs execute sequentially) and its own per-run turn numbering.
+The run header also shows a **🧠 N thinking** badge — `runThinkingTokens` sums the
+per-turn measured `reasoning_tokens` across the run (a reasoning model only; hidden at
+0, never a fabricated N/A) so the user sees how much the model thought to reach the result.
 Default-expanded run = the first completed-and-failed run, else the first; user
 toggles are tracked per `run_index` and reset on task/model change. Without this,
 k single-step runs rendered as ambiguous duplicate "TURN 1 / Sandbox Response

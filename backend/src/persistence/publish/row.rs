@@ -1,4 +1,4 @@
-use crate::inference::eval::agentic::difficulty::passk::pass_k_for;
+use crate::inference::eval::agentic::difficulty::passk::{pass_k_for, think_tokens_for_preset, ThinkPreset};
 use crate::inference::eval::agentic::scoring::report::FailureTracker;
 use crate::inference::eval::agentic::spec::Tier;
 use crate::inference::eval::readiness::hardware::hwclass::HardwareClass;
@@ -8,9 +8,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// The publish-payload schema version, stamped on every row so the server can parse
-/// old submissions as the shape evolves. `1` = the first stamped version (the Phase 9
-/// extension that added the tier verdict, per-tier curve, and failure distribution).
-pub const PUBLISH_SCHEMA_VERSION: u32 = 1;
+/// old submissions as the shape evolves. `1` = the Phase 9 extension (tier verdict,
+/// per-tier curve, failure distribution). `2` = the reasoning-budget extension
+/// (is_thinking, think_preset, think_budget, ctx_ceiling, cpu_offloaded).
+pub const PUBLISH_SCHEMA_VERSION: u32 = 2;
 
 /// The metrics actually published — the few aggregates the leaderboard ranks and
 /// the baseline worker percentiles. `pass_k` is the required headline reliability
@@ -124,6 +125,19 @@ pub struct PublishRow {
     pub recommended_tier: Tier,
     pub by_tier: Vec<TierMetric>,
     pub failure_distribution: FailureDistribution,
+    // Reasoning-budget context — so the board can interpret the token `effort` and the
+    // per-tier reliability of a reasoning model (a thinking model legitimately spends far
+    // more tokens; a small box gets a smaller window). All measured, never fabricated.
+    pub is_thinking: bool,
+    pub think_preset: ThinkPreset,
+    /// The reasoning-scratchpad token cap at the tier tested — real when the model reasons,
+    /// `None` for a terse model (never a fake 0). Omitted from the wire when `None`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub think_budget: Option<u32>,
+    /// The hardware-adaptive `num_ctx` ceiling the run used. Omitted when unrecorded.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ctx_ceiling: Option<u32>,
+    pub cpu_offloaded: bool,
     // Collection identity + provenance — so results are only compared across an
     // identical scenario set, and the board can dedup/verify by build.
     pub collection_name: String,
@@ -156,6 +170,13 @@ impl PublishRow {
             })
             .collect();
         let tier_tested = v.by_tier.iter().map(|ts| ts.tier).max();
+        // The reasoning-scratchpad token cap at the tier tested — the honest "how much room did it
+        // get to think" number. Only for a reasoning model at a tested tier; `None` (never a fake 0)
+        // for a terse model or an untiered run.
+        let think_budget = v
+            .is_thinking
+            .then(|| tier_tested.map(|t| think_tokens_for_preset(t, v.think_preset)))
+            .flatten();
 
         Some(PublishRow {
             model: v.model.clone(),
@@ -172,6 +193,11 @@ impl PublishRow {
             recommended_tier: ctx.recommended_tier,
             by_tier,
             failure_distribution: FailureDistribution::from_tracker(&v.failures),
+            is_thinking: v.is_thinking,
+            think_preset: v.think_preset,
+            think_budget,
+            ctx_ceiling: v.ctx_ceiling,
+            cpu_offloaded: v.cpu_offloaded,
             collection_name: ctx.collection_name.clone(),
             collection_hash,
             schema_version: PUBLISH_SCHEMA_VERSION,
@@ -232,6 +258,11 @@ impl PublishRow {
                 turn_timeouts: 0,
                 reported_in_prose: 0,
             },
+            is_thinking: false,
+            think_preset: ThinkPreset::default(),
+            think_budget: None,
+            ctx_ceiling: None,
+            cpu_offloaded: false,
             collection_name: "easy-coding".to_string(),
             collection_hash: "abc".to_string(),
             schema_version: PUBLISH_SCHEMA_VERSION,

@@ -321,6 +321,17 @@ the UI still shows the reasoning. The flag is carried onto `BatchColumn`/`RunSum
 because a thinking model's `effort` (output tokens) is higher by design and must not
 be ranked against a terse model's.
 
+**Reasoning-budget context on the verdict + publish.** `BatchColumn` also carries the
+per-model `cpu_offloaded` and hardware-adaptive `ctx_ceiling` (stamped by `batch_cmd`
+after the run from the placement probe + `agentic_ctx_ceiling` band), and `BatchReport`
+carries the batch-wide `think_preset` (Lean/Standard/Deep). `verdicts_for_column` threads
+all four (`is_thinking`, `cpu_offloaded`, `ctx_ceiling`, `think_preset`) onto every
+`ModelVerdict`, so the Agent Report shows the thinking budget and the publish payload can
+carry it (`PublishRow` schema v2; `think_budget` = `think_tokens_for_preset(tier_tested,
+preset)` for a reasoning model). The runner also populates each step's `reasoning_tokens`
+from the measured generated-token count on a thinking turn (not just on a `Truncated`/
+`ReasoningOverrun` turn), so the Trace Debugger can sum "how much it thought" per run.
+
 ### File: `mod.rs`
 - Declares `build, context, endstate, model_turn, report, runner, sandbox, spec, step`.
 
