@@ -86,14 +86,20 @@ pub enum ThinkPreset {
 /// Hard 414 (max 1083) — with ZERO `finish=length` on all three backends. That validates CONSISTENCY
 /// (two near-identical points) + that these caps hold for Qwen-coding — it does NOT validate the
 /// two things §5 exists for:
-///   • CROSS-FAMILY spread (~2.5×): both models are Qwen; a genuinely different family (a
-///     DeepSeek-R1 distill, GLM, …) — which reason far longer — is UNTESTED.
+///   • CROSS-FAMILY spread: PARTIALLY tested. gemma-4-12b (Google — a genuinely different family)
+///     measured ~2.7–5.7× MORE reasoning than qwen on the SAME tiers (coding est-tokens Medium
+///     1,935 / Hard 1,102 vs qwen 341 / 414), and Standard STILL held it (Med 32% / Hard 11% of
+///     budget). This CONFIRMS the ~2.5× spread is real (larger, even) and that trimming toward the
+///     qwen P95 would have TRUNCATED gemma-4 — the margin is empirically justified, not wasteful.
+///     Caveat: single-sample proxy prompts via Ollama, not the full harness distribution; an even
+///     chattier family (gpt-oss-20b) OOM'd on this 16GB box and stays untested.
 ///   • EXTREME: no histogram row exists for it; it's the longest-horizon, highest-reasoning tier,
 ///     the one most likely to blow a budget, and it was never run.
 /// So the caps are KEPT (a constraint-heavy task already measured ~3,700 ≈ 9× the coding P95, and
 /// math/Extreme/chatty-family all reason MORE — trimming toward the coding P95 would re-introduce
 /// the truncation bug). But "sized right for the population" is UNPROVEN until a different family +
-/// Extreme + math are measured. Do not read the zero-truncation coding result as settling Extreme.
+/// Extreme + math + the full harness distribution are measured. Do not read the zero-truncation
+/// coding result — or the single-sample gemma-4 check — as settling Extreme.
 /// Fixed per tier, never hardware-scaled (see above).
 pub fn think_tokens_for_preset(tier: Tier, preset: ThinkPreset) -> u32 {
     use ThinkPreset::*;
