@@ -22,7 +22,12 @@ export function Workspace() {
   const patch = useWorkspacesStore((s) => s.patch);
   const selectedModels = useSelectedModelStore((s) => s.selectedModels);
   const noLlmRunning = useBackendStore(
-    (s) => s.ollamaHealthy !== true && s.llamaHealthy !== true && s.mlxHealthy !== true,
+    (s) =>
+      s.ollamaHealthy !== true &&
+      s.llamaHealthy !== true &&
+      s.mlxHealthy !== true &&
+      s.vllmHealthy !== true &&
+      s.sglangHealthy !== true,
   );
   // STT takes precedence when its server is running → two-pane transcribe mode.
   const sttRunning = useSttRuntimeStore(runningSttEngine);

@@ -4,6 +4,7 @@ import {
   setUserSettings,
   type UserSettings,
 } from "../../../shared/ipc/settings/userSettings";
+import { useInstalledModelsStore } from "../../models/state/installedModelsStore";
 
 type SaveState = "idle" | "saving" | "saved" | "error";
 
@@ -30,6 +31,10 @@ export function RemoteBackendsSection() {
     setSave("saving");
     try {
       await setUserSettings(settings);
+      // The saved URL/key just changed which remote models are reachable — refetch
+      // so the header picker reflects the new endpoint (health-edge refresh only
+      // fires when reachability flips; a same-state URL change wouldn't trigger it).
+      await useInstalledModelsStore.getState().refresh();
       setSave("saved");
     } catch (e) {
       console.error("settings save failed:", e);

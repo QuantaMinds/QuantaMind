@@ -13,7 +13,7 @@ import { useSelectedModelStore } from "../../../../shared/state/selectedModelSto
 beforeEach(() => {
   vi.clearAllMocks();
   // A healthy LLM so the run surface (not the setup guide) renders by default.
-  useBackendStore.setState({ selectedBackend: "ollama", ollamaHealthy: true, llamaHealthy: null, mlxHealthy: null });
+  useBackendStore.setState({ selectedBackend: "ollama", ollamaHealthy: true, llamaHealthy: null, mlxHealthy: null, vllmHealthy: null, sglangHealthy: null });
   useSelectedModelStore.setState({ selectedModels: [] });
   useWorkspacesStore.setState({
     root: "/ws", tree: [], currentPath: "/ws/a.quantamind.yaml",
@@ -55,6 +55,20 @@ describe("Workspace (adaptive run surface)", () => {
     expect(screen.getByTestId("backend-setup-guide")).toBeInTheDocument();
     expect(screen.getByTestId("setup-engine-ollama")).toBeInTheDocument();
     expect(screen.queryByTestId("run-status")).toBeNull();
+  });
+
+  it("a healthy remote backend (vLLM) also shows the run surface, not the setup guide", () => {
+    useBackendStore.setState({
+      selectedBackend: "vllm",
+      ollamaHealthy: false,
+      llamaHealthy: false,
+      mlxHealthy: false,
+      vllmHealthy: true,
+    });
+    useSelectedModelStore.setState({ selectedModels: [{ name: "Qwen/Qwen2.5-7B-Instruct-AWQ", backend: "vllm", size_bytes: 0 }] });
+    render(<Workspace />);
+    expect(screen.queryByTestId("backend-setup-guide")).toBeNull();
+    expect(screen.getByTestId("run-status")).toBeInTheDocument();
   });
 
   it("a running LLM switches from the guide to the run surface", () => {
