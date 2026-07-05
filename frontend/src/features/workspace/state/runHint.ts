@@ -4,6 +4,8 @@ export interface BackendHealth {
   ollama: boolean | null;
   llama: boolean | null;
   mlx: boolean | null;
+  vllm: boolean | null;
+  sglang: boolean | null;
 }
 
 /// The blocking hint shown on the Run button when the active backend (= the
@@ -14,5 +16,9 @@ export function backendRunHint(backend: BackendKind, health: BackendHealth): str
   if (backend === "ollama") return health.ollama === false ? "Start Ollama first" : null;
   if (backend === "llama_cpp") return health.llama === true ? null : "Start llama.cpp to run this model";
   if (backend === "mlx") return health.mlx === true ? null : "Start the MLX backend to run this model";
+  if (backend === "vllm")
+    return health.vllm === true ? null : "Set the vLLM server URL in Settings and start it";
+  if (backend === "sglang")
+    return health.sglang === true ? null : "Set the SGLang server URL in Settings and start it";
   return null;
 }

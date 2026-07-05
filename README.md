@@ -4,7 +4,7 @@
 
 **The pre-deployment gate for local AI agents.**
 
-Benchmark any **Ollama**, **llama.cpp**, or **MLX** model for *agentic readiness* on your own hardware — and get a **Ready / Conditional / Not Ready** verdict before you wire it into an agent. Nothing leaves the machine.
+Benchmark any **Ollama**, **llama.cpp**, or **MLX** model for *agentic readiness* on your own hardware — and get a **Ready / Conditional / Not Ready** verdict before you wire it into an agent. Runs fully local by default (nothing leaves the machine); optionally point it at a **remote vLLM or SGLang** GPU server when you need to bench a model bigger than your box.
 
 <sub>Local-first · No telemetry · No account · pass^k scoring · hardware-aware · one ~30 MB binary</sub>
 
@@ -131,6 +131,7 @@ Open the **Tests** tab, pick your model, run a built-in agentic collection for y
 | **Ollama** | latest | required — the default backend |
 | **llama.cpp** (`llama-server`) | latest | optional — run GGUF models directly |
 | **MLX** (`pip install mlx-lm`) | latest | optional — Apple Silicon only |
+| **vLLM** / **SGLang** | latest | optional — a **remote** OpenAI-compatible GPU server; set its URL (+ `--api-key`) in Settings |
 | **whisper.cpp** | latest | optional — speech-to-text (`brew install whisper-cpp`) |
 
 </details>
@@ -257,7 +258,7 @@ Tauri 2.x + Rust + React 18 + TypeScript 5 + Vite + Tailwind + Zustand. These ch
 └─────────────────────┬────────────────────────┘
                       │  HTTP
                       ▼
-          Ollama · llama.cpp · MLX  (local)
+    Ollama · llama.cpp · MLX  (local)   ·   vLLM · SGLang  (remote GPU)
 ```
 
 The two halves talk JSON over Tauri's IPC — contracts explicit in `shared/ipc/types.ts`, mirrored in Rust, no codegen. `shared/ipc/` is the **only** place that calls `invoke`. Each file is single-concern; each module owns one responsibility.
@@ -316,7 +317,7 @@ Contributions welcome. The engineering principles are non-negotiable — start w
 > QuantaMind is local-first by design.
 
 - **No telemetry, no account** — no analytics SDK, no crash reporting, no tracking. Runs offline once a model is installed.
-- **Network calls limited to** local model servers (`localhost:11434` Ollama, `127.0.0.1:8093` whisper.cpp, dynamic llama/MLX ports) and `huggingface.co` (only when you actively browse/install).
+- **Network calls limited to** local model servers (`localhost:11434` Ollama, `127.0.0.1:8093` whisper.cpp, dynamic llama/MLX ports) and `huggingface.co` (only when you actively browse/install). The one exception is **opt-in**: if you configure a remote vLLM/SGLang server in Settings, prompts you run on that backend are sent to the URL you entered (empty by default).
 - **Speech-to-text is offline-only** — a loopback-only probe; a down local server fails loud rather than silently falling back.
 - **No silent shell edits** — changing `OLLAMA_MODELS` *generates* the export command; it never edits your shell profile.
 - **Tauri sandboxing** — the webview can only call IPC commands explicitly registered in `backend/capabilities/`.
@@ -345,7 +346,7 @@ No. QuantaMind consumes pre-trained models; training is out of scope.
 <details>
 <summary><b>Why Ollama and not llama.cpp directly?</b></summary>
 
-Ollama gives a clean HTTP API, a stable storage convention, and handles GPU plumbing. It's no longer the only backend, though — llama.cpp (`llama-server`) and MLX (`mlx_lm`, Apple Silicon) adapters ship alongside it, all behind one `InferenceBackend` trait.
+Ollama gives a clean HTTP API, a stable storage convention, and handles GPU plumbing. It's no longer the only backend, though — llama.cpp (`llama-server`) and MLX (`mlx_lm`, Apple Silicon) run locally, and vLLM / SGLang connect to a remote OpenAI-compatible GPU server (URL + optional API key set in Settings) — all behind one `InferenceBackend` trait.
 
 </details>
 

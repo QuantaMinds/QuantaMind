@@ -1,8 +1,8 @@
 use crate::inference::generate::generate_stats::GenerateStats;
-use crate::inference::mlx::mlx_chunk::Usage;
+use crate::inference::openai::chat_chunk::Usage;
 
-/// Map mlx_lm.server's `usage` to `GenerateStats`. The server reports token
-/// counts only — no per-phase timing — so every `*_ms` field stays `None`
+/// Map an OpenAI-compatible `usage` block to `GenerateStats`. These servers report
+/// token counts only — no per-phase timing — so every `*_ms` field stays `None`
 /// ("not available"); absent usage yields the all-`None` default. TTFT and
 /// tokens/sec come from the client-side `RunTiming`, not from here.
 pub fn from_usage(usage: Option<Usage>) -> GenerateStats {

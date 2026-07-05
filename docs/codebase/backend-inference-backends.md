@@ -124,31 +124,52 @@ pub trait InferenceBackend {
 - **Responsibility:** The closed set of engines a model can be served by.
 - **Why:** Surfaces over IPC as `ModelInfo.backend` and is the *only* selector
   for dispatch — backend identity is a property of the model, not a runtime choice.
-- **What:** `enum BackendKind { Ollama (default), LlamaCpp, Mlx }`,
-  `#[serde(rename_all = "snake_case")]` so it round-trips to TS as
-  `"ollama" | "llama_cpp" | "mlx"`.
+- **What:** `enum BackendKind { Ollama (default), LlamaCpp, Mlx, VLlm, SgLang }`,
+  `#[serde(rename_all = "snake_case")]` — with per-variant `#[serde(rename)]` on the
+  last two so they round-trip to TS as `"ollama" | "llama_cpp" | "mlx" | "vllm" |
+  "sglang"` (not `"v_llm"`/`"sg_lang"`). `VLlm`/`SgLang` are **remote** OpenAI
+  servers (a GPU box); the rest are local.
 - **How/Where used:** Set at discovery (`llama_discover`, `mlx_discover`, Ollama
-  tags); matched in `run_prompt_inner` and compare dispatch.
+  tags, and the remote `/v1/models` query); matched in `run_prompt_inner`, eval, and
+  compare dispatch.
 
 #### File: `inference/backend/endpoint.rs`
-- **Responsibility:** Default HTTP base URL per backend, with deliberately
-  non-colliding ports.
-- **Why:** All three (plus the STT whisper sidecar) may run at once. llama-server
-  sits on **8081 not 8080** specifically so a stray `mlx_lm.server` (whose
-  default is 8080) can't shadow it — that exact collision made llama's `/health`
-  pass while inference 404'd.
+- **Responsibility:** Resolve a backend to its base URL + optional bearer token,
+  with deliberately non-colliding local ports.
+- **Why:** The local sidecars (plus the STT whisper sidecar) may run at once.
+  llama-server sits on **8081 not 8080** specifically so a stray `mlx_lm.server`
+  (default 8080) can't shadow it — that exact collision made llama's `/health` pass
+  while inference 404'd. The remote backends have no static default: their URL comes
+  from `UserSettings` via `remote_config`.
 - **What:** consts `OLLAMA` (11434), `LLAMA_SERVER` (8081), `MLX_SERVER` (8082),
-  `WHISPER_SERVER` (8093); `fn default_for(BackendKind) -> &'static str`.
-- **How/Where used:** `prompt.rs` for non-MLX endpoints; health probes; the MLX
-  default before a dynamic port is assigned. (WHISPER_SERVER is *not* in
-  `default_for` — STT is a parallel capability, not a `BackendKind`.)
+  `WHISPER_SERVER` (8093); `struct ResolvedEndpoint { url, api_key }`;
+  `fn resolve(BackendKind) -> AppResult<ResolvedEndpoint>` (local = static/dynamic
+  URL + no auth; MLX reads its dynamic port; vLLM/SGLang read `remote_config` and
+  **error clearly when the URL is unset** — "set it in Settings", not an opaque
+  connect error); `fn base_url(BackendKind) -> String` (url only, infallible — an
+  unconfigured remote yields `""`, which probes treat as unavailable).
+- **How/Where used:** `prompt.rs` resolves up front (so an unconfigured remote fails
+  before the run token spins up); compare/eval `endpoint_for` helpers call `base_url`;
+  health/discovery. (WHISPER_SERVER is *not* a `BackendKind` — STT is parallel.)
 
 ```rust
 pub const OLLAMA: &str = "http://localhost:11434";
 pub const LLAMA_SERVER: &str = "http://localhost:8081"; // NOT 8080
 pub const MLX_SERVER: &str = "http://localhost:8082";
-pub fn default_for(kind: BackendKind) -> &'static str { /* match … */ }
+pub struct ResolvedEndpoint { pub url: String, pub api_key: Option<String> }
+pub fn resolve(kind: BackendKind) -> AppResult<ResolvedEndpoint> { /* local statics; remote from remote_config */ }
+pub fn base_url(kind: BackendKind) -> String { resolve(kind).map(|r| r.url).unwrap_or_default() }
 ```
+
+#### File: `inference/backend/remote_config.rs`
+- **Responsibility:** Hold the user-configured remote endpoints (vLLM/SGLang) as a
+  process-global — the same pattern as `mlx/server/mlx_endpoint.rs`.
+- **Why:** vLLM/SGLang run on a remote GPU, so their URL + optional bearer key are
+  user settings, and `inference/` can't read Tauri state. The settings command layer
+  pushes them here on load and on every save; `endpoint::resolve` reads them.
+- **What:** `struct RemoteEndpoint { url, api_key }`; `set_vllm/vllm`,
+  `set_sglang/sglang` (setters trim blanks to `None` so an empty Settings field reads
+  as "unconfigured").
 
 ---
 
@@ -375,7 +396,7 @@ impl GenerateChunk {
   `parse_chat`. Reads `choices[0].message.{content, tool_calls[].function.{name,
   arguments}}`; reuses `normalize_args` because llama.cpp builds disagree on
   string-vs-object `arguments` (verified live: gemma returns the string form).
-  Usage → stats via `mlx_stats::from_usage`.
+  Usage → stats via the shared `openai::chat_stats::from_usage`.
 - **Why:** so a llama.cpp native turn canonicalizes tool calls byte-identically
   to Ollama's — `NativeToolTurn` (`agentic/model_turn.rs`) dispatches the right
   `chat_with_tools` by `BackendKind`; a new server adds one arm.
@@ -462,25 +483,34 @@ GenerateStats {
 
 ---
 
-### `inference/mlx/`
+### `inference/openai/` — shared OpenAI-compatible SSE codec
 
-`mlx_lm.server` on Apple Silicon; **multi-model** (the model id *is* sent),
-OpenAI-compatible SSE.
+The `/v1/chat/completions` streaming wire, shared by **every** backend that
+speaks it: mlx_lm.server, vLLM, and SGLang (llama.cpp reuses the chunk/stats
+types on its own primary chat path). Each server is **multi-model** (the model id
+*is* sent) and streams SSE. Extracted here (rather than living inside `inference/mlx/`)
+so a new OpenAI-wire backend is one thin adapter over this codec — no cross-backend
+`mlx::…` import.
 
-#### File: `inference/mlx/mlx.rs`
-- **Responsibility:** Stream `/v1/chat/completions` (OpenAI SSE).
-- **Why:** Also serves as llama.cpp's `/completion`-404 fallback (same wire).
-- **What:** `stream_generate(...)`. Notable: the initial `.send()` is **raced
-  against `cancel`** (`tokio::select! { biased; cancel … ; send … }`) because a
-  wedged MLX server (e.g. a non-chat model loaded) can accept the TCP connection
-  but never return response headers, blocking `.send()` forever. Terminates on a
-  choice's `finish_reason`, a `[DONE]` line, or cancel.
+#### File: `inference/openai/chat_stream.rs`
+- **Responsibility:** Stream `/v1/chat/completions` (OpenAI SSE) for any such server.
+- **What:** `stream_generate(endpoint, api_key: Option<&str>, model, prompt,
+  system, options, think, cancel, on_token)`. When `api_key` is `Some`, attaches
+  `Authorization: Bearer` (remote vLLM/SGLang launched with `--api-key`); local
+  mlx_lm.server passes `None`. The initial `.send()` is **raced against `cancel`**
+  (`tokio::select! { biased; cancel … ; send … }`) because a wedged server (e.g. a
+  non-chat model loaded) can accept the TCP connection but never return response
+  headers, blocking `.send()` forever. Terminates on a choice's `finish_reason`, a
+  `[DONE]` line, or cancel. A reasoning model's `delta.reasoning`/`reasoning_content`
+  is re-wrapped as inline `<think>…</think>`.
 
 ```rust
+let mut req = client.post(format!("{endpoint}/v1/chat/completions")).json(&body);
+if let Some(key) = api_key.filter(|k| !k.is_empty()) { req = req.bearer_auth(key); }
 let resp = tokio::select! {
     biased;
     _ = cancel.cancelled() => return Ok(GenerateStats::default()),
-    r = send => r.map_err(/* Timeout on connect, else Inference */)?,
+    r = req.send() => r.map_err(/* Timeout on connect, else Inference */)?,
 };
 // stream loop:
 let payload = strip_sse(&line);
@@ -494,28 +524,44 @@ if let Some(choice) = chunk.choices.into_iter().next() {
 }
 ```
 
-#### File: `inference/mlx/mlx_backend.rs`
-- **What:** `struct MlxBackend { endpoint, model }`; `impl InferenceBackend`.
-  Unlike llama, `spec.model` **is** sent; `keep_alive` has no MLX equivalent.
-
-#### File: `inference/mlx/mlx_wire.rs`
+#### File: `inference/openai/chat_request.rs`
+- **Gotcha (verified live):** the request sets `stream_options.include_usage:true`.
+  vLLM/SGLang **omit `usage` from streamed chunks** without it (token counts came
+  back `None`), and they send that `usage` in a **separate trailing chunk** (choices
+  `[]`) *after* the `finish_reason` chunk — so `chat_stream` records the finish reason
+  but keeps reading until `[DONE]` rather than returning early. mlx_lm.server puts
+  usage on the finish chunk and tolerates the flag, so it's unaffected.
 - **What:** `ChatRequest` (OpenAI shape: `model`, `messages`, `stream:true`,
   `max_tokens` ← `num_predict`, `temperature`, `top_p`, `top_k`,
-  `repetition_penalty` ← `repeat_penalty`). System text becomes a `system`
-  message. **No `seed`** — mlx_lm.server has no seed field, so MLX runs aren't
-  seed-reproducible and the seed is intentionally dropped.
+  `repetition_penalty` ← `repeat_penalty`, `chat_template_kwargs.enable_thinking`).
+  System text becomes a `system` message. **No `seed`** — mlx_lm.server has no seed
+  field, so these runs aren't seed-reproducible and the seed is intentionally dropped
+  (vLLM/SGLang accept the same body; unknown template kwargs are dropped by jinja).
 
-#### File: `inference/mlx/mlx_chunk.rs`
+#### File: `inference/openai/chat_chunk.rs`
 - **What:** `ChatChunk { choices, usage }`, `Choice { delta, finish_reason }`,
-  `Delta { content }`, `Usage { prompt_tokens, completion_tokens, total_tokens
-  }` (all optional — usage is version-dependent and may never arrive);
-  `strip_sse(line)`.
+  `Delta { content, reasoning }`, `Usage { prompt_tokens, completion_tokens,
+  total_tokens }` (all optional — usage is version-dependent and may never arrive);
+  `strip_sse(line)`. The reasoning field accepts both `reasoning` (mlx_lm.server)
+  and `reasoning_content` (vLLM/SGLang) via `#[serde(alias)]`.
 
-#### File: `inference/mlx/mlx_stats.rs`
+#### File: `inference/openai/chat_stats.rs`
 - **What:** `from_usage(Option<Usage>) -> GenerateStats` — maps token counts
-  only; **every `*_ms` field stays `None`** (MLX reports no per-phase timing).
-  Absent usage → all-`None` default. TTFT/tok/s come from the client-side
+  only; **every `*_ms` field stays `None`** (these servers report no per-phase
+  timing). Absent usage → all-`None` default. TTFT/tok/s come from the client-side
   `RunTiming`, not here.
+
+### `inference/mlx/`
+
+`mlx_lm.server` on Apple Silicon; **multi-model**, OpenAI-compatible SSE — the wire
+codec is the shared `inference/openai/` module above; this dir holds only the
+adapter + Apple-Silicon gate + process management.
+
+#### File: `inference/mlx/mlx_backend.rs`
+- **What:** `struct MlxBackend { endpoint, model }`; `impl InferenceBackend`.
+  Delegates to `openai::chat_stream::stream_generate` with `api_key: None` (local,
+  unauthenticated). Unlike llama, `spec.model` **is** sent; `keep_alive` has no MLX
+  equivalent.
 
 #### File: `inference/mlx/mod.rs`
 - **What:** `mlx_supported() -> bool` — the single `cfg!(all(macos, aarch64))`
@@ -592,6 +638,27 @@ pub fn mlx_endpoint() -> String {
 | Lifecycle owner | not ours (track only an app-spawned pid) | `LlamaServerState` (one `Child`) | `MlxServerState` (one `Child` + phase/tail) |
 | Readiness | poll `/api/tags` ≤10s | poll `/health` ≤30s (blocking start) | **non-blocking**; UI polls health + `mlx_server_status` |
 | Reproducible seed? | yes | yes | **no** (no seed field) |
+
+### Remote backends — vLLM (`VLlm`) & SGLang (`SgLang`)
+
+Both are **remote** OpenAI-compatible GPU servers (e.g. a GCP L4), so they differ
+from the three local backends on exactly the axes that matter:
+
+- **Not app-managed.** No spawn/reap/port/ownership guards, no `*ServerState`, no
+  `app_lifecycle` entry — the app only points an HTTP client at a URL.
+- **Endpoint + auth from Settings.** URL + optional `Authorization: Bearer` come from
+  `UserSettings` via `remote_config`; `endpoint::resolve` errors clearly when unset.
+- **Same wire as MLX.** OpenAI SSE `/v1/chat/completions` via the shared
+  `inference/openai/` codec (multi-model, `usage`-only stats, no seed). Native
+  tool-calls via `openai::chat_tools` (bearer). Adapters: `inference/vllm/vllm_backend.rs`,
+  `inference/sglang/sglang_backend.rs`.
+- **Health/discovery** via `commands/remote/` (`GET /v1/models` with bearer). The
+  `model.backend` binding is **server-sourced** (`/v1/models`), so it never collides
+  with MLX's disk-sourced safetensors discovery.
+
+This is a deliberate exception to the app's local-first posture (see the ADR under
+`docs/adr/`); note the STT loopback guard (`stt_probe.rs`) is STT-specific and does
+**not** apply to the LLM path.
 
 ---
 

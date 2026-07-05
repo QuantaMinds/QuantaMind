@@ -479,7 +479,10 @@ pub struct UnfinishedRun {
 pub(crate) async fn probe_native_tools(backend: BackendKind, endpoint: &str, model: &str) -> bool {
     match backend {
         BackendKind::Ollama => probe_supports_tools(endpoint, model).await,
-        BackendKind::LlamaCpp => true,
+        // llama.cpp (`--jinja`) and the remote OpenAI servers apply the model's
+        // tool grammar; a template lacking tool support simply yields no
+        // `tool_calls`, which the harness labels honestly.
+        BackendKind::LlamaCpp | BackendKind::VLlm | BackendKind::SgLang => true,
         BackendKind::Mlx => false,
     }
 }

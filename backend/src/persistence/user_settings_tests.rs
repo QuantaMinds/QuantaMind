@@ -25,6 +25,10 @@ fn round_trip_preserves_fields() {
         last_update_check_at: Some("2026-05-27T10:00:00Z".into()),
         models_folder: Some("/models/shared".into()),
         stt_engine_dir: Some("/opt/homebrew/bin".into()),
+        vllm_url: Some("http://34.10.20.30:8000".into()),
+        vllm_api_key: Some("secret-vllm".into()),
+        sglang_url: Some("http://34.10.20.30:30000".into()),
+        sglang_api_key: Some("secret-sglang".into()),
     };
     save(&p, &s).unwrap();
     assert_eq!(load(&p).unwrap(), s);

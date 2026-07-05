@@ -19,6 +19,8 @@ export function StatusBar({ model, onModelClick }: Props) {
   const activeBackend = useBackendStore((s) => s.selectedBackend);
   const llamaHealthy = useBackendStore((s) => s.llamaHealthy);
   const mlxHealthy = useBackendStore((s) => s.mlxHealthy);
+  const vllmHealthy = useBackendStore((s) => s.vllmHealthy);
+  const sglangHealthy = useBackendStore((s) => s.sglangHealthy);
   const [health, setHealth] = useState<HealthStatus | null>(null);
 
   useEffect(() => {
@@ -46,6 +48,8 @@ export function StatusBar({ model, onModelClick }: Props) {
     health,
     llamaHealthy,
     mlxHealthy,
+    vllmHealthy,
+    sglangHealthy,
     model,
   );
   const dotClass = running ? "bg-green-500" : "bg-red-500";

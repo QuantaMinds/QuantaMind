@@ -24,6 +24,22 @@ pub struct UserSettings {
     /// `whisper_dir`, ahead of PATH/Homebrew discovery.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stt_engine_dir: Option<String>,
+    /// Base URL of a remote vLLM OpenAI-compatible server (e.g.
+    /// `http://34.10.20.30:8000`). vLLM/SGLang run on a remote GPU, so — unlike the
+    /// localhost sidecars — their endpoint is user-configured. Empty/unset ⇒ the
+    /// vLLM backend reports "not configured".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vllm_url: Option<String>,
+    /// Bearer token for the vLLM server, if it was launched with `--api-key`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vllm_api_key: Option<String>,
+    /// Base URL of a remote SGLang OpenAI-compatible server (e.g.
+    /// `http://34.10.20.30:30000`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sglang_url: Option<String>,
+    /// Bearer token for the SGLang server, if it was launched with `--api-key`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sglang_api_key: Option<String>,
 }
 
 pub fn load(path: &Path) -> AppResult<UserSettings> {

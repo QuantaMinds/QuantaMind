@@ -115,7 +115,7 @@ pub fn run() {
         .manage(commands::prompt::prompt::RunState::default())
         // … 16 more .manage(...) …
         .setup(|app| { /* orphan sweep + signal reaper + STT reconcile */ Ok(()) })
-        .invoke_handler(tauri::generate_handler![ /* ~123 commands */ ])
+        .invoke_handler(tauri::generate_handler![ /* ~127 commands */ ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(commands::app_lifecycle::reap_on_exit);
@@ -138,12 +138,13 @@ Notes:
 ## File: `backend/src/commands/mod.rs`
 
 **Responsibility:** the module map for all command groups. · **Why:** enforces
-the "split by concern" rule — one folder per concern, no `utils`. · **What:** 19
+the "split by concern" rule — one folder per concern, no `utils`. · **What:** 20
 `pub mod` declarations (`app_lifecycle`, `audio`, `compare`, `emit`, `eval`,
 `gguf`, `hf`, `llama`, `mlx`, `models`, `ollama`, `prompt`, `prompt_templates`,
-`publish`, `settings`, `storage`, `stt`, `system`, `workspace`). · **How/Where
-used:** every command path in `lib.rs` (`commands::<group>::<file>::<fn>`)
-resolves through here.
+`publish`, `remote`, `settings`, `storage`, `stt`, `system`, `workspace`).
+`remote` holds the vLLM/SGLang health + `/v1/models` discovery commands (one
+module, both backends). · **How/Where used:** every command path in `lib.rs`
+(`commands::<group>::<file>::<fn>`) resolves through here.
 
 ---
 
@@ -183,11 +184,12 @@ guard so disk I/O happens once.
 
 ## Command groups
 
-The `invoke_handler!` table registers **123** commands. Grouped by
+The `invoke_handler!` table registers **127** commands. Grouped by
 `commands::<module>` (counts from the registration block):
 
 | Group | # | What it does | Owning doc |
 |---|---|---|---|
+| `remote` | 4 | Remote vLLM/SGLang health + model discovery (both over `GET /v1/models`, bearer-authed). No start/stop — the servers are remote. | [backend-inference-backends.md](backend-inference-backends.md) |
 | `eval` | 29 | Eval engine: load/run tasks, tool-call eval + trace, custom/builtin collections, matrix runs, batch (run/stop/resume/discard), readiness profiles + assess, Context Stress Test. | [backend-eval-engine.md](backend-eval-engine.md) |
 | `stt` | 22 | Speech-to-text: whisper-server start/stop/health/env, model download/catalog/list/delete, transcribe + load transcript, STT eval CRUD + report, STT readiness profiles. | [backend-stt.md](backend-stt.md) |
 | `workspace` | 15 | Workspace open/close/current/tree/recent, prompt file CRUD (load/save/create/rename/delete), run history (append/list/get/clear/remove). | [backend-persistence.md](backend-persistence.md) |
@@ -474,11 +476,12 @@ tests).
 ## Inference module map — `backend/src/inference/mod.rs`
 
 Out of scope to deep-dive (per-backend docs own the internals); included as the
-map the spine sits above. `inference/mod.rs` declares 16 submodules:
+map the spine sits above. `inference/mod.rs` declares 19 submodules:
 
 `backend`, `chat`, `compare`, `create`, `eval`, `generate`, `gguf`, `hf`,
-`http`, `llama`, `mlx`, `ollama`, `pull`, `stt`, plus two leaf files
-`token_handler.rs` and `vram_math.rs`.
+`http`, `llama`, `mlx`, `ollama`, `openai` (the shared OpenAI SSE codec),
+`pull`, `sglang`, `stt`, `vllm`, plus two leaf files `token_handler.rs` and
+`vram_math.rs`.
 
 Relationship to commands: a `commands::<group>` module is the **thin** IPC layer
 (deserialize args, manage state, emit events, map errors) that delegates the real

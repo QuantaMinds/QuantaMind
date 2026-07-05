@@ -3,18 +3,22 @@ use crate::inference::generate::generate_options::GenerateOptions;
 use crate::inference::generate::generate_stats::GenerateStats;
 use crate::inference::http::http::{body_or_note, streaming_client};
 use crate::inference::http::ndjson::next_line;
-use crate::inference::mlx::mlx_chunk::{strip_sse, ChatChunk, Usage};
-use crate::inference::mlx::mlx_stats::from_usage;
-use crate::inference::mlx::mlx_wire::ChatRequest;
+use crate::inference::openai::chat_chunk::{strip_sse, ChatChunk, Usage};
+use crate::inference::openai::chat_request::ChatRequest;
+use crate::inference::openai::chat_stats::from_usage;
 use futures_util::StreamExt;
 use tokio_util::sync::CancellationToken;
 
-/// Stream a generation from an `mlx_lm.server` `/v1/chat/completions` endpoint
-/// (OpenAI-compatible SSE). Token text flows through `on_token`; the call
-/// returns when a choice reports `finish_reason`, the stream sends `[DONE]`, or
-/// `cancel` fires. mlx_lm.server is multi-model, so `model` is part of the body.
+/// Stream a generation from an OpenAI-compatible `/v1/chat/completions` endpoint
+/// (mlx_lm.server, vLLM, SGLang — all SSE, all multi-model so `model` is in the
+/// body). Token text flows through `on_token`; the call returns when a choice
+/// reports `finish_reason`, the stream sends `[DONE]`, or `cancel` fires. When
+/// `api_key` is `Some`, an `Authorization: Bearer` header is attached (remote
+/// vLLM/SGLang started with `--api-key`); local mlx_lm.server passes `None`.
+#[allow(clippy::too_many_arguments)]
 pub async fn stream_generate(
     endpoint: &str,
+    api_key: Option<&str>,
     model: &str,
     prompt: &str,
     system: Option<&str>,
@@ -31,20 +35,21 @@ pub async fn stream_generate(
         options.filter(|o| !o.is_empty()),
         think,
     );
+    let mut req = client.post(format!("{endpoint}/v1/chat/completions")).json(&body);
+    if let Some(key) = api_key.filter(|k| !k.is_empty()) {
+        req = req.bearer_auth(key);
+    }
     // Race the request against cancel: a wedged server (e.g. a non-chat model
     // loaded) can accept the connection but never send response headers, which
     // would block `.send()` indefinitely — so Cancel must interrupt here too,
     // not only inside the streaming loop below.
-    let send = client
-        .post(format!("{endpoint}/v1/chat/completions"))
-        .json(&body)
-        .send();
+    let send = req.send();
     let resp = tokio::select! {
         biased;
         _ = cancel.cancelled() => return Ok(GenerateStats::default()),
         r = send => r.map_err(|e| {
             if e.is_timeout() || e.is_connect() {
-                AppError::Timeout(format!("connect to mlx_lm.server: {e}"))
+                AppError::Timeout(format!("connect to chat endpoint: {e}"))
             } else {
                 AppError::Inference(e.to_string())
             }
@@ -60,11 +65,15 @@ pub async fn stream_generate(
     let mut bytes = resp.bytes_stream();
     let mut buf: Vec<u8> = Vec::new();
     let mut usage: Option<Usage> = None;
-    // mlx_lm.server streams a reasoning model's scratchpad in `delta.reasoning` (not `content`).
-    // Re-emit it as inline `<think>…</think>` so the runner's `strip_think` + D9 accounting handle
-    // MLX identically to Ollama/llama.cpp. `think_open` tracks the open tag: closed when the answer
-    // (`content`) starts or the stream ends. A terse model (or enable_thinking:false) sends no
-    // `reasoning`, so this is a no-op.
+    // Carry "stop" vs "length" so the agentic runner can tell a real failure from a
+    // `num_predict` truncation it can retry. Recorded (not returned) when it arrives —
+    // see the finish_reason handling below.
+    let mut finish: Option<String> = None;
+    // A reasoning model streams its scratchpad in `delta.reasoning`/`reasoning_content` (not
+    // `content`). Re-emit it as inline `<think>…</think>` so the runner's `strip_think` + D9
+    // accounting handle every OpenAI-wire backend identically to Ollama/llama.cpp. `think_open`
+    // tracks the open tag: closed when the answer (`content`) starts or the stream ends. A terse
+    // model (or enable_thinking:false) sends no `reasoning`, so this is a no-op.
     let mut think_open = false;
     loop {
         tokio::select! {
@@ -78,7 +87,7 @@ pub async fn stream_generate(
                     if payload.is_empty() { continue; }
                     if payload == b"[DONE]" {
                         if think_open { on_token("</think>"); }
-                        return Ok(from_usage(usage));
+                        return Ok(finalize(usage, finish));
                     }
                     // Skip SSE keep-alive/comment (": ...") and any non-data
                     // framing (event:/id:); only JSON-object chunks are parsed.
@@ -96,13 +105,15 @@ pub async fn stream_generate(
                             on_token(&text);
                         }
                         if cancel.is_cancelled() { return Ok(GenerateStats::default()); }
-                        if choice.finish_reason.is_some() {
-                            if think_open { on_token("</think>"); }
-                            // Carry "stop" vs "length" so the agentic runner can tell a real
-                            // failure from a `num_predict` truncation it can retry (see runner).
-                            let mut stats = from_usage(usage);
-                            stats.finish_reason = choice.finish_reason;
-                            return Ok(stats);
+                        if let Some(fr) = choice.finish_reason {
+                            // Record the stop reason but KEEP reading: with
+                            // `stream_options.include_usage`, vLLM/SGLang send `usage` in a
+                            // SEPARATE trailing chunk (choices:[]) AFTER this one, so returning
+                            // here would drop the token counts. Finalize on `[DONE]` / stream end.
+                            // (mlx_lm.server puts usage on this same chunk, then sends `[DONE]` —
+                            // still captured, no regression.)
+                            if think_open { on_token("</think>"); think_open = false; }
+                            finish = Some(fr);
                         }
                     }
                 }
@@ -110,5 +121,13 @@ pub async fn stream_generate(
         }
     }
     if think_open { on_token("</think>"); }
-    Ok(from_usage(usage))
+    Ok(finalize(usage, finish))
+}
+
+/// Assemble the terminal stats from the (possibly trailing) `usage` chunk and the
+/// recorded stop reason.
+fn finalize(usage: Option<Usage>, finish: Option<String>) -> GenerateStats {
+    let mut stats = from_usage(usage);
+    stats.finish_reason = finish;
+    stats
 }

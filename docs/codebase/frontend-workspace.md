@@ -65,7 +65,8 @@ composes the editors + run controls.
 running? a prompt selected? one model or many?) so the sub-pieces stay dumb.
 
 **What / How:** reads `useWorkspacesStore.current` (the open prompt) + `patch`, the
-header `selectedModels`, and the three health flags from `backendStore`.
+header `selectedModels`, and the per-backend health flags from `backendStore`
+(ollama/llama/mlx/vllm/sglang).
 
 Render priority:
 1. `sttRunning` → `<SttWorkspace/>` (see frontend-stt.md).
@@ -269,7 +270,8 @@ reflects the **active** backend, not always Ollama; metrics via `formatMetrics`.
 
 | File | Responsibility |
 | --- | --- |
-| `ServerControl.tsx` | Dispatches the single header Play/Stop to `OllamaControl` / `MlxServerControl` / `LlamaServerControl` by `selectedBackend`. |
+| `ServerControl.tsx` | Dispatches the single header control by `selectedBackend`: `OllamaControl` / `MlxServerControl` / `LlamaServerControl` for the local backends, or `RemoteServerControl` (read-only status — no start/stop) for the remote vLLM/SGLang. |
+| `RemoteServerControl.tsx` | Read-only header status for the remote vLLM/SGLang backends (health dot + "configure in Settings" hint); the app can't start a remote server. Health comes from `useRemoteBackends` polling into `backendStore.vllmHealthy`/`sglangHealthy`. |
 | `OllamaControl.tsx` | `PlayStopButton` over `useStartOllama` / `useStopOllama`; hidden until health known (`null`). |
 | `LlamaServerControl.tsx` | Play/Stop the `llama-server` sidecar on the selected llama.cpp model's GGUF (`model.path`); disabled with no path. A start error or hardware-constraint note (from `useStartLlamaServer`) renders as a compact ⚠ chip (`LlamaStartBadge`, folded into the file) — the full text opens in a hover popover (auto-shown once per new message, then hover-only) so the long note can't crush the header row. Error chip wins over the notice chip. |
 | `MlxServerControl.tsx` | Play/Stop the app-managed `mlx_lm.server` on the selected MLX model's dir; the busy spinner covers the multi-minute first-run weight load. |
@@ -292,6 +294,7 @@ never block Run on their own success** — health polling is the source of truth
 | `useStopLlamaServer` | `stop_llama_server` | `idle/stopping/error` | sets `llamaHealthy=false`. |
 | `useLlamaBackend` | `*_health` poll (5s) | — | re-probes llama health so a died server doesn't stay "healthy"; no Apple-Silicon gate. |
 | `useMlxBackend` | hardware snapshot + `mlx_health` poll (5s) | — | detects Apple Silicon (only platform MLX runs on); polls only there. Returns `{ appleSilicon }`. |
+| `useRemoteBackends` | `check_vllm_health` / `check_sglang_health` poll (5s) | — | `useVllmBackend`/`useSglangBackend` (one file, shared poll helper) write `vllmHealthy`/`sglangHealthy`; false until the endpoint is configured in Settings and reachable. No start/stop hooks — the servers are remote. |
 | `useWorkspaceHotkeys` | — | — | Cmd+Enter Run, Cmd+. Stop, Cmd+S Save, gated by `active`/`canRun`/`running`/`hasPrompt`. |
 
 ### `useMlxServer.ts` (the interesting one)
@@ -334,7 +337,7 @@ stats? }`.
 
 | File | Responsibility |
 | --- | --- |
-| `runHint.ts` | `backendRunHint(backend, health)` → the Run-block string when the **model's required** backend isn't healthy. No fallback: ollama→"Start Ollama first", llama_cpp→"Start llama.cpp to run this model", mlx→"Start the MLX backend…". |
+| `runHint.ts` | `backendRunHint(backend, health)` → the Run-block string when the **model's required** backend isn't healthy. No fallback: ollama→"Start Ollama first", llama_cpp→"Start llama.cpp to run this model", mlx→"Start the MLX backend…", vllm/sglang→"Set the vLLM/SGLang server URL in Settings and start it". |
 | `format.ts` | `formatMetrics(DonePayload)` → `"TTFT {ttft}ms · {tps} tok/s · {n} tokens"` (em-dash when null). |
 
 ---

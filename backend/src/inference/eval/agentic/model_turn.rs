@@ -9,12 +9,16 @@ use crate::inference::eval::toolcall::tasks::ToolSchema;
 use crate::inference::generate::generate_options::GenerateOptions;
 use crate::inference::generate::generate_spec::GenerateSpec;
 use crate::inference::generate::generate_stats::GenerateStats;
+use crate::inference::backend::remote_config;
 use crate::inference::llama::llama_backend::LlamaCppBackend;
 use crate::inference::llama::llama_chat;
 use crate::inference::mlx::mlx_backend::MlxBackend;
 use crate::inference::ollama::ollama_backend::OllamaBackend;
 use crate::inference::ollama::ollama_chat::{self, NativeToolCall};
 use crate::inference::ollama::ollama_show::show_model;
+use crate::inference::openai::chat_tools;
+use crate::inference::sglang::sglang_backend::SgLangBackend;
+use crate::inference::vllm::vllm_backend::VLlmBackend;
 use serde_json::{json, Value};
 use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
@@ -231,6 +235,8 @@ impl ModelTurn for BackendTurn {
             BackendKind::Ollama => OllamaBackend::new(self.endpoint.clone()).generate(&spec, cancel, push).await?,
             BackendKind::LlamaCpp => LlamaCppBackend::new(self.endpoint.clone()).generate(&spec, cancel, push).await?,
             BackendKind::Mlx => MlxBackend::new(self.endpoint.clone(), self.model.clone()).generate(&spec, cancel, push).await?,
+            BackendKind::VLlm => VLlmBackend::new(self.endpoint.clone(), remote_config::vllm().api_key, self.model.clone()).generate(&spec, cancel, push).await?,
+            BackendKind::SgLang => SgLangBackend::new(self.endpoint.clone(), remote_config::sglang().api_key, self.model.clone()).generate(&spec, cancel, push).await?,
         };
         Ok((out, stats))
     }
@@ -271,6 +277,8 @@ impl ModelTurn for BackendTurn {
             BackendKind::Ollama => OllamaBackend::new(self.endpoint.clone()).generate(&spec, cancel, sink).await?,
             BackendKind::LlamaCpp => LlamaCppBackend::new(self.endpoint.clone()).generate(&spec, cancel, sink).await?,
             BackendKind::Mlx => MlxBackend::new(self.endpoint.clone(), self.model.clone()).generate(&spec, cancel, sink).await?,
+            BackendKind::VLlm => VLlmBackend::new(self.endpoint.clone(), remote_config::vllm().api_key, self.model.clone()).generate(&spec, cancel, sink).await?,
+            BackendKind::SgLang => SgLangBackend::new(self.endpoint.clone(), remote_config::sglang().api_key, self.model.clone()).generate(&spec, cancel, sink).await?,
         };
         Ok(())
     }
@@ -293,9 +301,10 @@ fn native_system(tools: &[ToolSchema], terminal: TerminalGuidance) -> String {
 /// the act/abstain terminal guidance).
 ///
 /// The backend is the only dispatch point: Ollama → `/api/chat`, llama.cpp →
-/// OpenAI `/v1/chat/completions` (needs `--jinja`). A new server plugs in by
-/// adding one match arm in `run` + its `chat_with_tools`. MLX has no native tool
-/// API and is gated out upstream (`probe_native_tools`).
+/// OpenAI `/v1/chat/completions` (needs `--jinja`), vLLM/SGLang → the shared
+/// OpenAI `chat_tools::chat_with_tools` (remote, bearer-auth). A new server plugs
+/// in by adding one match arm in `run` + its `chat_with_tools`. MLX has no native
+/// tool API and is gated out upstream (`probe_native_tools`).
 pub struct NativeToolTurn {
     pub backend: BackendKind,
     pub endpoint: String,
@@ -372,6 +381,12 @@ impl ModelTurn for NativeToolTurn {
                 return Err(crate::errors::AppError::Inference(
                     "MLX has no native tool-calling API; it must run the prompt path".into(),
                 ))
+            }
+            BackendKind::VLlm => {
+                chat_tools::chat_with_tools(&self.endpoint, remote_config::vllm().api_key.as_deref(), &self.model, &system, &spec.prompt, &tools, options).await?
+            }
+            BackendKind::SgLang => {
+                chat_tools::chat_with_tools(&self.endpoint, remote_config::sglang().api_key.as_deref(), &self.model, &system, &spec.prompt, &tools, options).await?
             }
         };
         // When the native parser returned tool calls, hand the runner the canonical

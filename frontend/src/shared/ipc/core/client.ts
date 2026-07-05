@@ -18,12 +18,27 @@ export async function checkLlamaHealth(): Promise<HealthStatus> {
   return invoke<HealthStatus>("check_llama_health");
 }
 
+export async function checkVllmHealth(): Promise<HealthStatus> {
+  return invoke<HealthStatus>("check_vllm_health");
+}
+
+export async function checkSglangHealth(): Promise<HealthStatus> {
+  return invoke<HealthStatus>("check_sglang_health");
+}
+
 /// Probe a specific backend's server health. The batch pre-flight uses this to
 /// fail fast with a clear message instead of hanging mid-run on a down server.
 export function healthFor(backend: BackendKind): Promise<HealthStatus> {
-  return backend === "ollama"
-    ? checkOllamaHealth()
-    : backend === "mlx"
-      ? checkMlxHealth()
-      : checkLlamaHealth();
+  switch (backend) {
+    case "ollama":
+      return checkOllamaHealth();
+    case "mlx":
+      return checkMlxHealth();
+    case "vllm":
+      return checkVllmHealth();
+    case "sglang":
+      return checkSglangHealth();
+    default:
+      return checkLlamaHealth();
+  }
 }

@@ -134,6 +134,44 @@ function enginesFor(os: HostOs | null): Engine[] {
       ],
     },
     {
+      id: "vllm",
+      name: "vLLM",
+      tag: "Remote GPU",
+      blurb: "High-throughput inference on a remote CUDA GPU (OpenAI-compatible).",
+      runs: "HF safetensors models on a GPU box (e.g. GCP L4, 24 GB)",
+      commands: [
+        {
+          label: "On the GPU box: serve a model",
+          cmd: "vllm serve Qwen/Qwen2.5-7B-Instruct-AWQ --host 0.0.0.0 --port 8000 --api-key YOUR_KEY",
+        },
+      ],
+      links: [{ text: "vLLM docs", href: "https://docs.vllm.ai" }],
+      steps: [
+        "On your GPU box, run the command above (an L4 has 24 GB — pick a ~7–14B model, AWQ/FP8 to fit).",
+        "In Settings → Remote GPU backends, paste the server URL (e.g. http://<gpu-ip>:8000) and the API key.",
+        "Pick vLLM + the served model in the header — the dot turns green when it's reachable.",
+      ],
+    },
+    {
+      id: "sglang",
+      name: "SGLang",
+      tag: "Remote GPU",
+      blurb: "Fast structured-output inference on a remote CUDA GPU (OpenAI-compatible).",
+      runs: "HF safetensors models on a GPU box (e.g. GCP L4, 24 GB)",
+      commands: [
+        {
+          label: "On the GPU box: launch the server",
+          cmd: "python -m sglang.launch_server --model-path Qwen/Qwen2.5-7B-Instruct --host 0.0.0.0 --port 30000 --api-key YOUR_KEY",
+        },
+      ],
+      links: [{ text: "SGLang docs", href: "https://docs.sglang.ai" }],
+      steps: [
+        "On your GPU box, run the command above (fit the model to the L4's 24 GB — ~7–14B, quantized).",
+        "In Settings → Remote GPU backends, paste the server URL (e.g. http://<gpu-ip>:30000) and the API key.",
+        "Pick SGLang + the served model in the header — the dot turns green when it's reachable.",
+      ],
+    },
+    {
       id: "whisper",
       name: "whisper.cpp",
       tag: "Speech-to-Text",

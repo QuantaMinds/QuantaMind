@@ -4,14 +4,17 @@ import type { BackendKind } from "../../../../shared/ipc/models/storage";
 export type BackendStatus = { running: boolean; label: string; aria: string };
 
 /// Status-bar dot + text for the active backend. Ollama uses its polled health
-/// (naming the version when connected); llama.cpp and MLX track their server's
-/// run state and name the loaded model. Without this, MLX/llama.cpp would fall
+/// (naming the version when connected); llama.cpp and MLX track their local
+/// server's run state; vLLM/SGLang are remote so they read as connected/not
+/// reachable. Each names the loaded model. Without this, the others would fall
 /// through to the Ollama label ("Ollama not running") regardless of backend.
 export function backendStatus(
   backend: BackendKind,
   health: HealthStatus | null,
   llamaHealthy: boolean | null,
   mlxHealthy: boolean | null,
+  vllmHealthy: boolean | null,
+  sglangHealthy: boolean | null,
   model: string | null,
 ): BackendStatus {
   const named = model ? ` (${model})` : "";
@@ -29,6 +32,22 @@ export function backendStatus(
       running,
       aria: "MLX health",
       label: running ? `MLX · running${named}` : "MLX · not running",
+    };
+  }
+  if (backend === "vllm") {
+    const running = vllmHealthy === true;
+    return {
+      running,
+      aria: "vLLM health",
+      label: running ? `vLLM · connected${named}` : "vLLM · not reachable",
+    };
+  }
+  if (backend === "sglang") {
+    const running = sglangHealthy === true;
+    return {
+      running,
+      aria: "SGLang health",
+      label: running ? `SGLang · connected${named}` : "SGLang · not reachable",
     };
   }
   const running = health?.available === true;
