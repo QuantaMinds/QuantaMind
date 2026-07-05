@@ -7,6 +7,8 @@ beforeEach(() => {
     ollamaHealthy: null,
     llamaHealthy: null,
     mlxHealthy: null,
+    vllmHealthy: null,
+    sglangHealthy: null,
   });
 });
 
@@ -27,14 +29,19 @@ describe("backendStore (global backend selection + health)", () => {
   });
 
   it("isHealthy reads the flag for the requested backend", () => {
-    const { setOllamaHealthy, setLlamaHealthy, setMlxHealthy } = useBackendStore.getState();
+    const { setOllamaHealthy, setLlamaHealthy, setMlxHealthy, setVllmHealthy, setSglangHealthy } =
+      useBackendStore.getState();
     setOllamaHealthy(true);
     setLlamaHealthy(false);
     setMlxHealthy(true);
+    setVllmHealthy(true);
+    setSglangHealthy(false);
     const { isHealthy } = useBackendStore.getState();
     expect(isHealthy("ollama")).toBe(true);
     expect(isHealthy("llama_cpp")).toBe(false);
     expect(isHealthy("mlx")).toBe(true);
+    expect(isHealthy("vllm")).toBe(true);
+    expect(isHealthy("sglang")).toBe(false);
   });
 
   it("isHealthy returns null before the first probe", () => {

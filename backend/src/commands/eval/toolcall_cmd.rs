@@ -6,17 +6,13 @@ use crate::persistence::prompts::schema::InferenceParams;
 use crate::inference::eval::agentic::v2::scenarios::{v2_header, V2_SCENARIOS};
 use crate::inference::eval::toolcall::eval::{run_eval_traced, trace_one, ToolCallReport, TraceResult};
 use crate::inference::eval::toolcall::tasks::{builtin_collection, validate_tasks, ToolTask};
-use crate::inference::mlx::server::mlx_endpoint::mlx_endpoint;
 use crate::persistence::eval_trace_store;
 use serde::Serialize;
 use std::path::PathBuf;
 use tauri::Manager;
 
 pub(crate) fn endpoint_for(backend: BackendKind) -> String {
-    match backend {
-        BackendKind::Mlx => mlx_endpoint(),
-        _ => endpoint::default_for(backend).to_string(),
-    }
+    endpoint::base_url(backend)
 }
 
 /// Managed dir for per-collection per-task trace caches (mirrors the `history/`

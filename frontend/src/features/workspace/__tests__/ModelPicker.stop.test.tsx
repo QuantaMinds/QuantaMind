@@ -6,6 +6,8 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn().mockResolvedValue(() =
 vi.mock("@tauri-apps/plugin-shell", () => ({ open: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("../../../shared/ipc/models/storage", () => ({
   getInstalledModelsWithStats: vi.fn(),
+  listVllmModels: vi.fn().mockResolvedValue([]),
+  listSglangModels: vi.fn().mockResolvedValue([]),
 }));
 
 import { invoke } from "@tauri-apps/api/core";

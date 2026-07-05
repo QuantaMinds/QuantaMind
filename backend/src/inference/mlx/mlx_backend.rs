@@ -2,7 +2,7 @@ use crate::errors::AppResult;
 use crate::inference::backend::backend::InferenceBackend;
 use crate::inference::generate::generate_spec::GenerateSpec;
 use crate::inference::generate::generate_stats::GenerateStats;
-use crate::inference::mlx::mlx::stream_generate;
+use crate::inference::openai::chat_stream::stream_generate;
 use tokio_util::sync::CancellationToken;
 
 /// Streams generations from an `mlx_lm.server` `/v1/chat/completions` endpoint.
@@ -28,6 +28,7 @@ impl InferenceBackend for MlxBackend {
     ) -> AppResult<GenerateStats> {
         stream_generate(
             &self.endpoint,
+            None, // mlx_lm.server is local and unauthenticated
             &self.model,
             &spec.prompt,
             spec.system.as_deref(),

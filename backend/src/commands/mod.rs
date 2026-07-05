@@ -13,6 +13,7 @@ pub mod ollama;
 pub mod prompt;
 pub mod prompt_templates;
 pub mod publish;
+pub mod remote;
 pub mod settings;
 pub mod storage;
 pub mod stt;

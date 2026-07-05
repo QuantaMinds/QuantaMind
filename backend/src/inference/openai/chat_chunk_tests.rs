@@ -33,3 +33,14 @@ fn strip_sse_removes_data_prefix_only_when_present() {
     assert_eq!(strip_sse(b"data: {\"x\":1}"), b"{\"x\":1}");
     assert_eq!(strip_sse(b"{\"x\":1}"), b"{\"x\":1}");
 }
+
+#[test]
+fn reasoning_delta_accepts_both_field_names() {
+    // mlx_lm.server uses `reasoning`; vLLM/SGLang reasoning parsers use `reasoning_content`.
+    let mlx: ChatChunk =
+        serde_json::from_str(r#"{"choices":[{"delta":{"reasoning":"hmm"}}]}"#).expect("parse");
+    assert_eq!(mlx.choices[0].delta.reasoning.as_deref(), Some("hmm"));
+    let vllm: ChatChunk =
+        serde_json::from_str(r#"{"choices":[{"delta":{"reasoning_content":"hmm"}}]}"#).expect("parse");
+    assert_eq!(vllm.choices[0].delta.reasoning.as_deref(), Some("hmm"));
+}

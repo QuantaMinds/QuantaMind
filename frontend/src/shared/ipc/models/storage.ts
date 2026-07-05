@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { z } from "zod";
 
-export const BackendKindSchema = z.enum(["ollama", "llama_cpp", "mlx"]);
+export const BackendKindSchema = z.enum(["ollama", "llama_cpp", "mlx", "vllm", "sglang"]);
 export type BackendKind = z.infer<typeof BackendKindSchema>;
 
 export const InstalledModelInfoSchema = z.object({
@@ -33,6 +33,18 @@ export type DiskUsage = z.infer<typeof DiskUsageSchema>;
 export async function getInstalledModelsWithStats(): Promise<InstalledModelInfo[]> {
   const raw = await invoke("get_installed_models_with_stats");
   return z.array(InstalledModelInfoSchema).parse(raw);
+}
+
+/// Models a remote vLLM server currently serves (from its `/v1/models`). Empty
+/// when the endpoint isn't configured or is unreachable — never an error, so it
+/// composes into the installed-models `Promise.allSettled` fan-out.
+export async function listVllmModels(): Promise<InstalledModelInfo[]> {
+  return z.array(InstalledModelInfoSchema).parse(await invoke("list_vllm_models"));
+}
+
+/// Models a remote SGLang server currently serves (from its `/v1/models`).
+export async function listSglangModels(): Promise<InstalledModelInfo[]> {
+  return z.array(InstalledModelInfoSchema).parse(await invoke("list_sglang_models"));
 }
 
 export async function removeModel(name: string): Promise<void> {

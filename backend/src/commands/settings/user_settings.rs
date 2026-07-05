@@ -1,5 +1,6 @@
 use crate::commands::storage::storage_disk::{gguf_dir_resolved, mlx_dir_resolved};
 use crate::errors::{AppError, AppResult};
+use crate::inference::backend::remote_config;
 use crate::persistence::user_settings::{load, save, UserSettings};
 use crate::sync::MutexExt;
 use std::path::PathBuf;
@@ -7,6 +8,14 @@ use std::sync::Mutex;
 use tauri::Manager;
 
 pub const USER_SETTINGS_FILE: &str = "user_settings.yaml";
+
+/// Mirror the remote vLLM/SGLang endpoint settings into the `inference/`
+/// process-global so the dispatch path (which can't read Tauri state) resolves
+/// them. Called on first load and on every save.
+fn push_remote_endpoints(s: &UserSettings) {
+    remote_config::set_vllm(s.vllm_url.clone(), s.vllm_api_key.clone());
+    remote_config::set_sglang(s.sglang_url.clone(), s.sglang_api_key.clone());
+}
 
 #[derive(Default)]
 pub struct UserSettingsState {
@@ -25,7 +34,9 @@ impl UserSettingsState {
         if *loaded {
             return Ok(());
         }
-        *self.inner.lock_recover() = load(&settings_path(app)?)?;
+        let loaded_settings = load(&settings_path(app)?)?;
+        push_remote_endpoints(&loaded_settings);
+        *self.inner.lock_recover() = loaded_settings;
         *loaded = true;
         Ok(())
     }
@@ -68,6 +79,7 @@ pub fn set_user_settings(
     settings: UserSettings,
 ) -> Result<(), AppError> {
     state.ensure_loaded(&app)?;
+    push_remote_endpoints(&settings);
     *state.inner.lock_recover() = settings.clone();
     save(&settings_path(&app)?, &settings)
 }

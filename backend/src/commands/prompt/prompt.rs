@@ -3,7 +3,6 @@
 use crate::commands::settings::model_settings::ModelSettingsState;
 use crate::inference::backend::backend_kind::BackendKind;
 use crate::inference::backend::endpoint;
-use crate::inference::mlx::server::mlx_endpoint::mlx_endpoint;
 use crate::inference::token_handler::make_token_handler;
 use crate::commands::prompt::prompt_options::{to_generate_options, validate_params};
 use crate::commands::prompt::prompt_payloads::{done_payload, CancelledPayload, TokenPayload};
@@ -47,6 +46,10 @@ pub async fn run_prompt(
     if options.temperature.is_none() {
         options.temperature = Some(settings.temperature_for(&model));
     }
+    // Resolve the endpoint up front (llama/MLX/Ollama locally, or the user-configured
+    // vLLM/SGLang URL) so an unconfigured remote errors with a clear message BEFORE we
+    // spin up the run token/timing.
+    let resolved = endpoint::resolve(backend)?;
 
     let token = CancellationToken::new();
     {
@@ -65,11 +68,8 @@ pub async fn run_prompt(
         timing.clone(),
     );
     let system_trim = system.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    // MLX uses the app-managed server's dynamic port; others use their default.
-    let mlx_ep = mlx_endpoint();
-    let ep = if backend == BackendKind::Mlx { mlx_ep.as_str() } else { endpoint::default_for(backend) };
     let result = run_prompt_inner(
-        backend, ep, &model, &prompt, system_trim,
+        backend, &resolved.url, &model, &prompt, system_trim,
         Some(options), keep_alive, token.clone(), handler,
     ).await;
 

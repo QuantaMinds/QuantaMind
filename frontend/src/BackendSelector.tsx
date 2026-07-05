@@ -2,10 +2,13 @@ import type { BackendKind } from "./shared/ipc/models/storage";
 import { useBackendStore } from "./shared/state/backendStore";
 import { useMlxBackend } from "./features/workspace/hooks/useMlxBackend";
 import { useLlamaBackend } from "./features/workspace/hooks/useLlamaBackend";
+import { useVllmBackend, useSglangBackend } from "./features/workspace/hooks/useRemoteBackends";
 
 const BASE_BACKENDS: { id: BackendKind; label: string }[] = [
   { id: "llama_cpp", label: "llama.cpp" },
   { id: "ollama", label: "Ollama" },
+  { id: "vllm", label: "vLLM" },
+  { id: "sglang", label: "SGLang" },
 ];
 
 function dotClass(healthy: boolean | null): string {
@@ -21,6 +24,8 @@ function dotClass(healthy: boolean | null): string {
 export function BackendSelector() {
   const { appleSilicon } = useMlxBackend();
   useLlamaBackend();
+  useVllmBackend();
+  useSglangBackend();
   const selected = useBackendStore((s) => s.selectedBackend);
   const setSelected = useBackendStore((s) => s.setSelectedBackend);
   const healthy = useBackendStore((s) => s.isHealthy(selected));

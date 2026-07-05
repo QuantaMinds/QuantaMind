@@ -6,7 +6,6 @@ use crate::inference::backend::endpoint;
 use crate::inference::eval::eval_score::score;
 use crate::inference::eval::eval_task::EvalTask;
 use crate::inference::generate::generate_options::GenerateOptions;
-use crate::inference::mlx::server::mlx_endpoint::mlx_endpoint;
 use serde::Serialize;
 use tokio_util::sync::CancellationToken;
 
@@ -64,10 +63,7 @@ pub async fn run_and_score(
 }
 
 fn endpoint_for(backend: BackendKind) -> String {
-    match backend {
-        BackendKind::Mlx => mlx_endpoint(),
-        _ => endpoint::default_for(backend).to_string(),
-    }
+    endpoint::base_url(backend)
 }
 
 #[tauri::command]

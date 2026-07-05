@@ -397,15 +397,21 @@ pub fn set_model_temperature(app, state, model: String, temperature: f32) -> Res
 
 - **File:** `backend/src/commands/settings/user_settings.rs`
 - **Responsibility:** User settings (the shared weights-folder override, STT
-  engine dir) in `user_settings.yaml`; resolve the effective GGUF folder.
+  engine dir, and the remote vLLM/SGLang endpoints) in `user_settings.yaml`;
+  resolve the effective GGUF folder.
 - **Why:** Let the user relocate model storage; provide one resolution point
-  combining user setting → env → default.
+  combining user setting → env → default. The remote backends' URL + bearer key
+  live here because they run off-box (no static localhost default).
 - **What:** `UserSettingsState`; `weights_dir` (user → `QUANTAMIND_GGUF_DIR` →
-  `~/.quantamind/gguf`), `mlx_weights_dir`, `stt_engine_dir`; commands
+  `~/.quantamind/gguf`), `mlx_weights_dir`, `stt_engine_dir`; the remote fields
+  `vllm_url`/`vllm_api_key`/`sglang_url`/`sglang_api_key`; commands
   `get_user_settings`, `set_user_settings`, `resolve_models_folder` (absolute
   GGUF folder for display).
 - **How/Where used:** Settings UI reads/writes user settings and shows the
   resolved models folder; downloaders consult `weights_dir`/`mlx_weights_dir`.
+  On load and on every save, `push_remote_endpoints` mirrors the vLLM/SGLang
+  URL+key into `inference/backend/remote_config` so the Tauri-free dispatch path
+  (`endpoint::resolve`) can read them.
 
 ### settings/settings.rs
 

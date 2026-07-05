@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import {
   getInstalledModelsWithStats,
+  listVllmModels,
+  listSglangModels,
   type InstalledModelInfo,
 } from "../../../shared/ipc/models/storage";
 import { listLlamaModels } from "../../../shared/ipc/models/llama_start";
@@ -39,20 +41,26 @@ export const useInstalledModelsStore = create<InstalledModelsState>(
       set({ list, status: "ready", error: null, lastRefreshedAt: Date.now() }),
     // Fetch each backend independently so one still lists when another is
     // down; error only when every source fails. MLX yields [] off Apple
-    // Silicon or with no server running, so it never trips the error path.
+    // Silicon or with no server running, and vLLM/SGLang yield [] when their
+    // remote endpoint isn't configured/reachable, so those never trip the error
+    // path.
     refresh: async () => {
       if (get().status === "loading") return;
       set({ status: "loading", error: null });
-      const [ollama, llama, mlx, stt] = await Promise.allSettled([
+      const [ollama, llama, mlx, vllm, sglang, stt] = await Promise.allSettled([
         getInstalledModelsWithStats(),
         listLlamaModels(),
         listMlxModels(),
+        listVllmModels(),
+        listSglangModels(),
         listInstalledSttModels(),
       ]);
       const list: InstalledModelInfo[] = [];
       if (ollama.status === "fulfilled") list.push(...ollama.value);
       if (llama.status === "fulfilled") list.push(...llama.value);
       if (mlx.status === "fulfilled") list.push(...mlx.value);
+      if (vllm.status === "fulfilled") list.push(...vllm.value);
+      if (sglang.status === "fulfilled") list.push(...sglang.value);
       const sttList = stt.status === "fulfilled" ? stt.value : [];
       if (ollama.status === "rejected" && llama.status === "rejected" && mlx.status === "rejected") {
         set({ status: "error", error: formatIpcError(ollama.reason) });

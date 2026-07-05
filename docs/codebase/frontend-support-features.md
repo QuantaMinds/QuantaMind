@@ -46,7 +46,7 @@ tab nav.
 
 | Feature | Mount | Key files | IPC / plugin | Backend doc |
 |---|---|---|---|---|
-| **Settings** | Tab (`settings`) | `settings/components/SettingsPage`, `HardwareSection` | `get/set_user_settings`, `resolve_models_folder`, `getHardwareSnapshot` | [prompt-workspace-system](backend-prompt-workspace-system.md) (settings) |
+| **Settings** | Tab (`settings`) | `settings/components/SettingsPage`, `HardwareSection`, `RemoteBackendsSection` | `get/set_user_settings`, `resolve_models_folder`, `getHardwareSnapshot` | [prompt-workspace-system](backend-prompt-workspace-system.md) (settings) |
 | **Onboarding** | Overlay (gated) | `onboarding/components/OnboardingCoach`, `state/onboardingStore`, `steps` | `get/set_user_settings` (`first_run_complete`), `scaffold_onboarding_workspace`, `pull_model` | [prompt-workspace-system](backend-prompt-workspace-system.md) (onboarding) |
 | **Help + Updater** | Tab (`help`) + startup overlay | `help/components/HelpPage`, `HelpContent`, `HelpSidebar`, `helpSections`, `UpdateChecker`, `StartupUpdate`; `hooks/useUpdater`; `updateSchedule` | `@tauri-apps/plugin-updater` (`check`), `plugin-process` (`relaunch`), `get/set_user_settings` (`last_update_check_at`) | — (updater is a Tauri plugin) |
 | **Feedback** | Overlay (button + modal) | `feedback/components/FeedbackButton`, `FeedbackModal`; `hooks/useSubmitFeedback`; `shared/ipc/system/feedback` | `@tauri-apps/plugin-shell` (`open` mailto) | — (mailto, no backend cmd) |

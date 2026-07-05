@@ -1,7 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { backendRunHint } from "../state/runHint";
 
-const h = (ollama: boolean | null, llama: boolean | null, mlx: boolean | null) => ({ ollama, llama, mlx });
+const h = (
+  ollama: boolean | null,
+  llama: boolean | null,
+  mlx: boolean | null,
+  vllm: boolean | null = null,
+  sglang: boolean | null = null,
+) => ({ ollama, llama, mlx, vllm, sglang });
 
 describe("backendRunHint (no-fallback block)", () => {
   it("blocks MLX with a start hint until its server is healthy", () => {
@@ -19,5 +25,19 @@ describe("backendRunHint (no-fallback block)", () => {
     expect(backendRunHint("ollama", h(false, null, null))).toBe("Start Ollama first");
     expect(backendRunHint("ollama", h(null, null, null))).toBeNull();
     expect(backendRunHint("ollama", h(true, null, null))).toBeNull();
+  });
+
+  it("blocks the remote backends until their endpoint is reachable", () => {
+    expect(backendRunHint("vllm", h(null, null, null, false))).toBe(
+      "Set the vLLM server URL in Settings and start it",
+    );
+    expect(backendRunHint("vllm", h(null, null, null, null))).toBe(
+      "Set the vLLM server URL in Settings and start it",
+    );
+    expect(backendRunHint("vllm", h(null, null, null, true))).toBeNull();
+    expect(backendRunHint("sglang", h(null, null, null, null, false))).toBe(
+      "Set the SGLang server URL in Settings and start it",
+    );
+    expect(backendRunHint("sglang", h(null, null, null, null, true))).toBeNull();
   });
 });

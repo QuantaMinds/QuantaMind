@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("../../../../shared/ipc/models/storage", () => ({
   getInstalledModelsWithStats: vi.fn(),
+  listVllmModels: vi.fn().mockResolvedValue([]),
+  listSglangModels: vi.fn().mockResolvedValue([]),
 }));
 vi.mock("../../../../shared/ipc/models/llama_start", () => ({
   listLlamaModels: vi.fn(),

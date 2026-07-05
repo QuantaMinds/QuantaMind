@@ -20,6 +20,8 @@ export function SingleRun({ model }: { model: string | null }) {
   const ollamaHealthy = useBackendStore((s) => s.ollamaHealthy);
   const llamaHealthy = useBackendStore((s) => s.llamaHealthy);
   const mlxHealthy = useBackendStore((s) => s.mlxHealthy);
+  const vllmHealthy = useBackendStore((s) => s.vllmHealthy);
+  const sglangHealthy = useBackendStore((s) => s.sglangHealthy);
   const activeBackend = useBackendStore((s) => s.selectedBackend);
   const setSingleRun = useCompareStore((s) => s.setSingleRun);
   const active = useNavStore((s) => s.topView) === "workspace";
@@ -47,6 +49,8 @@ export function SingleRun({ model }: { model: string | null }) {
     ollama: ollamaHealthy,
     llama: llamaHealthy,
     mlx: mlxHealthy,
+    vllm: vllmHealthy,
+    sglang: sglangHealthy,
   });
   const canRun = !!model && prompt.trim().length > 0 && !blockedHint;
   const runNow = () => {
