@@ -201,7 +201,16 @@ impl DeterministicSandbox {
             ResponderKind::StaticMocks => self.mock_responses.get(&canonical(call)).cloned(),
             ResponderKind::WorldState(ws) => {
                 if self.entity_tools.is_empty() || self.entity_tools.contains(&call.name) {
-                    Some(crate::inference::eval::agentic::v2::world_state::derive_response(ws, call))
+                    let r = crate::inference::eval::agentic::v2::world_state::derive_response(ws, call);
+                    // A TAGGED getter that resolves nothing gets an honest miss, not a
+                    // content-free ack: an ack reads as success and strands a model that
+                    // queried a wrong/hallucinated entity id without its fact (the same
+                    // acks-empty class the fs env fixed with `{"error":"not found"}`).
+                    // The empty-set legacy arm keeps the v1 ack byte-identical.
+                    if r == r#"{"ok":true}"# && !self.entity_tools.is_empty() {
+                        return Some(r#"{"error":"not found"}"#.to_string());
+                    }
+                    Some(r)
                 } else if self.recognized_tools.is_empty() || self.recognized_tools.contains(&call.name) {
                     Some(r#"{"ok":true}"#.to_string())
                 } else {

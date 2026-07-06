@@ -473,4 +473,149 @@ mod tests {
             }
         }
     }
+
+    /// LOADED (not mirrored) grounding probe for the returns fix: the REAL transpiled
+    /// hd_se_returns sandbox must surface the marketplace policy and state e-waste rule
+    /// — the two getters the live trace showed acking. Loads through the actual
+    /// collection→transpile→sandbox_for path, so a transpile-layer regression (world_state
+    /// filtered, entity_tools mis-threaded) fails HERE without needing a live model.
+    #[test]
+    fn loaded_returns_task_surfaces_policy_and_ewaste_facts() {
+        use crate::inference::eval::agentic::build::sandbox_for;
+        use crate::inference::eval::toolcall::tasks::Call;
+        use serde_json::json;
+        let task = load_v2_collection(v2_json("hard-support-ecommerce").unwrap())
+            .unwrap()
+            .into_iter()
+            .find(|t| t.id == "hd_se_returns_instance0")
+            .unwrap();
+        let (sandbox, _) = sandbox_for(&task).unwrap();
+        let policy = sandbox.respond(&Call { name: "get_marketplace_policy".into(), args: json!({ "mkt": "MShop" }) });
+        assert!(
+            policy.as_deref().is_some_and(|r| r.contains("restocking")),
+            "get_marketplace_policy(MShop) must surface the policy text, got {policy:?}"
+        );
+        let ewaste = sandbox.respond(&Call { name: "get_state_ewaste_rule".into(), args: json!({ "state": "SD" }) });
+        assert!(
+            ewaste.as_deref().is_some_and(|r| r.contains("e-waste")),
+            "get_state_ewaste_rule(SD) must surface the rule, got {ewaste:?}"
+        );
+    }
+
+    /// All-tier answer-key DATA guard (entity env): every expected getter call must
+    /// resolve to real `world_state` data — never the generic `{"ok":true}` ack. A
+    /// getter that acks hides the fact the task expects the model to discover (the
+    /// hard-support-ecommerce bug: `get_marketplace_policy{mkt:"MShop"}` acked because
+    /// the policy text lived NESTED under `ws["policy"]`, unreachable by
+    /// `derive_response`'s top-level key lookup) — the model then decides on missing
+    /// data and springs the trap through no fault of its own. Reporter tools (the
+    /// `text`-bearing reply channel) are exempt: their ack IS the response. The
+    /// filesystem/corpus/web-ui environments don't use the entity responder. A raw
+    /// arg is tried before its glob-concretized form so a `calc` expression's literal
+    /// `*` (multiplication) is never mangled into a false violation.
+    #[test]
+    fn every_expected_getter_call_resolves_to_real_world_state_data() {
+        use crate::inference::eval::agentic::v2::world_state::derive_response;
+        use crate::inference::eval::toolcall::tasks::Call;
+
+        const ACK: &str = r#"{"ok":true}"#;
+        let resolves = |ws: &Value, name: &str, args: &Value| {
+            derive_response(ws, &Call { name: name.into(), args: args.clone() }) != ACK
+                || derive_response(ws, &Call { name: name.into(), args: concretize_args(args) }) != ACK
+        };
+
+        let mut violations: Vec<String> = Vec::new();
+        for (id, json) in V2_SCENARIOS {
+            let v: Value = serde_json::from_str(json).unwrap();
+            if matches!(v.get("environment").and_then(Value::as_str), Some("filesystem") | Some("web_corpus") | Some("web_ui")) {
+                continue;
+            }
+            for task in v["tasks"].as_array().into_iter().flatten() {
+                let tid = task["id"].as_str().unwrap_or("?");
+                let ws = &task["world_state"];
+                if ws.is_null() {
+                    continue;
+                }
+                // Getters: real tools not tagged as actions, minus the reporter.
+                let getters: HashSet<&str> = task["tools"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter(|t| t["returns_entity"].as_bool() != Some(false))
+                    .filter(|t| t["params"].get("text").is_none())
+                    .filter_map(|t| t["name"].as_str())
+                    .collect();
+                for ec in task["expected_calls"].as_array().into_iter().flatten() {
+                    if ec["type"] != "call" {
+                        continue;
+                    }
+                    let name = ec["name"].as_str().unwrap_or("");
+                    if !getters.contains(name) {
+                        continue;
+                    }
+                    if !resolves(ws, name, &ec["args"]) {
+                        violations.push(format!("{id}/{tid}: getter {name}({}) acks — its fact is unreachable", ec["args"]));
+                    }
+                }
+            }
+        }
+        assert!(violations.is_empty(), "expected getter calls that resolve to NO data (model decides blind):\n{}", violations.join("\n"));
+    }
+
+    /// Entity-discoverability guard (mirrors `generator::instantiate`): every
+    /// digit-bearing, non-`RESERVED` top-level `world_state` key must be reachable by
+    /// the model — named as a whole-word token in the task prompt (a ROOT entity the
+    /// model is told to act on), OR referenced inside another top-level entry's
+    /// serialized value (a DISCOVERED entity surfaced by some getter's blob, e.g. a
+    /// wire blob naming its counterparty `CP-CLEAN-1`). Two failures share this root
+    /// cause: (1) `instantiate()` alpha-renames these ids across the prompt AND
+    /// world_state via `replace_ids` — an id reachable through neither surface anchors
+    /// nothing; (2) more fundamentally, a model handed no path to an id can't know
+    /// which entity to fetch, so it asks a clarifying question — a no-tool-call turn
+    /// the runner scores as `HallucinatedCompletion` (every run fails identically). A
+    /// future scenario that ships an orphaned entity id fails HERE, at CI, not in a
+    /// live trace. Whole-word matching mirrors `replace_ids` (bounded by a
+    /// non-alphanumeric byte, or the string edge, on both sides).
+    #[test]
+    fn every_world_state_entity_id_is_reachable_from_the_prompt_or_a_blob() {
+        use crate::inference::eval::agentic::v2::generator::RESERVED;
+
+        fn names_token(text: &str, id: &str) -> bool {
+            let alnum = |b: u8| b.is_ascii_alphanumeric();
+            let tb = text.as_bytes();
+            let mut i = 0;
+            while let Some(off) = text[i..].find(id) {
+                let (s, e) = (i + off, i + off + id.len());
+                let left = s == 0 || !alnum(tb[s - 1]);
+                let right = e >= tb.len() || !alnum(tb[e]);
+                if left && right {
+                    return true;
+                }
+                i = s + 1;
+            }
+            false
+        }
+
+        let mut violations: Vec<String> = Vec::new();
+        for (id, json) in V2_SCENARIOS {
+            let v: Value = serde_json::from_str(json).unwrap();
+            for task in v["tasks"].as_array().into_iter().flatten() {
+                let tid = task["id"].as_str().unwrap_or("?");
+                let prompt = task["prompt"].as_str().unwrap_or("");
+                let Some(ws) = task["world_state"].as_object() else { continue };
+                for key in ws.keys() {
+                    let is_entity = !RESERVED.contains(&key.as_str()) && key.chars().any(|c| c.is_ascii_digit());
+                    if !is_entity || names_token(prompt, key) {
+                        continue;
+                    }
+                    // Discovered entity: referenced by some OTHER entry's blob.
+                    let in_a_blob = ws.iter().any(|(k, val)| k != key && names_token(&val.to_string(), key));
+                    if !in_a_blob {
+                        violations.push(format!("{id}/{tid}: world_state entity '{key}' is in neither the prompt nor any other entity's blob"));
+                    }
+                }
+            }
+        }
+        assert!(violations.is_empty(), "orphaned world_state entities (model has no path to their ids):\n{}", violations.join("\n"));
+    }
 }

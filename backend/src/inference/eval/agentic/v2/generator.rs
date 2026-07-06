@@ -4,7 +4,7 @@ use crate::inference::eval::toolcall::tasks::ToolTask;
 use serde_json::Value;
 
 /// world_state keys that are meta, not discoverable entities — never remapped.
-const RESERVED: [&str; 3] = ["calc", "threshold", "ground_truth"];
+pub(crate) const RESERVED: [&str; 3] = ["calc", "threshold", "ground_truth"];
 
 /// Deterministic per-run seed from the model name + run index (FNV-1a). Same
 /// `(model, run_index)` → identical instance (reproducibility); different

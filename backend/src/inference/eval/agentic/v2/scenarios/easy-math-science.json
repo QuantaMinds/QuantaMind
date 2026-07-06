@@ -22,7 +22,7 @@
       "prompt": "Compute compound interest on principal 50000 at 7% annual, compounded annually for 3 years. Use the calculator tool for the computation, then report the final amount.",
       "world_state": {
         "calc": {
-          "expr_50000_1.07_3": 61251.15
+          "50000*(1.07)^3": 61251.15
         }
       },
       "tools": [
@@ -83,8 +83,8 @@
       "max_recovery": 2,
       "prompt": "Convert 5 kilometers to miles using the unit tool, then report the value to 2 decimals.",
       "world_state": {
-        "convert": {
-          "5_km_mi": 3.11
+        "convert_units": {
+          "mi": 3.11
         }
       },
       "tools": [
@@ -151,8 +151,8 @@
       "max_recovery": 2,
       "prompt": "Look up the molar mass of water (H2O) using the chem tool and report it in g/mol.",
       "world_state": {
-        "chem": {
-          "H2O_molar_mass": 18.015
+        "H2O": {
+          "molar_mass": 18.015
         }
       },
       "tools": [
@@ -221,9 +221,9 @@
           "domain": "currency",
           "val": 12.34567
         },
-        "fmt": {
-          "mass_3sf": "12.3",
-          "cur_2dp": "12.35"
+        "format_value": {
+          "3sf": "12.3",
+          "2dp": "12.35"
         }
       },
       "tools": [
@@ -313,9 +313,9 @@
           "ctx": "us_clinical",
           "k": 310.15
         },
-        "conv": {
-          "K_to_C": 37.0,
-          "K_to_F": 98.6
+        "convert_temp": {
+          "C": 37.0,
+          "F": 98.6
         }
       },
       "tools": [

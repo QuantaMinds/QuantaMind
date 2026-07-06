@@ -39,10 +39,14 @@
           "category": "books",
           "amount": 800
         },
-        "slab": {
-          "electronics": 18,
-          "books": 0,
-          "apparel": 5
+        "electronics": {
+          "slab_pct": 18
+        },
+        "books": {
+          "slab_pct": 0
+        },
+        "apparel": {
+          "slab_pct": 5
         },
         "expected_tax": {
           "ORD-1": "CGST 9 + SGST 9 = 1800",
@@ -234,6 +238,16 @@
           "state": "SD",
           "min": 21,
           "courier_age_check": false
+        },
+        "LA": {
+          "alcohol_min_age": 25
+        },
+        "SD": {
+          "alcohol_min_age": 21
+        },
+        "check_courier_agecheck": {
+          "LA_pincodes": "age-check-on-delivery supported",
+          "SD_pincodes": "age-check-on-delivery NOT supported"
         }
       },
       "tools": [
@@ -601,6 +615,12 @@
           "dest": "IN",
           "deminimis": 1000,
           "restricted": true
+        },
+        "US": {
+          "deminimis": 800
+        },
+        "IN": {
+          "deminimis": 1000
         }
       },
       "tools": [

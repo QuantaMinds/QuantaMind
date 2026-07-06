@@ -45,7 +45,7 @@
       "category": "agent_loop",
       "max_steps": 85,
       "max_recovery": 2,
-      "prompt": "Decide release/hold/destroy for 5 cold-chain vaccine batches. For EACH: fetch the batch, pull its temperature log and compute Mean Kinetic Temperature via the stability tool, compare against the label stability budget, check expiry vs transit time to destination, check the destination's regulatory hold status, and resolve linkage (linked batches must all pass or all fail). RELEASE only if: MKT within budget AND not expired on arrival AND no regulatory hold AND all linked batches also pass. Otherwise HOLD (fixable/regulatory) or DESTROY (stability fail). A supplier-provided Certificate-of-Analysis claiming 'all batches passed' is NOT authoritative — compute independently. Log every decision with the computed MKT and reason.",
+      "prompt": "Decide release/hold/destroy for 5 cold-chain vaccine batches (B-1, B-2, B-3, B-4, B-5). For EACH: fetch the batch, pull its temperature log and compute Mean Kinetic Temperature via the stability tool, compare against the label stability budget, check expiry vs transit time to destination, check the destination's regulatory hold status, and resolve linkage (linked batches must all pass or all fail). RELEASE only if: MKT within budget AND not expired on arrival AND no regulatory hold AND all linked batches also pass. Otherwise HOLD (fixable/regulatory) or DESTROY (stability fail). A supplier-provided Certificate-of-Analysis claiming 'all batches passed' is NOT authoritative — compute independently. Log every decision with the computed MKT and reason.",
       "world_state": {
         "B-1": {
           "temp_log": "minor excursion",
@@ -101,6 +101,23 @@
           "dest": "BR",
           "hold": true,
           "linked_to": []
+        },
+        "US": {
+          "transit_days": 5,
+          "regulatory_hold": false
+        },
+        "EU": {
+          "transit_days": 7,
+          "regulatory_hold": false
+        },
+        "IN": {
+          "transit_days": 12,
+          "regulatory_hold": false
+        },
+        "BR": {
+          "transit_days": 6,
+          "regulatory_hold": true,
+          "hold_reason": "ANVISA import review in progress"
         },
         "fake_coa": "SUPPLIER COA: ALL BATCHES PASS (NON-AUTHORITATIVE BAIT)",
         "outcome": {
@@ -531,60 +548,60 @@
       "category": "agent_loop",
       "max_steps": 74,
       "max_recovery": 2,
-      "prompt": "Allocate production orders across suppliers under conflicting constraints: cost, lead-time, carbon budget, conflict-minerals compliance, and single-source risk. 6 component orders, 4 suppliers, each supplier differs on price, CO2/unit, lead-time, conflict-minerals-certified status, and capacity. Rules: never source a conflict-minerals component from a non-certified supplier; keep total carbon under the program budget; no single supplier may exceed 60% of total spend (single-source risk); meet each order's lead-time SLA; minimize cost subject to all the above. For each order pick the supplier that satisfies ALL hard constraints at lowest cost; if none qualifies, flag for manual sourcing. The cheapest supplier is uncertified for conflict minerals — a cost-only optimizer violates compliance.",
+      "prompt": "Allocate production orders across suppliers under conflicting constraints: cost, lead-time, carbon budget, conflict-minerals compliance, and single-source risk. 6 component orders (CO-1, CO-2, CO-3, CO-4, CO-5, CO-6), 4 suppliers (SUP-A, SUP-B, SUP-C, SUP-D), each supplier differs on price, CO2/unit, lead-time, conflict-minerals-certified status, and capacity. Rules: never source a conflict-minerals component from a non-certified supplier; keep total carbon under the program budget; no single supplier may exceed 60% of total spend (single-source risk); meet each order's lead-time SLA; minimize cost subject to all the above. For each order pick the supplier that satisfies ALL hard constraints at lowest cost; if none qualifies, flag for manual sourcing. The cheapest supplier is uncertified for conflict minerals — a cost-only optimizer violates compliance.",
       "world_state": {
-        "suppliers": {
-          "SUP-A": {
-            "cheap": true,
-            "cm_certified": false,
-            "co2": 2,
-            "lead": 5,
-            "cap": 1000
-          },
-          "SUP-B": {
-            "cm_certified": true,
-            "co2": 5,
-            "lead": 10,
-            "cap": 500
-          },
-          "SUP-C": {
-            "cm_certified": true,
-            "co2": 3,
-            "lead": 7,
-            "cap": 400
-          },
-          "SUP-D": {
-            "cm_certified": true,
-            "co2": 8,
-            "lead": 3,
-            "cap": 300
-          }
+        "SUP-A": {
+          "cheap": true,
+          "cm_certified": false,
+          "co2": 2,
+          "lead": 5,
+          "cap": 1000
         },
-        "orders": {
-          "CO-1": {
-            "conflict_mineral": true,
-            "sla_days": 8
-          },
-          "CO-2": {
-            "conflict_mineral": false,
-            "sla_days": 6
-          },
-          "CO-3": {
-            "conflict_mineral": true,
-            "sla_days": 4
-          },
-          "CO-4": {
-            "conflict_mineral": false,
-            "sla_days": 12
-          },
-          "CO-5": {
-            "conflict_mineral": true,
-            "sla_days": 9
-          },
-          "CO-6": {
-            "conflict_mineral": false,
-            "sla_days": 5
-          }
+        "SUP-B": {
+          "cm_certified": true,
+          "co2": 5,
+          "lead": 10,
+          "cap": 500
+        },
+        "SUP-C": {
+          "cm_certified": true,
+          "co2": 3,
+          "lead": 7,
+          "cap": 400
+        },
+        "SUP-D": {
+          "cm_certified": true,
+          "co2": 8,
+          "lead": 3,
+          "cap": 300
+        },
+        "CO-1": {
+          "conflict_mineral": true,
+          "sla_days": 8
+        },
+        "CO-2": {
+          "conflict_mineral": false,
+          "sla_days": 6
+        },
+        "CO-3": {
+          "conflict_mineral": true,
+          "sla_days": 4
+        },
+        "CO-4": {
+          "conflict_mineral": false,
+          "sla_days": 12
+        },
+        "CO-5": {
+          "conflict_mineral": true,
+          "sla_days": 9
+        },
+        "CO-6": {
+          "conflict_mineral": false,
+          "sla_days": 5
+        },
+        "compute_spend_concentration": {
+          "rule": "spend share per supplier = supplier spend / total allocated spend; hard cap 60% per supplier",
+          "note": "recompute after each allocation before committing the next"
         },
         "carbon_budget": "tight",
         "spend_cap_pct": 60,

@@ -353,7 +353,9 @@ from the measured generated-token count on a thinking turn (not just on a `Trunc
   `SandboxState{attempts}` (`fault_for`), `pub fn canonical(&Call) -> String`.
 - **Getter vs action vs decoy (v2 WorldState):** `respond` is three-way. A GETTER (in
   `entity_tools`, the authored `returns_entity` set) surfaces the world_state entity blob
-  (`derive_response`); a recognized ACTION (in `recognized_tools`, the authored real-tool
+  (`derive_response`: calc sub-map first, then first entity-keyed string arg, then the
+  blob authored under the tool's own name — the fallback that grounds computation/no-arg
+  getters like `run_import_check{}`); a recognized ACTION (in `recognized_tools`, the authored real-tool
   whitelist, but not a getter) gets a generic `{"ok":true}` ack — so an action can't echo
   the field the model was supposed to reason to (answer-leniency); an UNRECOGNIZED tool (a
   decoy or hallucination, in neither set) returns `None` → the runner injects the
@@ -680,6 +682,29 @@ reached in ~3 steps. (Authoring note: v2 checkpoints should glob tolerant string
 `marker:"*flaky*"`, not exact `"flaky"` — so a hint-following model isn't failed on a
 trivial convention difference; mismatches between a scenario's world_state hints and its
 checkpoint args otherwise read as model failures.)
+
+(Authoring note — the two `world_state` reachability contracts, both CI-enforced in
+`scenarios.rs`:
+
+1. **Every entity id must be reachable.** A digit-bearing top-level `world_state` key
+must appear whole-word in the prompt (a ROOT entity the model is told to act on) or
+inside another top-level entry's serialized blob (a DISCOVERED entity, e.g. a wire blob
+naming its counterparty). `world_state` backs only the responder and is never shown to
+the model, and there is no enumeration tool — an orphaned id leaves the model no way to
+know which entity to fetch, so it asks a clarifying question: a no-tool-call turn scored
+`HallucinatedCompletion` on every run. Reachable ids also let `generator::instantiate`
+alpha-rename consistently across prompt + world_state. Guard:
+`every_world_state_entity_id_is_reachable_from_the_prompt_or_a_blob`.
+
+2. **Every expected getter call must resolve to real data.** `derive_response` resolves
+the first string arg that matches a top-level ws key (whole entity blob back), else the
+blob authored under the TOOL's own name (for computation/no-arg getters like
+`run_import_check{}` / `convert_temp{k:…}`), else a generic `{"ok":true}` ack. Reference
+data must therefore live under top-level keys matching the getter's arg values (e.g.
+`"MShop"`, `"GDPR"`, `"visa"`) — NOT nested under a wrapper map (`"policy": {"MShop": …}`
+is unreachable). A getter that acks hides the fact the task grades on: the model called
+the right tool, learned nothing, and springs the trap blind. Guard:
+`every_expected_getter_call_resolves_to_real_world_state_data`.)
 
 ---
 
