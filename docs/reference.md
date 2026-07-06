@@ -449,6 +449,29 @@ measurements, and the recent-workspace list. It reports how much was freed.
 profiles, and app/model settings. The disk-usage number counts only model files,
 so it won't change after a clear — the freed amount is shown separately.
 
+### Import blocked — broken answer keys {#import-blocked}
+
+Importing or saving an eval collection can be rejected with **"Import blocked —
+broken answer keys"** (or the same findings as an error on save). Nothing was
+written: the file violates the world-state authoring contract, and running it
+would produce a task every model "fails" identically — a fixture bug, not a
+model measurement. Each finding names the task and the defect:
+
+- **"entity '…' is in neither the prompt nor any other entity's blob"** — the
+  model has no path to that id. Name it in the prompt (whole word) or inside
+  another entity's data that a getter surfaces.
+- **"expected getter …(…) resolves to NO world_state data (it acks)"** — the
+  fact the task grades on is parked where the responder can't reach it. Move it
+  under a top-level `world_state` key equal to the call's arg value (or the tool
+  name, for no-arg getters). Nested wrapper maps are unreachable.
+- **"world_state key '…' is oracle data no intended call fetches"** — answer-key
+  data must live under a reserved meta key (e.g. `outcome`, `ground_truth`), or
+  a lucky arg guess would be handed the whole answer.
+
+The full authoring rules are in
+[the agentic authoring contract](#agentic-authoring-contract). The import
+dialog's **Copy template** button gives a minimal valid skeleton to start from.
+
 ### Reporting something else
 
 Use the in-app **Feedback** button (bottom-right). Tick "Include diagnostic info"

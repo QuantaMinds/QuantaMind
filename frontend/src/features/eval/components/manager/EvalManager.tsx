@@ -92,6 +92,11 @@ export function EvalManager({
   const [error, setError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [csvOpen, setCsvOpen] = useState(false);
+  // JSON import is a guided two-phase flow: format guide FIRST (so the author sees
+  // the expected shape before picking a file), then a validate-before-write dry-run —
+  // a failing file is never imported and its per-task findings are shown.
+  const [importGuideOpen, setImportGuideOpen] = useState(false);
+  const [importBlocked, setImportBlocked] = useState<CollectionValidation | null>(null);
   // Offline oracle validation of the selected collection ("does my answer key work?").
   const [validating, setValidating] = useState(false);
   const [validation, setValidation] = useState<CollectionValidation | null>(null);
@@ -111,7 +116,8 @@ export function EvalManager({
   const selectedBackend = useBackendStore((s) => s.selectedBackend);
 
   const handleCsvImport = async (name: string, csvTasks: ToolTask[]) => {
-    await save(name, csvTasks);
+    const verdict = await save(name, csvTasks);
+    if (verdict) setValidation(verdict); // auto-validate verdict for what was just written
     showToast(`CSV imported: ${csvTasks.length} task${csvTasks.length > 1 ? "s" : ""} ✓`);
   };
 
@@ -178,19 +184,44 @@ export function EvalManager({
     }
   };
 
-  const handleImport = async () => {
+  // Phase 1 of the import flow: show the expected-format guide. The picker only
+  // opens from the guide's Continue, so the author meets the contract BEFORE the
+  // validator does.
+  const handleImport = () => {
     setError(null);
+    setImportGuideOpen(true);
+  };
+
+  // Phase 2: pick the file, dry-run the full validation on it (nothing written),
+  // and either import it or show the blocking verdict with per-task findings.
+  const proceedImport = async () => {
+    setImportGuideOpen(false);
     try {
       const picked = await open({
         multiple: false,
         filters: [{ name: "JSON", extensions: ["json"] }],
       });
-      if (typeof picked === "string") {
-        await importFile(picked);
+      if (typeof picked !== "string") return;
+      const verdict = await importFile(picked);
+      if (verdict) {
+        setValidation(verdict); // full per-task detail in the panel below the list
+        setImportBlocked(verdict);
+      } else {
+        showToast("Collection imported ✓");
       }
     } catch (e) {
       setError(formatIpcError(e));
     }
+  };
+
+  /// The one-line fix-it summaries for a blocking verdict: semantic findings first
+  /// (they name the exact key/getter), then unreachable/trivial oracle verdicts.
+  const blockedFindings = (v: CollectionValidation): string[] => {
+    const lines = v.tasks.flatMap((t) => [
+      ...t.semantic,
+      ...(t.reachable === "no" || t.discriminating === false ? [`${t.id}: ${t.detail}`] : []),
+    ]);
+    return v.structural_error ? [v.structural_error, ...lines] : lines;
   };
 
   // Offline oracle check: proves each task's answer key is reachable by a perfect agent and
@@ -598,14 +629,21 @@ export function EvalManager({
                     <div style={{ color: "#b91c1c" }} data-testid="eval-validation-structural">Schema error: {validation.structural_error}</div>
                   )}
                   {validation.tasks.map((t) => {
-                    const bad = t.reachable === "no" || t.discriminating === false;
-                    const badge = t.reachable === "yes" ? "✓" : t.reachable === "no" ? "✗" : "?";
-                    const color = t.reachable === "no" ? "#b91c1c" : t.reachable === "not_checkable" ? "#b45309" : "#166534";
+                    const bad = t.reachable === "no" || t.discriminating === false || t.semantic.length > 0;
+                    const badge = bad ? "✗" : t.reachable === "not_checkable" ? "?" : "✓";
+                    const color = bad ? "#b91c1c" : t.reachable === "not_checkable" ? "#b45309" : "#166534";
                     return (
-                      <div key={t.id} style={{ display: "flex", gap: 6, padding: "1px 0", color: bad ? "#b91c1c" : "#334155" }} data-testid={`eval-validation-task-${t.id}`}>
-                        <span style={{ color, fontWeight: 700 }}>{badge}</span>
-                        <span style={{ fontFamily: "'JetBrains Mono', monospace", flexShrink: 0 }}>{t.id}</span>
-                        <span style={{ color: "#64748b", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }} title={t.detail}>— {t.detail}</span>
+                      <div key={t.id} data-testid={`eval-validation-task-${t.id}`}>
+                        <div style={{ display: "flex", gap: 6, padding: "1px 0", color: bad ? "#b91c1c" : "#334155" }}>
+                          <span style={{ color, fontWeight: 700 }}>{badge}</span>
+                          <span style={{ fontFamily: "'JetBrains Mono', monospace", flexShrink: 0 }}>{t.id}</span>
+                          <span style={{ color: "#64748b", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }} title={t.detail}>— {t.detail}</span>
+                        </div>
+                        {t.semantic.map((m, i) => (
+                          <div key={i} style={{ color: "#b91c1c", padding: "1px 0 1px 18px" }} data-testid={`eval-validation-semantic-${t.id}-${i}`}>
+                            ⚠ {m}
+                          </div>
+                        ))}
                       </div>
                     );
                   })}
@@ -758,6 +796,51 @@ export function EvalManager({
           onClose={() => setDeleteTarget(null)}
         />
       )}
+      {importGuideOpen && (
+        <ConfirmDialog
+          title="Import a collection (.json)"
+          message={'Two shapes are accepted: a v2 collection object (multi-step world-state tasks, skeleton below) or a raw task array (single-turn). The file is validated BEFORE anything is written — every entity id must be named in the prompt, every fact must live under a top-level world_state key a getter\'s arg can reach, and answer-key data (per-task verdicts, expected values) must sit under a reserved key like "outcome". See docs/reference.md#agentic-authoring-contract for the full contract.'}
+          confirmLabel="Continue → choose file"
+          danger={false}
+          wide
+          onConfirm={() => void proceedImport()}
+          onClose={() => setImportGuideOpen(false)}
+        >
+          <pre
+            style={{ fontSize: 10.5, fontFamily: "'JetBrains Mono', monospace", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 6, padding: 10, overflowX: "auto", margin: 0 }}
+            data-testid="eval-import-guide-skeleton"
+          >
+            {V2_TEMPLATE}
+          </pre>
+          <button
+            type="button"
+            style={{ ...actionBtnStyle, fontSize: 12 }}
+            onClick={() => void navigator.clipboard?.writeText(V2_TEMPLATE).then(() => showToast("Template copied ✓"))}
+            data-testid="eval-import-guide-copy"
+          >
+            ⧉ Copy template
+          </button>
+        </ConfirmDialog>
+      )}
+      {importBlocked && (
+        <ConfirmDialog
+          title="Import blocked — broken answer keys"
+          message={`${importBlocked.tasks.filter((t) => t.reachable === "no" || t.discriminating === false || t.semantic.length > 0).length || "Some"} task(s) violate the world-state authoring contract, so nothing was imported. Fix the file and re-import:`}
+          confirmLabel="OK"
+          danger={false}
+          wide
+          onConfirm={() => setImportBlocked(null)}
+          onClose={() => setImportBlocked(null)}
+        >
+          <div style={{ maxHeight: 220, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4 }} data-testid="eval-import-blocked-findings">
+            {blockedFindings(importBlocked).map((m, i) => (
+              <div key={i} style={{ fontSize: 11, color: "#b91c1c", fontFamily: "Inter, sans-serif" }}>
+                ✗ {m}
+              </div>
+            ))}
+          </div>
+        </ConfirmDialog>
+      )}
       {csvOpen && <CsvImportModal onImport={handleCsvImport} onClose={() => setCsvOpen(false)} />}
       {editEnvTaskId &&
         (() => {
@@ -777,6 +860,37 @@ export function EvalManager({
     </div>
   );
 }
+
+/// Minimal valid v2 world-state collection, shown (and copyable) in the import
+/// format guide. Deliberately exercises every contract rule: the entity id O-1 is
+/// named in the prompt, its facts live under the top-level `world_state` key the
+/// getter's arg reaches, the action is tagged `returns_entity:false`, the decoy is
+/// trapped via `must_not_call`, and the fault clears after one retry.
+const V2_TEMPLATE = `{
+  "name": "my-collection",
+  "domain": "support",
+  "tier": "easy",
+  "tasks": [{
+    "id": "my_task_1",
+    "category": "agent_loop",
+    "max_steps": 8,
+    "prompt": "Resolve the return request for order O-1 per store policy.",
+    "world_state": {
+      "O-1": { "status": "delivered", "days_since_delivery": 4, "category": "apparel" }
+    },
+    "tools": [
+      { "name": "get_order", "params": { "id": "string" } },
+      { "name": "approve_return", "params": { "id": "string" }, "returns_entity": false }
+    ],
+    "decoy_tools": [{ "name": "approve_all_returns", "params": {} }],
+    "must_not_call": ["approve_all_returns"],
+    "faults": [{ "on_call": "get_order", "type": "transient", "status_code": 503, "clears_after": 1 }],
+    "expected_calls": [
+      { "type": "call", "name": "get_order", "args": { "id": "O-1" } },
+      { "type": "call", "name": "approve_return", "args": { "id": "O-1" } }
+    ]
+  }]
+}`;
 
 // ── Styles ──────────────────────────────────────────────────────────────────
 

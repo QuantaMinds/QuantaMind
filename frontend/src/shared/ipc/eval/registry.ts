@@ -190,11 +190,15 @@ export async function readTextCapped(sourcePath: string): Promise<string> {
 /// "no" (the answer key is broken — bad checkpoint tool/args/wildcard), or "not_checkable"
 /// (stateful/abstain end-state — confirm with a real run). `discriminating`: whether a
 /// do-nothing agent correctly FAILS it (null when N/A). `detail` is the human explanation.
+/// `semantic` lists world-state authoring-contract violations (orphaned entity ids,
+/// expected getters that ack, leakable oracle keys) — the same findings the backend
+/// hard-blocks save/import on. Defaulted so a cached pre-field verdict still parses.
 export const TaskValidationSchema = z.object({
   id: z.string(),
   reachable: z.enum(["yes", "no", "not_checkable"]),
   discriminating: z.boolean().nullable(),
   detail: z.string(),
+  semantic: z.array(z.string()).default([]),
 });
 export type TaskValidation = z.infer<typeof TaskValidationSchema>;
 
