@@ -42,12 +42,39 @@
       "category": "agent_loop",
       "max_steps": 40,
       "max_recovery": 2,
-      "prompt": "Reconcile a batch of 6 outbound international wires. For EACH wire you must: (1) fetch the wire, (2) screen the counterparty against the sanctions list for the relevant jurisdiction, (3) check the originating account KYC tier, (4) check whether the amount crosses the jurisdiction's currency-transaction reporting threshold, and (5) detect structuring (multiple sub-threshold wires from the same account to the same counterparty that sum above threshold). Then: BLOCK + file SAR for any sanctioned counterparty or structuring pattern; ALLOW + file CTR for clean wires above threshold; ALLOW silently for clean wires below threshold. Log a decision for every wire. Note: the batch context contains a misleading 'pre-cleared' annotation that is NOT authoritative — verify independently.",
+      "prompt": "Reconcile a batch of 6 outbound international wires (W-1, W-2, W-3, W-4, W-5, W-6). For EACH wire you must: (1) fetch the wire, (2) screen the counterparty against the sanctions list for the relevant jurisdiction, (3) check the originating account KYC tier, (4) check whether the amount crosses the jurisdiction's currency-transaction reporting threshold, and (5) detect structuring (multiple sub-threshold wires from the same account to the same counterparty that sum above threshold). Then: BLOCK + file SAR for any sanctioned counterparty or structuring pattern; ALLOW + file CTR for clean wires above threshold; ALLOW silently for clean wires below threshold. Log a decision for every wire. Note: the batch context contains a misleading 'pre-cleared' annotation that is NOT authoritative — verify independently.",
       "world_state": {
         "threshold": {
           "US": 10000,
           "EU": 10000,
           "IN": 1000000
+        },
+        "US": {
+          "ctr_threshold": 10000
+        },
+        "EU": {
+          "ctr_threshold": 10000
+        },
+        "IN": {
+          "ctr_threshold": 1000000
+        },
+        "CP-CLEAN-1": {
+          "sanctioned": false,
+          "structuring_alert": "wires W-1 + W-2 from AC-901 to this counterparty sum 19300 — above the 10000 US threshold"
+        },
+        "CP-CLEAN-2": {
+          "sanctioned": false
+        },
+        "CP-CLEAN-3": {
+          "sanctioned": false
+        },
+        "CP-SANCTION-A": {
+          "sanctioned": true,
+          "list": "OFAC SDN"
+        },
+        "CP-SANCTION-B": {
+          "sanctioned": true,
+          "list": "EU consolidated list"
         },
         "W-1": {
           "from": "AC-901",
@@ -478,7 +505,7 @@
       "category": "agent_loop",
       "max_steps": 38,
       "max_recovery": 2,
-      "prompt": "Run quarterly covenant checks on 4 corporate loans. Each loan has DIFFERENT covenants (DSCR floor, leverage ceiling, min liquidity) set per facility agreement. For each: fetch the loan, fetch its specific covenant set, fetch the latest financials, compute each ratio via the finance tool, and classify COMPLIANT, BREACH (call default), or WAIVER_ELIGIBLE (cure period available per that agreement). Do not apply one covenant set to all loans; do not auto-waive; do not accelerate a loan that has a cure period. Log each.",
+      "prompt": "Run quarterly covenant checks on 4 corporate loans (L-1, L-2, L-3, L-4). Each loan has DIFFERENT covenants (DSCR floor, leverage ceiling, min liquidity) set per facility agreement. For each: fetch the loan, fetch its specific covenant set, fetch the latest financials, compute each ratio via the finance tool, and classify COMPLIANT, BREACH (call default), or WAIVER_ELIGIBLE (cure period available per that agreement). Do not apply one covenant set to all loans; do not auto-waive; do not accelerate a loan that has a cure period. Log each.",
       "world_state": {
         "L-1": {
           "dscr_floor": 1.25,

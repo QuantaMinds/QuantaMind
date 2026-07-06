@@ -774,6 +774,92 @@ async fn live_filesystem_env_passes_on_the_native_path() {
 }
 
 #[tokio::test]
+async fn scripted_returns_batch_gets_policy_fact_after_fault_clears() {
+    // Deterministic reproduction of the live returns trace: a model that batches the
+    // day-one calls (fenced JSON, "arguments" keys — the exact live raw shape) must, once
+    // the authored 503 transient clears, receive the REAL marketplace-policy text — never
+    // a content-free ack. Guards the full parse→fault→respond pipeline on the real task.
+    use crate::inference::eval::agentic::build::sandbox_for;
+    use crate::inference::eval::agentic::v2::collection::load_v2_collection;
+    use crate::inference::eval::agentic::v2::scenarios::v2_json;
+    let task = load_v2_collection(v2_json("hard-support-ecommerce").unwrap())
+        .unwrap()
+        .into_iter()
+        .find(|t| t.id == "hd_se_returns_instance0")
+        .unwrap();
+    let (sandbox, cfg) = sandbox_for(&task).unwrap();
+    let batch = "```json\n[\n  {\"name\": \"get_order\", \"arguments\": {\"id\": \"O-1\"}},\n  {\"name\": \"get_marketplace_policy\", \"arguments\": {\"mkt\": \"MShop\"}},\n  {\"name\": \"get_state_ewaste_rule\", \"arguments\": {\"state\": \"SD\"}}\n]\n```";
+    let model = ScriptedModel::new(vec![(batch, 20), (batch, 20), (batch, 20)]);
+    let (tx, mut rx) = unbounded_channel();
+    let _ = run_once(&model, &sandbox, cfg.max_steps, cfg.max_recovery, 0, &tx).await.unwrap();
+    drop(tx);
+    let steps = drain(&mut rx);
+    for s in &steps {
+        eprintln!("turn {} kind={:?} inj={:?}", s.step_index, s.kind, s.injection);
+    }
+    let all_inj: String = steps.iter().filter_map(|s| s.injection.clone()).collect::<Vec<_>>().join("\n");
+    assert!(all_inj.contains("restocking"), "marketplace policy fact never injected:\n{all_inj}");
+    assert!(all_inj.contains("e-waste"), "state e-waste rule never injected:\n{all_inj}");
+}
+
+#[tokio::test]
+#[ignore = "answer-key grounding gate: the returns task's policy/e-waste getters inject REAL data, not acks"]
+async fn live_returns_task_grounds_policy_and_ewaste_data() {
+    // The hd_se_returns fix end-to-end: get_marketplace_policy / get_state_ewaste_rule used
+    // to resolve NOTHING (policy text nested under ws["policy"]) → the model decided the
+    // O-2 electronics trap blind on {"ok":true}. With the data promoted to top-level
+    // entities, a live native run must show those getters injecting the real policy text.
+    // The model's final verdict is a capability measurement; the DATA INJECTION is the
+    // harness property under test — asserted, not eyeballed.
+    use crate::inference::eval::agentic::build::sandbox_for;
+    use crate::inference::eval::agentic::difficulty::passk::max_tokens_for;
+    use crate::inference::eval::agentic::model_turn::NativeToolTurn;
+    use crate::inference::eval::agentic::v2::collection::load_v2_collection;
+    use crate::inference::eval::agentic::v2::scenarios::v2_json;
+    use crate::inference::eval::toolcall::prompt::TerminalGuidance;
+    let task = load_v2_collection(v2_json("hard-support-ecommerce").unwrap())
+        .unwrap()
+        .into_iter()
+        .find(|t| t.id == "hd_se_returns_instance0")
+        .unwrap();
+    let tier = task.agentic.as_ref().map(|s| s.tier).unwrap_or_default();
+    let (sandbox, cfg) = sandbox_for(&task).unwrap();
+    let model = NativeToolTurn {
+        backend: crate::inference::backend::backend_kind::BackendKind::Ollama,
+        endpoint: "http://localhost:11434".into(),
+        model: std::env::var("QM_LIVE_MODEL").unwrap_or_else(|_| "qwen2.5-coder-14b-instruct-q8_0:latest".into()),
+        tools: task.tools.clone(),
+        options: None,
+        terminal: TerminalGuidance::MustUseTools,
+        max_tokens: max_tokens_for(tier, true),
+        is_thinking: false,
+    };
+    let (tx, mut rx) = unbounded_channel();
+    let outcome = run_once(&model, &sandbox, cfg.max_steps, cfg.max_recovery, 0, &tx).await.unwrap();
+    drop(tx);
+    let steps = drain(&mut rx);
+    for s in &steps {
+        let raw: String = s.raw_output.split_whitespace().collect::<Vec<_>>().join(" ");
+        let inj: String = s.injection.as_deref().unwrap_or("").replace('\n', " | ");
+        eprintln!("turn {} kind={:?}\n  raw={raw}\n  inj={inj}", s.step_index, s.kind);
+    }
+    eprintln!("RETURNS-LIVE: reached_end={} steps={} failure={:?}", outcome.reached_end, outcome.steps, outcome.failure);
+    // The grounding property: whenever the model asked for the marketplace policy or the
+    // e-waste rule, the sandbox injected the REAL fact — never only the old generic ack.
+    let mut policy_fact_seen = false;
+    for s in &steps {
+        if s.raw_output.contains("get_marketplace_policy") || s.raw_output.contains("get_state_ewaste_rule") {
+            let inj = s.injection.as_deref().unwrap_or("");
+            policy_fact_seen |= inj.contains("restocking") || inj.contains("ewaste_rule") || inj.contains("e-waste");
+        }
+    }
+    assert!(
+        policy_fact_seen,
+        "no policy/e-waste FACT was ever injected — either the getters still ack or the model never called them; inspect the trace above"
+    );
+}
+
+#[tokio::test]
 #[ignore = "tier coverage: native path RUNS + produces a definite verdict on medium/hard/extreme"]
 async fn live_native_path_runs_across_medium_hard_extreme_tiers() {
     // Confirms native tool-calling is tier-agnostic: a native-capable model produces a DEFINITE

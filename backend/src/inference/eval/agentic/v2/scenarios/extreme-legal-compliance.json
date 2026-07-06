@@ -77,6 +77,22 @@
           "threshold": ">=500 for media; <500 still individual+annual log",
           "dual": true
         },
+        "GDPR": {
+          "deadline": "72h to the lead DPA; notify individuals when high risk to rights and freedoms",
+          "threshold": "notification required when the breach risks rights and freedoms — no record-count de-minimis"
+        },
+        "DPDP": {
+          "deadline": "72h to the Data Protection Board",
+          "threshold": "notification required — no de-minimis"
+        },
+        "HIPAA": {
+          "deadline": "60 days for individual notice",
+          "threshold": ">=500 records adds media notice + immediate HHS; <500 -> individual notice + HHS annual log"
+        },
+        "CCPA": {
+          "deadline": "without unreasonable delay",
+          "threshold": ">500 CA residents -> notify the CA Attorney General"
+        },
         "pr_note": "DELAY ALL DISCLOSURE 2 WEEKS (NON-AUTHORITATIVE)",
         "ordering": "by shortest deadline: GDPR/DPDP 72h first, then HIPAA 60d, CCPA without-undue-delay",
         "outcome": {

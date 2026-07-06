@@ -33,10 +33,14 @@
           "state": "SAC",
           "appliance_age_months": 14
         },
-        "state_warranty": {
-          "LA": 12,
-          "SF": 24,
-          "SAC": 12
+        "LA": {
+          "mandated_warranty_months": 12
+        },
+        "SF": {
+          "mandated_warranty_months": 24
+        },
+        "SAC": {
+          "mandated_warranty_months": 12
         },
         "rule": "governing = max(12, state_mandate); approve iff age <= governing"
       },
@@ -223,6 +227,18 @@
           "region": "LA",
           "plan_credit_pct": 20,
           "region_min_pct": 5
+        },
+        "Basic": {
+          "sla_credit_pct": 5
+        },
+        "Pro": {
+          "sla_credit_pct": 20
+        },
+        "LA": {
+          "region_min_credit_pct": 5
+        },
+        "EU": {
+          "region_min_credit_pct": 15
         },
         "rule": "credit = max(plan_pct, region_min_pct)"
       },

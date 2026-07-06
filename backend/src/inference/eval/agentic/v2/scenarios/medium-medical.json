@@ -242,6 +242,13 @@
           "age": 50,
           "risk": "immunocompromised",
           "vaccine": "live"
+        },
+        "inactivated": {
+          "min_interval_days": 180
+        },
+        "live": {
+          "min_interval_days": 180,
+          "contraindication": "immunocompromised patients — refer, never administer"
         }
       },
       "tools": [

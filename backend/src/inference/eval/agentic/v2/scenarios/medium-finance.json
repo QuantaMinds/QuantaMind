@@ -242,6 +242,11 @@
           "resident_pan": 10,
           "nr_notreaty": 30,
           "nr_treaty": 15
+        },
+        "calc": {
+          "10000*0.10": 1000,
+          "10000*0.30": 3000,
+          "10000*0.15": 1500
         }
       },
       "tools": [
@@ -458,9 +463,11 @@
           "days": 50,
           "merchant_attempt": false
         },
-        "window": {
-          "visa": 120,
-          "mc": 90
+        "visa": {
+          "dispute_window_days": 120
+        },
+        "mc": {
+          "dispute_window_days": 90
         }
       },
       "tools": [

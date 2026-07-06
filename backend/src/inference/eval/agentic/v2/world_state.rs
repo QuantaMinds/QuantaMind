@@ -12,8 +12,13 @@ const ACK: &str = r#"{"ok":true}"#;
 /// string-valued arg whose value is a (non-reserved) world_state key — so every
 /// tool on the same entity (`get_positions`, `compute_margin`, …) sees the same
 /// blob and reads the field it needs (no per-tool projection). The `calc` sub-map
-/// (`ws["calc"][expression]`) is handled first. A call that resolves to nothing
-/// gets a generic ack (it still can't advance any checkpoint).
+/// (`ws["calc"][expression]`) is handled first. A getter whose args carry no
+/// entity key (computation/no-arg getters — `run_import_check{}`,
+/// `convert_temp{k:…}`) falls back to the ws entry authored under the TOOL's own
+/// name — the same whole-blob convention, keyed by tool instead of entity, so a
+/// tool called with different args gets one blob holding every answer and reads
+/// its field. A call that resolves to nothing gets a generic ack (it still can't
+/// advance any checkpoint).
 pub fn derive_response(ws: &Value, call: &Call) -> String {
     let Some(args) = call.args.as_object() else {
         return ACK.to_string();
@@ -40,6 +45,13 @@ pub fn derive_response(ws: &Value, call: &Call) -> String {
                 if let Some(entity) = ws_obj.get(s) {
                     return entity.to_string();
                 }
+            }
+        }
+        // Tool-name fallback: no arg keyed an entity → the blob authored under the
+        // tool's own name (never a reserved meta key).
+        if !RESERVED.contains(&call.name.as_str()) {
+            if let Some(blob) = ws_obj.get(&call.name) {
+                return blob.to_string();
             }
         }
     }
@@ -89,5 +101,41 @@ mod tests {
     fn unresolved_call_gets_a_generic_ack() {
         assert_eq!(derive_response(&ws(), &call("noop", json!({ "account": "ZZ" }))), ACK);
         assert_eq!(derive_response(&ws(), &call("noop", json!({}))), ACK);
+    }
+
+    #[test]
+    fn a_no_arg_getter_resolves_via_its_tool_name_key() {
+        let ws = json!({ "run_import_check": { "cycle": ["orders/service.py", "orders/notify.py"] } });
+        let r = derive_response(&ws, &call("run_import_check", json!({})));
+        assert_eq!(r, json!({ "cycle": ["orders/service.py", "orders/notify.py"] }).to_string());
+    }
+
+    #[test]
+    fn a_computation_getter_falls_back_to_its_tool_name_blob() {
+        // No arg value keys an entity (310.15 is a number, "C" isn't a ws key) → the
+        // tool-name blob carries every answer; the model reads the field it asked for.
+        let ws = json!({ "convert_temp": { "C": 37.0, "F": 98.6 } });
+        assert_eq!(
+            derive_response(&ws, &call("convert_temp", json!({ "k": 310.15, "to": "C" }))),
+            json!({ "C": 37.0, "F": 98.6 }).to_string()
+        );
+    }
+
+    #[test]
+    fn entity_resolution_wins_over_the_tool_name_fallback() {
+        let ws = json!({
+            "M-3": { "ratio": 0.1 },
+            "get_positions": { "should": "never win when an arg keys an entity" }
+        });
+        let r = derive_response(&ws, &call("get_positions", json!({ "account": "M-3" })));
+        assert_eq!(r, json!({ "ratio": 0.1 }).to_string());
+    }
+
+    #[test]
+    fn a_reserved_tool_name_never_returns_the_meta_blob() {
+        // A tool literally named "calc" with an unresolved expression must ack, not
+        // hand back the whole calc answer map.
+        let r = derive_response(&ws(), &call("calc", json!({ "expression": "unknown" })));
+        assert_eq!(r, ACK);
     }
 }

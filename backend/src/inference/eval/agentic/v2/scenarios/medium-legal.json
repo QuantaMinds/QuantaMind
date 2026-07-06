@@ -33,10 +33,14 @@
           "governing_law": "Texas",
           "clause": "2yr non-compete statewide"
         },
-        "rule": {
-          "California": "void (non-competes unenforceable)",
-          "Florida": "enforceable if reasonable",
-          "Texas": "enforceable if narrowed to reasonable scope"
+        "California": {
+          "non_compete": "void (non-competes unenforceable)"
+        },
+        "Florida": {
+          "non_compete": "enforceable if reasonable"
+        },
+        "Texas": {
+          "non_compete": "enforceable if narrowed to reasonable scope"
         },
         "outcome": {
           "K-1": "VOID",
