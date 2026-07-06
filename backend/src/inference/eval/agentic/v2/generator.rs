@@ -1,10 +1,8 @@
 use crate::inference::eval::agentic::sandbox::EndStateRule;
 use crate::inference::eval::agentic::v2::r#match::MustNotCall;
+use crate::inference::eval::agentic::v2::world_state::RESERVED;
 use crate::inference::eval::toolcall::tasks::ToolTask;
 use serde_json::Value;
-
-/// world_state keys that are meta, not discoverable entities — never remapped.
-pub(crate) const RESERVED: [&str; 3] = ["calc", "threshold", "ground_truth"];
 
 /// Deterministic per-run seed from the model name + run index (FNV-1a). Same
 /// `(model, run_index)` → identical instance (reproducibility); different

@@ -576,25 +576,29 @@ mod tests {
     /// future scenario that ships an orphaned entity id fails HERE, at CI, not in a
     /// live trace. Whole-word matching mirrors `replace_ids` (bounded by a
     /// non-alphanumeric byte, or the string edge, on both sides).
+    /// Whole-word token match, mirroring `replace_ids`' boundary rule: a match is
+    /// bounded by a non-alphanumeric byte (or the string edge) on both sides, so
+    /// "M-1" never matches inside "M-12". Shared by the reachability and
+    /// answer-key-leak guards.
+    fn names_token(text: &str, id: &str) -> bool {
+        let alnum = |b: u8| b.is_ascii_alphanumeric();
+        let tb = text.as_bytes();
+        let mut i = 0;
+        while let Some(off) = text[i..].find(id) {
+            let (s, e) = (i + off, i + off + id.len());
+            let left = s == 0 || !alnum(tb[s - 1]);
+            let right = e >= tb.len() || !alnum(tb[e]);
+            if left && right {
+                return true;
+            }
+            i = s + 1;
+        }
+        false
+    }
+
     #[test]
     fn every_world_state_entity_id_is_reachable_from_the_prompt_or_a_blob() {
-        use crate::inference::eval::agentic::v2::generator::RESERVED;
-
-        fn names_token(text: &str, id: &str) -> bool {
-            let alnum = |b: u8| b.is_ascii_alphanumeric();
-            let tb = text.as_bytes();
-            let mut i = 0;
-            while let Some(off) = text[i..].find(id) {
-                let (s, e) = (i + off, i + off + id.len());
-                let left = s == 0 || !alnum(tb[s - 1]);
-                let right = e >= tb.len() || !alnum(tb[e]);
-                if left && right {
-                    return true;
-                }
-                i = s + 1;
-            }
-            false
-        }
+        use crate::inference::eval::agentic::v2::world_state::RESERVED;
 
         let mut violations: Vec<String> = Vec::new();
         for (id, json) in V2_SCENARIOS {
@@ -617,5 +621,82 @@ mod tests {
             }
         }
         assert!(violations.is_empty(), "orphaned world_state entities (model has no path to their ids):\n{}", violations.join("\n"));
+    }
+
+    /// Answer-key-leak guard, the inverse of the reachability guard: every
+    /// non-`RESERVED` top-level `world_state` key must be INTENDED-fetchable —
+    /// named whole-word in the prompt, referenced in another entity's blob,
+    /// an expected-call arg value, or a tool name (the no-arg fallback). A key
+    /// reachable through none of those is pure oracle data (`outcome`, `rule`,
+    /// `real_bug`, …) that no correct play ever fetches — yet `derive_response`
+    /// would hand back its whole blob to any call whose arg happens to equal the
+    /// key string. Such a key must be listed in `world_state::RESERVED` (which
+    /// makes the responder ack instead). This guard keeps RESERVED exact in both
+    /// directions: an unfetchable key missing from RESERVED fails here; a key
+    /// added to RESERVED that a real getter needed flips
+    /// `every_expected_getter_call_resolves_to_real_world_state_data` red.
+    #[test]
+    fn no_unfetched_world_state_key_is_resolvable_by_a_getter() {
+        use crate::inference::eval::agentic::v2::world_state::RESERVED;
+
+        // Every string arg value across expected_calls (including parallel
+        // groups), plus its glob core ("*FULL*" → "FULL") so a wildcard match
+        // counts as an intended fetch path.
+        fn arg_values(task: &Value) -> HashSet<String> {
+            fn collect(ec: &Value, out: &mut HashSet<String>) {
+                if ec["type"] == "parallel" {
+                    for c in ec["calls"].as_array().into_iter().flatten() {
+                        collect(c, out);
+                    }
+                    return;
+                }
+                for av in ec["args"].as_object().into_iter().flatten().map(|(_, v)| v) {
+                    if let Some(s) = av.as_str() {
+                        out.insert(s.to_string());
+                        out.insert(s.trim_matches('*').to_string());
+                    }
+                }
+            }
+            let mut out = HashSet::new();
+            for ec in task["expected_calls"].as_array().into_iter().flatten() {
+                collect(ec, &mut out);
+            }
+            out
+        }
+
+        let mut violations: Vec<String> = Vec::new();
+        for (id, json) in V2_SCENARIOS {
+            let v: Value = serde_json::from_str(json).unwrap();
+            if matches!(v.get("environment").and_then(Value::as_str), Some("filesystem") | Some("web_corpus") | Some("web_ui")) {
+                continue;
+            }
+            for task in v["tasks"].as_array().into_iter().flatten() {
+                let tid = task["id"].as_str().unwrap_or("?");
+                let prompt = task["prompt"].as_str().unwrap_or("");
+                let Some(ws) = task["world_state"].as_object() else { continue };
+                let tools: HashSet<&str> =
+                    task["tools"].as_array().into_iter().flatten().filter_map(|t| t["name"].as_str()).collect();
+                let args = arg_values(task);
+                for key in ws.keys() {
+                    if RESERVED.contains(&key.as_str()) {
+                        continue;
+                    }
+                    let fetchable = names_token(prompt, key)
+                        || ws.iter().any(|(k, val)| k != key && names_token(&val.to_string(), key))
+                        || args.contains(key.as_str())
+                        || tools.contains(key.as_str());
+                    if !fetchable {
+                        violations.push(format!(
+                            "{id}/{tid}: world_state key '{key}' is fetchable by a lucky arg guess but no intended path — add it to world_state::RESERVED or make it reachable"
+                        ));
+                    }
+                }
+            }
+        }
+        assert!(
+            violations.is_empty(),
+            "unfetched world_state keys leak answer-key data to arbitrary arg guesses:\n{}",
+            violations.join("\n")
+        );
     }
 }

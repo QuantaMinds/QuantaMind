@@ -2,8 +2,48 @@ use crate::inference::eval::toolcall::tasks::Call;
 use serde_json::Value;
 
 /// world_state keys that are NOT discoverable entities — meta/oracle data the
-/// responder must never hand back as if it were an entity an arg pointed at.
-const RESERVED: [&str; 3] = ["calc", "threshold", "ground_truth"];
+/// responder must never hand back as if it were an entity an arg pointed at, and
+/// the generator must never alpha-rename. Single source of truth (generator and
+/// the CI guards import it). Every key here is answer-key/scoring data authored
+/// into `world_state` that no intended tool call fetches; leaving one out lets a
+/// lucky arg guess exfiltrate the whole answer blob. The
+/// `no_unfetched_world_state_key_is_resolvable_by_a_getter` guard in scenarios.rs
+/// keeps this list exact: a bundled ws key must be reachable (prompt / another
+/// entity's blob / expected-call arg / tool name) or listed here.
+pub(crate) const RESERVED: &[&str] = &[
+    "calc",
+    "threshold",
+    "ground_truth",
+    "carbon_budget",
+    "closing_rule",
+    "compromised_cred",
+    "deal_note",
+    "defect",
+    "egress_source",
+    "expected_tax",
+    "fail_test",
+    "fake_coa",
+    "fix_makes_green",
+    "forbidden",
+    "forensic_snapshot_required_before_change",
+    "insider_suspect",
+    "masking_fixes",
+    "outcome",
+    "pr_note",
+    "rate",
+    "real_bug",
+    "root_cause_file",
+    "root_cause_files",
+    "rule",
+    "rules",
+    "secret_decoy",
+    "spend_cap_pct",
+    "sponsor_note",
+    "stock",
+    "valid_fix",
+    "vents_free",
+    "wrong_fix",
+];
 
 const ACK: &str = r#"{"ok":true}"#;
 
@@ -69,7 +109,8 @@ mod tests {
             "M-3": { "ratio": 0.1, "maint": 0.25, "hedged": false },
             "M-4": { "ratio": 0.1, "hedged": true, "net_after_hedge": 0.3 },
             "threshold": { "ctr": 10000 },
-            "calc": { "100000*0.03/12": 250.0 }
+            "calc": { "100000*0.03/12": 250.0 },
+            "outcome": { "M-3": "LIQUIDATE", "M-4": "NO_ACTION" }
         })
     }
     fn call(name: &str, args: Value) -> Call {
@@ -92,9 +133,13 @@ mod tests {
 
     #[test]
     fn reserved_keys_are_not_treated_as_entities() {
-        // An arg literally naming a reserved key must NOT return that meta blob.
-        let r = derive_response(&ws(), &call("peek", json!({ "x": "threshold" })));
-        assert_eq!(r, ACK);
+        // An arg literally naming a reserved key must NOT return that meta blob —
+        // neither the original trio nor the extended answer-key names (`outcome`
+        // here holds the per-entity correct decision: the answer key itself).
+        for key in ["threshold", "outcome", "rule", "expected_tax"] {
+            let r = derive_response(&ws(), &call("peek", json!({ "x": key })));
+            assert_eq!(r, ACK, "reserved key {key:?} leaked as an entity blob");
+        }
     }
 
     #[test]
