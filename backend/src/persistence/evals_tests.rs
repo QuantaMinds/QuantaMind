@@ -88,6 +88,40 @@ fn save_invalid_tasks_rejected() {
     assert!(matches!(save(dir.path(), "empty", &[]), Err(AppError::InvalidTaskSchema(_))));
 }
 
+fn broken_world_state_tasks() -> Vec<ToolTask> {
+    use crate::inference::eval::agentic::v2::collection::load_v2_collection;
+    use crate::inference::eval::agentic::v2::scenarios::v2_json;
+    // Structurally valid, semantically broken: an orphaned entity id no prompt or
+    // blob names — the exact defect class the write boundary must block.
+    let mut tasks = load_v2_collection(v2_json("hard-support-ecommerce").unwrap()).unwrap();
+    let ws = tasks[0].agentic.as_mut().unwrap().world_state.as_mut().unwrap();
+    ws.as_object_mut().unwrap().insert("Z-99".into(), json!({ "status": "lost" }));
+    tasks
+}
+
+#[test]
+fn save_rejects_semantically_broken_agentic_tasks() {
+    let dir = tempdir().unwrap();
+    let tasks = broken_world_state_tasks();
+    let err = save(dir.path(), "broken_ws", &tasks).unwrap_err();
+    let AppError::InvalidTaskSchema(msg) = err else { panic!("expected InvalidTaskSchema, got {err:?}") };
+    assert!(msg.contains("Z-99"), "error names the broken key: {msg}");
+    assert!(msg.contains(&tasks[0].id), "error names the task: {msg}");
+    assert!(list(dir.path()).unwrap().is_empty(), "nothing may be written on rejection");
+}
+
+#[test]
+fn load_still_reads_a_preexisting_broken_file() {
+    // A file that predates the write boundary (or was hand-edited) must stay
+    // loadable so the user can open and FIX it — enforcement is write-side only.
+    let dir = tempdir().unwrap();
+    std::fs::create_dir_all(dir.path()).unwrap();
+    let tasks = broken_world_state_tasks();
+    std::fs::write(dir.path().join("legacy.json"), serde_json::to_string_pretty(&tasks).unwrap()).unwrap();
+    let loaded = load(dir.path(), "legacy").unwrap();
+    assert_eq!(loaded.len(), tasks.len());
+}
+
 #[test]
 fn bad_names_rejected() {
     let dir = tempdir().unwrap();

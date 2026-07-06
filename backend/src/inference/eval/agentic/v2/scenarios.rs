@@ -502,6 +502,26 @@ mod tests {
         );
     }
 
+    /// Every bundled collection, loaded through the REAL transpile path, must be
+    /// clean under `oracle::semantic_findings` filtered to `kind` — the same
+    /// implementation `evals::save` hard-blocks custom collections on, so the CI
+    /// contract and the import trust boundary can never drift.
+    fn assert_bundled_clean_for(kind: crate::inference::eval::agentic::v2::oracle::SemanticFindingKind) {
+        use crate::inference::eval::agentic::v2::collection::load_v2_collection;
+        use crate::inference::eval::agentic::v2::oracle::semantic_findings;
+
+        let mut violations: Vec<String> = Vec::new();
+        for (id, json) in V2_SCENARIOS {
+            let tasks = load_v2_collection(json).unwrap();
+            for f in semantic_findings(&tasks) {
+                if f.kind == kind {
+                    violations.push(format!("{id}/{f}"));
+                }
+            }
+        }
+        assert!(violations.is_empty(), "world-state authoring contract violated ({kind:?}):\n{}", violations.join("\n"));
+    }
+
     /// All-tier answer-key DATA guard (entity env): every expected getter call must
     /// resolve to real `world_state` data — never the generic `{"ok":true}` ack. A
     /// getter that acks hides the fact the task expects the model to discover (the
@@ -515,51 +535,7 @@ mod tests {
     /// `*` (multiplication) is never mangled into a false violation.
     #[test]
     fn every_expected_getter_call_resolves_to_real_world_state_data() {
-        use crate::inference::eval::agentic::v2::world_state::derive_response;
-        use crate::inference::eval::toolcall::tasks::Call;
-
-        const ACK: &str = r#"{"ok":true}"#;
-        let resolves = |ws: &Value, name: &str, args: &Value| {
-            derive_response(ws, &Call { name: name.into(), args: args.clone() }) != ACK
-                || derive_response(ws, &Call { name: name.into(), args: concretize_args(args) }) != ACK
-        };
-
-        let mut violations: Vec<String> = Vec::new();
-        for (id, json) in V2_SCENARIOS {
-            let v: Value = serde_json::from_str(json).unwrap();
-            if matches!(v.get("environment").and_then(Value::as_str), Some("filesystem") | Some("web_corpus") | Some("web_ui")) {
-                continue;
-            }
-            for task in v["tasks"].as_array().into_iter().flatten() {
-                let tid = task["id"].as_str().unwrap_or("?");
-                let ws = &task["world_state"];
-                if ws.is_null() {
-                    continue;
-                }
-                // Getters: real tools not tagged as actions, minus the reporter.
-                let getters: HashSet<&str> = task["tools"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter(|t| t["returns_entity"].as_bool() != Some(false))
-                    .filter(|t| t["params"].get("text").is_none())
-                    .filter_map(|t| t["name"].as_str())
-                    .collect();
-                for ec in task["expected_calls"].as_array().into_iter().flatten() {
-                    if ec["type"] != "call" {
-                        continue;
-                    }
-                    let name = ec["name"].as_str().unwrap_or("");
-                    if !getters.contains(name) {
-                        continue;
-                    }
-                    if !resolves(ws, name, &ec["args"]) {
-                        violations.push(format!("{id}/{tid}: getter {name}({}) acks — its fact is unreachable", ec["args"]));
-                    }
-                }
-            }
-        }
-        assert!(violations.is_empty(), "expected getter calls that resolve to NO data (model decides blind):\n{}", violations.join("\n"));
+        assert_bundled_clean_for(crate::inference::eval::agentic::v2::oracle::SemanticFindingKind::AckingGetter);
     }
 
     /// Entity-discoverability guard (mirrors `generator::instantiate`): every
@@ -574,53 +550,10 @@ mod tests {
     /// which entity to fetch, so it asks a clarifying question — a no-tool-call turn
     /// the runner scores as `HallucinatedCompletion` (every run fails identically). A
     /// future scenario that ships an orphaned entity id fails HERE, at CI, not in a
-    /// live trace. Whole-word matching mirrors `replace_ids` (bounded by a
-    /// non-alphanumeric byte, or the string edge, on both sides).
-    /// Whole-word token match, mirroring `replace_ids`' boundary rule: a match is
-    /// bounded by a non-alphanumeric byte (or the string edge) on both sides, so
-    /// "M-1" never matches inside "M-12". Shared by the reachability and
-    /// answer-key-leak guards.
-    fn names_token(text: &str, id: &str) -> bool {
-        let alnum = |b: u8| b.is_ascii_alphanumeric();
-        let tb = text.as_bytes();
-        let mut i = 0;
-        while let Some(off) = text[i..].find(id) {
-            let (s, e) = (i + off, i + off + id.len());
-            let left = s == 0 || !alnum(tb[s - 1]);
-            let right = e >= tb.len() || !alnum(tb[e]);
-            if left && right {
-                return true;
-            }
-            i = s + 1;
-        }
-        false
-    }
-
+    /// live trace.
     #[test]
     fn every_world_state_entity_id_is_reachable_from_the_prompt_or_a_blob() {
-        use crate::inference::eval::agentic::v2::world_state::RESERVED;
-
-        let mut violations: Vec<String> = Vec::new();
-        for (id, json) in V2_SCENARIOS {
-            let v: Value = serde_json::from_str(json).unwrap();
-            for task in v["tasks"].as_array().into_iter().flatten() {
-                let tid = task["id"].as_str().unwrap_or("?");
-                let prompt = task["prompt"].as_str().unwrap_or("");
-                let Some(ws) = task["world_state"].as_object() else { continue };
-                for key in ws.keys() {
-                    let is_entity = !RESERVED.contains(&key.as_str()) && key.chars().any(|c| c.is_ascii_digit());
-                    if !is_entity || names_token(prompt, key) {
-                        continue;
-                    }
-                    // Discovered entity: referenced by some OTHER entry's blob.
-                    let in_a_blob = ws.iter().any(|(k, val)| k != key && names_token(&val.to_string(), key));
-                    if !in_a_blob {
-                        violations.push(format!("{id}/{tid}: world_state entity '{key}' is in neither the prompt nor any other entity's blob"));
-                    }
-                }
-            }
-        }
-        assert!(violations.is_empty(), "orphaned world_state entities (model has no path to their ids):\n{}", violations.join("\n"));
+        assert_bundled_clean_for(crate::inference::eval::agentic::v2::oracle::SemanticFindingKind::OrphanEntity);
     }
 
     /// Answer-key-leak guard, the inverse of the reachability guard: every
@@ -637,66 +570,6 @@ mod tests {
     /// `every_expected_getter_call_resolves_to_real_world_state_data` red.
     #[test]
     fn no_unfetched_world_state_key_is_resolvable_by_a_getter() {
-        use crate::inference::eval::agentic::v2::world_state::RESERVED;
-
-        // Every string arg value across expected_calls (including parallel
-        // groups), plus its glob core ("*FULL*" → "FULL") so a wildcard match
-        // counts as an intended fetch path.
-        fn arg_values(task: &Value) -> HashSet<String> {
-            fn collect(ec: &Value, out: &mut HashSet<String>) {
-                if ec["type"] == "parallel" {
-                    for c in ec["calls"].as_array().into_iter().flatten() {
-                        collect(c, out);
-                    }
-                    return;
-                }
-                for av in ec["args"].as_object().into_iter().flatten().map(|(_, v)| v) {
-                    if let Some(s) = av.as_str() {
-                        out.insert(s.to_string());
-                        out.insert(s.trim_matches('*').to_string());
-                    }
-                }
-            }
-            let mut out = HashSet::new();
-            for ec in task["expected_calls"].as_array().into_iter().flatten() {
-                collect(ec, &mut out);
-            }
-            out
-        }
-
-        let mut violations: Vec<String> = Vec::new();
-        for (id, json) in V2_SCENARIOS {
-            let v: Value = serde_json::from_str(json).unwrap();
-            if matches!(v.get("environment").and_then(Value::as_str), Some("filesystem") | Some("web_corpus") | Some("web_ui")) {
-                continue;
-            }
-            for task in v["tasks"].as_array().into_iter().flatten() {
-                let tid = task["id"].as_str().unwrap_or("?");
-                let prompt = task["prompt"].as_str().unwrap_or("");
-                let Some(ws) = task["world_state"].as_object() else { continue };
-                let tools: HashSet<&str> =
-                    task["tools"].as_array().into_iter().flatten().filter_map(|t| t["name"].as_str()).collect();
-                let args = arg_values(task);
-                for key in ws.keys() {
-                    if RESERVED.contains(&key.as_str()) {
-                        continue;
-                    }
-                    let fetchable = names_token(prompt, key)
-                        || ws.iter().any(|(k, val)| k != key && names_token(&val.to_string(), key))
-                        || args.contains(key.as_str())
-                        || tools.contains(key.as_str());
-                    if !fetchable {
-                        violations.push(format!(
-                            "{id}/{tid}: world_state key '{key}' is fetchable by a lucky arg guess but no intended path — add it to world_state::RESERVED or make it reachable"
-                        ));
-                    }
-                }
-            }
-        }
-        assert!(
-            violations.is_empty(),
-            "unfetched world_state keys leak answer-key data to arbitrary arg guesses:\n{}",
-            violations.join("\n")
-        );
+        assert_bundled_clean_for(crate::inference::eval::agentic::v2::oracle::SemanticFindingKind::UnfetchedKey);
     }
 }

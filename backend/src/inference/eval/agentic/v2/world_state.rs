@@ -45,7 +45,7 @@ pub(crate) const RESERVED: &[&str] = &[
     "wrong_fix",
 ];
 
-const ACK: &str = r#"{"ok":true}"#;
+pub(crate) const ACK: &str = r#"{"ok":true}"#;
 
 /// Derive a tool response from `world_state`. The model discovers ground truth by
 /// calling tools; the sandbox returns the WHOLE entity sub-object for the first

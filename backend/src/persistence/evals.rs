@@ -91,6 +91,18 @@ pub fn load(dir: &Path, name: &str) -> AppResult<Vec<ToolTask>> {
 
 pub fn save(dir: &Path, name: &str, tasks: &[ToolTask]) -> AppResult<()> {
     validate_tasks(tasks)?;
+    // Semantic trust boundary (write-side only — `load` stays permissive so a
+    // pre-existing broken file can still be opened and fixed): a world-state task
+    // whose answer key is unreachable or leaky is rejected HERE, naming the exact
+    // defect, instead of burning a live eval batch that fails identically every run.
+    let findings = crate::inference::eval::agentic::v2::oracle::semantic_findings(tasks);
+    if !findings.is_empty() {
+        let lines: Vec<String> = findings.iter().map(ToString::to_string).collect();
+        return Err(AppError::InvalidTaskSchema(format!(
+            "collection has broken world-state answer keys:\n{}",
+            lines.join("\n")
+        )));
+    }
     std::fs::create_dir_all(dir)?;
     let json = serde_json::to_string_pretty(tasks)?;
     std::fs::write(collection_path(dir, name)?, json)?;

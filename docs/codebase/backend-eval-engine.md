@@ -715,7 +715,17 @@ truth, ~32 names; `generator.rs` and the guards import it), which makes the resp
 ack and exempts them from alpha-renaming. Guard:
 `no_unfetched_world_state_key_is_resolvable_by_a_getter`; the getter-resolves guard
 above is the tripwire in the other direction — reserving a key a real getter needs
-turns it red.)
+turns it red.
+
+All three contracts share ONE implementation: `oracle::semantic_findings(&[ToolTask])`
+(typed `SemanticFinding { task_id, kind: OrphanEntity | AckingGetter | UnfetchedKey,
+message }`), which operates on the TRANSPILED shape — the form custom collections
+persist as. The `scenarios.rs` CI guards load each bundled collection through
+`load_v2_collection` and filter findings by kind; `evals::save` hard-rejects any custom
+save/import with findings (write-side only — load stays permissive so a broken file can
+be opened and fixed); `oracle::validate_collection_deep` carries them per-task in
+`TaskValidation.semantic` so the Validate button and the import dry-run show the same
+messages. One implementation means CI and the import trust boundary can never drift.)
 
 ---
 
