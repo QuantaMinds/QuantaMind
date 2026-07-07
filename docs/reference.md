@@ -442,8 +442,9 @@ exactly what to fix — none mean the app is broken:
 
 Downloads → **Clear cache** reclaims space taken by regenerable app data. It
 asks you to type `CLEAR` first, then deletes: eval regression history, the last
-batch reports, resumable job logs, pipeline-visualizer traces, Context Stress Test
-measurements, and the recent-workspace list. It reports how much was freed.
+batch reports, resumable job logs, pipeline-visualizer traces, agentic run
+transcripts, Context Stress Test measurements, and the recent-workspace list.
+It reports how much was freed.
 
 **Kept, always:** your downloaded models, custom eval collections, readiness
 profiles, and app/model settings. The disk-usage number counts only model files,

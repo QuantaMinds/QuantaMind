@@ -1088,7 +1088,10 @@ in `toolcall_cmd` and are imported by the other command modules.
 ### File: `batch_cmd.rs`
 - `run_batch_eval`, `stop_batch_eval`, `check_unfinished_run`, `resume_batch_eval`,
   `discard_run`. `BatchRunState{cancel}`; `TauriBatchSink` emits progress/step
-  events; `OllamaVramGate` isolation; shared `run_passes` core.
+  events AND persists each agentic turn + terminal outcome to
+  `jobs::transcripts` (`agentic_transcripts/`, latest batch only, best-effort —
+  a write failure warns loudly and the run continues; see
+  `backend-persistence.md`); `OllamaVramGate` isolation; shared `run_passes` core.
 
 ```rust
 // Transactional finish: persist → verify on disk → only THEN delete the job log
