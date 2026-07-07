@@ -362,6 +362,7 @@ describe("EvalManager guided JSON import (format guide → dry-run validate → 
         discriminating: true,
         detail: "ok otherwise",
         semantic: ["bad_task: world_state entity 'Z-99' is in neither the prompt nor any other entity's blob"],
+        semantic_warnings: [],
       },
     ],
   };
@@ -387,6 +388,22 @@ describe("EvalManager guided JSON import (format guide → dry-run validate → 
     expect(screen.getByTestId("eval-import-blocked-findings")).toHaveTextContent("Z-99");
     expect(screen.getByTestId("eval-validation-result")).toHaveTextContent("Problems found");
     expect(screen.getByTestId("eval-validation-semantic-bad_task-0")).toHaveTextContent("Z-99");
+  });
+
+  it("an ok-with-warnings verdict imports (no blocking dialog) and shows amber advisories", async () => {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    vi.mocked(open).mockResolvedValue("/tmp/warned.json");
+    importFile.mockResolvedValue({
+      ok: true,
+      structural_error: null,
+      tasks: [{ id: "warn_task", reachable: "yes" as const, discriminating: true, detail: "solvable", semantic: [], semantic_warnings: ["warn_task: expected log(...) globs on 'quantize' — checked the prompt, 7 tool names..."] }],
+    });
+    render(<EvalManager {...props()} />);
+    fireEvent.click(screen.getByTestId("eval-manager-import"));
+    fireEvent.click(screen.getByTestId("confirm-ok"));
+    await waitFor(() => expect(importFile).toHaveBeenCalledWith("/tmp/warned.json"));
+    expect(screen.queryByTestId("eval-import-blocked-findings")).toBeNull(); // advisory, not a block
+    expect(screen.getByTestId("eval-validation-warning-warn_task-0")).toHaveTextContent("quantize");
   });
 
   it("a clean dry-run imports without any blocking dialog", async () => {

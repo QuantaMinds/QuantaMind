@@ -486,35 +486,40 @@
           "threshold": 250,
           "suspensory": true,
           "wait_days": 25,
-          "triggered": true
+          "triggered": true,
+          "regime": "turnover above threshold → mandatory suspensory filing; closing waits 25 days"
         },
         "US": {
           "turnover": 500,
           "threshold": 111,
           "suspensory": true,
           "wait_days": 30,
-          "triggered": true
+          "triggered": true,
+          "regime": "turnover above threshold → mandatory suspensory filing (HSR); closing waits 30 days"
         },
         "IN": {
           "turnover": 50,
           "threshold": 100,
           "suspensory": true,
           "wait_days": 30,
-          "triggered": false
+          "triggered": false,
+          "regime": "turnover below threshold → no filing required"
         },
         "BR": {
           "turnover": 200,
           "threshold": 150,
           "suspensory": true,
           "wait_days": 45,
-          "triggered": true
+          "triggered": true,
+          "regime": "turnover above threshold → mandatory suspensory filing; closing waits 45 days"
         },
         "UK": {
           "turnover": 120,
           "threshold": 100,
           "suspensory": false,
           "wait_days": 0,
-          "triggered": true
+          "triggered": true,
+          "regime": "voluntary regime — parties may file non-suspensory; closing is not suspended"
         },
         "closing_rule": "max waiting period among triggered suspensory = BR 45d",
         "deal_note": "CLOSE FRIDAY REGARDLESS (NON-AUTHORITATIVE)"

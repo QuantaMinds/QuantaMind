@@ -401,15 +401,17 @@ async fn live_llama_completes_a_benign_task_end_to_end() {
 /// capability failure are both acceptable; what MUST hold is that no turn is a
 /// harness artifact. Run (server must be up):
 ///   cargo test --release --lib live_llama_world_state -- --ignored --nocapture
-#[tokio::test]
-#[ignore]
-async fn live_llama_world_state_hard_returns_k1_writes_a_transcript() {
+/// Shared body for the live world-state seams: run ONE k=1 pass of a bundled
+/// task against llama.cpp on :8081 with a thinking model, persist every turn +
+/// outcome through the REAL `jobs::transcripts` store (the same calls
+/// `TauriBatchSink` makes), and assert no harness artifacts. A k=1 capability
+/// FAIL is acceptable; a plumbing artifact is not.
+async fn live_world_state_k1(collection: &'static str, task_prefix: &str, tier: crate::inference::eval::agentic::spec::Tier) {
     use crate::inference::backend::backend_kind::BackendKind;
     use crate::inference::eval::agentic::build::sandbox_for;
     use crate::inference::eval::agentic::difficulty::passk::max_tokens_for;
     use crate::inference::eval::agentic::model_turn::BackendTurn;
     use crate::inference::eval::agentic::scoring::report::AgenticReport;
-    use crate::inference::eval::agentic::spec::Tier;
     use crate::inference::eval::agentic::v2::collection::load_v2_collection;
     use crate::inference::eval::agentic::v2::generator;
     use crate::inference::eval::agentic::v2::scenarios::v2_json;
@@ -417,14 +419,14 @@ async fn live_llama_world_state_hard_returns_k1_writes_a_transcript() {
     use crate::persistence::jobs::transcripts;
 
     const MODEL: &str = "qwen3.5-9b_q4_k_m";
-    const COLLECTION: &str = "hard-support-ecommerce";
 
-    let tasks = load_v2_collection(v2_json(COLLECTION).unwrap()).unwrap();
-    let base = tasks.iter().find(|t| t.id.starts_with("hd_se_returns")).expect("returns task present");
-    // Mirror production: a generated task gets a FRESH instance per (model, run_index).
+    let tasks = load_v2_collection(v2_json(collection).unwrap()).unwrap();
+    let base = tasks.iter().find(|t| t.id.starts_with(task_prefix)).expect("task present");
+    // Mirror production: a generated task gets a FRESH instance per (model, run_index);
+    // a non-generated one replays unchanged (instantiate no-ops without numbered ids).
     let task = generator::instantiate(base, generator::seed_for(MODEL, 0));
     let (sandbox, cfg) = sandbox_for(&task).unwrap();
-    eprintln!("\nLIVE ws prompt (remapped ids): {}", task.prompt);
+    eprintln!("\nLIVE ws prompt: {}", task.prompt);
 
     let turn = BackendTurn {
         backend: BackendKind::LlamaCpp,
@@ -434,7 +436,7 @@ async fn live_llama_world_state_hard_returns_k1_writes_a_transcript() {
         options: None,
         keep_alive: None,
         is_thinking: true,
-        max_tokens: max_tokens_for(Tier::Hard, true),
+        max_tokens: max_tokens_for(tier, true),
         cpu_offloaded: false, ctx_ceiling: crate::inference::eval::agentic::runner::NUM_CTX_CEILING, stop_cache: Default::default(),
     };
     let (tx, mut rx) = unbounded_channel();
@@ -444,7 +446,7 @@ async fn live_llama_world_state_hard_returns_k1_writes_a_transcript() {
 
     // Persist through the REAL transcript store — the same calls TauriBatchSink makes.
     let dir = std::env::temp_dir().join("qm-live-transcripts");
-    let path = transcripts::transcript_path(&dir, COLLECTION, MODEL, &task.id, false);
+    let path = transcripts::transcript_path(&dir, collection, MODEL, &task.id, false);
     transcripts::begin_task(&path).unwrap();
     for s in &steps {
         transcripts::append_step(&path, s).unwrap();
@@ -464,6 +466,23 @@ async fn live_llama_world_state_hard_returns_k1_writes_a_transcript() {
     assert_ne!(outcome.failure, Some(FailureKind::EmptyOutput), "empty output — a plumbing artifact");
     assert_ne!(outcome.failure, Some(FailureKind::ForeignDialect), "dialect soup — a template artifact");
     assert!(outcome.steps > 1, "must get past turn 1 — a 1-step end was the unreachable-answer-key bug");
+}
+
+#[tokio::test]
+#[ignore]
+async fn live_llama_world_state_hard_returns_k1_writes_a_transcript() {
+    live_world_state_k1("hard-support-ecommerce", "hd_se_returns", crate::inference::eval::agentic::spec::Tier::Hard).await;
+}
+
+/// LIVE E2E (ignored): the root-cause-tracing task after the grounding/alias
+/// fixes — verifies live that `run_tests` names the failing test FILE, a
+/// realistic `read_file` path serves the test source, and the verdict stays
+/// honest. Run (server must be up):
+///   cargo test --lib live_llama_trace_root_cause -- --ignored --nocapture
+#[tokio::test]
+#[ignore]
+async fn live_llama_trace_root_cause_k1_writes_a_transcript() {
+    live_world_state_k1("medium-coding", "md_co_trace_root_cause", crate::inference::eval::agentic::spec::Tier::Medium).await;
 }
 
 #[tokio::test]
@@ -853,13 +872,13 @@ async fn live_filesystem_env_passes_on_the_native_path() {
 #[tokio::test]
 async fn scripted_natural_route_completes_trace_root_cause() {
     // Regression for the trace where a CORRECT model failed md_co_trace_root_cause: the
-    // world steered investigation through search_symbol (which returned the full test
-    // source), so the model never had a reason to make the checkpointed
-    // read_file{*test_round_paise*} call, and the stateless "failing" test blob trapped
-    // it in a rerun loop until the cap. The world now channels the NATURAL flow —
-    // search_symbol returns a LOCATOR, the located path holds the content, and the
-    // run_tests blob states pass/fail CONDITIONS — so a model following the obvious
-    // route (search → locate → read → fix → rerun) must reach the end state.
+    // stateless "failing" test blob asserted a fixed current state, so a model that
+    // applied the correct fix re-ran, still read "failing", and looped until the cap.
+    // The world now channels the NATURAL flow — run_tests names the real failing_test_file
+    // (the way a test runner reports it, no search_symbol hop needed to find it), the
+    // located path holds the content, and the run_tests blob states pass/fail CONDITIONS
+    // — so a model following the obvious route (run_tests → read the named file → locate
+    // the fix target → read → fix → rerun) must reach the end state.
     use crate::inference::eval::agentic::build::sandbox_for;
     use crate::inference::eval::agentic::v2::collection::load_v2_collection;
     use crate::inference::eval::agentic::v2::scenarios::v2_json;
@@ -873,7 +892,6 @@ async fn scripted_natural_route_completes_trace_root_cause() {
     let calls: Vec<(&str, u32)> = vec![
         (r#"{"name": "run_tests", "args": {"module": "payments"}}"#, 20), // eaten by the authored 503
         (r#"{"name": "run_tests", "args": {"module": "payments"}}"#, 20),
-        (r#"{"name": "search_symbol", "args": {"name": "test_round_paise"}}"#, 20),
         (r#"{"name": "read_file", "args": {"path": "tests/test_round_paise.py"}}"#, 20),
         (r#"{"name": "search_symbol", "args": {"name": "round_paise"}}"#, 20),
         (r#"{"name": "read_file", "args": {"path": "payments/round.py"}}"#, 20),
@@ -886,10 +904,10 @@ async fn scripted_natural_route_completes_trace_root_cause() {
     drop(tx);
     let steps = drain(&mut rx);
     let all_inj: String = steps.iter().filter_map(|s| s.injection.clone()).collect::<Vec<_>>().join("\n");
-    // The locator → content chain is grounded at every hop.
-    assert!(all_inj.contains("defined in tests/test_round_paise.py"), "search_symbol must return the test LOCATOR:\n{all_inj}");
+    // The failing-file locator → content chain is grounded at every hop.
+    assert!(all_inj.contains("tests/test_round_paise.py"), "run_tests must name the real failing test FILE:\n{all_inj}");
     assert!(all_inj.contains("assert round_paise(1.005) == 101"), "the located path must hold the test CONTENT:\n{all_inj}");
-    assert!(all_inj.contains("GREEN once"), "run_tests must state its pass CONDITION:\n{all_inj}");
+    assert!(all_inj.contains("GREEN once"), "run_tests must state its pass CONDITION, never a bare current state:\n{all_inj}");
     assert!(outcome.reached_end, "the natural investigation route must satisfy the answer key (failure: {:?})", outcome.failure);
     assert_eq!(outcome.failure, None);
 }
@@ -927,11 +945,11 @@ async fn scripted_returns_batch_gets_policy_fact_after_fault_clears() {
 #[ignore = "natural-route grounding gate: a live model gets locator → content through trace_root_cause's fixed world"]
 async fn live_trace_root_cause_grounds_the_natural_route() {
     // Live counterpart of scripted_natural_route_completes_trace_root_cause. The HARNESS
-    // property under test: on the fixed world (search_symbol locators, condition-form
-    // run_tests) a live model's natural investigation is grounded at every hop — the
-    // locator is injected, and reading the located path injects the test content (which
-    // also satisfies the *test_round_paise* glob checkpoint). Whether the model then
-    // finishes is a capability measurement, printed but not asserted: observed live,
+    // property under test: on the fixed world (run_tests names the real failing_test_file,
+    // condition-form status) a live model's natural investigation is grounded at every
+    // hop — the file path is injected by run_tests itself, and reading it injects the
+    // test content (which also satisfies the *test_round_paise* glob checkpoint). Whether
+    // the model then finishes is a capability measurement, printed but not asserted: observed live,
     // qwen2.5-coder followed the route then chose the edit_test decoy (ForbiddenCall —
     // the authored trap), and qwen3.6 thought past its budget after the 503 (Truncated;
     // see the think:false gap in model_turn.rs).
@@ -970,8 +988,8 @@ async fn live_trace_root_cause_grounds_the_natural_route() {
     eprintln!("TRACE-ROOT-CAUSE-LIVE: reached_end={} steps={} failure={:?}", outcome.reached_end, outcome.steps, outcome.failure);
     let all_inj: String = steps.iter().filter_map(|s| s.injection.clone()).collect::<Vec<_>>().join("\n");
     assert!(
-        all_inj.contains("defined in tests/test_round_paise.py"),
-        "the test LOCATOR was never injected — did the model never search for the test? trace above"
+        all_inj.contains("tests/test_round_paise.py"),
+        "the failing test FILE was never injected — did the model never call run_tests? trace above"
     );
     assert!(
         all_inj.contains("assert round_paise(1.005) == 101"),

@@ -58,11 +58,13 @@ interface EvalRegistryStore {
   save: (name: string, tasks: ToolTask[]) => Promise<CollectionValidation | null>;
   remove: (name: string) => Promise<void>;
   hidePreset: (id: string) => void; // "delete" a built-in preset (hide from list)
-  /// Two-phase import: dry-run the full validation on the FILE first; only a clean
-  /// file is imported (returns null). A failing verdict is returned WITHOUT writing
-  /// anything, so the caller can show what to fix — the backend save boundary would
-  /// reject it anyway, but this way the user gets the structured per-task verdict
-  /// instead of a raw error string.
+  /// Two-phase import: dry-run the full validation on the FILE first. A failing
+  /// verdict (`ok:false`) is returned WITHOUT writing anything, so the caller can
+  /// show what to fix — the backend save boundary would reject it anyway, but this
+  /// way the user gets the structured per-task verdict instead of a raw error
+  /// string. An `ok:true` verdict that carries authoring WARNINGS (the heuristic
+  /// grounding check) imports fine and is returned so the caller can surface them;
+  /// a fully clean import returns null.
   importFile: (path: string) => Promise<CollectionValidation | null>;
   isPreset: (idOrName: string) => boolean;
   /// Replace a task's env snapshot (`agentic.world_state`) in memory and mark the selection edited.
@@ -129,6 +131,7 @@ export const useEvalRegistryStore = create<EvalRegistryStore>((set, get) => ({
     const name = await importCustomCollection(path);
     set({ collections: await listCustomCollections() });
     await get().select(name);
-    return null;
+    const hasWarnings = verdict.tasks.some((t) => t.semantic_warnings.length > 0);
+    return hasWarnings ? verdict : null;
   },
 }));

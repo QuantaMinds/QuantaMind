@@ -506,6 +506,41 @@ mod tests {
         );
     }
 
+    /// A REALISTIC test-file path must serve the test source, not `not found` —
+    /// the data/checkpoint asymmetry the trace audit surfaced: the checkpoint glob
+    /// `*test_round_paise*` advanced on `tests/test_round_paise.py` while the
+    /// responder only resolved the bare `test_round_paise` key. The alias key +
+    /// the `failing_test_file` field in the run_tests blob close it: the model
+    /// learns the real path AND fetching it returns the source (whose comment
+    /// grounds the required quantize fix).
+    #[test]
+    fn loaded_trace_root_cause_serves_the_test_source_for_a_realistic_path() {
+        use crate::inference::eval::agentic::build::sandbox_for;
+        use crate::inference::eval::toolcall::tasks::Call;
+        use serde_json::json;
+        let task = load_v2_collection(v2_json("medium-coding").unwrap())
+            .unwrap()
+            .into_iter()
+            .find(|t| t.id == "md_co_trace_root_cause")
+            .unwrap();
+        let (sandbox, _) = sandbox_for(&task).unwrap();
+        // run_tests names the real file, the way a test runner reports…
+        let run = sandbox.respond(&Call { name: "run_tests".into(), args: json!({ "module": "payments" }) });
+        assert!(
+            run.as_deref().is_some_and(|r| r.contains("tests/test_round_paise.py")),
+            "run_tests must surface the failing test FILE, got {run:?}"
+        );
+        // …and reading that realistic path returns the test source (with the
+        // quantize expectation), same as the bare test-name key.
+        for path in ["tests/test_round_paise.py", "test_round_paise"] {
+            let src = sandbox.respond(&Call { name: "read_file".into(), args: json!({ "path": path }) });
+            assert!(
+                src.as_deref().is_some_and(|r| r.contains("quantize")),
+                "read_file({path}) must serve the test source, got {src:?}"
+            );
+        }
+    }
+
     /// Every bundled collection, loaded through the REAL transpile path, must be
     /// clean under `oracle::semantic_findings` filtered to `kind` — the same
     /// implementation `evals::save` hard-blocks custom collections on, so the CI
@@ -575,5 +610,18 @@ mod tests {
     #[test]
     fn no_unfetched_world_state_key_is_resolvable_by_a_getter() {
         assert_bundled_clean_for(crate::inference::eval::agentic::v2::oracle::SemanticFindingKind::UnfetchedKey);
+    }
+
+    /// Answer-grounding guard: every glob literal an expected action/reporter
+    /// checkpoint demands must be teachable — in the prompt, a tool name, or data
+    /// an earlier expected call surfaces. Without this, a checkpoint like
+    /// `decision:"*file non-suspensory*"` grades on vocabulary the model has no
+    /// way to read (the full-suite step-response audit found six such tasks) — a
+    /// capable model phrases the same conclusion in its own words and is scored a
+    /// false-negative FAIL. Fix direction is always to GROUND the wording in the
+    /// blob the intended play reads, never to loosen the checkpoint.
+    #[test]
+    fn every_expected_answer_token_is_grounded_in_reachable_data() {
+        assert_bundled_clean_for(crate::inference::eval::agentic::v2::oracle::SemanticFindingKind::UngroundedAnswerToken);
     }
 }

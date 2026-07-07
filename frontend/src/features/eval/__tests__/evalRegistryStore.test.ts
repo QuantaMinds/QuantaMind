@@ -34,12 +34,12 @@ const task: ToolTask = {
 const failingVerdict: CollectionValidation = {
   ok: false,
   structural_error: null,
-  tasks: [{ id: "t1", reachable: "yes", discriminating: true, detail: "d", semantic: ["t1: world_state entity 'Z-99' is orphaned"] }],
+  tasks: [{ id: "t1", reachable: "yes", discriminating: true, detail: "d", semantic: ["t1: world_state entity 'Z-99' is orphaned"], semantic_warnings: []  }],
 };
 const cleanVerdict: CollectionValidation = {
   ok: true,
   structural_error: null,
-  tasks: [{ id: "t1", reachable: "yes", discriminating: true, detail: "d", semantic: [] }],
+  tasks: [{ id: "t1", reachable: "yes", discriminating: true, detail: "d", semantic: [], semantic_warnings: []  }],
 };
 
 beforeEach(() => {
@@ -63,7 +63,21 @@ describe("evalRegistryStore.editWorldState", () => {
   });
 });
 
+const warnedVerdict: CollectionValidation = {
+  ok: true,
+  structural_error: null,
+  tasks: [{ id: "t1", reachable: "yes", discriminating: true, detail: "d", semantic: [], semantic_warnings: ["t1: expected log({...}) globs on 'quantize' — checked the prompt..."] }],
+};
+
 describe("evalRegistryStore.importFile (two-phase: validate the FILE before writing)", () => {
+  it("imports an ok-with-warnings file AND returns the verdict so warnings surface", async () => {
+    vi.mocked(validateCollectionFile).mockResolvedValue(warnedVerdict);
+    useEvalRegistryStore.setState({ collections: [], presets: [] });
+    const verdict = await useEvalRegistryStore.getState().importFile("/tmp/warned.json");
+    expect(importCustomCollection).toHaveBeenCalledWith("/tmp/warned.json"); // NOT blocked
+    expect(verdict).toEqual(warnedVerdict); // but advisories returned for display
+  });
+
   it("returns the failing verdict and imports NOTHING when the dry-run fails", async () => {
     vi.mocked(validateCollectionFile).mockResolvedValue(failingVerdict);
     useEvalRegistryStore.setState({ collections: [], presets: [] });

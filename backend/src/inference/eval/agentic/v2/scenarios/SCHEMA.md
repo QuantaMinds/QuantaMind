@@ -66,8 +66,24 @@ the mechanics that matter when writing a scenario file:
   `instantiate()` alpha-renames digit-bearing ids across prompt + world_state +
   checkpoints + must_not_call, anchored on those mentions. Glob checkpoint args
   for tolerant strings (`"decision": "*FULL*"`).
+- **Answer-token grounding:** every glob literal an expected ACTION/REPORTER
+  checkpoint demands (`decision:"*no filing*"`, `content:"*quantize*"`) must be
+  teachable — present in the prompt, a tool name, or data an EARLIER expected
+  call surfaces. Grading on wording the model can never read manufactures
+  false-negative fails (a capable model phrases the same conclusion its own
+  way). Matching is separator-tolerant (`work-product` grounds "work product").
+  Fix by teaching the word in the blob the play reads, never by loosening the
+  checkpoint. Severity: WARNING for custom collections (heuristic — the author
+  judges; save/import never blocks on it), zero-tolerance for bundled (CI).
+- **Realistic-path aliases:** a document blob read via a globbed getter path
+  (`read_file{path:"*test_x*"}`) should exist under BOTH its short key and a
+  realistic path key (`tests/test_x.py`), with the real path surfaced in the
+  runner blob (`failing_test_file`) — otherwise the checkpoint advances on a
+  realistic arg while the responder returns `not found` (data/checkpoint
+  asymmetry).
 - **Shared enforcement:** all of the above is checked by
   `oracle::semantic_findings` — the same function behind the `scenarios.rs` CI
-  guards, `evals::save` (custom collections hard-block at write time), and the
-  import dry-run / Validate button (`validate_collection_deep`, per-task
-  `semantic` field).
+  guards, `evals::save` (custom collections hard-block at write time on
+  Error-severity findings), and the import dry-run / Validate button
+  (`validate_collection_deep`, per-task `semantic` errors +
+  `semantic_warnings`).
