@@ -226,9 +226,17 @@ impl ModelTurn for BackendTurn {
             model: self.model.clone(),
             options,
             keep_alive: self.keep_alive.or(spec.keep_alive),
-            // Reasoning models: ask Ollama to split out the `thinking` channel so the harness can
-            // capture the scratchpad (see `stream_generate`). Ignored by llama.cpp/MLX.
-            think: self.is_thinking.then_some(true),
+            // Always sent, both ways: `Some(true)` splits a reasoning model's scratchpad into the
+            // `thinking` channel so the harness captures it (see `stream_generate`); `Some(false)`
+            // actively DISABLES thinking on a thinking-BY-DEFAULT model (qwen3*) — merely omitting
+            // the field let such a model burn the whole non-thinking `num_predict` inside a hidden
+            // think block (→ Truncated, empty raw output) while the runner denied it the thinking
+            // budget and timeout. `think:false` is accepted by every Ollama since the field existed
+            // (the capability check fires only on `true`; older servers ignore unknown fields), so
+            // no capability probe is needed. Same rule the OpenAI-path `enable_thinking` already
+            // applies ("sent explicitly, both true and false"); non-Ollama backends treat
+            // `Some(false)` exactly like `None` (see `GenerateSpec::think`).
+            think: Some(self.is_thinking),
             ..spec.clone()
         };
         let stats = match self.backend {
@@ -347,6 +355,17 @@ fn synthesize_calls(calls: &[NativeToolCall]) -> String {
     serde_json::to_string(&Value::Array(arr)).unwrap_or_default()
 }
 
+/// The native `/api/chat` `think` value — suppression-only tri-state. A non-thinking turn sends
+/// `Some(false)` to actively disable a thinking-BY-DEFAULT model's scratchpad (omitted, qwen3*
+/// burns the whole turn budget inside hidden `message.thinking` and yields zero `tool_calls`).
+/// A thinking turn OMITS the field rather than sending `true`: reasoning models think by default
+/// anyway, the native wire doesn't consume `message.thinking`, and `think:true` 400s on a model
+/// without the capability — so `true` buys nothing here and only adds a failure mode. (The
+/// prompt path differs: it needs `Some(true)` to split the channel for scratchpad capture.)
+fn native_think(is_thinking: bool) -> Option<bool> {
+    (!is_thinking).then_some(false)
+}
+
 /// The text the runner sees from a native turn. With real `tool_calls`, the canonical JSON
 /// (so scoring is byte-identical to the prompt path). With NONE, the raw assistant `content`
 /// rather than `""` — see the rationale on `NativeToolTurn::run`. Pure, so the selection is
@@ -372,7 +391,7 @@ impl ModelTurn for NativeToolTurn {
         // the shared `ChatResult` so canonicalization below stays identical across backends.
         let result = match self.backend {
             BackendKind::Ollama => {
-                ollama_chat::chat_with_tools(&self.endpoint, &self.model, &system, &spec.prompt, &tools, options).await?
+                ollama_chat::chat_with_tools(&self.endpoint, &self.model, &system, &spec.prompt, &tools, options, native_think(self.is_thinking)).await?
             }
             BackendKind::LlamaCpp => {
                 llama_chat::chat_with_tools(&self.endpoint, &self.model, &system, &spec.prompt, &tools, options).await?
@@ -413,15 +432,111 @@ impl ModelTurn for NativeToolTurn {
 
 #[cfg(test)]
 mod tests {
-    use super::{merge_eval_options, native_system, native_turn_text, synthesize_calls, NativeToolCall};
+    use super::{merge_eval_options, native_system, native_think, native_turn_text, synthesize_calls, BackendTurn, ModelTurn, NativeToolCall, NativeToolTurn};
+    use crate::inference::backend::backend_kind::BackendKind;
     use crate::inference::eval::toolcall::parse::{extract_calls, extract_calls_dialect, looks_like_broken_json, looks_like_foreign_dialect, ToolCallDialect};
     use crate::inference::eval::toolcall::prompt::TerminalGuidance;
     use crate::inference::eval::toolcall::tasks::ToolSchema;
     use crate::inference::generate::generate_options::{GenerateOptions, EVAL_REPEAT_PENALTY};
+    use crate::inference::generate::generate_spec::GenerateSpec;
+    use mockito::Matcher;
     use serde_json::json;
+    use tokio_util::sync::CancellationToken;
 
     fn tool(name: &str, props: serde_json::Value) -> ToolSchema {
         ToolSchema { name: name.into(), description: format!("tool {name}"), parameters: json!({ "type": "object", "properties": props }) }
+    }
+
+    fn backend_turn(endpoint: String, is_thinking: bool) -> BackendTurn {
+        BackendTurn {
+            backend: BackendKind::Ollama,
+            endpoint,
+            model: "m".into(),
+            cancel: CancellationToken::new(),
+            options: None,
+            keep_alive: None,
+            is_thinking,
+            max_tokens: 256,
+            cpu_offloaded: false,
+            ctx_ceiling: crate::inference::eval::agentic::runner::NUM_CTX_CEILING,
+            stop_cache: Default::default(),
+        }
+    }
+
+    #[test]
+    fn native_think_suppresses_only_a_non_thinking_turn() {
+        // Non-thinking → `think:false` (disable a thinking-by-default model's hidden scratchpad);
+        // thinking → omitted (reasoning is default-on, and `true` 400s without the capability).
+        assert_eq!(native_think(false), Some(false));
+        assert_eq!(native_think(true), None);
+    }
+
+    /// The hidden-scratchpad burn fix, asserted on the REAL request body: a non-thinking prompt
+    /// turn must SEND `think:false`, not omit the field — omitted, a thinking-by-default model
+    /// (qwen3*) reasons anyway, burns the whole non-thinking `num_predict` inside the invisible
+    /// `thinking` channel, and the turn scores Truncated with empty raw output.
+    #[tokio::test]
+    async fn a_non_thinking_backend_turn_sends_think_false_on_the_generate_wire() {
+        let mut s = mockito::Server::new_async().await;
+        let m = s
+            .mock("POST", "/api/generate")
+            .match_body(Matcher::PartialJson(json!({ "think": false })))
+            .with_status(200)
+            .with_body("{\"response\":\"ok\",\"done\":true,\"done_reason\":\"stop\"}\n")
+            .create_async()
+            .await;
+        let turn = backend_turn(s.url(), false);
+        let (out, stats) = turn.run(&GenerateSpec { prompt: "p".into(), ..Default::default() }).await.unwrap();
+        assert_eq!(out, "ok");
+        assert_eq!(stats.finish_reason.as_deref(), Some("stop"));
+        m.assert_async().await; // the body really carried think:false
+    }
+
+    /// The capture path is unchanged: a thinking prompt turn still sends `think:true` so Ollama
+    /// splits the scratchpad into the `thinking` channel for the harness.
+    #[tokio::test]
+    async fn a_thinking_backend_turn_still_sends_think_true() {
+        let mut s = mockito::Server::new_async().await;
+        let m = s
+            .mock("POST", "/api/generate")
+            .match_body(Matcher::PartialJson(json!({ "think": true })))
+            .with_status(200)
+            .with_body("{\"response\":\"ok\",\"thinking\":\"hm\",\"done\":true,\"done_reason\":\"stop\"}\n")
+            .create_async()
+            .await;
+        let turn = backend_turn(s.url(), true);
+        let (out, _) = turn.run(&GenerateSpec { prompt: "p".into(), ..Default::default() }).await.unwrap();
+        assert_eq!(out, "<think>hm</think>ok");
+        m.assert_async().await;
+    }
+
+    /// Same fix on the NATIVE wire: `/api/chat` must carry `think:false` for a non-thinking turn
+    /// — omitted, qwen3* thinks by default into `message.thinking` and returns zero `tool_calls`
+    /// at the cap (verified live before the fix).
+    #[tokio::test]
+    async fn a_non_thinking_native_turn_sends_think_false_on_the_chat_wire() {
+        let mut s = mockito::Server::new_async().await;
+        let m = s
+            .mock("POST", "/api/chat")
+            .match_body(Matcher::PartialJson(json!({ "think": false })))
+            .with_status(200)
+            .with_body(r#"{"message":{"content":"","tool_calls":[{"function":{"name":"reply","arguments":{"text":"ok"}}}]},"done_reason":"stop"}"#)
+            .create_async()
+            .await;
+        let turn = NativeToolTurn {
+            backend: BackendKind::Ollama,
+            endpoint: s.url(),
+            model: "m".into(),
+            tools: vec![tool("reply", json!({ "text": { "type": "string" } }))],
+            options: None,
+            terminal: TerminalGuidance::PlainTextOk,
+            max_tokens: 256,
+            is_thinking: false,
+        };
+        let (out, _) = turn.run(&GenerateSpec { prompt: "p".into(), ..Default::default() }).await.unwrap();
+        let calls = extract_calls(&out).unwrap();
+        assert_eq!(calls[0].name, "reply");
+        m.assert_async().await; // the body really carried think:false
     }
 
     #[test]
@@ -492,6 +607,59 @@ mod tests {
         let override_global = GenerateOptions { repeat_penalty: Some(1.3), ..Default::default() };
         let overridden = merge_eval_options(Some(&override_global), Some(&spec)).unwrap();
         assert_eq!(overridden.repeat_penalty, Some(1.3), "header value wins over the spec default");
+    }
+
+    /// LIVE (ignored): the `think:false` fix against a THINKING-BY-DEFAULT model. Before the fix
+    /// a non-thinking turn OMITTED `think` → qwen3.6 reasoned anyway, burned the whole
+    /// `num_predict` inside the hidden `thinking` channel, and the turn scored Truncated with
+    /// EMPTY raw output (observed live on md_co_trace_root_cause). With `think:false` sent on
+    /// both wires, the same turn finishes inside a 64-token budget. Run:
+    ///   cargo test --lib live_think_false -- --ignored --nocapture
+    #[tokio::test]
+    #[ignore = "hits a live Ollama on :11434 with qwen3.6:35b installed"]
+    async fn live_think_false_stops_the_hidden_scratchpad_burn_on_a_default_thinker() {
+        let ep = "http://localhost:11434";
+        let model = "qwen3.6:35b";
+        let tiny = Some(GenerateOptions { num_predict: Some(64), temperature: Some(0.0), ..Default::default() });
+
+        // Prompt path (JSON dialect): 64 tokens is only survivable with thinking truly OFF.
+        let turn = BackendTurn {
+            backend: BackendKind::Ollama, endpoint: ep.into(), model: model.into(),
+            cancel: CancellationToken::new(), options: None, keep_alive: Some(300),
+            is_thinking: false, max_tokens: 64, cpu_offloaded: false,
+            ctx_ceiling: crate::inference::eval::agentic::runner::NUM_CTX_CEILING,
+            stop_cache: Default::default(),
+        };
+        let spec = GenerateSpec { prompt: "What is 2+2? Answer with just the number.".into(), options: tiny.clone(), ..Default::default() };
+        let (out, stats) = turn.run(&spec).await.unwrap();
+        eprintln!("LIVE prompt-path: out={out:?} finish={:?} eval_count={:?}", stats.finish_reason, stats.eval_count);
+        assert!(!out.trim().is_empty(), "non-thinking turn must produce VISIBLE output");
+        assert!(!out.contains("<think>"), "thinking must be disabled, not merely split");
+        assert_eq!(stats.finish_reason.as_deref(), Some("stop"), "must not run to the cap (the old hidden-burn symptom)");
+
+        // Native path: same model + budget must yield a real structured tool call.
+        let native = NativeToolTurn {
+            backend: BackendKind::Ollama, endpoint: ep.into(), model: model.into(),
+            tools: vec![tool("reply", json!({ "text": { "type": "string" } }))],
+            options: None, terminal: TerminalGuidance::MustUseTools, max_tokens: 64, is_thinking: false,
+        };
+        let spec = GenerateSpec { prompt: "Reply with the text: ok".into(), options: tiny, ..Default::default() };
+        let (out, stats) = native.run(&spec).await.unwrap();
+        eprintln!("LIVE native-path: out={out:?} finish={:?} eval_count={:?}", stats.finish_reason, stats.eval_count);
+        let calls = extract_calls(&out).expect("suppressed turn must emit a parseable tool call, not hidden thinking");
+        assert_eq!(calls[0].name, "reply");
+
+        // The capture path is unchanged: a THINKING turn still splits and captures the scratchpad.
+        let thinking = BackendTurn { is_thinking: true, max_tokens: 512, stop_cache: Default::default(), ..turn };
+        let spec = GenerateSpec {
+            prompt: "What is 2+2? Answer with just the number.".into(),
+            options: Some(GenerateOptions { num_predict: Some(512), temperature: Some(0.0), ..Default::default() }),
+            ..Default::default()
+        };
+        let (out, stats) = thinking.run(&spec).await.unwrap();
+        let head: String = out.chars().take(120).collect();
+        eprintln!("LIVE thinking-path: out[..120]={head:?} finish={:?} eval_count={:?}", stats.finish_reason, stats.eval_count);
+        assert!(out.contains("<think>"), "is_thinking:true must still capture the scratchpad");
     }
 
     #[tokio::test]

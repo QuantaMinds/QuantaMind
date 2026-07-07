@@ -1,5 +1,22 @@
-use super::parse_chat;
+use super::{parse_chat, ChatRequest};
 use serde_json::json;
+
+/// The `/api/chat` wire sends `think:false` when suppression is requested (a thinking-by-default
+/// model must not burn the turn budget in a hidden scratchpad) and omits the field when `None`
+/// (byte-identical to before the field existed).
+#[test]
+fn think_false_is_serialized_and_none_is_omitted() {
+    let tools = json!([]);
+    let suppressed = ChatRequest {
+        model: "m", messages: vec![], tools: &tools, options: None, think: Some(false), stream: false,
+    };
+    assert!(serde_json::to_string(&suppressed).unwrap().contains("\"think\":false"));
+
+    let default = ChatRequest {
+        model: "m", messages: vec![], tools: &tools, options: None, think: None, stream: false,
+    };
+    assert!(!serde_json::to_string(&default).unwrap().contains("think"));
+}
 
 #[test]
 fn parses_nested_object_arguments_with_embedded_quotes() {
