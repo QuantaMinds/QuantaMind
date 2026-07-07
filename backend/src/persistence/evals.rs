@@ -95,12 +95,19 @@ pub fn save(dir: &Path, name: &str, tasks: &[ToolTask]) -> AppResult<()> {
     // pre-existing broken file can still be opened and fixed): a world-state task
     // whose answer key is unreachable or leaky is rejected HERE, naming the exact
     // defect, instead of burning a live eval batch that fails identically every run.
-    let findings = crate::inference::eval::agentic::v2::oracle::semantic_findings(tasks);
-    if !findings.is_empty() {
-        let lines: Vec<String> = findings.iter().map(ToString::to_string).collect();
+    // Only Error-severity findings block; Warning-severity (the heuristic
+    // answer-grounding check) saves fine and surfaces through the validate paths —
+    // the guard proposes, the author disposes.
+    use crate::inference::eval::agentic::v2::oracle::{semantic_findings, SemanticSeverity};
+    let errors: Vec<String> = semantic_findings(tasks)
+        .iter()
+        .filter(|f| f.severity() == SemanticSeverity::Error)
+        .map(ToString::to_string)
+        .collect();
+    if !errors.is_empty() {
         return Err(AppError::InvalidTaskSchema(format!(
             "collection has broken world-state answer keys:\n{}",
-            lines.join("\n")
+            errors.join("\n")
         )));
     }
     std::fs::create_dir_all(dir)?;

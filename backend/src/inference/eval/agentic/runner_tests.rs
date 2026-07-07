@@ -401,15 +401,17 @@ async fn live_llama_completes_a_benign_task_end_to_end() {
 /// capability failure are both acceptable; what MUST hold is that no turn is a
 /// harness artifact. Run (server must be up):
 ///   cargo test --release --lib live_llama_world_state -- --ignored --nocapture
-#[tokio::test]
-#[ignore]
-async fn live_llama_world_state_hard_returns_k1_writes_a_transcript() {
+/// Shared body for the live world-state seams: run ONE k=1 pass of a bundled
+/// task against llama.cpp on :8081 with a thinking model, persist every turn +
+/// outcome through the REAL `jobs::transcripts` store (the same calls
+/// `TauriBatchSink` makes), and assert no harness artifacts. A k=1 capability
+/// FAIL is acceptable; a plumbing artifact is not.
+async fn live_world_state_k1(collection: &'static str, task_prefix: &str, tier: crate::inference::eval::agentic::spec::Tier) {
     use crate::inference::backend::backend_kind::BackendKind;
     use crate::inference::eval::agentic::build::sandbox_for;
     use crate::inference::eval::agentic::difficulty::passk::max_tokens_for;
     use crate::inference::eval::agentic::model_turn::BackendTurn;
     use crate::inference::eval::agentic::scoring::report::AgenticReport;
-    use crate::inference::eval::agentic::spec::Tier;
     use crate::inference::eval::agentic::v2::collection::load_v2_collection;
     use crate::inference::eval::agentic::v2::generator;
     use crate::inference::eval::agentic::v2::scenarios::v2_json;
@@ -417,14 +419,14 @@ async fn live_llama_world_state_hard_returns_k1_writes_a_transcript() {
     use crate::persistence::jobs::transcripts;
 
     const MODEL: &str = "qwen3.5-9b_q4_k_m";
-    const COLLECTION: &str = "hard-support-ecommerce";
 
-    let tasks = load_v2_collection(v2_json(COLLECTION).unwrap()).unwrap();
-    let base = tasks.iter().find(|t| t.id.starts_with("hd_se_returns")).expect("returns task present");
-    // Mirror production: a generated task gets a FRESH instance per (model, run_index).
+    let tasks = load_v2_collection(v2_json(collection).unwrap()).unwrap();
+    let base = tasks.iter().find(|t| t.id.starts_with(task_prefix)).expect("task present");
+    // Mirror production: a generated task gets a FRESH instance per (model, run_index);
+    // a non-generated one replays unchanged (instantiate no-ops without numbered ids).
     let task = generator::instantiate(base, generator::seed_for(MODEL, 0));
     let (sandbox, cfg) = sandbox_for(&task).unwrap();
-    eprintln!("\nLIVE ws prompt (remapped ids): {}", task.prompt);
+    eprintln!("\nLIVE ws prompt: {}", task.prompt);
 
     let turn = BackendTurn {
         backend: BackendKind::LlamaCpp,
@@ -434,7 +436,7 @@ async fn live_llama_world_state_hard_returns_k1_writes_a_transcript() {
         options: None,
         keep_alive: None,
         is_thinking: true,
-        max_tokens: max_tokens_for(Tier::Hard, true),
+        max_tokens: max_tokens_for(tier, true),
         cpu_offloaded: false, ctx_ceiling: crate::inference::eval::agentic::runner::NUM_CTX_CEILING, stop_cache: Default::default(),
     };
     let (tx, mut rx) = unbounded_channel();
@@ -444,7 +446,7 @@ async fn live_llama_world_state_hard_returns_k1_writes_a_transcript() {
 
     // Persist through the REAL transcript store — the same calls TauriBatchSink makes.
     let dir = std::env::temp_dir().join("qm-live-transcripts");
-    let path = transcripts::transcript_path(&dir, COLLECTION, MODEL, &task.id, false);
+    let path = transcripts::transcript_path(&dir, collection, MODEL, &task.id, false);
     transcripts::begin_task(&path).unwrap();
     for s in &steps {
         transcripts::append_step(&path, s).unwrap();
@@ -464,6 +466,23 @@ async fn live_llama_world_state_hard_returns_k1_writes_a_transcript() {
     assert_ne!(outcome.failure, Some(FailureKind::EmptyOutput), "empty output — a plumbing artifact");
     assert_ne!(outcome.failure, Some(FailureKind::ForeignDialect), "dialect soup — a template artifact");
     assert!(outcome.steps > 1, "must get past turn 1 — a 1-step end was the unreachable-answer-key bug");
+}
+
+#[tokio::test]
+#[ignore]
+async fn live_llama_world_state_hard_returns_k1_writes_a_transcript() {
+    live_world_state_k1("hard-support-ecommerce", "hd_se_returns", crate::inference::eval::agentic::spec::Tier::Hard).await;
+}
+
+/// LIVE E2E (ignored): the root-cause-tracing task after the grounding/alias
+/// fixes — verifies live that `run_tests` names the failing test FILE, a
+/// realistic `read_file` path serves the test source, and the verdict stays
+/// honest. Run (server must be up):
+///   cargo test --lib live_llama_trace_root_cause -- --ignored --nocapture
+#[tokio::test]
+#[ignore]
+async fn live_llama_trace_root_cause_k1_writes_a_transcript() {
+    live_world_state_k1("medium-coding", "md_co_trace_root_cause", crate::inference::eval::agentic::spec::Tier::Medium).await;
 }
 
 #[tokio::test]

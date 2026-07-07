@@ -366,8 +366,13 @@ In **EvalManager**, "[↓] Import .json" opens a **format-guide dialog first** (
 expected v2 skeleton + copy-template button + a pointer to
 `docs/reference.md#agentic-authoring-contract`); the file picker only opens from
 its Continue. A blocked import shows a popup listing each finding (task id + exact
-defect) and mirrors them in the validation panel (`⚠` rows under each task,
-`eval-validation-semantic-*` testids).
+defect) and mirrors them in the validation panel (red `✗` rows,
+`eval-validation-semantic-*` testids). An `ok` verdict that carries
+**answer-grounding warnings** (`semantic_warnings` — the heuristic
+`UngroundedAnswerToken` check, with its "checked the prompt, N tool names, M data
+blobs" evidence) imports fine: the store returns the verdict, a toast points at the
+panel, and the warnings render as amber `⚠` rows (`eval-validation-warning-*`) — the
+author judges each one; a heuristic never blocks.
 
 ### evalStore.ts — simple per-task results (legacy single-model)
 
