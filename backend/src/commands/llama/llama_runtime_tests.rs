@@ -97,6 +97,42 @@ fn plan_launch_engages_flash_attn_and_q8_and_notifies_on_a_tight_host() {
     assert!(note.to_lowercase().contains("safely"), "note frames it as running safely: {note}");
 }
 
+/// Pinned EXACT plan for the tight-host fixture — the tripwire that the
+/// `KvPrecision`-based Q8 math is bit-identical to the former `per_token / 2`:
+/// per_token_f16 = 2×36×8×128×2 = 147,456 B; usable = 70% of 16 GB = 11.2 GB;
+/// budget = 2.2 GB → f16 ceiling 14,848 < 16,384 desired → Q8 (73,728 B/token)
+/// ceiling 29,696 holds it → ctx stays exactly 16,384, second note branch.
+#[test]
+fn plan_launch_q8_ceiling_unchanged_by_precision_refactor() {
+    let plan = plan_launch(Some(9_000_000_000), Some(nineb_dims()), 16 * 1_000_000_000, Some(32_768), Some(16_384));
+    assert_eq!(plan.ctx, 16_384);
+    assert_eq!(plan.kv, KvType::Q8);
+    assert!(plan.flash_attn);
+    assert_eq!(
+        plan.note.as_deref(),
+        Some(
+            "Detected 16 GB of RAM. Running safely: enabled Flash Attention and a Q8 KV cache \
+             (half the memory) so the 16384-token context fits without a GPU out-of-memory error."
+        )
+    );
+
+    // Even tighter host (10 GB): budget saturates to 0 → both ceilings floor at
+    // MIN_CONTEXT → capped-context branch, exact ctx pinned.
+    let capped = plan_launch(Some(9_000_000_000), Some(nineb_dims()), 10 * 1_000_000_000, Some(32_768), Some(16_384));
+    assert_eq!(capped.ctx, MIN_CONTEXT);
+    assert_eq!(capped.kv, KvType::Q8);
+    assert!(capped.note.as_deref().unwrap().contains("capped the context to 2048"));
+}
+
+/// `KvType` → `KvPrecision` is total over the launch domain: no Q4 arm exists,
+/// which is the type-level proof a launch can never auto-pick a Q4 cache.
+#[test]
+fn kv_type_maps_to_precision() {
+    use crate::inference::vram_math::KvPrecision;
+    assert_eq!(KvType::F16.precision(), KvPrecision::F16);
+    assert_eq!(KvType::Q8.precision(), KvPrecision::Q8);
+}
+
 /// Unmeasurable dims → we can't budget memory, so never fabricate a constraint: plain plan.
 #[test]
 fn plan_launch_is_plain_when_dims_are_unknown() {

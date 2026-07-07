@@ -2,7 +2,7 @@ use crate::errors::AppError;
 use crate::inference::backend::backend_kind::BackendKind;
 use crate::inference::backend::endpoint;
 use crate::inference::ollama::ollama_show::show_model;
-use crate::inference::vram_math::calculate_kv_cache_bytes;
+use crate::inference::vram_math::{kv_cache_bytes_at, KvPrecision};
 use serde::Serialize;
 
 /// Architecture dimensions needed for the KV-cache predictor, read from
@@ -126,9 +126,11 @@ pub async fn fetch_dims(model: &str) -> Option<ModelDims> {
     dims_from_model_info(&r.model_info)
 }
 
-/// Estimate the f16 KV-cache size (bytes) for a model's dimensions at a given
+/// Estimate the KV-cache size (bytes) for a model's dimensions at a given
 /// context length. Thin wrapper over the canonical formula so the frontend has
-/// one source of truth (the dims come from `inspect_model`).
+/// one source of truth (the dims come from `inspect_model`). `precision` is the
+/// cache storage type (`"f16"` / `"q8_0"` / `"q4_0"`); absent or unknown falls
+/// back to f16 — the conservative baseline every pre-existing caller assumed.
 #[tauri::command]
 pub fn estimate_kv_cache_bytes(
     layers: u64,
@@ -136,8 +138,10 @@ pub fn estimate_kv_cache_bytes(
     head_count_kv: u64,
     embedding_length: u64,
     context_length: u64,
+    precision: Option<String>,
 ) -> u64 {
-    calculate_kv_cache_bytes(layers, head_count, head_count_kv, embedding_length, context_length)
+    let p = precision.as_deref().and_then(KvPrecision::parse).unwrap_or_default();
+    kv_cache_bytes_at(p, layers, head_count, head_count_kv, embedding_length, context_length)
 }
 
 #[cfg(test)]

@@ -31,9 +31,15 @@ export async function inspectModel(model: string, backend: BackendKind): Promise
   return ModelInspectSchema.parse(await invoke("inspect_model", { model, backend }));
 }
 
-/// f16 KV-cache size (bytes) for a model's dims at a context length — computed
-/// by the canonical Rust formula (single source of truth).
-export async function estimateKvCacheBytes(dims: ModelDims, contextLength: number): Promise<number> {
+/// KV-cache storage precision (llama.cpp/Ollama cache-type wire names). f16 is
+/// the conservative baseline; q8_0 ≈ half the bytes, q4_0 ≈ a quarter — exact
+/// integer scaling of the canonical formula, computed in Rust.
+export type KvPrecision = "f16" | "q8_0" | "q4_0";
+
+/// KV-cache size (bytes) for a model's dims at a context length — computed by
+/// the canonical Rust formula (single source of truth). `precision` omitted →
+/// f16, byte-identical to every pre-existing call.
+export async function estimateKvCacheBytes(dims: ModelDims, contextLength: number, precision?: KvPrecision): Promise<number> {
   return z.number().parse(
     await invoke("estimate_kv_cache_bytes", {
       layers: dims.layers,
@@ -41,6 +47,7 @@ export async function estimateKvCacheBytes(dims: ModelDims, contextLength: numbe
       headCountKv: dims.head_count_kv,
       embeddingLength: dims.embedding_length,
       contextLength,
+      precision: precision ?? null,
     }),
   );
 }
