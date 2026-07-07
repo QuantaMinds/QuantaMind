@@ -19,28 +19,30 @@ export function HostHardwareProfile({
   const isAppleSilicon = hardware?.is_apple_silicon ?? false;
 
   return (
-    <div data-testid="host-hardware-profile" className="space-y-4">
+    <div data-testid="host-hardware-profile" className="space-y-4 font-sans text-sm">
       {/* Architecture Row */}
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3 text-sm">
-        <span className="w-48 text-slate-500 font-medium">Architecture:</span>
-        <div className="flex flex-wrap gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+        <span className="w-48 text-slate-500 font-semibold uppercase tracking-wider text-xs">Architecture:</span>
+        <div className="flex flex-wrap gap-2.5">
           <span
-            className={`px-3 py-1.5 border rounded-lg text-xs font-semibold select-none transition-all ${
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-xs font-semibold select-none transition-all ${
               !isAppleSilicon
                 ? "bg-slate-900 border-slate-900 text-white shadow-sm"
                 : "bg-slate-50 border-slate-200 text-slate-400 opacity-60"
             }`}
           >
-            [ NVIDIA Discrete GPU (PCIe) ]
+            {!isAppleSilicon && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0" />}
+            NVIDIA Discrete GPU (PCIe)
           </span>
           <span
-            className={`px-3 py-1.5 border rounded-lg text-xs font-semibold select-none transition-all ${
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-xs font-semibold select-none transition-all ${
               isAppleSilicon
                 ? "bg-slate-900 border-slate-900 text-white shadow-sm"
                 : "bg-slate-50 border-slate-200 text-slate-400 opacity-60"
             }`}
           >
-            [ Apple Silicon Unified Memory (UMA) ]
+            {isAppleSilicon && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0" />}
+            Apple Silicon Unified Memory (UMA)
           </span>
         </div>
         {/* Hidden architecture text for tests */}
@@ -48,9 +50,9 @@ export function HostHardwareProfile({
       </div>
 
       {/* VRAM Allocation Row */}
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3 text-sm">
-        <span className="w-48 text-slate-500 font-medium flex items-center gap-1.5">
-          Host VRAM/RAM Allocation Cap:
+      <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+        <span className="w-48 text-slate-500 font-semibold uppercase tracking-wider text-xs flex items-center gap-1.5">
+          VRAM/RAM Cap:
           <InfoButton {...READINESS_HELP.vramCap} testId="readiness-vramcap" />
         </span>
         <div className="relative w-48">
@@ -58,7 +60,7 @@ export function HostHardwareProfile({
             data-testid="readiness-cap-select"
             value={capBytes ?? ""}
             onChange={(e) => onCapChange(Number(e.target.value))}
-            className="w-full bg-white border border-slate-200 hover:border-slate-300 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 rounded-lg py-1.5 pl-3 pr-10 text-sm text-slate-800 shadow-sm transition-all outline-none appearance-none cursor-pointer"
+            className="w-full bg-white border border-slate-300 hover:border-slate-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded-lg py-1.5 pl-3 pr-10 text-xs text-slate-800 shadow-sm transition-all outline-none appearance-none cursor-pointer font-medium"
           >
             {options.map((o) => (
               <option key={o.bytes} value={o.bytes}>

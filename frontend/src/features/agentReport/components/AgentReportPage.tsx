@@ -3,6 +3,7 @@ import { useEvalRegistryStore } from "../../eval/state/evalRegistryStore";
 import { useBatchStore } from "../../eval/state/batchStore";
 import { useReadinessStore } from "../state/readinessStore";
 import { VerdictTable, PATH_LABEL } from "./VerdictTable";
+import { RightSizingSection } from "./rightsizing/RightSizingSection";
 import { RecommendationBanner } from "./RecommendationBanner";
 import { ExecutiveVerdict } from "./ExecutiveVerdict";
 import { TierProgressionMatrix } from "./TierProgressionMatrix";
@@ -31,6 +32,8 @@ export function AgentReportPage() {
     profiles,
     selectedProfileId,
     verdicts,
+    rightSizing,
+    rightSizingHint,
     hardware,
     hardwareTier,
     focusedModel,
@@ -137,27 +140,25 @@ export function AgentReportPage() {
   return (
     <div
       data-testid="agent-report-page"
-      className="bg-white border border-slate-200 shadow-md rounded-2xl overflow-hidden max-w-6xl mx-auto flex flex-col text-slate-900 font-sans"
+      className="bg-white border border-slate-200/80 shadow-lg rounded-2xl overflow-hidden max-w-6xl mx-auto flex flex-col text-slate-900 font-sans"
     >
-      {/* Title Header: [≡] LOCAL AGENT READINESS VALIDATOR [User Avatar] [Help] */}
-      <header className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex items-center justify-between select-none">
+      {/* Title Header */}
+      <header className="bg-slate-50/80 px-6 py-4.5 border-b border-slate-200/80 flex items-center justify-between select-none">
         <div className="flex items-center gap-3">
-          <button
-            type="button"
-            className="text-slate-400 hover:text-slate-700 transition-colors p-1 hover:bg-slate-100 rounded-md cursor-pointer"
-            aria-label="Menu"
-          >
-            <span className="font-mono text-lg font-bold">[≡]</span>
-          </button>
-          <h1 className="text-sm font-bold tracking-wider text-slate-700 uppercase">
-            LOCAL AGENT READINESS VALIDATOR
+          <div className="flex items-center justify-center bg-blue-50 text-blue-600 p-2 rounded-lg border border-blue-100">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+            </svg>
+          </div>
+          <h1 className="text-sm font-bold tracking-wider text-slate-800 font-sans uppercase">
+            Agent Readiness Validator
           </h1>
         </div>
 
         <div className="flex items-center gap-4">
           {/* Help Action */}
-          <div className="flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-700 transition-all cursor-pointer">
-            <span className="hidden sm:inline">Help</span>
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-700 transition-all cursor-pointer">
+            <span className="hidden sm:inline">Help Documentation</span>
             <InfoButton {...READINESS_HELP.page} align="right" testId="readiness-page" />
           </div>
         </div>
@@ -173,17 +174,17 @@ export function AgentReportPage() {
       )}
 
       {/* SECTION 1: HOST & THRESHOLDS (Collapsible) */}
-      <section className="border-b border-slate-200 bg-slate-50/50 flex flex-col">
+      <section className="border-b border-slate-200/80 bg-slate-50/30 flex flex-col">
         {/* Collapsible Header */}
         <div
-          className="flex justify-between items-center py-3.5 px-6 bg-slate-50 hover:bg-slate-100 border-b border-slate-200 cursor-pointer select-none transition-colors duration-150"
+          className="flex justify-between items-center py-3.5 px-6 bg-slate-50/50 hover:bg-slate-100/75 border-b border-slate-200/60 cursor-pointer select-none transition-colors duration-150"
           onClick={() => setIsSection1Collapsed(!isSection1Collapsed)}
         >
-          <div className="flex items-center gap-2.5 text-xs font-bold text-slate-600 uppercase tracking-wider">
+          <div className="flex items-center gap-2.5 text-xs font-bold text-slate-500 uppercase tracking-wider">
             <span className={`transform transition-transform duration-200 text-slate-400 ${isSection1Collapsed ? "-rotate-90" : ""}`}>
               ▼
             </span>
-            <span>SECTION 1: HOST &amp; THRESHOLDS {isSection1Collapsed ? "(Collapsed)" : "(Collapsible)"}</span>
+            <span>Host &amp; Thresholds {isSection1Collapsed ? "(Collapsed)" : "(Collapsible)"}</span>
           </div>
 
           <div onClick={(e) => e.stopPropagation()}>
@@ -191,10 +192,10 @@ export function AgentReportPage() {
               type="button"
               data-testid="edit-profile-open"
               disabled={!activeProfile}
-              className="flex items-center gap-1.5 bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-700 border border-slate-300 px-3.5 py-1.5 rounded-lg text-xs transition-all shadow-sm font-semibold cursor-pointer disabled:opacity-50"
+              className="flex items-center gap-1.5 bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-700 border border-slate-200 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all shadow-2xs cursor-pointer disabled:opacity-50"
               onClick={() => setEditingProfile(true)}
             >
-              <span>Edit Profile ⚙</span>
+              <span>Edit Profile Settings ⚙</span>
             </button>
           </div>
         </div>
@@ -210,7 +211,7 @@ export function AgentReportPage() {
               <span className="text-slate-500 font-semibold uppercase tracking-wider">Hardware:</span>
               <div
                 data-testid="host-hardware-profile"
-                className="flex items-center gap-1.5 bg-slate-100 text-slate-700 border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-mono select-none"
+                className="flex items-center gap-1.5 bg-slate-100/80 text-slate-700 border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-semibold select-none shadow-3xs"
               >
                 <span>{hardware?.gpu?.name || "System Hardware"}</span>
                 <span className="hidden">{archLabel(hardware)}</span>
@@ -227,7 +228,7 @@ export function AgentReportPage() {
                   data-testid="readiness-cap-select"
                   value={capBytes ?? ""}
                   onChange={(e) => onCapChange(Number(e.target.value))}
-                  className="bg-white border border-slate-300 hover:border-slate-400 focus:border-slate-500 rounded-lg py-1.5 pl-3 pr-8 text-xs text-slate-800 transition-all outline-none appearance-none cursor-pointer"
+                  className="bg-white border border-slate-300 hover:border-slate-400 focus:border-blue-500 rounded-lg py-1.5 pl-3 pr-8 text-xs text-slate-800 transition-all outline-none appearance-none cursor-pointer font-semibold shadow-3xs"
                 >
                   {capOptions(defaultCapBytes(hardware) ?? capBytes).map((o) => (
                     <option key={o.bytes} value={o.bytes}>
@@ -236,7 +237,7 @@ export function AgentReportPage() {
                   ))}
                 </select>
                 <div className="absolute inset-y-0 right-0 flex items-center pr-2.5 pointer-events-none text-slate-400">
-                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </div>
@@ -251,7 +252,7 @@ export function AgentReportPage() {
                   data-testid="readiness-profile-select"
                   value={selectedProfileId}
                   onChange={(e) => selectProfile(e.target.value)}
-                  className="bg-white border border-slate-300 hover:border-slate-400 focus:border-slate-500 rounded-lg py-1.5 pl-3 pr-8 text-xs text-slate-800 transition-all outline-none appearance-none cursor-pointer"
+                  className="bg-white border border-slate-300 hover:border-slate-400 focus:border-blue-500 rounded-lg py-1.5 pl-3 pr-8 text-xs text-slate-800 transition-all outline-none appearance-none cursor-pointer font-semibold shadow-3xs"
                 >
                   {profiles.map((p) => (
                     <option key={p.id} value={p.id}>
@@ -260,7 +261,7 @@ export function AgentReportPage() {
                   ))}
                 </select>
                 <div className="absolute inset-y-0 right-0 flex items-center pr-2.5 pointer-events-none text-slate-400">
-                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </div>
@@ -275,14 +276,14 @@ export function AgentReportPage() {
                   data-testid="readiness-collection-select"
                   value={selected}
                   onChange={(e) => void select(e.target.value)}
-                  className="bg-white border border-slate-300 hover:border-slate-400 focus:border-slate-500 rounded-lg py-1.5 pl-3 pr-8 text-xs text-slate-800 transition-all outline-none appearance-none cursor-pointer"
+                  className="bg-white border border-slate-300 hover:border-slate-400 focus:border-blue-500 rounded-lg py-1.5 pl-3 pr-8 text-xs text-slate-800 transition-all outline-none appearance-none cursor-pointer font-semibold shadow-3xs"
                 >
                   {options.map((o) => (
                     <option key={o.id} value={o.id}>{o.label}</option>
                   ))}
                 </select>
                 <div className="absolute inset-y-0 right-0 flex items-center pr-2.5 pointer-events-none text-slate-400">
-                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </div>
@@ -293,7 +294,7 @@ export function AgentReportPage() {
             <button
               type="button"
               data-testid="readiness-run"
-              className="flex items-center justify-center gap-1.5 py-1.5 px-4 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white rounded-lg text-xs font-semibold transition-all disabled:opacity-50 shadow-sm active:scale-[0.98] duration-150 cursor-pointer disabled:cursor-not-allowed h-[30px]"
+              className="flex items-center justify-center gap-1.5 py-1.5 px-4 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white rounded-lg text-xs font-bold transition-all disabled:opacity-50 shadow-md active:scale-[0.98] duration-150 cursor-pointer disabled:cursor-not-allowed h-[32px]"
               disabled={loading || !selectedProfileId}
               onClick={() => void assess(selected)}
             >
@@ -308,8 +309,8 @@ export function AgentReportPage() {
               ) : (
                 <>
                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                   <span>Run Validation</span>
                 </>
@@ -320,37 +321,41 @@ export function AgentReportPage() {
 
           {/* Row 2: Active Thresholds display */}
           {activeProfile && (
-            <div className="flex flex-col border-t border-slate-200 pt-3.5">
+            <div className="flex flex-col border-t border-slate-200/60 pt-3.5">
               {/* Visible mockup style list of thresholds */}
-              <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs font-semibold text-slate-500 select-none">
-                <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-md text-[11px]">
+              <div className="flex flex-wrap items-center gap-2.5 text-xs font-semibold text-slate-500 select-none">
+                <div className="flex items-center gap-1 bg-slate-50 border border-slate-200/60 px-3 py-1 rounded-full text-[11px] shadow-3xs">
                   <span>Pass^k:</span>
-                  <span className="text-slate-900 font-mono font-bold">[{pct(activeProfile.min_pass_k)}]</span>
+                  <span className="text-slate-900 font-bold">{pct(activeProfile.min_pass_k)}</span>
                 </div>
-                <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-md text-[11px]">
+                <div className="flex items-center gap-1 bg-slate-50 border border-slate-200/60 px-3 py-1 rounded-full text-[11px] shadow-3xs">
                   <span>Infinite Loops:</span>
-                  <span className="text-slate-900 font-mono font-bold">
-                    [{activeProfile.forbid_infinite_loop ? "ON" : "OFF"}]
+                  <span className={`font-bold ${activeProfile.forbid_infinite_loop ? "text-emerald-700" : "text-slate-400"}`}>
+                    {activeProfile.forbid_infinite_loop ? "ON" : "OFF"}
                   </span>
                 </div>
-                <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-md text-[11px]">
+                <div className="flex items-center gap-1 bg-slate-50 border border-slate-200/60 px-3 py-1 rounded-full text-[11px] shadow-3xs">
                   <span>Full VRAM:</span>
-                  <span className="text-slate-900 font-mono font-bold">
-                    [{activeProfile.require_full_vram ? "ON" : "OFF"}]
+                  <span className={`font-bold ${activeProfile.require_full_vram ? "text-emerald-700" : "text-slate-400"}`}>
+                    {activeProfile.require_full_vram ? "ON" : "OFF"}
                   </span>
                 </div>
-                <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-md text-[11px]">
-                  <span>Min Context:</span>
-                  <span className="text-slate-900 font-mono font-bold">
-                    [{activeProfile.min_context_tokens != null ? activeProfile.min_context_tokens.toLocaleString() : "off"}]
-                  </span>
-                </div>
-                <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-md text-[11px]">
-                  <span>Max Lat:</span>
-                  <span className="text-slate-900 font-mono font-bold">
-                    [{activeProfile.max_ms_per_step != null ? `${activeProfile.max_ms_per_step}ms` : "off"}]
-                  </span>
-                </div>
+                {activeProfile.min_context_tokens != null && (
+                  <div className="flex items-center gap-1 bg-slate-50 border border-slate-200/60 px-3 py-1 rounded-full text-[11px] shadow-3xs">
+                    <span>Min Context:</span>
+                    <span className="text-slate-900 font-bold">
+                      {activeProfile.min_context_tokens.toLocaleString()}
+                    </span>
+                  </div>
+                )}
+                {activeProfile.max_ms_per_step != null && (
+                  <div className="flex items-center gap-1 bg-slate-50 border border-slate-200/60 px-3 py-1 rounded-full text-[11px] shadow-3xs">
+                    <span>Max Latency:</span>
+                    <span className="text-slate-900 font-bold">
+                      {activeProfile.max_ms_per_step}ms
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Hidden text content element to ensure existing tests pass cleanly */}
@@ -371,24 +376,24 @@ export function AgentReportPage() {
       </section>
 
       {/* SECTION 2: VERDICT & DIAGNOSTICS */}
-      <section className="px-6 py-5 space-y-4 bg-white flex flex-col flex-1">
+      <section className="px-6 py-6 space-y-5 bg-white flex flex-col flex-1">
 
-        <div className="flex justify-between items-center border-b border-slate-200 pb-3 select-none">
-          <span className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-            <span>▼</span> SECTION 2: VERDICT &amp; DIAGNOSTICS
+        <div className="flex justify-between items-center border-b border-slate-200 pb-3.5 select-none">
+          <span className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+            Verdict &amp; Diagnostics
           </span>
           {verdicts.length > 0 && (
-            <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
-              <span className="flex items-center gap-1 text-slate-600">
+            <div className="flex items-center gap-3.5 text-xs font-semibold text-slate-500">
+              <span className="flex items-center gap-1 text-slate-500 font-medium">
                 Show Native-FC Path
                 <InfoButton {...READINESS_HELP.nativeFc} testId="readiness-nativefc" />
               </span>
               <button
                 type="button"
-                className={`px-3 py-1 border rounded-lg text-xs font-bold cursor-pointer transition-all ${
+                className={`px-3 py-1 border rounded-lg text-[10px] font-bold uppercase tracking-wider cursor-pointer transition-all duration-200 shadow-2xs ${
                   showNativeFc
-                    ? "bg-blue-600 border-blue-500 text-white"
-                    : "bg-slate-100 border-slate-200 text-slate-500 opacity-60 hover:opacity-100"
+                    ? "bg-blue-600 border-blue-600 text-white"
+                    : "bg-slate-100 border-slate-200 text-slate-500 hover:bg-slate-150"
                 }`}
                 onClick={() => setShowNativeFc(!showNativeFc)}
               >
@@ -410,39 +415,50 @@ export function AgentReportPage() {
               showNativeFc={showNativeFc}
               unified={!!hardware?.gpu?.unified}
             />
+            <RightSizingSection groups={rightSizing} hint={rightSizingHint} />
           </div>
         )}
 
         {/* Per-model DEEP DIVE: Executive Verdict + Tier Progression Matrix + Failure
             Taxonomy for the focused model (defaults to the recommended one). */}
         {verdicts.length > 0 && focused && (
-          <div data-testid="agent-report-deepdive" className="space-y-6 border-t border-slate-200 pt-5">
+          <div data-testid="agent-report-deepdive" className="space-y-6 border-t border-slate-200 pt-6">
             <div className="flex items-center justify-between">
-              <label className="flex items-center gap-2 text-sm">
-                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Deep Dive:</span>
-                <select
-                  data-testid="deepdive-model-select"
-                  value={focusKey(focused.model, focused.verdict.path)}
-                  onChange={(e) => {
-                    const v = verdicts.find((x) => focusKey(x.model, x.verdict.path) === e.target.value);
-                    if (v) setFocus(v.model, v.verdict.path);
-                  }}
-                  className="bg-white border border-slate-200 hover:border-slate-300 focus:border-slate-400 rounded-lg py-1.5 pl-3 pr-8 text-sm text-slate-800 shadow-sm outline-none cursor-pointer font-mono"
-                >
-                  {verdicts.map((v) => (
-                    <option key={focusKey(v.model, v.verdict.path)} value={focusKey(v.model, v.verdict.path)}>
-                      {v.model} ({PATH_LABEL[v.verdict.path]})
-                    </option>
-                  ))}
-                </select>
+              <label className="flex items-center gap-2.5 text-sm">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Deep Dive Details:</span>
+                <div className="relative">
+                  <select
+                    data-testid="deepdive-model-select"
+                    value={focusKey(focused.model, focused.verdict.path)}
+                    onChange={(e) => {
+                      const v = verdicts.find((x) => focusKey(x.model, x.verdict.path) === e.target.value);
+                      if (v) setFocus(v.model, v.verdict.path);
+                    }}
+                    className="bg-white border border-slate-200 hover:border-slate-300 focus:border-blue-500 rounded-lg py-1.5 pl-3 pr-9 text-xs text-slate-800 shadow-3xs outline-none cursor-pointer font-mono font-semibold appearance-none"
+                  >
+                    {verdicts.map((v) => (
+                      <option key={focusKey(v.model, v.verdict.path)} value={focusKey(v.model, v.verdict.path)}>
+                        {v.model} ({PATH_LABEL[v.verdict.path]})
+                      </option>
+                    ))}
+                  </select>
+                  <div className="absolute inset-y-0 right-0 flex items-center pr-2.5 pointer-events-none text-slate-400">
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
+                </div>
               </label>
               <button
                 type="button"
                 data-testid="deepdive-export-json"
                 onClick={exportDeepDiveJson}
-                className="px-3 py-1.5 bg-white border border-slate-300 hover:border-slate-400 text-slate-700 rounded-lg text-xs font-semibold transition-all hover:bg-slate-50 cursor-pointer shadow-sm"
+                className="px-3.5 py-1.5 bg-white border border-slate-250 hover:border-slate-350 text-slate-700 rounded-lg text-xs font-bold transition-all hover:bg-slate-50 cursor-pointer shadow-3xs flex items-center gap-1.5"
               >
-                ⬇ Export JSON
+                <svg className="w-3.5 h-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                Export JSON
               </button>
             </div>
             <ExecutiveVerdict verdict={focused} hardwareTier={hardwareTier} minPassK={minPassK} />
@@ -460,29 +476,29 @@ export function AgentReportPage() {
         {assessed && verdicts.length === 0 && !error && (
           <div
             data-testid="readiness-empty"
-            className="flex flex-col items-center justify-center p-12 text-center bg-slate-50 border border-dashed border-slate-300 rounded-xl min-h-[300px] shadow-sm gap-3"
+            className="flex flex-col items-center justify-center p-12 text-center bg-slate-50 border border-dashed border-slate-200/80 rounded-xl min-h-[300px] shadow-3xs gap-3.5"
           >
-            <div className="p-3 bg-amber-50 rounded-full border border-amber-200 text-amber-500">
+            <div className="p-3 bg-amber-50 rounded-full border border-amber-100 text-amber-500">
               <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
             </div>
-            <h3 className="text-base font-semibold text-slate-700">No batch report found</h3>
-            <p className="text-sm text-slate-500 max-w-sm">
+            <h3 className="text-base font-bold text-slate-700">No batch report found</h3>
+            <p className="text-sm text-slate-400 max-w-sm font-medium leading-relaxed">
               No batch report found for “{selected}”. Run a batch for this collection on the Tests tab, then come back to assess it.
             </p>
           </div>
         )}
 
         {!assessed && !loading && (
-          <div className="flex flex-col items-center justify-center p-12 text-center bg-slate-50 border border-dashed border-slate-300 rounded-xl min-h-[300px] shadow-sm gap-3">
-            <div className="p-3 bg-slate-100 rounded-full border border-slate-200 text-slate-400">
+          <div className="flex flex-col items-center justify-center p-12 text-center bg-slate-50 border border-dashed border-slate-200/85 rounded-xl min-h-[300px] shadow-3xs gap-3.5">
+            <div className="p-3 bg-slate-100 rounded-full border border-slate-200/60 text-slate-400 animate-pulse">
               <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
               </svg>
             </div>
-            <h3 className="text-base font-semibold text-slate-700">Awaiting Assessment</h3>
-            <p className="text-sm text-slate-500 max-w-sm">
+            <h3 className="text-base font-bold text-slate-700">Awaiting Assessment</h3>
+            <p className="text-sm text-slate-400 max-w-sm font-medium leading-relaxed">
               Pick a target collection and a profile, then Run readiness.
             </p>
           </div>
@@ -490,13 +506,16 @@ export function AgentReportPage() {
       </section>
 
       {/* FOOTER: [ < Back to Workbench ] [ ⬇ Export HTML Report ] [ 🚀 Deploy ] */}
-      <footer className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between mt-auto">
+      <footer className="px-6 py-4.5 border-t border-slate-200 bg-slate-50 flex items-center justify-between mt-auto">
         <button
           type="button"
-          className="px-4 py-2 bg-white border border-slate-300 hover:border-slate-400 text-slate-700 rounded-lg text-sm font-semibold transition-all hover:bg-slate-50 cursor-pointer shadow-sm"
+          className="px-4 py-2 bg-white border border-slate-350 hover:border-slate-450 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-3xs flex items-center gap-1.5"
           onClick={goBack}
         >
-          &lt; Back to Workbench
+          <svg className="w-3.5 h-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+          </svg>
+          Back to Workbench
         </button>
 
         {verdicts.length > 0 && activeProfile && (

@@ -34,36 +34,39 @@ export function FailureTaxonomy({ tier }: { tier: TierStat | null }) {
   const tierLabel = cap(tier.tier);
 
   return (
-    <section data-testid="failure-taxonomy" className="space-y-3">
-      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-        Failure Taxonomy<span className="text-slate-500 font-medium normal-case"> — {tierLabel}</span>
+    <section data-testid="failure-taxonomy" className="space-y-3 font-sans">
+      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+        Failure Taxonomy<span className="text-slate-400 font-medium normal-case"> — {tierLabel}</span>
       </h3>
 
       {grand === 0 ? (
-        <p data-testid="failure-taxonomy-empty" className="text-sm text-slate-500">
+        <div data-testid="failure-taxonomy-empty" className="flex items-center gap-2 text-sm text-slate-500 bg-slate-50 border border-slate-100 rounded-lg p-4 font-sans">
+          <svg className="w-5 h-5 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
           No failures recorded for {tierLabel}.
-        </p>
+        </div>
       ) : (
-        <>
-          <p className="text-[11px] text-slate-400">Share of {grand} tracked failure events (not 1:1 with failed runs).</p>
-          <div className="border border-slate-200 rounded-xl shadow-md p-5 bg-white space-y-4">
+        <div className="space-y-2">
+          <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider select-none">Share of {grand} tracked failure events (not 1:1 with failed runs).</p>
+          <div className="border border-slate-200/80 rounded-xl shadow-sm p-6 bg-white space-y-5">
             {rows.map((r) => {
               const share = Math.round((r.count / grand) * 100);
               return (
-                <div key={r.key} data-testid={`failure-row-${r.key}`} className="space-y-1">
-                  <div className="flex items-center gap-3 text-sm">
+                <div key={r.key} data-testid={`failure-row-${r.key}`} className="space-y-1.5">
+                  <div className="flex items-center gap-4 text-sm">
                     <span className="font-mono font-bold text-slate-800 w-12 text-right">{share}%</span>
-                    <div className="flex-1 h-3 bg-slate-100 rounded">
-                      <div className="h-3 bg-rose-400/80 rounded" style={{ width: `${share}%` }} />
+                    <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-gradient-to-r from-rose-400 to-rose-500 rounded-full transition-all duration-550" style={{ width: `${share}%` }} />
                     </div>
-                    <span className="font-semibold text-slate-800 w-28">{r.label}</span>
+                    <span className="font-bold text-slate-800 w-32 truncate">{r.label}</span>
                   </div>
-                  <p className="text-xs leading-relaxed text-slate-500 pl-[3.75rem]">{r.vuln}</p>
+                  <p className="text-xs leading-relaxed text-slate-500 pl-[4.25rem]">{r.vuln}</p>
                 </div>
               );
             })}
           </div>
-        </>
+        </div>
       )}
     </section>
   );

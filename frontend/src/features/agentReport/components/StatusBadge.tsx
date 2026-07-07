@@ -5,10 +5,10 @@ export function StatusBadge({ status }: { status: Readiness }) {
     return (
       <span
         data-testid="readiness-badge-ready"
-        className="inline-flex items-center font-mono font-bold text-emerald-700 bg-emerald-50/70 border border-emerald-200 px-3 py-1 rounded-md text-xs select-none shadow-sm"
+        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold tracking-wide bg-emerald-50 text-emerald-700 border border-emerald-200 select-none shadow-sm transition-all duration-200"
       >
-        [ 🟢 READY ]
-        <span className="hidden">READY</span>
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+        READY
       </span>
     );
   }
@@ -16,10 +16,10 @@ export function StatusBadge({ status }: { status: Readiness }) {
     return (
       <span
         data-testid="readiness-badge-not_ready"
-        className="inline-flex items-center font-mono font-bold text-rose-700 bg-rose-50/70 border border-rose-200 px-3 py-1 rounded-md text-xs select-none shadow-sm"
+        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold tracking-wide bg-rose-50 text-rose-700 border border-rose-200 select-none shadow-sm transition-all duration-200"
       >
-        [ 🔴 FAIL ]
-        <span className="hidden">NOT READY</span>
+        <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" />
+        NOT READY
       </span>
     );
   }
@@ -27,10 +27,10 @@ export function StatusBadge({ status }: { status: Readiness }) {
   return (
     <span
       data-testid="readiness-badge-conditional"
-      className="inline-flex items-center font-mono font-bold text-amber-700 bg-amber-50/70 border border-amber-200 px-3 py-1 rounded-md text-xs select-none shadow-sm"
+      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold tracking-wide bg-amber-50 text-amber-700 border border-amber-200 select-none shadow-sm transition-all duration-200"
     >
-      [ 🟡 WARN ]
-      <span className="hidden">CONDITIONAL</span>
+      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+      CONDITIONAL
     </span>
   );
 }
