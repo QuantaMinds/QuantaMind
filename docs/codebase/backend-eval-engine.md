@@ -683,6 +683,60 @@ reached in ~3 steps. (Authoring note: v2 checkpoints should glob tolerant string
 trivial convention difference; mismatches between a scenario's world_state hints and its
 checkpoint args otherwise read as model failures.)
 
+#### Cancellation
+
+**Four layers, checked from coarse to fine — Stop Batch lands as soon as the FINEST-grained
+one it happens to hit fires:**
+
+1. Between tasks / between model columns (`batch.rs`, `run_batch_resumable`/`run_native_fc_pass`).
+2. Between Pass^k runs (`run_agentic_within`, before `run_index`'s attempt starts).
+3. Between turns, inside a single run (`run_steps`'s per-turn loop, top of `for step_index`) —
+   catches a cancel that lands in the SYNCHRONOUS gap between one turn's scoring and the next
+   turn's model call.
+4. Right after a turn's model call resolves, before its output is scored (`run_steps`, just
+   after the retry-loop that produces `(raw, stats)`) — catches a cancel that fired WHILE the
+   model call was in flight. Load-bearing: `BackendTurn`/`stream_generate` already race the
+   HTTP stream against this SAME token and return `Ok(GenerateStats::default())` the instant
+   it fires (fast), but with whatever partial/empty text had streamed so far — scored as-is,
+   that would misclassify a Stop click as the MODEL's own `EmptyOutput`/`Malformed` failure.
+   This check intercepts it first and excludes the run cleanly instead.
+
+Layers 3 and 4 surface as `Err(AppError::Cancelled)` from `run_once_cancellable` (the
+cancel-aware sibling of the public, always-uncancellable `run_once` — every OTHER caller of
+`run_once`'s 6-arg signature, tests/oracle/scenario-validation, passes a token that's never
+touched, so this path never fires for them). `run_agentic_within` matches `Cancelled`
+specifically: discards the run (neither a pass nor a fail — the model never got a fair,
+complete shot) and stops launching further runs, flagging the report `with_truncation(k)` —
+the SAME flag the wall-clock budget backstop uses, and (companion fix, same change) now ALSO
+set by layer-1's between-run check, which used to break without it (a batch stopped before
+its first run could report `requested_runs: None`, indistinguishable from "k was legitimately
+0"). `AppError::Cancelled` is NOT folded into the generic `last_err` path — that one can end
+the whole TASK in `Error` (re-run on resume), and a user-initiated stop must never be reported
+as an infra failure.
+
+**Under `BackendTurn` (the real Ollama/llama.cpp/MLX/vLLM/SGLang path):** `stream_generate`
+(`inference/ollama/ollama.rs`) races `cancel.cancelled()` against BOTH the initial
+`client.post(...).send()` (connect + Ollama's own model-load + prompt-prefill — can take
+several seconds on a cold/large model, measured ~8s for a 35B Q8 model live, entirely before
+the fix) AND every subsequent chunk of the streaming response, via `tokio::select!`. Live
+tests (`ollama.rs::tests::live_cancel_*`, `#[ignore]`d — real Ollama on `:11434`) measure both
+paths landing in a few hundred ms, not seconds. Without racing the CONNECT phase too, a click
+during that window sat inert until the first response byte finally arrived.
+
+```rust
+// stream_generate — both cancellation points
+let resp = tokio::select! {
+    _ = cancel.cancelled() => return Ok(GenerateStats::default()),      // connect/load/prefill window
+    r = client.post(...).send() => r.map_err(...)?,
+};
+loop {
+    tokio::select! {
+        _ = cancel.cancelled() => return Ok(GenerateStats::default()), // streaming window
+        piece = bytes.next() => { /* ...accumulate, check chunk.done... */ }
+    }
+}
+```
+
 (Authoring note — the five `world_state` authoring contracts, all CI-enforced in
 `scenarios.rs`:
 

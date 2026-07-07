@@ -42,6 +42,7 @@ fn app_error_split(e: &AppError) -> (String, String) {
         AppError::Timeout(m) => ("timeout", m),
         AppError::AuthRequired(m) => ("auth_required", m),
         AppError::Internal(m) => ("internal", m),
+        AppError::Cancelled(m) => ("cancelled", m),
     };
     (kind.into(), m.clone())
 }

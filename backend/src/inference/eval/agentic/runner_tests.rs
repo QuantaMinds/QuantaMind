@@ -1,7 +1,9 @@
 use crate::errors::AppResult;
 use crate::inference::eval::agentic::model_turn::ModelTurn;
 use crate::inference::eval::agentic::scoring::report::{FailureKind, TopError};
-use crate::inference::eval::agentic::runner::{run_agentic, run_agentic_within, run_once, run_once_inner, task_budget, AgenticConfig};
+use crate::inference::eval::agentic::runner::{
+    run_agentic, run_agentic_within, run_once, run_once_cancellable, run_once_inner, task_budget, AgenticConfig,
+};
 use tokio_util::sync::CancellationToken;
 use crate::inference::eval::agentic::sandbox::{DeterministicSandbox, EndStateRule, MockResponse, TaskCheckpoint};
 use crate::inference::eval::agentic::spec::{FaultInjection, FaultRule};
@@ -553,6 +555,155 @@ async fn generous_budget_runs_every_requested_run_and_is_not_flagged() {
     assert_eq!(report.total_runs, 5);
     assert_eq!(report.passes, 5);
     assert_eq!(report.requested_runs, None, "a full batch is never flagged truncated");
+}
+
+#[tokio::test]
+async fn cancelling_before_any_run_starts_flags_truncated_instead_of_a_silent_zero() {
+    // Companion fix to the mid-run check below: the PRE-EXISTING between-run cancel check
+    // broke early WITHOUT setting `truncated`, so a batch stopped before its first run could
+    // report `requested_runs: None` — indistinguishable from "k was legitimately 0".
+    let cancel = CancellationToken::new();
+    cancel.cancel(); // already stopped before the batch attempts its first run
+    let model = ScriptedModel::new(vec![(END_CALL, 10)]);
+    let (tx, _rx) = unbounded_channel();
+    let report = run_agentic_within(&model, 7, |_| Ok((sandbox(), 4u32, 2u8)), &cancel, std::time::Duration::from_secs(3600), &tx)
+        .await
+        .unwrap();
+    drop(tx);
+
+    assert_eq!(report.total_runs, 0);
+    assert_eq!(report.requested_runs, Some(7), "flagged truncated, not a bare (misleading) 0-of-0");
+}
+
+/// A model that cancels the shared token itself, from inside its OWN `run()` — simulates "the
+/// user clicked Stop while this turn was generating" deterministically, no sleep/race needed.
+struct CancelingModel {
+    cancel: CancellationToken,
+    cancel_on_call: usize, // 0-based call index to cancel on
+    next: AtomicUsize,
+}
+
+impl ModelTurn for CancelingModel {
+    async fn run(&self, _spec: &GenerateSpec) -> AppResult<(String, GenerateStats)> {
+        let i = self.next.fetch_add(1, Ordering::SeqCst);
+        if i == self.cancel_on_call {
+            self.cancel.cancel(); // the "click" — this turn still finishes and returns normally
+        }
+        // A normal, non-terminal tool call (the end-state needs `execute_transfer` next), so
+        // nothing here would otherwise stop the run before the step cap.
+        Ok((
+            r#"{"name":"get_balance","args":{"account_id":"ACC-123"}}"#.to_string(),
+            GenerateStats { eval_count: Some(5), ..Default::default() },
+        ))
+    }
+}
+
+#[tokio::test]
+async fn run_once_cancellable_is_caught_immediately_even_when_the_turns_own_response_was_well_formed() {
+    // Unit-level: the POST-CALL check inside `run_steps`. Cancel fires DURING turn 0's `run()`,
+    // which THEN returns a perfectly well-formed, non-terminal tool call — proving cancellation
+    // wins even when the turn's own output would otherwise have been fine and scoreable. Caught
+    // the instant `run()` returns, before turn 0's trajectory step is ever sent (see the zero
+    // below) — NOT at "the next turn", since a model-triggered cancel is, by construction,
+    // already true the moment its own call returns.
+    let cancel = CancellationToken::new();
+    let model = CancelingModel { cancel: cancel.clone(), cancel_on_call: 0, next: AtomicUsize::new(0) };
+    let (tx, mut rx) = unbounded_channel();
+    let err = run_once_cancellable(&model, &sandbox(), 8, 2, 0, &tx, &cancel).await.unwrap_err();
+    drop(tx);
+
+    assert!(matches!(err, crate::errors::AppError::Cancelled(_)));
+    assert_eq!(drain(&mut rx).len(), 0, "excluded before its trajectory step is ever sent");
+}
+
+#[tokio::test]
+async fn run_once_cancellable_short_circuits_before_the_first_turn_if_already_cancelled() {
+    // Unit-level: the TOP-of-loop check, isolated from the post-call one above. A token
+    // cancelled before `run_once_cancellable` is even called (the genuinely-external-cancel
+    // shape — nothing in THIS run triggered it) must stop it before the first model call, not
+    // just before some later one.
+    let cancel = CancellationToken::new();
+    cancel.cancel();
+    let model = ScriptedModel::new(vec![(END_CALL, 10)]);
+    let (tx, mut rx) = unbounded_channel();
+    let err = run_once_cancellable(&model, &sandbox(), 8, 2, 0, &tx, &cancel).await.unwrap_err();
+    drop(tx);
+
+    assert!(matches!(err, crate::errors::AppError::Cancelled(_)));
+    assert_eq!(drain(&mut rx).len(), 0, "stopped before the first turn — the model is never even called");
+}
+
+/// Mimics `stream_generate`'s OWN cancel path (`tokio::select!` racing the HTTP stream against
+/// this token): cancels, then returns successfully with EMPTY output — exactly what
+/// `Ok(GenerateStats::default())` plus an empty accumulated `out` looks like when Stop lands
+/// before any token streams. This is the MORE common real-world case than the between-turns
+/// window above: most clicks land while a turn is actively generating, not in the brief
+/// synchronous gap between turns.
+struct CancelMidStreamModel {
+    cancel: CancellationToken,
+}
+
+impl ModelTurn for CancelMidStreamModel {
+    async fn run(&self, _spec: &GenerateSpec) -> AppResult<(String, GenerateStats)> {
+        self.cancel.cancel();
+        Ok((String::new(), GenerateStats::default()))
+    }
+}
+
+#[tokio::test]
+async fn a_cancel_that_lands_mid_generation_is_excluded_not_scored_as_the_models_own_empty_output() {
+    // Without the post-call check, this exact shape (Ok + empty text) already reaches
+    // `run_steps`'s no-call arm and scores `FailureKind::EmptyOutput` — a user's Stop click
+    // misclassified as the MODEL's failure, corrupting its pass/fail tally. Proves it's
+    // excluded as `Cancelled` instead.
+    let cancel = CancellationToken::new();
+    let model = CancelMidStreamModel { cancel: cancel.clone() };
+    let (tx, _rx) = unbounded_channel();
+    let err = run_once_cancellable(&model, &sandbox(), 8, 2, 0, &tx, &cancel).await.unwrap_err();
+    assert!(matches!(err, crate::errors::AppError::Cancelled(_)), "got {err:?}, not Cancelled");
+}
+
+#[tokio::test]
+async fn cancelling_mid_generation_end_to_end_is_discarded_not_tallied_as_a_fail() {
+    // Same shape as the between-turns end-to-end test below, but for the more common
+    // mid-generation window: `run_agentic_within` must still discard the run and flag
+    // truncation, not fold an `EmptyOutput` into the report's failure tally.
+    let cancel = CancellationToken::new();
+    let model = CancelMidStreamModel { cancel: cancel.clone() };
+    let (tx, _rx) = unbounded_channel();
+    let report = run_agentic_within(&model, 4, |_| Ok((sandbox(), 8u32, 2u8)), &cancel, std::time::Duration::from_secs(3600), &tx)
+        .await
+        .unwrap();
+    drop(tx);
+
+    assert_eq!(report.total_runs, 0, "the interrupted run is discarded — not a pass, not a fail");
+    assert_eq!(report.failures.empty_output_calls, 0, "must never be tallied as the model's own EmptyOutput");
+    assert_eq!(report.requested_runs, Some(4));
+}
+
+#[tokio::test]
+async fn cancelling_mid_run_discards_that_run_and_flags_truncated_not_a_pass_or_a_fail() {
+    // End-to-end through `run_agentic_within`: without threading `cancel` into the per-turn
+    // loop, this would either grind on for all 3 requested runs (a big-k task could take
+    // minutes to notice Stop) or, if it DID stop, silently omit `requested_runs` (the same bug
+    // the between-run test above covers) — a partial result must never look like a clean one.
+    let cancel = CancellationToken::new();
+    let model = CancelingModel { cancel: cancel.clone(), cancel_on_call: 0, next: AtomicUsize::new(0) };
+    let (tx, _rx) = unbounded_channel();
+    let report = run_agentic_within(
+        &model,
+        3,
+        |_| Ok((sandbox(), 8u32, 2u8)),
+        &cancel,
+        std::time::Duration::from_secs(3600), // generous — cancellation, not the budget, must stop this
+        &tx,
+    )
+    .await
+    .unwrap();
+    drop(tx);
+
+    assert_eq!(report.total_runs, 0, "the interrupted run is discarded — not a pass, not a fail");
+    assert_eq!(report.requested_runs, Some(3));
 }
 
 #[test]
@@ -1819,8 +1970,9 @@ impl ModelTurn for HangingModel {
 async fn a_stalled_turn_times_out_and_terminates() {
     let (tx, mut rx) = unbounded_channel();
     // Tiny budget so the stalled turn trips it immediately.
-    let outcome =
-        run_once_inner(&HangingModel, &sandbox(), 8, 2, std::time::Duration::from_millis(5), 0, &tx).await.unwrap();
+    let outcome = run_once_inner(&HangingModel, &sandbox(), 8, 2, std::time::Duration::from_millis(5), 0, &tx, &CancellationToken::new())
+        .await
+        .unwrap();
     drop(tx);
     assert!(!outcome.reached_end);
     assert_eq!(outcome.failure, Some(FailureKind::TurnTimeout));

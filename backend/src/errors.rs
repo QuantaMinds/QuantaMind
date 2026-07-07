@@ -33,6 +33,15 @@ pub enum AppError {
 
     #[error("internal: {0}")]
     Internal(String),
+
+    /// A caller-requested cancellation (e.g. Stop Batch) interrupted an in-flight agentic
+    /// turn loop. Distinct from every other variant: those are infra/data failures the caller
+    /// didn't ask for; this one is expected, user-initiated control flow, and the agentic
+    /// runner (`run_agentic_within`) catches it specifically to discard the interrupted run
+    /// (never counted as a pass OR a fail) rather than let it fall through to the generic
+    /// error path.
+    #[error("cancelled: {0}")]
+    Cancelled(String),
 }
 
 pub type AppResult<T> = Result<T, AppError>;

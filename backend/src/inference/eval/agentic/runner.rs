@@ -1,4 +1,4 @@
-use crate::errors::AppResult;
+use crate::errors::{AppError, AppResult};
 use crate::inference::eval::agentic::context::{tool_result_line, Conversation};
 use crate::inference::eval::agentic::env_view::{env_view, EnvView};
 use crate::inference::eval::agentic::scoring::endstate;
@@ -236,9 +236,12 @@ where
     let mut last_err = None;
     let mut truncated = false;
     for run_index in 0..k {
-        // Halt a long Pass^k task promptly on cancel (the batch loop also checks
-        // between tasks; this bounds an interrupt to ≤1 run of a big-k task).
+        // Halt a long Pass^k task promptly on cancel (the batch loop also checks between
+        // tasks; this bounds an interrupt to ≤1 run of a big-k task). Flagged `truncated` —
+        // same reason as the wall-clock backstop below: whatever `outcomes` collected so far is
+        // an honest partial, but it is NOT the full k the report must not imply it observed.
         if cancel.is_cancelled() {
+            truncated = true;
             break;
         }
         // Wall-clock backstop: stop launching runs once the batch blows its budget — but
@@ -256,8 +259,17 @@ where
                 continue;
             }
         };
-        match run_once(turn, &sandbox, max_steps, max_recovery, run_index, tx).await {
+        match run_once_cancellable(turn, &sandbox, max_steps, max_recovery, run_index, tx, cancel).await {
             Ok(outcome) => outcomes.push(outcome),
+            // Stop was clicked mid-run (not just between runs) — discard this attempt (neither a
+            // pass nor a fail: the model never got a fair, complete shot) and stop the batch here,
+            // same as the pre-run check above. NOT folded into `last_err`: that path is for genuine
+            // infra failures and can end the whole TASK in `Error` (re-run on resume) — a user
+            // stopping the batch must never be reported as an infra failure.
+            Err(AppError::Cancelled(_)) => {
+                truncated = true;
+                break;
+            }
             Err(e) => last_err = Some(e),
         }
     }
@@ -284,12 +296,34 @@ pub async fn run_once<M: ModelTurn>(
     run_index: u32,
     tx: &UnboundedSender<TrajectoryStep>,
 ) -> AppResult<RunOutcome> {
+    // A token that's never touched, so cancellation is structurally impossible here — every
+    // caller of this signature (tests, the oracle self-check, scenario validation) runs a fixed,
+    // uninterruptible attempt and has no cancel token to give, so `AppError::Cancelled` can
+    // never actually be constructed on this path.
+    let never = CancellationToken::new();
+    run_once_cancellable(turn, sandbox, max_steps, max_recovery, run_index, tx, &never).await
+}
+
+/// `run_once` with a REAL cancellation token, for the one caller (`run_agentic_within`) that
+/// drives a live, stoppable Pass^k batch. Surfaces a click of Stop as `Err(AppError::Cancelled)`
+/// once it's noticed at a turn boundary — the caller matches that specifically and discards the
+/// attempt (never counted as a pass OR a fail), exactly like the pre-existing between-run
+/// cancellation check just below it.
+async fn run_once_cancellable<M: ModelTurn>(
+    turn: &M,
+    sandbox: &DeterministicSandbox,
+    max_steps: u32,
+    max_recovery: u8,
+    run_index: u32,
+    tx: &UnboundedSender<TrajectoryStep>,
+    cancel: &CancellationToken,
+) -> AppResult<RunOutcome> {
     // A slow turn (reasoning model, or a model Ollama spilled onto the CPU) gets a much larger
     // per-step cap so a genuinely-progressing generation isn't killed as a false `TurnTimeout`
     // — the same "don't score a hardware limit as a capability failure" principle as the
     // num_predict fix. A terse, fully-resident model keeps the tight default.
     let step_timeout = if turn.slow_inference() { STEP_TIMEOUT.saturating_mul(SLOW_STEP_MULTIPLIER) } else { STEP_TIMEOUT };
-    run_once_inner(turn, sandbox, max_steps, max_recovery, step_timeout, run_index, tx).await
+    run_once_inner(turn, sandbox, max_steps, max_recovery, step_timeout, run_index, tx, cancel).await
 }
 
 /// Per-step wall-clock budget. The streaming HTTP client has no body deadline, so a
@@ -316,12 +350,13 @@ async fn run_once_inner<M: ModelTurn>(
     step_timeout: std::time::Duration,
     run_index: u32,
     tx: &UnboundedSender<TrajectoryStep>,
+    cancel: &CancellationToken,
 ) -> AppResult<RunOutcome> {
     // Track the tool-call dialect across the run and stamp it onto the outcome ONCE here,
     // so the many terminal returns inside `run_steps` stay untouched (builder seam).
     let mut dialect = ToolCallDialect::Standard;
     let outcome =
-        run_steps(turn, sandbox, max_steps, max_recovery, step_timeout, run_index, tx, &mut dialect).await?;
+        run_steps(turn, sandbox, max_steps, max_recovery, step_timeout, run_index, tx, &mut dialect, cancel).await?;
     Ok(outcome.with_dialect(dialect))
 }
 
@@ -338,6 +373,7 @@ async fn run_steps<M: ModelTurn>(
     run_index: u32,
     tx: &UnboundedSender<TrajectoryStep>,
     dialect: &mut ToolCallDialect,
+    cancel: &CancellationToken,
 ) -> AppResult<RunOutcome> {
     // Act-tasks must route every result — including the final report — through a tool;
     // abstain-tasks keep the plain-text option (prose IS the correct output there). Gating
@@ -378,6 +414,15 @@ async fn run_steps<M: ModelTurn>(
     // by an overflow-driven context-shift (see `agentic_num_ctx`).
     let num_ctx = agentic_num_ctx(max_steps, turn.is_thinking(), turn.ctx_ceiling());
     for step_index in 0..max_steps {
+        // Stop Batch, noticed at a turn boundary. Checked BEFORE the (potentially
+        // slow-generation) model call below rather than only between whole Pass^k runs, so a
+        // click during turn N of a long run is noticed after turn N finishes instead of after
+        // the whole run does — the same "checked between units of real work" shape as the
+        // between-run/between-task checks elsewhere, just at a finer grain. Can't be finer than
+        // a turn boundary without aborting the in-flight HTTP call to the backend itself.
+        if cancel.is_cancelled() {
+            return Err(AppError::Cancelled("stopped by user".to_string()));
+        }
         // The per-turn output cap. A reasoning model gets a tier-scaled budget so its
         // `<think>` scratchpad doesn't truncate the call; both thinking and non-thinking now
         // clear a batched multi-call turn (see `difficulty::passk::max_tokens_for`).
@@ -470,6 +515,18 @@ async fn run_steps<M: ModelTurn>(
             }
             break (raw, stats);
         };
+        // Stop Batch, noticed the OTHER way: `BackendTurn`/`stream_generate` already race the
+        // in-flight HTTP stream against this SAME token (`tokio::select!` in `stream_generate`)
+        // and return early on cancel — fast, but with `raw` whatever partial/empty text had
+        // streamed in so far, NOT a distinguishable signal. Scored as-is, that partial output
+        // would misclassify a user's Stop click as the MODEL's failure (EmptyOutput/Malformed/
+        // Hallucinated) — corrupting the pass/fail tally with an artifact of when Stop happened
+        // to land, not a capability gap. Checked here, right after the call resolves and before
+        // any of that classification runs, so a cancelled turn is ALWAYS excluded cleanly,
+        // whichever of the two paths (this one, or the top-of-loop check above) noticed it.
+        if cancel.is_cancelled() {
+            return Err(AppError::Cancelled("stopped by user".to_string()));
+        }
         output_tokens += stats.eval_count.unwrap_or(0);
         // Per-turn prompt-cache reuse (llama.cpp `timings.cache_n`); None for other
         // backends. Captured here so each streamed step carries its own turn's value.
