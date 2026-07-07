@@ -87,6 +87,10 @@ export const MemoryProfileSchema = z.object({
   pressure: z.boolean(),
   // KV cache sized from a defaulted head_count_kv → a conservative overestimate.
   estimated: z.boolean().optional(),
+  // KV-cache storage precision this fit was graded at (llama.cpp columns may be
+  // graded at the Q8 cache the launch would actually use). Absent (pre-field
+  // payloads) means f16 — truthful, that's what they were computed at.
+  kv_precision: z.enum(["f16", "q8_0", "q4_0"]).optional(),
 });
 export type MemoryProfile = z.infer<typeof MemoryProfileSchema>;
 

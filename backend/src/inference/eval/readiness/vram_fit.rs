@@ -1,4 +1,4 @@
-use crate::inference::vram_math::calculate_kv_cache_bytes;
+use crate::inference::vram_math::{kv_cache_bytes_at, KvPrecision};
 use serde::{Deserialize, Serialize};
 
 /// A model fits but sits at/above this fraction of the cap → flag VRAM pressure
@@ -12,8 +12,11 @@ pub const PRESSURE_FRACTION: f64 = 0.85;
 pub const DEFAULT_FALLBACK_CTX: u32 = 8192;
 
 /// One model's measured memory footprint against an allocation cap: exact on-disk
-/// weights + the real f16 KV cache at the run's context length. Never an estimate
-/// of the weights — only the cache uses the canonical formula.
+/// weights + the real KV cache at the run's context length and the stated cache
+/// precision. Never an estimate of the weights — only the cache uses the canonical
+/// formula. `kv_precision` makes every profile SELF-DESCRIBING: a fit graded at a
+/// Q8 cache (what a llama.cpp launch would actually use under memory pressure) can
+/// never be silently compared against an f16-graded one.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MemoryProfile {
     pub weights_bytes: u64,
@@ -27,12 +30,17 @@ pub struct MemoryProfile {
     /// report one) → a conservative overestimate. The UI labels the fit "estimated".
     #[serde(default)]
     pub estimated: bool,
+    /// KV-cache storage precision this fit was graded at. `#[serde(default)]` =
+    /// F16 — truthful for every profile produced before the field existed.
+    #[serde(default)]
+    pub kv_precision: KvPrecision,
 }
 
 /// Pure VRAM-fit estimate: weights + KV cache (via the canonical `vram_math`
-/// formula) vs the cap. `fits` = total ≤ cap; `pressure` = fits but ≥85% of the
-/// cap. Takes dimension primitives (not `commands`' `ModelDims`) so `inference/`
-/// stays Tauri-free and the future CLI shares the same math.
+/// formula at `precision`) vs the cap. `fits` = total ≤ cap; `pressure` = fits
+/// but ≥85% of the cap. Takes dimension primitives (not `commands`' `ModelDims`)
+/// so `inference/` stays Tauri-free and the future CLI shares the same math.
+#[allow(clippy::too_many_arguments)]
 pub fn estimate(
     weights_bytes: u64,
     layers: u64,
@@ -41,13 +49,24 @@ pub fn estimate(
     embedding_length: u64,
     context_length: u32,
     cap_bytes: u64,
+    precision: KvPrecision,
 ) -> MemoryProfile {
     let kv_cache_bytes =
-        calculate_kv_cache_bytes(layers, head_count, head_count_kv, embedding_length, context_length as u64);
+        kv_cache_bytes_at(precision, layers, head_count, head_count_kv, embedding_length, context_length as u64);
     let total_bytes = weights_bytes.saturating_add(kv_cache_bytes);
     let fits = total_bytes <= cap_bytes;
     let pressure = fits && cap_bytes > 0 && total_bytes as f64 >= cap_bytes as f64 * PRESSURE_FRACTION;
-    MemoryProfile { weights_bytes, kv_cache_bytes, total_bytes, cap_bytes, context_length, fits, pressure, estimated: false }
+    MemoryProfile {
+        weights_bytes,
+        kv_cache_bytes,
+        total_bytes,
+        cap_bytes,
+        context_length,
+        fits,
+        pressure,
+        estimated: false,
+        kv_precision: precision,
+    }
 }
 
 /// Transformer dimensions for the KV-cache estimate, mirrored from `commands`'
@@ -76,10 +95,11 @@ pub fn try_profile(
     dims: Option<Dims>,
     num_ctx: Option<u32>,
     cap_bytes: Option<u64>,
+    precision: KvPrecision,
 ) -> Option<MemoryProfile> {
     let (weights, d, cap) = (weights_bytes?, dims?, cap_bytes?);
     let ctx = num_ctx.unwrap_or_else(|| d.context_length.min(DEFAULT_FALLBACK_CTX));
-    let mut profile = estimate(weights, d.layers, d.head_count, d.head_count_kv, d.embedding_length, ctx, cap);
+    let mut profile = estimate(weights, d.layers, d.head_count, d.head_count_kv, d.embedding_length, ctx, cap, precision);
     profile.estimated = d.kv_estimated;
     Some(profile)
 }

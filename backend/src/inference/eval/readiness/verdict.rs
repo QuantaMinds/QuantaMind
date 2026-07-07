@@ -55,6 +55,13 @@ pub fn assess(i: &ReadinessInputs, p: &ReadinessProfile) -> ReadinessVerdict {
     if i.vram_pressure {
         conditions.push("high VRAM pressure near allocation ceiling".into());
     }
+    // Gate-at-actual-KV transparency: when the fit was graded at the Q8 cache the
+    // llama.cpp launch would actually use, the verdict SAYS so — always, even
+    // alongside a blocking bad fit — so a Q8-graded row can never be silently
+    // compared against an f16-graded one.
+    if i.kv_downgraded {
+        conditions.push("fits with Q8 KV cache — ≈half cache memory, minor quality cost".into());
+    }
 
     // Context-cliff hard gate (only when the profile demands headroom). Strict: a
     // NoCliff passes only if the probe actually reached the required depth — an

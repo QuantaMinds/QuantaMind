@@ -8,6 +8,7 @@ use crate::commands::llama::llama_server_types::{LlamaProbeReadiness, LlamaServe
 use crate::errors::AppError;
 use crate::inference::backend::backend_kind::BackendKind;
 use crate::inference::backend::endpoint;
+use crate::inference::vram_math::KvPrecision;
 use crate::commands::eval::batch_cmd::probe_native_tools;
 use crate::inference::eval::agentic::difficulty::passk::answer_tokens_for;
 use crate::inference::eval::agentic::model_turn::{BackendTurn, NativeToolTurn};
@@ -22,7 +23,9 @@ use crate::inference::eval::readiness::inputs::{resolve_quant, verdicts_for_colu
 use crate::inference::eval::readiness::recommend;
 use crate::inference::eval::readiness::profile::ReadinessProfile;
 use crate::inference::eval::readiness::types::{CliffStatus, ModelVerdict};
-use crate::inference::eval::readiness::vram_fit::{try_profile, Dims, MemoryProfile};
+use crate::commands::llama::llama_runtime::{plan_launch, KvDims};
+use crate::commands::storage::storage_disk;
+use crate::inference::eval::readiness::vram_fit::{self, try_profile, Dims, MemoryProfile};
 use crate::inference::eval::toolcall::tasks::{validate_tasks, ToolTask};
 use crate::inference::generate::generate_options::GenerateOptions;
 use crate::persistence::prompts::schema::InferenceParams;
@@ -139,6 +142,41 @@ fn device_cap_bytes(unified: bool, total_memory_bytes: u64, vram_total_bytes: Op
     } else {
         vram_total_bytes
     }
+}
+
+/// Resolve a llama.cpp column's GGUF on disk: the sanitized `gguf_dest` mapping for a
+/// model tag, or the name joined verbatim when it already ends in `.gguf`. Missing
+/// file → `None` — the fit then stays unmeasured (soft condition), never a guess.
+fn find_gguf(dir: &std::path::Path, model: &str) -> Option<std::path::PathBuf> {
+    let path = if model.ends_with(".gguf") { dir.join(model) } else { storage_disk::gguf_dest(dir, model) };
+    path.exists().then_some(path)
+}
+
+/// VRAM fit for a llama.cpp column, graded at the KV precision the launch would
+/// ACTUALLY use on this machine — `plan_launch` downgrades to a Q8 cache under memory
+/// pressure, and the resulting profile says so (`kv_precision`), which `assess` turns
+/// into an explicit advisory condition. Pure over GGUF metadata so it unit-tests
+/// without files; any missing dimension → `None` (unmeasured, never guessed).
+fn llama_profile_from_meta(
+    weights_bytes: u64,
+    meta: &crate::inference::gguf::gguf::GgufMetadata,
+    num_ctx: Option<u32>,
+    cap_bytes: Option<u64>,
+    total_memory_bytes: u64,
+) -> Option<MemoryProfile> {
+    let (layers, head_count, embedding_length) = (meta.block_count?, meta.head_count?, meta.embedding_length?);
+    let head_count_kv = meta.head_count_kv.unwrap_or(head_count);
+    let kv_dims = KvDims { layers, head_count, head_count_kv, embedding_length };
+    let plan = plan_launch(Some(weights_bytes), Some(kv_dims), total_memory_bytes, meta.context_length, num_ctx);
+    let dims = Dims {
+        layers,
+        head_count,
+        head_count_kv,
+        embedding_length,
+        context_length: meta.context_length.unwrap_or(vram_fit::DEFAULT_FALLBACK_CTX),
+        kv_estimated: meta.head_count_kv.is_none(),
+    };
+    try_profile(Some(weights_bytes), Some(dims), num_ctx, cap_bytes, plan.kv.precision())
 }
 
 /// The requested depth won't fit this machine's memory for an Ollama model (Ollama sizes
@@ -303,7 +341,7 @@ pub async fn run_context_cliff(
                 }),
                 None => None,
             };
-            if let Some(profile) = try_profile(w, dims, Some(needed_ctx), Some(cap)) {
+            if let Some(profile) = try_profile(w, dims, Some(needed_ctx), Some(cap), KvPrecision::F16) {
                 if !profile.fits {
                     return Err(AppError::Inference(cliff_vram_msg(&model, needed_ctx, &profile)));
                 }
@@ -525,6 +563,13 @@ pub async fn assess_readiness(
         .collect();
     let sibling_refs: Vec<&BatchReport> = sibling_reports.iter().collect();
 
+    // Real machine total, read ONCE — the llama.cpp gate grades the fit at the KV
+    // precision `plan_launch` would ACTUALLY pick on THIS machine (the cap slider
+    // simulates a smaller box for the fit itself, but the launch runs here).
+    let needs_llama_fit = cap_bytes.is_some() && report.columns.iter().any(|c| c.backend == BackendKind::LlamaCpp);
+    let total_memory_bytes =
+        needs_llama_fit.then(|| crate::commands::system::hardware::snapshot().total_memory_bytes);
+
     let mut out = Vec::with_capacity(report.columns.len());
     for col in &report.columns {
         let memory = if cap_bytes.is_some() && col.backend == BackendKind::Ollama {
@@ -540,8 +585,20 @@ pub async fn assess_readiness(
                 }),
                 None => None,
             };
-            try_profile(w, dims, report.num_ctx, cap_bytes)
+            // Ollama's cache type is a server-global env var (`OLLAMA_KV_CACHE_TYPE`)
+            // that silently falls back to f16 per-architecture — unverifiable from
+            // here, so the gate stays at the f16 default it ships with.
+            try_profile(w, dims, report.num_ctx, cap_bytes, KvPrecision::F16)
+        } else if col.backend == BackendKind::LlamaCpp {
+            total_memory_bytes.and_then(|total| {
+                let path = find_gguf(&storage_disk::gguf_dir(), &col.model)?;
+                let weights = std::fs::metadata(&path).ok()?.len();
+                let meta = crate::inference::gguf::gguf::inspect_gguf(&path).ok()?;
+                llama_profile_from_meta(weights, &meta, report.num_ctx, cap_bytes, total)
+            })
         } else {
+            // MLX (server exposes no KV-quant flags) and remote vLLM/SGLang (cache
+            // dtype is a server-launch flag we can't verify): no measured fit here.
             None
         };
         let fits_in_vram = memory.as_ref().map(|m| m.fits);
@@ -598,6 +655,84 @@ mod cliff_preflight_tests {
         assert!(m.contains("6144"), "a safe depth of 8192 - 2048 headroom: {m}");
     }
 
+    fn nineb_meta() -> crate::inference::gguf::gguf::GgufMetadata {
+        crate::inference::gguf::gguf::GgufMetadata {
+            architecture: "qwen2".into(),
+            parameter_count: None,
+            context_length: Some(32_768),
+            quantization: Some("Q4_K_M".into()),
+            family: "qwen".into(),
+            block_count: Some(36),
+            head_count: Some(40),
+            head_count_kv: Some(8),
+            embedding_length: Some(5120),
+        }
+    }
+
+    /// Roomy machine → the launch plan stays f16 and the profile says so.
+    #[test]
+    fn llama_column_profile_is_f16_on_a_roomy_machine() {
+        let p = llama_profile_from_meta(9_000_000_000, &nineb_meta(), Some(8192), Some(64_000_000_000), 128_000_000_000)
+            .unwrap();
+        assert_eq!(p.kv_precision, crate::inference::vram_math::KvPrecision::F16);
+        assert!(!p.estimated, "real head_count_kv → exact");
+        assert!(p.fits);
+    }
+
+    /// Tight machine (16 GB): plan_launch downgrades to a Q8 cache for the desired
+    /// window → the fit is graded at Q8 and the profile carries the precision —
+    /// gate-at-actual-KV, self-describing.
+    #[test]
+    fn llama_column_profile_carries_plan_kv_precision() {
+        let p = llama_profile_from_meta(9_000_000_000, &nineb_meta(), Some(16_384), Some(16_000_000_000), 16_000_000_000)
+            .unwrap();
+        assert_eq!(p.kv_precision, crate::inference::vram_math::KvPrecision::Q8);
+        // per-token q8 = 73,728 B → 16,384 ctx = 1,207,959,552 B — half the f16 cache.
+        assert_eq!(p.kv_cache_bytes, 1_207_959_552);
+    }
+
+    /// Missing dims (hybrid/exotic header) → None: unmeasured, never guessed.
+    #[test]
+    fn llama_column_profile_is_none_when_dims_are_missing() {
+        let mut meta = nineb_meta();
+        meta.head_count = None;
+        assert!(llama_profile_from_meta(9_000_000_000, &meta, Some(8192), Some(64_000_000_000), 128_000_000_000).is_none());
+    }
+
+    /// A missing head_count_kv falls back to MHA (conservative overestimate) and the
+    /// profile is flagged `estimated` so the UI shows "~", never an exact-looking figure.
+    #[test]
+    fn llama_column_profile_flags_defaulted_kv_heads_as_estimated() {
+        let mut meta = nineb_meta();
+        meta.head_count_kv = None;
+        let p = llama_profile_from_meta(9_000_000_000, &meta, Some(8192), Some(64_000_000_000), 128_000_000_000)
+            .unwrap();
+        assert!(p.estimated);
+    }
+
+    /// LIVE (ignored): the whole llama.cpp fit chain on a REAL GGUF from
+    /// `~/.quantamind/gguf` — find_gguf resolves it, the header parses, and the
+    /// profile is graded at whatever precision plan_launch picks on THIS machine.
+    /// Run: cargo test --lib live_llama_gguf_profile -- --ignored --nocapture
+    #[test]
+    #[ignore = "reads a real GGUF from ~/.quantamind/gguf"]
+    fn live_llama_gguf_profile_grades_at_plan_precision() {
+        let dir = storage_disk::gguf_dir();
+        let path = find_gguf(&dir, "qwen3.5-9b_q4_k_m").expect("qwen3.5-9b_q4_k_m.gguf installed");
+        let weights = std::fs::metadata(&path).unwrap().len();
+        let meta = crate::inference::gguf::gguf::inspect_gguf(&path).unwrap();
+        let total = crate::commands::system::hardware::snapshot().total_memory_bytes;
+        let p = llama_profile_from_meta(weights, &meta, Some(8192), Some(total), total)
+            .expect("real GGUF dims must yield a measured profile");
+        eprintln!(
+            "LIVE gguf profile: arch={} dims=({:?}L/{:?}H/{:?}KV/{:?}E) weights={} kv={} total={} precision={:?} estimated={}",
+            meta.architecture, meta.block_count, meta.head_count, meta.head_count_kv, meta.embedding_length,
+            p.weights_bytes, p.kv_cache_bytes, p.total_bytes, p.kv_precision, p.estimated
+        );
+        assert_eq!(p.weights_bytes, weights, "weights are the exact on-disk size");
+        assert!(p.kv_cache_bytes > 0);
+    }
+
     /// The device cap mirrors `deviceMemory`: unified → system RAM; discrete → its VRAM;
     /// an unknown discrete GPU (no VRAM readout) → None so the fit stays unmeasured.
     #[test]
@@ -623,6 +758,7 @@ mod cliff_preflight_tests {
             fits: false,
             pressure: false,
             estimated: false,
+            kv_precision: Default::default(),
         };
         let m = cliff_vram_msg("gemma-3-12b", 16_384, &p);
         assert!(m.contains("gemma-3-12b"), "names the model: {m}");
