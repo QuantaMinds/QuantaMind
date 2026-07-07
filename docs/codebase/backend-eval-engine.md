@@ -704,7 +704,20 @@ data must therefore live under top-level keys matching the getter's arg values (
 `"MShop"`, `"GDPR"`, `"visa"`) — NOT nested under a wrapper map (`"policy": {"MShop": …}`
 is unreachable). A getter that acks hides the fact the task grades on: the model called
 the right tool, learned nothing, and springs the trap blind. Guard:
-`every_expected_getter_call_resolves_to_real_world_state_data`.)
+`every_expected_getter_call_resolves_to_real_world_state_data`.
+
+3. **The world must channel the model through the answer key, honestly.** Two coding-env
+conventions, learned from a live trace where a model wrote the correct fix and still
+failed (`md_co_trace_root_cause`): (a) `search_*` tools return LOCATORS ("defined in
+tests/test_round_paise.py"), never content — if search returns the content directly, the
+model has no reason to make the `read_file{*glob*}` call the answer key checkpoints, and
+scores 5/6 forever; the located path is its own ws key holding the content. (b) Stateful
+status getters (`run_tests`, `run_ci`, `run_import_check`) in the STATELESS entity env
+state pass/fail CONDITIONS ("FAILS while … uses float round(); GREEN once … quantizes
+via Decimal"), never a bare current-state field ("failing": …) — a bare state can never
+change, so a model that applied the correct fix re-runs, reads "failing", and loops until
+the cap. Guard: `scripted_natural_route_completes_trace_root_cause` proves the natural
+search → locate → read → fix → rerun route reaches the end state.)
 
 ---
 

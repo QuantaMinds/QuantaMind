@@ -774,6 +774,50 @@ async fn live_filesystem_env_passes_on_the_native_path() {
 }
 
 #[tokio::test]
+async fn scripted_natural_route_completes_trace_root_cause() {
+    // Regression for the trace where a CORRECT model failed md_co_trace_root_cause: the
+    // world steered investigation through search_symbol (which returned the full test
+    // source), so the model never had a reason to make the checkpointed
+    // read_file{*test_round_paise*} call, and the stateless "failing" test blob trapped
+    // it in a rerun loop until the cap. The world now channels the NATURAL flow —
+    // search_symbol returns a LOCATOR, the located path holds the content, and the
+    // run_tests blob states pass/fail CONDITIONS — so a model following the obvious
+    // route (search → locate → read → fix → rerun) must reach the end state.
+    use crate::inference::eval::agentic::build::sandbox_for;
+    use crate::inference::eval::agentic::v2::collection::load_v2_collection;
+    use crate::inference::eval::agentic::v2::scenarios::v2_json;
+    let task = load_v2_collection(v2_json("medium-coding").unwrap())
+        .unwrap()
+        .into_iter()
+        .find(|t| t.id == "md_co_trace_root_cause")
+        .unwrap();
+    let (sandbox, cfg) = sandbox_for(&task).unwrap();
+    let fix = r#"{"name": "write_file", "args": {"path": "payments/round.py", "content": "return int((Decimal(str(x)) * 100).quantize(Decimal('1'), rounding=ROUND_HALF_UP))"}}"#;
+    let calls: Vec<(&str, u32)> = vec![
+        (r#"{"name": "run_tests", "args": {"module": "payments"}}"#, 20), // eaten by the authored 503
+        (r#"{"name": "run_tests", "args": {"module": "payments"}}"#, 20),
+        (r#"{"name": "search_symbol", "args": {"name": "test_round_paise"}}"#, 20),
+        (r#"{"name": "read_file", "args": {"path": "tests/test_round_paise.py"}}"#, 20),
+        (r#"{"name": "search_symbol", "args": {"name": "round_paise"}}"#, 20),
+        (r#"{"name": "read_file", "args": {"path": "payments/round.py"}}"#, 20),
+        (fix, 20),
+        (r#"{"name": "run_tests", "args": {"module": "payments"}}"#, 20),
+    ];
+    let model = ScriptedModel::new(calls);
+    let (tx, mut rx) = unbounded_channel();
+    let outcome = run_once(&model, &sandbox, cfg.max_steps, cfg.max_recovery, 0, &tx).await.unwrap();
+    drop(tx);
+    let steps = drain(&mut rx);
+    let all_inj: String = steps.iter().filter_map(|s| s.injection.clone()).collect::<Vec<_>>().join("\n");
+    // The locator → content chain is grounded at every hop.
+    assert!(all_inj.contains("defined in tests/test_round_paise.py"), "search_symbol must return the test LOCATOR:\n{all_inj}");
+    assert!(all_inj.contains("assert round_paise(1.005) == 101"), "the located path must hold the test CONTENT:\n{all_inj}");
+    assert!(all_inj.contains("GREEN once"), "run_tests must state its pass CONDITION:\n{all_inj}");
+    assert!(outcome.reached_end, "the natural investigation route must satisfy the answer key (failure: {:?})", outcome.failure);
+    assert_eq!(outcome.failure, None);
+}
+
+#[tokio::test]
 async fn scripted_returns_batch_gets_policy_fact_after_fault_clears() {
     // Deterministic reproduction of the live returns trace: a model that batches the
     // day-one calls (fenced JSON, "arguments" keys — the exact live raw shape) must, once
@@ -800,6 +844,62 @@ async fn scripted_returns_batch_gets_policy_fact_after_fault_clears() {
     let all_inj: String = steps.iter().filter_map(|s| s.injection.clone()).collect::<Vec<_>>().join("\n");
     assert!(all_inj.contains("restocking"), "marketplace policy fact never injected:\n{all_inj}");
     assert!(all_inj.contains("e-waste"), "state e-waste rule never injected:\n{all_inj}");
+}
+
+#[tokio::test]
+#[ignore = "natural-route grounding gate: a live model gets locator → content through trace_root_cause's fixed world"]
+async fn live_trace_root_cause_grounds_the_natural_route() {
+    // Live counterpart of scripted_natural_route_completes_trace_root_cause. The HARNESS
+    // property under test: on the fixed world (search_symbol locators, condition-form
+    // run_tests) a live model's natural investigation is grounded at every hop — the
+    // locator is injected, and reading the located path injects the test content (which
+    // also satisfies the *test_round_paise* glob checkpoint). Whether the model then
+    // finishes is a capability measurement, printed but not asserted: observed live,
+    // qwen2.5-coder followed the route then chose the edit_test decoy (ForbiddenCall —
+    // the authored trap), and qwen3.6 thought past its budget after the 503 (Truncated;
+    // see the think:false gap in model_turn.rs).
+    use crate::inference::eval::agentic::build::sandbox_for;
+    use crate::inference::eval::agentic::difficulty::passk::max_tokens_for;
+    use crate::inference::eval::agentic::model_turn::NativeToolTurn;
+    use crate::inference::eval::agentic::v2::collection::load_v2_collection;
+    use crate::inference::eval::agentic::v2::scenarios::v2_json;
+    use crate::inference::eval::toolcall::prompt::TerminalGuidance;
+    let task = load_v2_collection(v2_json("medium-coding").unwrap())
+        .unwrap()
+        .into_iter()
+        .find(|t| t.id == "md_co_trace_root_cause")
+        .unwrap();
+    let tier = task.agentic.as_ref().map(|s| s.tier).unwrap_or_default();
+    let (sandbox, cfg) = sandbox_for(&task).unwrap();
+    let model = NativeToolTurn {
+        backend: crate::inference::backend::backend_kind::BackendKind::Ollama,
+        endpoint: "http://localhost:11434".into(),
+        model: std::env::var("QM_LIVE_MODEL").unwrap_or_else(|_| "qwen2.5-coder-14b-instruct-q8_0:latest".into()),
+        tools: task.tools.clone(),
+        options: None,
+        terminal: TerminalGuidance::MustUseTools,
+        max_tokens: max_tokens_for(tier, true),
+        is_thinking: false,
+    };
+    let (tx, mut rx) = unbounded_channel();
+    let outcome = run_once(&model, &sandbox, cfg.max_steps, cfg.max_recovery, 0, &tx).await.unwrap();
+    drop(tx);
+    let steps = drain(&mut rx);
+    for s in &steps {
+        let raw: String = s.raw_output.split_whitespace().collect::<Vec<_>>().join(" ");
+        let inj: String = s.injection.as_deref().unwrap_or("").replace('\n', " | ");
+        eprintln!("turn {} kind={:?}\n  raw={raw}\n  inj={inj}", s.step_index, s.kind);
+    }
+    eprintln!("TRACE-ROOT-CAUSE-LIVE: reached_end={} steps={} failure={:?}", outcome.reached_end, outcome.steps, outcome.failure);
+    let all_inj: String = steps.iter().filter_map(|s| s.injection.clone()).collect::<Vec<_>>().join("\n");
+    assert!(
+        all_inj.contains("defined in tests/test_round_paise.py"),
+        "the test LOCATOR was never injected — did the model never search for the test? trace above"
+    );
+    assert!(
+        all_inj.contains("assert round_paise(1.005) == 101"),
+        "the located test CONTENT was never injected — the natural route did not ground; trace above"
+    );
 }
 
 #[tokio::test]
