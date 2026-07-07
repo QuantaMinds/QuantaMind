@@ -193,6 +193,7 @@ calls `buildLatencyBars` and `buildHistogram` once and threads the results down.
 | `TtftBreakdown.tsx` | stacked horizontal CSS bar (load/prefill/stream-gen) sized by `%`; shows "not available for this backend" via `buildTtftSegments(...).available`. Adds a llama.cpp **prefix-cache reuse** line (`· prefix cache: N reused / M recomputed`) gated on `cacheReuse(stats.cache_n, stats.prompt_eval_count).available` — absent for Ollama/MLX (`cache_n` null), a measured `0 reused` for a cold llama run (the two render differently by design). |
 | `VramBar.tsx` | ASCII-cell (`█`/`░`) memory monitor: model cells + system-base cells over the device pool, with an 85% OOM-risk marker; system base derived only when **both** VRAM totals are reported (else it would fabricate a figure). |
 | `ContextBudgetBar.tsx` | ASCII context-window monitor: `prompt_eval_count / context_length`; overlays an indicative context-limit marker from `cliffStore.cliffForModel(model)` (backend-hydrated, not browser-cached); hot at ≥95%. |
+| `kv/KvCeilingBars.tsx` | Three ASCII ceiling bars (f16/q8_0/q4_0) — how much context this machine holds at each KV-cache precision, via `useKvCeilings` (`inspect_model` dims + `context_ceilings` IPC = the launch planner's own memory math). Shared x-scale, cliff marker + model-max tick/clamp, Q4 dual caveat (quality **and** long-context slowdown) + "never auto-launches a q4_0 cache". `null` ceiling → "Not available", never fabricated. |
 | `ColdWarmPanel.tsx` | renders `coldWarmState` → cold-start headline or the right "n/a" reason. |
 | `RegressionAlert.tsx` | renders `regressionVerdict` → "on par" (gray) or amber "X% slower". |
 | `LeakBanner.tsx` | renders `detectLeak(leakStore.series)`. |
@@ -317,11 +318,20 @@ assess: async (collectionId) => {
   if (!selectedProfileId) return;
   set({ loading: true, error: null });
   try {
-    const verdicts = await assessReadiness(collectionId, selectedProfileId, capBytes ?? undefined);
-    set({ verdicts, assessed: true, loading: false });
+    const a = await assessReadiness(collectionId, selectedProfileId, capBytes ?? undefined);
+    // assess_readiness now returns ReadinessAssessment { verdicts, right_sizing, right_sizing_hint }
+    set({ verdicts: a.verdicts, rightSizing: a.right_sizing, rightSizingHint: a.right_sizing_hint ?? null, assessed: true, loading: false });
   } catch (e) { set({ error: String(e), loading: false, assessed: false }); }
 },
 ```
+
+**Right-Sizing.** `rightSizing`/`rightSizingHint` feed
+`components/rightsizing/RightSizingSection.tsx` — one card per family (baseline vs
+smallest-usable pick, weights bars with per-bar KV-precision label, −N% size/memory
+chips, signed Pass^k pp, amber Conditional advisory) or the backend hint. **Percent
+only, no dollars** (a test asserts no currency text). `RightSizingGroup` mirrors the
+Rust type; `memory_reduction_pct` is `null` when the two fits were graded at
+different KV precisions (never a fabricated cross-precision %).
 
 **The verdict shape (`ModelVerdict`, mirrors Rust):** `{ model, backend,
 verdict: { status: ready|conditional|not_ready, blocking[], conditions[], path:

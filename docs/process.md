@@ -746,6 +746,32 @@ semantic validators + validate-before-import), deliberately out of that scope:
   (`agentic_transcripts/` JSONL) — Rust-side persistence ships first; the viewer
   needs a consumer design (and the read IPC stays unshipped until it exists).
 
+### GPU right-sizing: deferred scope
+
+Follow-ups to the KV-precision + right-sizing work, deliberately out of scope
+(the shipped feature is **percent-only** — every number is measured):
+
+- **Dollar/cost framing.** A `$/hr` or monthly-spend input turning the measured
+  memory/size reductions into a currency estimate. Deferred because a dollar
+  figure the tool can't measure would violate the no-fabricated-metrics rule
+  unless clearly labelled an estimate from user-supplied inputs; the honest
+  percentages ship first. Also parked with it: cloud-instance-type mapping,
+  per-token cost, GPU rental-price trends.
+- **Q4 KV auto-launch.** `KvType` deliberately has no `Q4` arm — a launch never
+  auto-picks a q4_0 cache (real quality cost, and much slower at long context).
+  Q4 exists only as planning math in the Latency meters. A future "aggressive
+  long-context" opt-in could offer it behind an explicit, warned toggle.
+- **Ollama/vLLM/SGLang KV precision detection.** Their cache dtype is a
+  server-global/launch flag we can't verify from a client, so those columns are
+  graded f16 (conservative). Detecting or setting it (e.g. spawning Ollama with
+  `OLLAMA_KV_CACHE_TYPE`) would let the gate reflect the real cache.
+- **Asymmetric K8/V4 caches** (V-cache quantization hurts quality more than K)
+  and non-`q8_0/q4_0` llama.cpp types (`q5_x`, `iq4_nl`) — modelled as a single
+  precision axis for now.
+- **Tool-call delta in right-sizing.** The summary compares Pass^k; a per-column
+  native tool-call composite delta would need threading that score into
+  `ModelVerdict` first.
+
 ### Cargo workspace split (per-layer crates)
 
 The backend is a single crate with layers as modules — the stage
