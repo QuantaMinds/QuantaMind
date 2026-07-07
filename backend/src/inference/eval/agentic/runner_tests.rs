@@ -416,7 +416,6 @@ async fn live_world_state_k1(collection: &'static str, task_prefix: &str, tier: 
     use crate::inference::eval::agentic::v2::generator;
     use crate::inference::eval::agentic::v2::scenarios::v2_json;
     use crate::inference::eval::batch::TaskOutcome;
-    use crate::persistence::jobs::transcripts;
 
     const MODEL: &str = "qwen3.5-9b_q4_k_m";
 
@@ -444,23 +443,25 @@ async fn live_world_state_k1(collection: &'static str, task_prefix: &str, tier: 
     drop(tx);
     let steps = drain(&mut rx);
 
-    // Persist through the REAL transcript store — the same calls TauriBatchSink makes.
+    // Post-mortem artifact in the same line shape the transcripts store writes —
+    // via std::fs directly: inference/ must not import crate::persistence (the
+    // layering law, tests/layering_guard.rs). The store's write path has its own
+    // unit tests and is wired by the commands layer (TauriBatchSink).
     let dir = std::env::temp_dir().join("qm-live-transcripts");
-    let path = transcripts::transcript_path(&dir, collection, MODEL, &task.id, false);
-    transcripts::begin_task(&path).unwrap();
-    for s in &steps {
-        transcripts::append_step(&path, s).unwrap();
-    }
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(format!("{collection}--{}.jsonl", task.id));
     let report = AgenticReport::from_outcomes(std::slice::from_ref(&outcome));
-    transcripts::append_outcome(&path, &TaskOutcome::Agentic { report }).unwrap();
+    let mut lines: Vec<String> = steps.iter().map(|s| json!({ "step": s }).to_string()).collect();
+    lines.push(json!({ "outcome": TaskOutcome::Agentic { report } }).to_string());
+    std::fs::write(&path, lines.join("\n") + "\n").unwrap();
     eprintln!("LIVE ws transcript: {}", path.display());
     eprintln!(
         "LIVE ws outcome: reached_end={} steps={} failure={:?} tokens={}",
         outcome.reached_end, outcome.steps, outcome.failure, outcome.output_tokens
     );
 
-    // The turn-by-turn artifact must exist and be readable back through the store.
-    let text = transcripts::read(&path).unwrap();
+    // The turn-by-turn artifact must exist and be readable back.
+    let text = std::fs::read_to_string(&path).unwrap();
     assert_eq!(text.lines().count(), steps.len() + 1, "every step + the outcome line");
     // Harness-artifact tripwires (a k=1 capability FAIL is fine; these are not):
     assert_ne!(outcome.failure, Some(FailureKind::EmptyOutput), "empty output — a plumbing artifact");

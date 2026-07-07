@@ -21,6 +21,12 @@ struct ChatRequest<'a> {
     tools: &'a Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     options: Option<GenerateOptions>,
+    /// `Some(false)` disables a thinking-BY-DEFAULT model's hidden scratchpad (which would
+    /// otherwise burn the turn budget before any tool call is emitted); `None` omits the field
+    /// (the model's default). Accepted by every Ollama since the field existed — the server's
+    /// capability check fires only on `true`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    think: Option<bool>,
     stream: bool,
 }
 
@@ -133,6 +139,7 @@ pub async fn chat_with_tools(
     user: &str,
     tools: &Value,
     options: Option<GenerateOptions>,
+    think: Option<bool>,
 ) -> AppResult<ChatResult> {
     let client = streaming_client()?;
     let messages = vec![
@@ -140,7 +147,7 @@ pub async fn chat_with_tools(
         ChatMessage { role: "user", content: user },
     ];
     let body =
-        ChatRequest { model, messages, tools, options: options.filter(|o| !o.is_empty()), stream: false };
+        ChatRequest { model, messages, tools, options: options.filter(|o| !o.is_empty()), think, stream: false };
     let resp = client
         .post(format!("{endpoint}/api/chat"))
         .json(&body)
