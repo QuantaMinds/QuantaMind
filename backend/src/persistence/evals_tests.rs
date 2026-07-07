@@ -111,6 +111,23 @@ fn save_rejects_semantically_broken_agentic_tasks() {
 }
 
 #[test]
+fn save_allows_warning_only_findings() {
+    use crate::inference::eval::agentic::v2::collection::load_v2_collection;
+    use crate::inference::eval::agentic::v2::scenarios::v2_json;
+    use crate::inference::eval::agentic::sandbox::EndStateRule;
+    // An UNGROUNDED answer token is a Warning-severity heuristic: it must surface
+    // through the validate paths, never block the write (the author disposes).
+    let dir = tempdir().unwrap();
+    let mut tasks = load_v2_collection(v2_json("hard-support-ecommerce").unwrap()).unwrap();
+    let spec = tasks[0].agentic.as_mut().unwrap();
+    let EndStateRule::RequireAll(cps) = &mut spec.end_state else { panic!("fixture is RequireAll") };
+    let cp = cps.iter_mut().find(|c| c.tool == "log_decision").unwrap();
+    cp.args["decision"] = json!("*xylophone_zebra*");
+    save(dir.path(), "warned", &tasks).expect("warning-severity findings must not block a save");
+    assert_eq!(list(dir.path()).unwrap(), vec!["warned".to_string()]);
+}
+
+#[test]
 fn load_still_reads_a_preexisting_broken_file() {
     // A file that predates the write boundary (or was hand-edited) must stay
     // loadable so the user can open and FIX it — enforcement is write-side only.

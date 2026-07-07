@@ -869,6 +869,21 @@ in CI, from one shared implementation.
    (`{on_call, type: "transient", status_code, clears_after}`) must have a
    finite `clears_after` a retrying agent can outlast; a `persistent` fault on a
    required tool is a dead end the oracle rejects.
+7. **Answer words must be taught, not guessed.** Every word a checkpoint globs
+   on (`reason: "*denied*"`, `content: "*quantize*"`) must appear somewhere the
+   model can read — the prompt, a tool name, or data an earlier expected call
+   surfaces. Grading on wording the task never teaches manufactures
+   false-negative fails: a capable model reaches the same conclusion in its own
+   words and is scored wrong (the eval field calls these *verifier false
+   negatives*). The validator flags ungrounded tokens as **⚠ warnings** with the
+   evidence of where it looked ("checked the prompt, N tool names, M data
+   blobs"); warnings never block a save or import — the check is a heuristic,
+   so you judge each one. Fix by teaching the word in a blob the intended play
+   reads (a policy line, a code comment), or relax the checkpoint. Related: a
+   document read via a globbed path (`read_file{path:"*test_x*"}`) should also
+   be keyed under its realistic path (`tests/test_x.py`) and that path named in
+   the runner's result blob, so a realistic call returns the data, not
+   `not found`.
 
 **Verify before running a model:** import runs the full check automatically;
 "✓ Validate collection" re-proves a saved collection any time (no model, no

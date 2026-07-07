@@ -683,7 +683,7 @@ reached in ~3 steps. (Authoring note: v2 checkpoints should glob tolerant string
 trivial convention difference; mismatches between a scenario's world_state hints and its
 checkpoint args otherwise read as model failures.)
 
-(Authoring note — the three `world_state` reachability contracts, all CI-enforced in
+(Authoring note — the four `world_state` reachability contracts, all CI-enforced in
 `scenarios.rs`:
 
 1. **Every entity id must be reachable.** A digit-bearing top-level `world_state` key
@@ -717,15 +717,27 @@ ack and exempts them from alpha-renaming. Guard:
 above is the tripwire in the other direction — reserving a key a real getter needs
 turns it red.
 
-All three contracts share ONE implementation: `oracle::semantic_findings(&[ToolTask])`
-(typed `SemanticFinding { task_id, kind: OrphanEntity | AckingGetter | UnfetchedKey,
-message }`), which operates on the TRANSPILED shape — the form custom collections
-persist as. The `scenarios.rs` CI guards load each bundled collection through
-`load_v2_collection` and filter findings by kind; `evals::save` hard-rejects any custom
-save/import with findings (write-side only — load stays permissive so a broken file can
-be opened and fixed); `oracle::validate_collection_deep` carries them per-task in
-`TaskValidation.semantic` so the Validate button and the import dry-run show the same
-messages. One implementation means CI and the import trust boundary can never drift.)
+4. **Every answer word a checkpoint globs on must be grounded.** A glob literal an
+expected action/reporter call demands (`decision:"*no filing*"`, `content:"*quantize*"`)
+must appear in the prompt, a tool name, or data an EARLIER expected call surfaces
+(corpus accumulated in expected-call order via `derive_response`, separator-tolerant so
+`work-product` grounds "work product"). Ungrounded wording = a *verifier false
+negative*: a capable model phrases the conclusion its own way and is scored a FAIL.
+Guard: `every_expected_answer_token_is_grounded_in_reachable_data`. Unlike checks 1–3
+this one is a HEURISTIC, so its findings carry `SemanticSeverity::Warning`.
+
+All four contracts share ONE implementation: `oracle::semantic_findings(&[ToolTask])`
+(typed `SemanticFinding { task_id, kind: OrphanEntity | AckingGetter | UnfetchedKey |
+UngroundedAnswerToken, message }` + `severity()`), which operates on the TRANSPILED
+shape — the form custom collections persist as. The `scenarios.rs` CI guards load each
+bundled collection through `load_v2_collection` and filter findings by kind (bundled =
+zero tolerance, warnings included); `evals::save` hard-rejects a custom save/import on
+**Error**-severity findings only (write-side only — load stays permissive so a broken
+file can be opened and fixed; Warning-severity saves fine);
+`oracle::validate_collection_deep` carries errors per-task in `TaskValidation.semantic`
+(fails `ok`) and warnings in `semantic_warnings` (advisory — the UI renders them amber,
+import proceeds). One implementation means CI and the import trust boundary can never
+drift.)
 
 ---
 

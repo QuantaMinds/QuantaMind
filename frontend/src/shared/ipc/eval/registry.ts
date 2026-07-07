@@ -199,6 +199,9 @@ export const TaskValidationSchema = z.object({
   discriminating: z.boolean().nullable(),
   detail: z.string(),
   semantic: z.array(z.string()).default([]),
+  /// Warning-severity heuristics (answer grounding): shown with evidence so the
+  /// author can judge; they never fail `ok` nor block a save/import.
+  semantic_warnings: z.array(z.string()).default([]),
 });
 export type TaskValidation = z.infer<typeof TaskValidationSchema>;
 

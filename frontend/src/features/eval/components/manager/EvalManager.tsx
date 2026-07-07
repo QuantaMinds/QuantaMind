@@ -203,9 +203,14 @@ export function EvalManager({
       });
       if (typeof picked !== "string") return;
       const verdict = await importFile(picked);
-      if (verdict) {
+      if (verdict && !verdict.ok) {
         setValidation(verdict); // full per-task detail in the panel below the list
         setImportBlocked(verdict);
+      } else if (verdict) {
+        // Imported, but the grounding heuristic has advisories — surface them in
+        // the panel (amber ⚠), never block: the author judges a heuristic.
+        setValidation(verdict);
+        showToast("Imported — review the ⚠ authoring warnings below");
       } else {
         showToast("Collection imported ✓");
       }
@@ -630,8 +635,9 @@ export function EvalManager({
                   )}
                   {validation.tasks.map((t) => {
                     const bad = t.reachable === "no" || t.discriminating === false || t.semantic.length > 0;
-                    const badge = bad ? "✗" : t.reachable === "not_checkable" ? "?" : "✓";
-                    const color = bad ? "#b91c1c" : t.reachable === "not_checkable" ? "#b45309" : "#166534";
+                    const warned = !bad && t.semantic_warnings.length > 0;
+                    const badge = bad ? "✗" : warned || t.reachable === "not_checkable" ? "?" : "✓";
+                    const color = bad ? "#b91c1c" : warned || t.reachable === "not_checkable" ? "#b45309" : "#166534";
                     return (
                       <div key={t.id} data-testid={`eval-validation-task-${t.id}`}>
                         <div style={{ display: "flex", gap: 6, padding: "1px 0", color: bad ? "#b91c1c" : "#334155" }}>
@@ -641,6 +647,13 @@ export function EvalManager({
                         </div>
                         {t.semantic.map((m, i) => (
                           <div key={i} style={{ color: "#b91c1c", padding: "1px 0 1px 18px" }} data-testid={`eval-validation-semantic-${t.id}-${i}`}>
+                            ✗ {m}
+                          </div>
+                        ))}
+                        {/* Warning-severity heuristics (answer grounding): amber, advisory —
+                            the collection stays runnable; the author judges each one. */}
+                        {t.semantic_warnings.map((m, i) => (
+                          <div key={i} style={{ color: "#b45309", padding: "1px 0 1px 18px" }} data-testid={`eval-validation-warning-${t.id}-${i}`}>
                             ⚠ {m}
                           </div>
                         ))}

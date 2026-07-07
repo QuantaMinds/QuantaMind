@@ -66,6 +66,33 @@ pub enum SemanticFindingKind {
     /// A non-RESERVED `world_state` key no intended path fetches — pure oracle data
     /// a lucky arg guess would exfiltrate whole.
     UnfetchedKey,
+    /// A glob literal an expected action/reporter checkpoint demands that appears
+    /// in neither the prompt, any presented tool name, nor any data an earlier
+    /// expected call surfaces — the model must GUESS the grader's exact wording,
+    /// which manufactures false-negative fails on capable models.
+    UngroundedAnswerToken,
+}
+
+/// How certain a finding is, which decides its enforcement. The first three
+/// checks are mechanical certainties → `Error` (hard-block at `evals::save`).
+/// Answer grounding is a HEURISTIC — the audit that motivated it produced false
+/// positives needing human triage (a calc `*` that meant multiplication, words
+/// grounded in a tool name) — so it is `Warning`: surfaced with evidence at
+/// authoring/import time, never a silent block. The guard proposes; the author
+/// disposes. (Bundled scenarios are still held to zero warnings by CI.)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SemanticSeverity {
+    Error,
+    Warning,
+}
+
+impl SemanticFindingKind {
+    pub fn severity(self) -> SemanticSeverity {
+        match self {
+            SemanticFindingKind::UngroundedAnswerToken => SemanticSeverity::Warning,
+            _ => SemanticSeverity::Error,
+        }
+    }
 }
 
 /// One semantic defect in an authored task, with a message that names the task and
@@ -77,6 +104,12 @@ pub struct SemanticFinding {
     pub task_id: String,
     pub kind: SemanticFindingKind,
     pub message: String,
+}
+
+impl SemanticFinding {
+    pub fn severity(&self) -> SemanticSeverity {
+        self.kind.severity()
+    }
 }
 
 impl std::fmt::Display for SemanticFinding {
@@ -197,7 +230,62 @@ fn task_semantic_findings(task: &ToolTask) -> Vec<SemanticFinding> {
             );
         }
     }
+
+    // (4) Answer grounding: a checkpoint glob is the grader's WORDING — every
+    // literal segment an expected ACTION/REPORTER call demands must be teachable:
+    // present in the prompt, a presented tool name, or data an EARLIER expected
+    // call surfaces. An ungrounded token means a capable model that did everything
+    // right still fails because it phrased the answer in its own words. The corpus
+    // is accumulated in expected-call order, mirroring what a perfect agent has
+    // actually seen by that step (getter responses via `derive_response`, raw args
+    // first so a calc expression's literal `*` is never mangled). Matching is
+    // separator-tolerant (`normalize_grounding`) so "work-product" grounds
+    // "work product" — a hyphen variant is a wording match, not a missing word.
+    let mut corpus = normalize_grounding(&task.prompt);
+    for t in &task.tools {
+        corpus.push('\n');
+        corpus.push_str(&normalize_grounding(&t.name));
+    }
+    let mut blobs_seen = 0usize;
+    for cp in checkpoints {
+        let is_getter = spec.entity_tools.iter().any(|g| g == &cp.tool);
+        if !is_getter || reporters.contains(&cp.tool.as_str()) {
+            for v in cp.args.as_object().into_iter().flatten().map(|(_, v)| v) {
+                let Some(s) = v.as_str() else { continue };
+                if !s.contains('*') {
+                    continue;
+                }
+                for seg in s.split('*').map(str::trim).filter(|seg| seg.len() >= 3) {
+                    if !corpus.contains(&normalize_grounding(seg)) {
+                        push(
+                            SemanticFindingKind::UngroundedAnswerToken,
+                            format!("{tid}: expected {}({}) globs on '{seg}' — checked the prompt, {} tool names, and {blobs_seen} data blob(s) earlier expected calls surface; the word appears in none of them, so the model must guess the grader's wording. Teach it in a blob the intended play reads (or relax the checkpoint)", cp.tool, cp.args, task.tools.len()),
+                        );
+                    }
+                }
+            }
+        }
+        if is_getter {
+            let resp = match derive_response(ws_val, &Call { name: cp.tool.clone(), args: cp.args.clone() }) {
+                r if r != ACK => r,
+                _ => derive_response(ws_val, &Call { name: cp.tool.clone(), args: concretize(&cp.args) }),
+            };
+            if resp != ACK {
+                corpus.push('\n');
+                corpus.push_str(&normalize_grounding(&resp));
+                blobs_seen += 1;
+            }
+        }
+    }
     out
+}
+
+/// Separator-tolerant normalization for grounding lookups: lowercase, with `-`,
+/// `_`, `/` all reading as spaces — "mg/kg" grounds "mg kg", "work-product"
+/// grounds "work product". Applied identically to corpus and token so the
+/// comparison stays consistent.
+fn normalize_grounding(s: &str) -> String {
+    s.to_lowercase().replace(['-', '_', '/'], " ")
 }
 
 /// The oracle's call script for a checkpoint end-state: each checkpoint (concretized), repeated
@@ -240,9 +328,12 @@ fn oracle_calls(task: &ToolTask) -> Option<Vec<String>> {
 /// `"not_checkable"` (the last for stateful/abstain end-states this static path can't script —
 /// the user must confirm those with a real run). `discriminating` is whether a do-nothing agent
 /// correctly FAILS the task (`None` when not applicable). `detail` is the human explanation.
-/// `semantic` carries the world-state authoring-contract findings (`semantic_findings`) — the
-/// same defects `evals::save` hard-blocks on, surfaced here so the import dry-run and the
-/// Validate button explain exactly what to fix.
+/// `semantic` carries the Error-severity world-state authoring-contract findings
+/// (`semantic_findings`) — the same defects `evals::save` hard-blocks on — and fails the
+/// collection verdict. `semantic_warnings` carries the Warning-severity heuristics (answer
+/// grounding): shown with their evidence so the author can judge, but they neither fail
+/// `ok` nor block a save/import — a heuristic that cried wolf would teach authors to
+/// ignore it.
 #[derive(Serialize, Debug, Clone, PartialEq)]
 pub struct TaskValidation {
     pub id: String,
@@ -250,6 +341,7 @@ pub struct TaskValidation {
     pub discriminating: Option<bool>,
     pub detail: String,
     pub semantic: Vec<String>,
+    pub semantic_warnings: Vec<String>,
 }
 
 /// Whole-collection verdict. `ok` is true only when there is no structural error AND no task
@@ -272,6 +364,7 @@ async fn validate_one(task: &ToolTask) -> TaskValidation {
         return TaskValidation {
             id: task.id.clone(),
         semantic: Vec::new(),
+        semantic_warnings: Vec::new(),
             reachable: "yes".into(),
             discriminating: None,
             detail: "Single-turn task — graded on its expected call; validated structurally.".into(),
@@ -282,6 +375,7 @@ async fn validate_one(task: &ToolTask) -> TaskValidation {
         return TaskValidation {
             id: task.id.clone(),
         semantic: Vec::new(),
+        semantic_warnings: Vec::new(),
             reachable: "not_checkable".into(),
             discriminating: None,
             detail: "Stateful or abstain end-state — reachability can't be auto-derived; confirm with a real run.".into(),
@@ -294,6 +388,7 @@ async fn validate_one(task: &ToolTask) -> TaskValidation {
             return TaskValidation {
                 id: task.id.clone(),
         semantic: Vec::new(),
+        semantic_warnings: Vec::new(),
                 reachable: "no".into(),
                 discriminating: None,
                 detail: format!("Could not build the task environment: {e}"),
@@ -315,6 +410,7 @@ async fn validate_one(task: &ToolTask) -> TaskValidation {
         return TaskValidation {
             id: task.id.clone(),
         semantic: Vec::new(),
+        semantic_warnings: Vec::new(),
             reachable: "no".into(),
             discriminating: None,
             detail: format!("Answer key not reachable — {why}. Check the checkpoint tool names, args, and wildcards."),
@@ -329,6 +425,7 @@ async fn validate_one(task: &ToolTask) -> TaskValidation {
     TaskValidation {
         id: task.id.clone(),
         semantic: Vec::new(),
+        semantic_warnings: Vec::new(),
         reachable: "yes".into(),
         discriminating: Some(discriminates),
         detail: if discriminates {
@@ -351,7 +448,14 @@ pub async fn validate_collection_deep(tasks: &[ToolTask]) -> CollectionValidatio
     let mut all_ok = true;
     for t in tasks {
         let mut v = validate_one(t).await;
-        v.semantic = task_semantic_findings(t).into_iter().map(|f| f.message).collect();
+        for f in task_semantic_findings(t) {
+            match f.severity() {
+                SemanticSeverity::Error => v.semantic.push(f.message),
+                SemanticSeverity::Warning => v.semantic_warnings.push(f.message),
+            }
+        }
+        // Warnings deliberately do NOT fail `ok`: the grounding check is a heuristic
+        // the author must judge; only mechanical certainties block.
         if v.reachable == "no" || v.discriminating == Some(false) || !v.semantic.is_empty() {
             all_ok = false;
         }

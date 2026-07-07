@@ -131,3 +131,53 @@ async fn validate_collection_deep_reports_semantic_findings() {
     let t0 = report.tasks.iter().find(|t| t.id == tasks[0].id).unwrap();
     assert!(t0.semantic.iter().any(|m| m.contains("Z-99")), "verdict carries the finding text: {:?}", t0.semantic);
 }
+
+/// Point an expected action checkpoint at a word NOTHING teaches — the grounding
+/// check must flag it, as a WARNING (it is a heuristic: the audit that motivated
+/// it produced false positives needing human triage).
+fn with_ungrounded_token(tasks: &mut [ToolTask]) {
+    let spec = tasks[0].agentic.as_mut().unwrap();
+    let EndStateRule::RequireAll(cps) = &mut spec.end_state else { panic!("fixture is RequireAll") };
+    let cp = cps.iter_mut().find(|c| c.tool == "log_decision").expect("fixture logs decisions");
+    cp.args["decision"] = serde_json::json!("*xylophone_zebra*");
+}
+
+#[test]
+fn semantic_findings_flags_an_ungrounded_answer_token_as_a_warning() {
+    let mut tasks = ecommerce_tasks();
+    with_ungrounded_token(&mut tasks);
+    let findings = semantic_findings(&tasks);
+    let f = findings.iter().find(|f| f.kind == SemanticFindingKind::UngroundedAnswerToken);
+    let f = f.expect("an answer word nothing teaches must be flagged");
+    assert_eq!(f.severity(), SemanticSeverity::Warning, "grounding is a heuristic — never a hard error");
+    assert!(f.message.contains("xylophone_zebra"), "names the token: {}", f.message);
+    assert!(f.message.contains("checked the prompt"), "carries the evidence of where it looked: {}", f.message);
+}
+
+/// Separator variants ARE grounding: `medium-legal` grades on "work product" /
+/// "legal hold" which its blobs teach as "work-product" / `legal_hold` — the
+/// normalized corpus must accept them (this bundled collection is the regression
+/// fixture; flagging it would be exactly the cried-wolf false positive that
+/// teaches authors to ignore the warning).
+#[test]
+fn grounding_accepts_separator_variant_wording() {
+    let tasks = load_v2_collection(v2_json("medium-legal").unwrap()).unwrap();
+    let ungrounded: Vec<_> = semantic_findings(&tasks)
+        .into_iter()
+        .filter(|f| f.kind == SemanticFindingKind::UngroundedAnswerToken)
+        .collect();
+    assert!(ungrounded.is_empty(), "separator-variant wording is grounded: {ungrounded:?}");
+}
+
+/// Warnings surface in `semantic_warnings` with the evidence, but do NOT fail the
+/// collection verdict — the author judges a heuristic; only certainties block.
+#[tokio::test]
+async fn grounding_warnings_do_not_fail_the_deep_verdict() {
+    let mut tasks = ecommerce_tasks();
+    with_ungrounded_token(&mut tasks);
+    let report = validate_collection_deep(&tasks).await;
+    let t0 = report.tasks.iter().find(|t| t.id == tasks[0].id).unwrap();
+    assert!(t0.semantic_warnings.iter().any(|m| m.contains("xylophone_zebra")), "warning surfaced: {:?}", t0.semantic_warnings);
+    assert!(t0.semantic.is_empty(), "a warning is not an error");
+    assert!(report.ok, "warnings alone must not fail the collection");
+}

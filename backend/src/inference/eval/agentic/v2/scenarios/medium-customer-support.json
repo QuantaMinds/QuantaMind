@@ -34,13 +34,16 @@
           "appliance_age_months": 14
         },
         "LA": {
-          "mandated_warranty_months": 12
+          "mandated_warranty_months": 12,
+          "policy": "claims past the governing warranty period are denied"
         },
         "SF": {
-          "mandated_warranty_months": 24
+          "mandated_warranty_months": 24,
+          "policy": "claims past the governing warranty period are denied"
         },
         "SAC": {
-          "mandated_warranty_months": 12
+          "mandated_warranty_months": 12,
+          "policy": "claims past the governing warranty period are denied"
         },
         "rule": "governing = max(12, state_mandate); approve iff age <= governing"
       },
