@@ -723,6 +723,16 @@ mod cliff_preflight_tests {
         assert!(llama_profile_from_meta(9_000_000_000, &meta, Some(8192), Some(64_000_000_000), 128_000_000_000).is_none());
     }
 
+    /// A missing GGUF on disk resolves to None — the assess branch then leaves the
+    /// llama.cpp column's fit unmeasured (a soft Conditional), never a guessed fit.
+    #[test]
+    fn find_gguf_returns_none_for_a_missing_file() {
+        let dir = std::env::temp_dir().join("qm-nonexistent-gguf-dir");
+        assert!(find_gguf(&dir, "does-not-exist").is_none());
+        // A name that already ends in .gguf but isn't present is also None.
+        assert!(find_gguf(&dir, "ghost.gguf").is_none());
+    }
+
     /// A missing head_count_kv falls back to MHA (conservative overestimate) and the
     /// profile is flagged `estimated` so the UI shows "~", never an exact-looking figure.
     #[test]

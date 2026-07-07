@@ -7,16 +7,17 @@ import type { ModelDims, CtxCeilings } from "../../../../shared/ipc/system/inspe
 
 vi.mock("../../hooks/useKvCeilings", () => ({ useKvCeilings: vi.fn() }));
 
-const dims = (ctxMax: number): ModelDims => ({
+const dims = (ctxMax: number, kvEstimated = false): ModelDims => ({
   layers: 32,
   head_count: 40,
   head_count_kv: 8,
   embedding_length: 5120,
   context_length: ctxMax,
+  kv_estimated: kvEstimated,
 });
 
-function mockCeilings(ceilings: CtxCeilings | null, ctxMax = 262_144) {
-  vi.mocked(useKvCeilings).mockReturnValue({ dims: ceilings ? dims(ctxMax) : null, ceilings });
+function mockCeilings(ceilings: CtxCeilings | null, ctxMax = 262_144, kvEstimated = false) {
+  vi.mocked(useKvCeilings).mockReturnValue({ dims: ceilings ? dims(ctxMax, kvEstimated) : null, ceilings });
 }
 
 beforeEach(() => {
@@ -59,10 +60,16 @@ describe("KvCeilingBars", () => {
     expect(screen.getByTestId("kv-ceiling-q4")).toHaveTextContent("Not available");
   });
 
-  it("shows a whole-panel 'Not available' when dims/ceilings can't be measured", () => {
+  it("shows a whole-panel 'Not available' when dims/ceilings can't be measured (e.g. backend unreachable)", () => {
     mockCeilings(null);
     render(<KvCeilingBars modelName="m" backend="ollama" modelBytes={null} totalBytes={16e9} />);
     expect(screen.getByTestId("kv-ceilings")).toHaveTextContent("Not available");
+  });
+
+  it("marks the meters '~ estimated' when the model didn't report its KV head count (conservative, not silently wrong)", () => {
+    mockCeilings({ f16: 14_848, q8: 29_696, q4: 59_648 }, 262_144, true);
+    render(<KvCeilingBars modelName="m" backend="ollama" modelBytes={9e9} totalBytes={16e9} />);
+    expect(screen.getByTestId("kv-ceilings")).toHaveTextContent("~ estimated");
   });
 
   it("places the cliff marker from the cliff store", () => {

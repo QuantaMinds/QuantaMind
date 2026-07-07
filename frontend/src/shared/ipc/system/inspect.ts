@@ -10,6 +10,10 @@ export const ModelDimsSchema = z.object({
   head_count_kv: z.number().int().nonnegative(),
   embedding_length: z.number().int().nonnegative(),
   context_length: z.number().int().nonnegative(),
+  // head_count_kv was defaulted to head_count (the model didn't report it — e.g.
+  // qwen35): the KV-cache figure is then a conservative OVER-estimate. Surfaced as
+  // "~" so a ceiling built on it never reads as exact. Optional for back-compat.
+  kv_estimated: z.boolean().optional(),
 });
 export type ModelDims = z.infer<typeof ModelDimsSchema>;
 

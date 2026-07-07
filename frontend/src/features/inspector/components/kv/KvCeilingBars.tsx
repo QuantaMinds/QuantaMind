@@ -90,6 +90,7 @@ export function KvCeilingBars({
   const { dims, ceilings } = useKvCeilings(modelName, backend, modelBytes, totalBytes);
   const cliff = useCliffStore((s) => s.cliffForModel(modelName));
   const modelMax = dims?.context_length || null;
+  const estimated = dims?.kv_estimated ?? false;
 
   if (!ceilings) {
     return (
@@ -110,8 +111,13 @@ export function KvCeilingBars({
 
   return (
     <div className="text-[11px] font-mono space-y-1.5" data-testid="kv-ceilings">
-      <div className="text-gray-500 font-semibold tracking-wider text-[10px] uppercase">
+      <div className="text-gray-500 font-semibold tracking-wider text-[10px] uppercase flex items-center gap-1.5">
         CONTEXT CEILING BY KV CACHE PRECISION
+        {estimated && (
+          <span className="text-amber-600 normal-case font-normal" title="This model didn't report its KV head count, so the cache is over-estimated — the ceilings are conservative (they under-promise context, never over-promise).">
+            ~ estimated
+          </span>
+        )}
       </div>
       <CeilingRow label="f16" ceiling={ceilings.f16} scaleMax={scaleMax} cliff={cliff} modelMax={modelMax} accent="text-green-600" />
       <CeilingRow label="q8" ceiling={ceilings.q8} scaleMax={scaleMax} cliff={cliff} modelMax={modelMax} accent="text-blue-600" />
