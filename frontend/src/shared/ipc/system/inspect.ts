@@ -51,3 +51,30 @@ export async function estimateKvCacheBytes(dims: ModelDims, contextLength: numbe
     }),
   );
 }
+
+/// The largest context this machine holds for a model at each KV-cache precision.
+/// A `null` ceiling means unmeasurable ("Not available"), never a guess. Same math
+/// the llama.cpp launch planner uses, so the meters can't disagree with a launch.
+export const CtxCeilingsSchema = z.object({
+  f16: z.number().int().nullable(),
+  q8: z.number().int().nullable(),
+  q4: z.number().int().nullable(),
+});
+export type CtxCeilings = z.infer<typeof CtxCeilingsSchema>;
+
+export async function contextCeilings(
+  dims: ModelDims,
+  modelBytes: number,
+  totalBytes: number,
+): Promise<CtxCeilings> {
+  return CtxCeilingsSchema.parse(
+    await invoke("context_ceilings", {
+      layers: dims.layers,
+      headCount: dims.head_count,
+      headCountKv: dims.head_count_kv,
+      embeddingLength: dims.embedding_length,
+      modelBytes,
+      totalBytes,
+    }),
+  );
+}

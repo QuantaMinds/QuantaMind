@@ -144,6 +144,24 @@ pub fn estimate_kv_cache_bytes(
     kv_cache_bytes_at(p, layers, head_count, head_count_kv, embedding_length, context_length)
 }
 
+/// The largest context this machine holds for a model at each KV-cache precision
+/// (f16 / q8_0 / q4_0) — the data behind the Latency tab's context-ceiling meters.
+/// A `null` ceiling means unmeasurable (rendered "Not available"), never a guess.
+/// The math (`ctx_ceilings`) is the SAME the llama.cpp launch planner uses, so the
+/// meters can't disagree with a real launch.
+#[tauri::command]
+pub fn context_ceilings(
+    layers: u64,
+    head_count: u64,
+    head_count_kv: u64,
+    embedding_length: u64,
+    model_bytes: u64,
+    total_bytes: u64,
+) -> crate::commands::llama::llama_runtime::CtxCeilings {
+    let dims = crate::commands::llama::llama_runtime::KvDims { layers, head_count, head_count_kv, embedding_length };
+    crate::commands::llama::llama_runtime::ctx_ceilings(model_bytes, dims, total_bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

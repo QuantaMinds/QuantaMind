@@ -118,6 +118,7 @@ pub fn run() {
             commands::models::models::list_models,
             commands::models::model_inspect::inspect_model,
             commands::models::model_inspect::estimate_kv_cache_bytes,
+            commands::models::model_inspect::context_ceilings,
             commands::models::models_pull::pull_model,
             commands::models::models_pull::cancel_pull,
             commands::ollama::ollama_start::start_ollama,
