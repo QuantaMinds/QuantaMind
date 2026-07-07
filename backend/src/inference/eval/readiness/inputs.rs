@@ -56,6 +56,7 @@ pub fn from_column(
         cliff,             // context-cliff status (the command threads it in; NotProbed on the no-hardware path)
         fits_in_vram,
         vram_pressure,
+        kv_downgraded: false, // legacy builder: callers thread no memory profile → f16
         loops,
         hallucinated,
         native_fc,
@@ -107,12 +108,14 @@ pub fn measured_paths(col: &BatchColumn) -> Vec<(AgentPath, Option<&AggAgentic>)
 /// model-level `native_fc` capability + the row's `path` are passed in explicitly (decoupled,
 /// per `verdict.rs`). `source = None` (the unmeasured fallback) leaves the gated metrics
 /// `None`/0 so the verdict blocks exactly as the legacy `from_column` does.
+#[allow(clippy::too_many_arguments)]
 pub fn from_source(
     source: Option<&AggAgentic>,
     path: AgentPath,
     native_fc: NativeFcStatus,
     fits_in_vram: Option<bool>,
     vram_pressure: bool,
+    kv_downgraded: bool,
     cliff: CliffStatus,
 ) -> ReadinessInputs {
     let (loops, hallucinated) = source
@@ -127,6 +130,7 @@ pub fn from_source(
         cliff,
         fits_in_vram,
         vram_pressure,
+        kv_downgraded,
         loops,
         hallucinated,
         native_fc,
@@ -205,10 +209,15 @@ pub fn verdicts_for_column(
         }];
     }
     let native = col_native_status(col);
+    // Self-describing profile → explicit advisory: a fit graded at the launch's
+    // actual Q8 cache tells the verdict so (model-level, shared by both path rows).
+    let kv_downgraded =
+        memory.as_ref().is_some_and(|m| m.kv_precision == crate::inference::vram_math::KvPrecision::Q8);
     measured_paths(col)
         .into_iter()
         .map(|(path, source)| {
-            let verdict = assess(&from_source(source, path, native, fits_in_vram, vram_pressure, cliff), profile);
+            let verdict =
+                assess(&from_source(source, path, native, fits_in_vram, vram_pressure, kv_downgraded, cliff), profile);
             let (avg_steps, effort) =
                 source.map(|a| (a.avg_steps, a.avg_output_tokens_success)).unwrap_or((None, None));
             let primary = source.map(|a| a.by_tier.clone()).unwrap_or_default();

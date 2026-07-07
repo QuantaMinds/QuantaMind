@@ -61,6 +61,12 @@ pub struct ReadinessInputs {
     pub fits_in_vram: Option<bool>,
     /// Fits, but sits near the allocation ceiling → a soft Conditional note.
     pub vram_pressure: bool,
+    /// The fit above was graded at the Q8 KV cache the llama.cpp launch would
+    /// ACTUALLY use under memory pressure (never f16-pretend, never silent) —
+    /// `assess` turns this into an explicit advisory condition.
+    /// `#[serde(default)]` → pre-existing inputs deserialize as false (f16).
+    #[serde(default)]
+    pub kv_downgraded: bool,
     pub loops: u32,
     pub hallucinated: u32,
     /// The MODEL-LEVEL native function-calling capability — `Tested` when the column's

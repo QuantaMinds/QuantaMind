@@ -49,6 +49,19 @@ fn drops_unmeasured_unquantized_or_custom_collection_rows() {
     assert!(PublishRow::project(&verdict("m", Some(0.8), Some("Q4_K_M")), &custom).is_none());
 }
 
+/// The right-sizing summary is host-specific and must NEVER reach the wire. It
+/// isn't reachable from `ModelVerdict` (it's a sibling in `ReadinessAssessment`),
+/// so this pins that a published row's serialized form carries no right-sizing key.
+#[test]
+fn published_row_carries_no_right_sizing_data() {
+    let mut ctx = PublishContext::test_ctx("apple-silicon/m3-pro/32-64gb", "0.2.0");
+    ctx.collection_hash = Some("abc123".into());
+    let r = PublishRow::project(&verdict("qwen", Some(0.75), Some("Q4_K_M")), &ctx).unwrap();
+    let json = serde_json::to_string(&r).unwrap();
+    assert!(!json.contains("right_siz"), "no right-sizing data may leak to the publish wire: {json}");
+    assert!(!json.contains("reduction_pct"), "no percent-reduction data on the wire: {json}");
+}
+
 #[test]
 fn projects_the_full_verdict_by_allowlist() {
     let mut ctx = PublishContext::test_ctx("apple-silicon/m3-pro/32-64gb", "0.2.0");

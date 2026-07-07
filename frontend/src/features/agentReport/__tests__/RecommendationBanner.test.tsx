@@ -21,7 +21,7 @@ describe("RecommendationBanner", () => {
     expect(banner).toHaveAttribute("data-status", "ready");
     expect(banner).toHaveTextContent("Recommended for Coding agent");
     expect(screen.getByTestId("recommendation-model")).toHaveTextContent("qwen2.5-coder");
-    expect(banner).toHaveTextContent("(Ready)");
+    expect(banner).toHaveTextContent("Ready");
   });
 
   it("shows the 'no model is ready — closest' message with the reason when the top pick is NotReady", () => {

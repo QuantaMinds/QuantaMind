@@ -1,5 +1,5 @@
 use crate::inference::backend::endpoint;
-use crate::inference::vram_math::calculate_kv_cache_bytes;
+use crate::inference::vram_math::{calculate_kv_cache_bytes, kv_cache_bytes_at, KvPrecision};
 use reqwest::Client;
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader};
@@ -173,6 +173,32 @@ pub fn hardware_ctx_ceiling(model_bytes: u64, dims: Option<KvDims>, total_bytes:
     ceiling_from_per_token(model_bytes, total_bytes, per_token)
 }
 
+/// The largest context this (machine, model) holds at each KV-cache precision —
+/// the data behind the Latency tab's "context ceiling by KV precision" meters.
+/// `None` for a precision means unmeasurable (unknown dims / zero per-token cost),
+/// rendered "Not available" — never a fabricated ceiling. Q8 roughly doubles F16,
+/// Q4 roughly quadruples it (modulo the `CTX_STEP` rounding). Q4 is PLANNING info
+/// only: a real launch never auto-picks a Q4 cache (`KvType` has no Q4 arm).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct CtxCeilings {
+    pub f16: Option<u32>,
+    pub q8: Option<u32>,
+    pub q4: Option<u32>,
+}
+
+/// Compute the three per-precision context ceilings from the model's dims and this
+/// machine's total memory. Pure (the caller supplies total memory) so it's tested
+/// without a live machine. `u32::MAX` from `ceiling_from_per_token` (unmeasurable)
+/// maps to `None`.
+pub fn ctx_ceilings(model_bytes: u64, dims: KvDims, total_bytes: u64) -> CtxCeilings {
+    let ceiling_at = |p: KvPrecision| {
+        let per_token = kv_cache_bytes_at(p, dims.layers, dims.head_count, dims.head_count_kv, dims.embedding_length, 1);
+        let c = ceiling_from_per_token(model_bytes, total_bytes, per_token);
+        (c != u32::MAX).then_some(c)
+    };
+    CtxCeilings { f16: ceiling_at(KvPrecision::F16), q8: ceiling_at(KvPrecision::Q8), q4: ceiling_at(KvPrecision::Q4) }
+}
+
 /// The largest `-c` whose KV cache (at `per_token` bytes/token) fits usable RAM alongside
 /// the weights. Extracted from `hardware_ctx_ceiling` so the Q8-KV plan can pass HALF the
 /// per-token cost (a quantized cache) and get the correspondingly larger ceiling. `per_token`
@@ -190,11 +216,23 @@ fn ceiling_from_per_token(model_bytes: u64, total_bytes: u64, per_token: u64) ->
 
 /// KV-cache element precision the launch will request. `F16` is llama.cpp's default (2 bytes
 /// per element); `Q8` (1 byte) halves KV memory but REQUIRES flash attention, so a plan that
-/// picks `Q8` always also sets `flash_attn`.
+/// picks `Q8` always also sets `flash_attn`. Deliberately NARROWER than
+/// `vram_math::KvPrecision`: the absence of a `Q4` variant is the type-level proof that a
+/// launch never auto-picks a Q4 cache (real quality cost, and much slower at long context) —
+/// Q4 exists only as planning math.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KvType {
     F16,
     Q8,
+}
+
+impl KvType {
+    pub fn precision(self) -> KvPrecision {
+        match self {
+            KvType::F16 => KvPrecision::F16,
+            KvType::Q8 => KvPrecision::Q8,
+        }
+    }
 }
 
 /// The hardware-aware launch decision: the `-c` window, whether to force flash attention, the
@@ -245,8 +283,10 @@ pub fn plan_launch(
         return LaunchPlan { ctx: desired, flash_attn: false, kv: KvType::F16, note: None };
     }
 
-    // Full-precision KV won't hold the desired window. Q8 halves the per-token cost.
-    let q8_ceiling = ceiling_from_per_token(mb, total_bytes, per_token_f16 / 2);
+    // Full-precision KV won't hold the desired window. Q8 halves the per-token cost
+    // (kv_cache_bytes_at's exact integer divisor — bit-identical to the former `/ 2`).
+    let per_token_q8 = kv_cache_bytes_at(KvPrecision::Q8, d.layers, d.head_count, d.head_count_kv, d.embedding_length, 1);
+    let q8_ceiling = ceiling_from_per_token(mb, total_bytes, per_token_q8);
     let ctx = desired.min(q8_ceiling).max(MIN_CONTEXT);
     let gb = total_bytes as f64 / 1_000_000_000.0;
     let note = Some(if ctx < desired {

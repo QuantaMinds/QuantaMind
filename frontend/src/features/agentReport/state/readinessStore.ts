@@ -6,6 +6,7 @@ import {
   type AgentPath,
   type ModelVerdict,
   type ReadinessProfile,
+  type RightSizingGroup,
 } from "../../../shared/ipc/eval/readiness";
 import {
   getHardwareSnapshot,
@@ -19,6 +20,10 @@ interface ReadinessStore {
   profiles: ReadinessProfile[];
   selectedProfileId: string;
   verdicts: ModelVerdict[];
+  /// Right-sizing summary from the last assess (smallest still-usable quant per
+  /// family). `rightSizingHint` explains an empty summary. Percent-only.
+  rightSizing: RightSizingGroup[];
+  rightSizingHint: string | null;
   hardware: HardwareSnapshot | null;
   /// Hardware class + recommended difficulty tier (Phase 9B) — the Agent Report's
   /// Executive Verdict shows this as the advisory hardware lens. Best-effort; `null`
@@ -53,6 +58,8 @@ export const useReadinessStore = create<ReadinessStore>((set, get) => ({
   profiles: [],
   selectedProfileId: "",
   verdicts: [],
+  rightSizing: [],
+  rightSizingHint: null,
   hardware: null,
   hardwareTier: null,
   focusedModel: "",
@@ -87,15 +94,15 @@ export const useReadinessStore = create<ReadinessStore>((set, get) => ({
     }
   },
   setFocus: (model, path) => set({ focusedModel: model, focusedPath: path }),
-  selectProfile: (id) => set({ selectedProfileId: id, assessed: false, verdicts: [] }),
+  selectProfile: (id) => set({ selectedProfileId: id, assessed: false, verdicts: [], rightSizing: [], rightSizingHint: null }),
   setCap: (bytes) => set({ capBytes: bytes }),
   assess: async (collectionId) => {
     const { selectedProfileId, capBytes } = get();
     if (!selectedProfileId) return;
     set({ loading: true, error: null });
     try {
-      const verdicts = await assessReadiness(collectionId, selectedProfileId, capBytes ?? undefined);
-      set({ verdicts, assessed: true, loading: false });
+      const a = await assessReadiness(collectionId, selectedProfileId, capBytes ?? undefined);
+      set({ verdicts: a.verdicts, rightSizing: a.right_sizing, rightSizingHint: a.right_sizing_hint ?? null, assessed: true, loading: false });
     } catch (e) {
       set({ error: String(e), loading: false, assessed: false });
     }

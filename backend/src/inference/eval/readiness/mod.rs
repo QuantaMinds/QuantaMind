@@ -5,6 +5,7 @@ pub mod hardware;
 pub mod inputs;
 pub mod profile;
 pub mod recommend;
+pub mod rightsizing;
 pub mod types;
 pub mod verdict;
 pub mod vram_fit;

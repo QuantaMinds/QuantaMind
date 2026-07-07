@@ -10,6 +10,7 @@ import { LatencyHistogram } from "./LatencyHistogram";
 import { TtftBreakdown } from "./TtftBreakdown";
 import { VramBar } from "./VramBar";
 import { ContextBudgetBar } from "./ContextBudgetBar";
+import { KvCeilingBars } from "./kv/KvCeilingBars";
 import { ColdWarmPanel } from "./ColdWarmPanel";
 import { RegressionAlert } from "./RegressionAlert";
 import { useModelLabel } from "../../models/hooks/useModelLabel";
@@ -95,6 +96,15 @@ export function ModelTimeline({
           modelName={row.model}
           promptTokens={m?.stats?.prompt_eval_count ?? null}
           contextLength={vram?.context_length ?? null}
+        />
+        {/* The Inspector operates on loaded Ollama models (/api/ps + /api/show),
+            so dims resolve via the Ollama path — same assumption as VramBar. */}
+        <KvCeilingBars
+          modelName={row.model}
+          backend="ollama"
+          modelBytes={vram?.size_bytes ?? null}
+          totalBytes={deviceTotalBytes ?? null}
+          unified={unified}
         />
       </div>
 

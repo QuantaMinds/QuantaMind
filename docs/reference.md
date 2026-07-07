@@ -918,13 +918,28 @@ max) and each quant's fit becomes:
 
 ```
 required = base_weights + KV_cache
-KV_cache = 2 (K+V) × layers × kv_heads × head_dim × 2 (f16 bytes) × context_length
+KV_cache = 2 (K+V) × layers × kv_heads × head_dim × bytes_per_value × context_length
+           bytes_per_value:  f16 = 2 · q8_0 ≈ 1 · q4_0 ≈ 0.5
 ```
 
-(`head_dim = embedding_length / head_count`.) The KV cache grows **linearly with context** and is
-independent of the weight quantization — so a model that fits at 4K can OOM at 128K. When `required`
-exceeds available memory the quant shows an **"OOM Risk"** badge and can't be run at that context;
-the recommendation honours the same gate.
+(`head_dim = embedding_length / head_count`.) The KV cache grows **linearly with context** and with
+model depth (layers) — at long context it can exceed the weights themselves — and is independent of
+the weight quantization. So a model that fits at 4K can OOM at 128K. When `required` exceeds
+available memory the quant shows an **"OOM Risk"** badge and can't be run at that context; the
+recommendation honours the same gate.
+
+**KV-cache precision (f16 / q8_0 / q4_0).** The cache's own storage precision is a separate lever
+from the weight quant. `q8_0` ≈ halves the cache (negligible quality cost, perplexity Δ ≈
+0.002–0.05 — the "free win"); `q4_0` ≈ quarters it but at a real quality cost **and** it can be much
+slower at long context (dequant overhead). Halving the cache roughly doubles the context you hold in
+the same memory — often the only way to fit long context on limited VRAM. The **Latency tab's
+"context ceiling by KV cache precision" meters** show, per model on your machine, the largest context
+each precision holds (unified memory budgets RAM; discrete GPUs budget VRAM). Per backend: Ollama
+`OLLAMA_KV_CACHE_TYPE` + `OLLAMA_FLASH_ATTENTION=1` (server-global, silently falls back to f16 on
+unsupported architectures); llama.cpp `-ctk/-ctv` (QuantaMind auto-picks `q8_0` under memory
+pressure, **never `q4_0`**); MLX's server exposes no KV-quant flag; vLLM/SGLang take
+`kv_cache_dtype=fp8` at launch. The readiness verdict grades the fit at the precision your launch
+would actually use, and never presents a `q4_0` cache as auto-selectable.
 
 - **Dims come from Ollama `/api/show`.** On llama.cpp / MLX the predictor falls back to a
   file-size × 1.3 heuristic, **flagged approximate** (`~`).
@@ -1442,6 +1457,36 @@ cache, so it can only ever under-promise fit, never over-promise it. The per-mod
 and the recommendation banner say the figure is a conservative estimate; the other four
 dims stay required (still N/A if any is missing). This keeps the "never fabricate —
 label estimates" contract while not penalising a working model for incomplete metadata.
+
+**llama.cpp fit, graded at the launch's actual KV precision.** A **llama.cpp** column is
+now measured too (resolving the column's GGUF on disk for exact weights + header dims):
+its fit is graded at the KV-cache precision the launch would *actually* use on this
+machine — under memory pressure the planner drops to a **q8_0** cache (≈half the cache
+memory), and the verdict carries an explicit advisory ("fits with Q8 KV cache — ≈half
+cache memory, minor quality cost"). The `MemoryProfile` is self-describing (it records
+`kv_precision`), so a q8-graded fit is never silently compared against an f16 one — the
+per-model line labels the precision. Ollama and MLX stay f16 (Ollama's `OLLAMA_KV_CACHE_TYPE`
+is a server-global env var that silently falls back to f16 per-architecture — unverifiable
+from here; MLX's server has no KV-quant flag). A missing/corrupt GGUF ⇒ unmeasured (soft
+Conditional), never a guessed fit.
+
+### Right-sizing {#right-sizing}
+
+Below the verdict table, **Right-Sizing** answers the biggest local-inference cost lever
+directly: *which smaller quant of each family is still Ready on your hardware?* For every
+model family you assessed with **≥2 quants** (grouped by family + parameter size), it shows
+the **baseline** (largest weights) vs the **pick** (smallest still usable — Ready, or the
+smallest Conditional, flagged amber with its caveats surfaced). Reductions are **measured
+percentages only, never dollar figures**: **size %** is the exact on-disk weight saving;
+**memory %** appears only when both fits were measured at the *same* KV precision (a
+q8-vs-f16 comparison is omitted with a note, never faked); the **Pass^k delta** is the
+quality change in percentage points ("not measured" when either side lacks it). A family
+with only one assessed quant contributes a hint ("Assess ≥2 quants…"), not a card. The
+summary is **host-specific and never published** (it rides in the assess payload, not the
+publish row). Cost framing beyond measured percentages — dollar/hour rates, cloud-instance
+mapping, per-token cost — is deliberately **out of scope** (see
+`process.md#future-considerations`): a percentage the tool measured is honest; a dollar
+figure it can't would be a fabricated metric.
 
 **Prompt-based vs native path.** Two ways a model can do tool-calling, measured and
 labelled **separately** so they're never conflated. The **prompt-based** proxy injects

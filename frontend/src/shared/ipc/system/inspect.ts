@@ -10,6 +10,10 @@ export const ModelDimsSchema = z.object({
   head_count_kv: z.number().int().nonnegative(),
   embedding_length: z.number().int().nonnegative(),
   context_length: z.number().int().nonnegative(),
+  // head_count_kv was defaulted to head_count (the model didn't report it — e.g.
+  // qwen35): the KV-cache figure is then a conservative OVER-estimate. Surfaced as
+  // "~" so a ceiling built on it never reads as exact. Optional for back-compat.
+  kv_estimated: z.boolean().optional(),
 });
 export type ModelDims = z.infer<typeof ModelDimsSchema>;
 
@@ -31,9 +35,15 @@ export async function inspectModel(model: string, backend: BackendKind): Promise
   return ModelInspectSchema.parse(await invoke("inspect_model", { model, backend }));
 }
 
-/// f16 KV-cache size (bytes) for a model's dims at a context length — computed
-/// by the canonical Rust formula (single source of truth).
-export async function estimateKvCacheBytes(dims: ModelDims, contextLength: number): Promise<number> {
+/// KV-cache storage precision (llama.cpp/Ollama cache-type wire names). f16 is
+/// the conservative baseline; q8_0 ≈ half the bytes, q4_0 ≈ a quarter — exact
+/// integer scaling of the canonical formula, computed in Rust.
+export type KvPrecision = "f16" | "q8_0" | "q4_0";
+
+/// KV-cache size (bytes) for a model's dims at a context length — computed by
+/// the canonical Rust formula (single source of truth). `precision` omitted →
+/// f16, byte-identical to every pre-existing call.
+export async function estimateKvCacheBytes(dims: ModelDims, contextLength: number, precision?: KvPrecision): Promise<number> {
   return z.number().parse(
     await invoke("estimate_kv_cache_bytes", {
       layers: dims.layers,
@@ -41,6 +51,34 @@ export async function estimateKvCacheBytes(dims: ModelDims, contextLength: numbe
       headCountKv: dims.head_count_kv,
       embeddingLength: dims.embedding_length,
       contextLength,
+      precision: precision ?? null,
+    }),
+  );
+}
+
+/// The largest context this machine holds for a model at each KV-cache precision.
+/// A `null` ceiling means unmeasurable ("Not available"), never a guess. Same math
+/// the llama.cpp launch planner uses, so the meters can't disagree with a launch.
+export const CtxCeilingsSchema = z.object({
+  f16: z.number().int().nullable(),
+  q8: z.number().int().nullable(),
+  q4: z.number().int().nullable(),
+});
+export type CtxCeilings = z.infer<typeof CtxCeilingsSchema>;
+
+export async function contextCeilings(
+  dims: ModelDims,
+  modelBytes: number,
+  totalBytes: number,
+): Promise<CtxCeilings> {
+  return CtxCeilingsSchema.parse(
+    await invoke("context_ceilings", {
+      layers: dims.layers,
+      headCount: dims.head_count,
+      headCountKv: dims.head_count_kv,
+      embeddingLength: dims.embedding_length,
+      modelBytes,
+      totalBytes,
     }),
   );
 }

@@ -56,6 +56,32 @@ export const READINESS_HELP: Record<string, { title: string; body: ReactNode }> 
           Lower it to simulate a tighter box (test headroom) and watch models flip to NotReady under a profile that requires a
           full fit. Options stop at your physical memory — you can’t allocate more than you have. In-session only; not saved.
         </span>
+        <span>
+          For a <b>llama.cpp</b> model, the fit is graded at the KV-cache precision the launch would actually use on{" "}
+          <i>this</i> machine — under memory pressure it drops to a Q8 cache (≈half the cache memory), and the verdict says so
+          (“fits with Q8 KV cache”). The cap slider simulates a smaller box for the fit, but the precision reflects a real launch
+          here.
+        </span>
+      </div>
+    ),
+  },
+  rightSizing: {
+    title: "Right-Sizing",
+    body: (
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <span>
+          For each model family you assessed with <b>two or more quants</b>, this names the <b>smallest variant still usable</b>{" "}
+          on your hardware vs the largest — so you can drop to a smaller quant without shipping something broken.
+        </span>
+        <span>
+          Reductions are <b>measured percentages only</b> — no dollar figures. <b>Size %</b> is the exact on-disk weight
+          saving; <b>memory %</b> shows only when both fits were measured at the same KV-cache precision (a Q8-vs-f16 comparison
+          is omitted, never faked); the <b>Pass^k delta</b> is the quality change in percentage points.
+        </span>
+        <span>
+          A <b>Conditional</b> pick (amber) is the smallest that runs <i>with caveats</i> — its conditions are shown so you
+          decide. The KV-cache precision is labelled on each bar so a Q8-graded fit is never silently compared to an f16 one.
+        </span>
       </div>
     ),
   },

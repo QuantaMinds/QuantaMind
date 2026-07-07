@@ -29,6 +29,7 @@ fn clean_inputs() -> ReadinessInputs {
         cliff: CliffStatus::NoCliff { tested: 16_384 },
         fits_in_vram: Some(true),
         vram_pressure: false,
+        kv_downgraded: false,
         loops: 0,
         hallucinated: 0,
         native_fc: NativeFcStatus::NotSupported,
@@ -42,6 +43,41 @@ fn clean_row_against_lenient_profile_is_ready() {
     let v = assess(&clean_inputs(), &lenient());
     assert_eq!(v.status, Readiness::Ready);
     assert!(v.blocking.is_empty() && v.conditions.is_empty());
+}
+
+/// Gate-at-actual-KV transparency: a fit graded at the launch's Q8 cache is
+/// Conditional with the explicit advisory — never a silent f16-lookalike.
+#[test]
+fn q8_assumed_fit_is_conditional_with_advisory() {
+    let i = ReadinessInputs { kv_downgraded: true, ..clean_inputs() };
+    let v = assess(&i, &lenient());
+    assert_eq!(v.status, Readiness::Conditional);
+    assert!(
+        v.conditions.iter().any(|c| c.contains("Q8 KV cache")),
+        "advisory names the cache precision: {:?}",
+        v.conditions
+    );
+}
+
+/// The advisory rides along even when the fit BLOCKS — the row stays
+/// self-describing in every outcome.
+#[test]
+fn q8_assumed_and_not_fitting_still_blocks_and_carries_advisory() {
+    let mut p = lenient();
+    p.require_full_vram = true;
+    let i = ReadinessInputs { kv_downgraded: true, fits_in_vram: Some(false), ..clean_inputs() };
+    let v = assess(&i, &p);
+    assert_eq!(v.status, Readiness::NotReady);
+    assert!(v.blocking.iter().any(|b| b.contains("offload")), "the bad fit blocks: {:?}", v.blocking);
+    assert!(v.conditions.iter().any(|c| c.contains("Q8 KV cache")), "advisory still present: {:?}", v.conditions);
+}
+
+/// f16-graded fits carry NO cache advisory (pinned explicitly, beyond the clean
+/// test's empty-conditions assertion).
+#[test]
+fn f16_fit_has_no_kv_advisory() {
+    let v = assess(&clean_inputs(), &lenient());
+    assert!(!v.conditions.iter().any(|c| c.contains("KV cache")), "{:?}", v.conditions);
 }
 
 #[test]

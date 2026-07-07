@@ -925,15 +925,16 @@ downgrade, and a required-but-**unmeasured** input is a **Conditional caveat**
 (The `pass^k` core gate is the exception: no agentic run at all still blocks.)
 
 ### File: `mod.rs`
-- Declares `inputs, profile, recommend, types, verdict, vram_fit`.
+- Declares `inputs, profile, recommend, rightsizing, types, verdict, vram_fit`.
 
 ### File: `types.rs`
 - **What:** `EPSILON=1e-6`;
   `CliffStatus::{NotProbed(default), NoCliff{tested}, Collapsed{depth}, Broken{tested}}`;
   `AgentPath::{PromptBased, NativeFc}`; `NativeFcStatus::{Tested{pass_k}, NotSupported}`;
   `ReadinessInputs{pass_k, avg_steps, ms_per_step, cliff, fits_in_vram, vram_pressure,
-  loops, hallucinated, native_fc, path}` (`native_fc` = model-level capability for the gate;
-  `path` = the row's own path for the label — deliberately decoupled);
+  kv_downgraded, loops, hallucinated, native_fc, path}` (`native_fc` = model-level capability
+  for the gate; `path` = the row's own path for the label — deliberately decoupled;
+  `kv_downgraded` = the fit was graded at a Q8 cache → drives the advisory condition);
   `Readiness::{Ready, Conditional, NotReady}`;
   `ReadinessVerdict{status, blocking, conditions, path, required_tier, cleared_tier}`;
   `ModelVerdict{model, backend, verdict, memory, avg_steps, effort, pass_k, quantization,
@@ -998,6 +999,7 @@ let status = if !blocking.is_empty() { Readiness::NotReady }
 | `min_context_tokens` vs cliff (`Collapsed<min` / `NoCliff<min` / `Broken`) MEASURED | hard → NotReady | when profile sets `min_context_tokens` |
 | `min_context_tokens` & cliff `NotProbed` (unmeasured) | soft → Conditional caveat | when profile sets `min_context_tokens` |
 | `vram_pressure` (≥ 0.85·cap) | soft → Conditional | always |
+| `kv_downgraded` (fit graded at a Q8 cache) | soft → Conditional advisory | whenever the llama.cpp launch would use Q8 KV (even alongside a block) |
 | `ms_per_step > max_ms_per_step` | soft → Conditional | when both present |
 | `avg_steps > max_avg_steps` | soft → Conditional | when both present |
 
@@ -1006,8 +1008,27 @@ let status = if !blocking.is_empty() { Readiness::NotReady }
   weights are exact.
 - **Constants:** `PRESSURE_FRACTION=0.85`, `DEFAULT_FALLBACK_CTX=8192`.
 - **What:** `MemoryProfile{weights_bytes, kv_cache_bytes, total_bytes, cap_bytes,
-  context_length, fits, pressure, estimated}`, `Dims{…}`, `estimate(...)`,
-  `try_profile(weights, dims, num_ctx, cap)`.
+  context_length, fits, pressure, estimated, kv_precision}`, `Dims{…}`,
+  `estimate(..., precision)`, `try_profile(weights, dims, num_ctx, cap, precision)`.
+  `kv_precision` (serde default f16) makes each profile **self-describing**: a
+  llama.cpp fit graded at the launch's actual Q8 cache is never silently compared
+  to an f16 one. The KV math routes through `vram_math::kv_cache_bytes_at(precision, …)`
+  (`KvPrecision::{F16,Q8,Q4}`, exact integer divisors 1/2/4 — Q8 is bit-identical to
+  the former `/2`; Q4 is planning-only, `KvType` in the launch planner has no Q4 arm).
+
+### Folder: `inference/eval/readiness/rightsizing/`
+- **Responsibility:** the Agent Report's Right-Sizing summary — the smallest quant
+  of each family still usable on this hardware. Percent-only; host-specific, never
+  published.
+- **What:** `summarize(verdicts, meta) -> (Vec<RightSizingGroup>, Option<hint>)`.
+  Groups ranked verdicts by `family parameter_size` (from the installed registry),
+  dedupes per model (best row wins); per family with ≥2 variants: baseline = largest
+  weights, pick = smallest **usable** (Ready ∪ Conditional; Conditional flagged).
+  `size_reduction_pct` (exact on-disk); `memory_reduction_pct` only when both totals
+  measured at the **same** `kv_precision` (else `None` + note — no fabricated
+  cross-precision %); `quality_delta_pp` only when both `pass_k` measured. Consumed by
+  `assess_readiness`, which returns `ReadinessAssessment{verdicts, right_sizing,
+  right_sizing_hint}`.
 
 ```rust
 pub fn estimate(weights_bytes, layers, head_count, head_count_kv, embedding_length, context_length, cap_bytes) -> MemoryProfile {

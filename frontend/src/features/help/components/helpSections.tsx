@@ -400,6 +400,15 @@ export const HELP_SECTIONS: HelpSection[] = [
         formula: "total = weights_bytes + kv_cache_bytes(context)\nfit:  total ≤ cap → safe · ≥ 85% of cap → tight · > cap → won’t fit",
         source: "backend/src/inference/eval/readiness/vram_fit.rs",
       },
+      {
+        id: "kv-precision",
+        heading: "KV cache precision (f16 / q8_0 / q4_0)",
+        what: "The attention KV cache is stored at a precision you can trade for memory. The Latency tab’s “context ceiling by KV cache precision” meters show how much context each fits.",
+        why: "The KV cache grows linearly with context length AND model depth — at long context it can exceed the model weights themselves. Halving its precision roughly doubles the context you can hold in the same memory. That’s often the only way to fit long context on limited VRAM.",
+        how: "f16 is the default (2 bytes/value). q8_0 ≈ half the memory at a negligible quality cost (published perplexity deltas ≈ 0.002–0.05 — the “free win”). q4_0 ≈ a quarter, but with a real quality cost AND it can be dramatically slower at long context (dequant overhead — up to ~90% slower at 64k). Unified-memory machines budget the cache against system RAM; discrete GPUs against VRAM. Per backend: Ollama exposes OLLAMA_KV_CACHE_TYPE + OLLAMA_FLASH_ATTENTION=1 (server-global, silently falls back to f16 on unsupported architectures); llama.cpp uses -ctk/-ctv (QuantaMind auto-picks q8_0 under memory pressure, never q4_0); MLX’s server exposes no KV-quant flag; vLLM/SGLang take kv_cache_dtype=fp8 at launch. QuantaMind grades readiness at the precision your launch would actually use and never auto-launches a q4_0 cache.",
+        formula: "kv_bytes = 2(K,V) × layers × kv_heads × head_dim × bytes_per_value × ctx\nbytes_per_value:  f16 = 2 · q8_0 ≈ 1 · q4_0 ≈ 0.5\ncontext at same memory:  q8_0 ≈ 2× f16 · q4_0 ≈ 4× f16 (quality/speed cost)",
+        source: "backend/src/inference/vram_math.rs (kv_cache_bytes_at)",
+      },
     ],
   },
 
@@ -439,11 +448,19 @@ export const HELP_SECTIONS: HelpSection[] = [
       {
         id: "vram-fit",
         heading: "VRAM fit (memory profile)",
-        what: "Per model: exact weights + KV cache at the run’s context length, vs the cap, with a pressure flag.",
+        what: "Per model: exact weights + KV cache at the run’s context length, vs the cap, with a pressure flag and the KV-cache precision it was graded at.",
         why: "Partial offload is the silent killer of local-agent latency; the readiness verdict needs a truthful fit test, not a guess.",
-        how: "Weights are the exact on-disk bytes (never estimated); the KV cache uses the canonical f16 formula from the model’s real dims at the run’s context length. Fits = total ≤ cap; pressure = fits but ≥ 85% of the cap (a soft Conditional note). Any missing input ⇒ “not measured” (the verdict treats VRAM as unmeasured, never a guessed fit).",
-        formula: "total = weights_bytes + kv_cache_bytes\nfits = total ≤ cap · pressure = total ≥ 0.85 × cap",
+        how: "Weights are the exact on-disk bytes (never estimated); the KV cache uses the canonical formula from the model’s real dims at the run’s context length. Fits = total ≤ cap; pressure = fits but ≥ 85% of the cap (a soft Conditional note). A llama.cpp model is graded at the KV precision its launch would actually use here — under memory pressure a q8_0 cache (≈half the cache memory), and the verdict then carries an explicit advisory (“fits with Q8 KV cache”). Ollama/MLX stay f16 (their cache type isn’t verifiable from here). Any missing input ⇒ “not measured” (never a guessed fit).",
+        formula: "total = weights_bytes + kv_cache_bytes(precision)\nfits = total ≤ cap · pressure = total ≥ 0.85 × cap",
         source: "backend/src/inference/eval/readiness/vram_fit.rs (estimate)",
+      },
+      {
+        id: "right-sizing",
+        heading: "Right-Sizing",
+        what: "For each model family you assessed with ≥2 quants, the smallest variant still usable on your hardware vs the largest — with measured percent reductions.",
+        why: "Right-sizing the quant is the biggest lever on local-inference memory and cost, but only if the smaller variant is still Ready. This does that comparison for you so you can drop down without shipping something broken.",
+        how: "Groups the ranked verdicts by family + parameter size; per group, baseline = largest weights, pick = smallest that’s still Ready (or Conditional, flagged). Size % is the exact on-disk saving; memory % shows only when both fits were measured at the SAME KV precision (a q8-vs-f16 comparison is omitted, never faked); Pass^k delta is in percentage points. Percent only — no dollar figures. Host-specific, so it’s never published.",
+        source: "backend/src/inference/eval/readiness/rightsizing/right_size.rs",
       },
       {
         id: "native-fc",
