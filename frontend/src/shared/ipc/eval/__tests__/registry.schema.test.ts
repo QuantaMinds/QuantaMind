@@ -109,3 +109,33 @@ describe("ToolTaskSchema — bundled v2 (agent_loop) scenarios", () => {
     expect(parsed.agentic?.entity_tools).toEqual([]);
   });
 });
+
+describe("CollectionValidationSchema — the serde shape of the oracle+semantic verdict", () => {
+  it("accepts the exact backend serialization including per-task `semantic` findings", async () => {
+    const { CollectionValidationSchema } = await import("../registry");
+    // Verbatim shape of Rust `CollectionValidation` (oracle.rs): Option → null,
+    // `semantic` always present (possibly empty).
+    const verdict = {
+      ok: false,
+      structural_error: null,
+      tasks: [
+        {
+          id: "hd_se_returns_instance0",
+          reachable: "yes",
+          discriminating: true,
+          detail: "Reachable by the oracle and a do-nothing agent fails it — solvable and discriminating.",
+          semantic: ["hd_se_returns_instance0: world_state entity 'Z-99' is in neither the prompt nor any other entity's blob — the model has no path to its id; name it in the prompt or in a blob a getter surfaces"],
+        },
+      ],
+    };
+    const parsed = CollectionValidationSchema.parse(verdict);
+    expect(parsed.tasks[0].semantic).toHaveLength(1);
+    expect(parsed.tasks[0].semantic[0]).toContain("Z-99");
+  });
+
+  it("defaults `semantic` to [] for a pre-field verdict (back-compat)", async () => {
+    const { CollectionValidationSchema } = await import("../registry");
+    const legacy = { ok: true, structural_error: null, tasks: [{ id: "t", reachable: "yes", discriminating: null, detail: "d" }] };
+    expect(CollectionValidationSchema.parse(legacy).tasks[0].semantic).toEqual([]);
+  });
+});

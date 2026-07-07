@@ -48,3 +48,86 @@ async fn a_structural_error_short_circuits_before_the_oracle() {
     assert!(report.structural_error.is_some(), "empty collection is a structural error");
     assert!(report.tasks.is_empty(), "no per-task oracle results when the structure is rejected");
 }
+
+fn ecommerce_tasks() -> Vec<ToolTask> {
+    load_v2_collection(v2_json("hard-support-ecommerce").unwrap()).unwrap()
+}
+
+fn ws_of(task: &mut ToolTask) -> &mut serde_json::Map<String, Value> {
+    task.agentic.as_mut().unwrap().world_state.as_mut().unwrap().as_object_mut().unwrap()
+}
+
+/// Every bundled collection is clean under the semantic contract (the CI guards in
+/// scenarios.rs sweep all 22; this pins the shared function itself on one).
+#[test]
+fn semantic_findings_clean_on_a_bundled_collection() {
+    let tasks = ecommerce_tasks();
+    let findings = semantic_findings(&tasks);
+    assert!(findings.is_empty(), "bundled collection must be semantically clean: {findings:?}");
+}
+
+/// A digit-bearing entity id named in neither the prompt nor any other blob is an
+/// orphan — the model has no path to it.
+#[test]
+fn semantic_findings_flags_an_orphan_entity() {
+    let mut tasks = ecommerce_tasks();
+    ws_of(&mut tasks[0]).insert("Z-99".into(), serde_json::json!({ "status": "lost" }));
+    let findings = semantic_findings(&tasks);
+    let orphan = findings.iter().find(|f| f.kind == SemanticFindingKind::OrphanEntity);
+    let orphan = orphan.expect("an unreferenced Z-99 entity must be flagged as orphaned");
+    assert_eq!(orphan.task_id, tasks[0].id);
+    assert!(orphan.message.contains("Z-99"), "finding names the key: {}", orphan.message);
+}
+
+/// Deleting the entity an expected getter fetches turns that getter into an ack —
+/// the exact hard-support-ecommerce bug class (fact parked out of reach).
+#[test]
+fn semantic_findings_flags_an_acking_expected_getter() {
+    let mut tasks = ecommerce_tasks();
+    ws_of(&mut tasks[0]).remove("MShop").expect("fixture has the MShop policy entity");
+    let findings = semantic_findings(&tasks);
+    let acking = findings.iter().find(|f| f.kind == SemanticFindingKind::AckingGetter);
+    let acking = acking.expect("an expected getter resolving to no data must be flagged");
+    assert_eq!(acking.task_id, tasks[0].id);
+    assert!(acking.message.contains("MShop"), "finding names the unresolvable arg: {}", acking.message);
+}
+
+/// A digit-free, non-reserved key no intended path reaches is leakable oracle data.
+#[test]
+fn semantic_findings_flags_an_unfetched_oracle_key() {
+    let mut tasks = ecommerce_tasks();
+    ws_of(&mut tasks[0]).insert("secret_answers".into(), serde_json::json!({ "O-1": "FULL_REFUND" }));
+    let findings = semantic_findings(&tasks);
+    let leak = findings.iter().find(|f| f.kind == SemanticFindingKind::UnfetchedKey);
+    let leak = leak.expect("an unfetched oracle key must be flagged as leakable");
+    assert!(leak.message.contains("secret_answers"), "finding names the key: {}", leak.message);
+}
+
+/// Non-entity environments and non-agentic tasks are out of the contract's scope.
+#[test]
+fn semantic_findings_skips_fs_env_and_single_turn_tasks() {
+    let fs_tasks = load_v2_collection(v2_json("easy-coding-fs").unwrap()).unwrap();
+    assert!(semantic_findings(&fs_tasks).is_empty(), "filesystem env has no entity responder");
+
+    let single = ToolTask {
+        id: "s".into(),
+        category: "single".into(),
+        prompt: "p".into(),
+        tools: vec![],
+        expected: Default::default(),
+        agentic: None,
+    };
+    assert!(semantic_findings(&[single]).is_empty(), "single-turn tasks have no world_state contract");
+}
+
+/// The deep validator carries the semantic findings into the per-task verdict and
+/// fails the collection — this is the payload the import dry-run popup renders.
+#[tokio::test]
+async fn validate_collection_deep_reports_semantic_findings() {
+    let mut tasks = ecommerce_tasks();
+    ws_of(&mut tasks[0]).insert("Z-99".into(), serde_json::json!({ "status": "lost" }));
+    let report = validate_collection_deep(&tasks).await;
+    assert!(!report.ok, "semantic findings must fail the collection verdict");
+    let t0 = report.tasks.iter().find(|t| t.id == tasks[0].id).unwrap();
+    assert!(t0.semantic.iter().any(|m| m.contains("Z-99")), "verdict carries the finding text: {:?}", t0.semantic);
+}

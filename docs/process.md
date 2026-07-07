@@ -722,6 +722,30 @@ Parking lot for ideas, libraries, and changes deliberately deferred. Nothing
 here is in the current phase — see [Phase roadmap](#phase-roadmap). If something
 here becomes relevant, move it into a phase plan first.
 
+### World-state eval: deferred hardening
+
+Follow-ups to the answer-key guardrails work (RESERVED extension + shared
+semantic validators + validate-before-import), deliberately out of that scope:
+
+- **Alpha-renaming for non-digit entity ids.** `generator::instantiate` only
+  remaps digit-bearing ids, so tasks whose distinguishing entities are words
+  (`MShop`, `cohort_EU`, `California`, plan names, country codes) replay
+  byte-identical across the k runs — weaker contamination resistance than the
+  numbered tasks. Renaming words safely needs a per-domain synonym pool, not an
+  offset.
+- **Medium+ extension of the Easy-only fact-reachability guard**
+  (`every_required_easy_world_state_fact_is_tool_reachable`, scenarios.rs) — the
+  deeper "is every graded FACT surfaced by some getter" check, currently
+  Easy-tier only by design.
+- **CSV stays single-turn.** Agentic/world-state columns in CSV would recreate
+  the JSON schema in a worse syntax; the v2 JSON object is the authoring format.
+- **Form editor world_state fields.** TaskSandboxConfigurator authors the older
+  mocks-based agentic shape; v2 world-state tasks are authored as JSON. A
+  structured world-state editor is a separate design.
+- **Transcript-viewer UI** for the persisted agentic run transcripts
+  (`agentic_transcripts/` JSONL) — Rust-side persistence ships first; the viewer
+  needs a consumer design (and the read IPC stays unshipped until it exists).
+
 ### Cargo workspace split (per-layer crates)
 
 The backend is a single crate with layers as modules — the stage

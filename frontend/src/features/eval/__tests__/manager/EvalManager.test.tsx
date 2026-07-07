@@ -350,3 +350,54 @@ describe("EvalManager Sidebar Controls", () => {
     });
   });
 });
+
+describe("EvalManager guided JSON import (format guide → dry-run validate → import)", () => {
+  const failingVerdict = {
+    ok: false,
+    structural_error: null,
+    tasks: [
+      {
+        id: "bad_task",
+        reachable: "yes" as const,
+        discriminating: true,
+        detail: "ok otherwise",
+        semantic: ["bad_task: world_state entity 'Z-99' is in neither the prompt nor any other entity's blob"],
+      },
+    ],
+  };
+
+  it("shows the format guide (with a copyable v2 skeleton) BEFORE opening the file picker", async () => {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    render(<EvalManager {...props()} />);
+    fireEvent.click(screen.getByTestId("eval-manager-import"));
+    expect(screen.getByTestId("eval-import-guide-skeleton")).toHaveTextContent(/"world_state"/);
+    expect(vi.mocked(open)).not.toHaveBeenCalled();
+    expect(importFile).not.toHaveBeenCalled();
+  });
+
+  it("a failing dry-run blocks the import and names each finding", async () => {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    vi.mocked(open).mockResolvedValue("/tmp/broken.json");
+    importFile.mockResolvedValue(failingVerdict);
+    render(<EvalManager {...props()} />);
+    fireEvent.click(screen.getByTestId("eval-manager-import"));
+    fireEvent.click(screen.getByTestId("confirm-ok")); // Continue → choose file
+    await waitFor(() => expect(importFile).toHaveBeenCalledWith("/tmp/broken.json"));
+    // Blocking popup names the task + defect; the panel carries the same finding.
+    expect(screen.getByTestId("eval-import-blocked-findings")).toHaveTextContent("Z-99");
+    expect(screen.getByTestId("eval-validation-result")).toHaveTextContent("Problems found");
+    expect(screen.getByTestId("eval-validation-semantic-bad_task-0")).toHaveTextContent("Z-99");
+  });
+
+  it("a clean dry-run imports without any blocking dialog", async () => {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    vi.mocked(open).mockResolvedValue("/tmp/good.json");
+    importFile.mockResolvedValue(null);
+    render(<EvalManager {...props()} />);
+    fireEvent.click(screen.getByTestId("eval-manager-import"));
+    fireEvent.click(screen.getByTestId("confirm-ok"));
+    await waitFor(() => expect(importFile).toHaveBeenCalledWith("/tmp/good.json"));
+    expect(screen.queryByTestId("eval-import-blocked-findings")).toBeNull();
+    expect(screen.queryByTestId("eval-validation-result")).toBeNull();
+  });
+});

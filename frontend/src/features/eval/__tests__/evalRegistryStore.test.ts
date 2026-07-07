@@ -1,6 +1,26 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+vi.mock("../../../shared/ipc/eval/registry", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  getBuiltinCollection: vi.fn().mockResolvedValue([]),
+  listBuiltinCollections: vi.fn().mockResolvedValue([]),
+  listCustomCollections: vi.fn().mockResolvedValue(["fresh"]),
+  loadCustomCollection: vi.fn().mockResolvedValue([]),
+  saveCustomCollection: vi.fn().mockResolvedValue(undefined),
+  deleteCustomCollection: vi.fn().mockResolvedValue(undefined),
+  importCustomCollection: vi.fn().mockResolvedValue("fresh"),
+  validateCollectionFile: vi.fn(),
+  validateCustomCollection: vi.fn(),
+}));
+
 import { useEvalRegistryStore } from "../state/evalRegistryStore";
-import type { ToolTask } from "../../../shared/ipc/eval/registry";
+import {
+  importCustomCollection,
+  validateCollectionFile,
+  validateCustomCollection,
+  type ToolTask,
+  type CollectionValidation,
+} from "../../../shared/ipc/eval/registry";
 
 const task: ToolTask = {
   id: "t1",
@@ -10,6 +30,21 @@ const task: ToolTask = {
   expected: { type: "no_call" },
   agentic: { mocks: [], end_state: { require_end_state: {} }, world_state: { a: "1" } },
 };
+
+const failingVerdict: CollectionValidation = {
+  ok: false,
+  structural_error: null,
+  tasks: [{ id: "t1", reachable: "yes", discriminating: true, detail: "d", semantic: ["t1: world_state entity 'Z-99' is orphaned"] }],
+};
+const cleanVerdict: CollectionValidation = {
+  ok: true,
+  structural_error: null,
+  tasks: [{ id: "t1", reachable: "yes", discriminating: true, detail: "d", semantic: [] }],
+};
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 describe("evalRegistryStore.editWorldState", () => {
   it("replaces the task's world_state and marks the selection edited (fork-on-edit)", () => {
@@ -25,5 +60,45 @@ describe("evalRegistryStore.editWorldState", () => {
     useEvalRegistryStore.setState({ tasks: [task, other], edited: false });
     useEvalRegistryStore.getState().editWorldState("t1", { a: "9" });
     expect(useEvalRegistryStore.getState().tasks[1].agentic?.world_state).toEqual({ keep: "me" });
+  });
+});
+
+describe("evalRegistryStore.importFile (two-phase: validate the FILE before writing)", () => {
+  it("returns the failing verdict and imports NOTHING when the dry-run fails", async () => {
+    vi.mocked(validateCollectionFile).mockResolvedValue(failingVerdict);
+    useEvalRegistryStore.setState({ collections: [], presets: [] });
+    const verdict = await useEvalRegistryStore.getState().importFile("/tmp/broken.json");
+    expect(verdict).toEqual(failingVerdict);
+    expect(importCustomCollection).not.toHaveBeenCalled();
+    expect(useEvalRegistryStore.getState().collections).toEqual([]);
+  });
+
+  it("imports and selects the collection when the dry-run is clean, returning null", async () => {
+    vi.mocked(validateCollectionFile).mockResolvedValue(cleanVerdict);
+    useEvalRegistryStore.setState({ collections: [], presets: [] });
+    const verdict = await useEvalRegistryStore.getState().importFile("/tmp/good.json");
+    expect(verdict).toBeNull();
+    expect(importCustomCollection).toHaveBeenCalledWith("/tmp/good.json");
+    const s = useEvalRegistryStore.getState();
+    expect(s.collections).toEqual(["fresh"]);
+    expect(s.selected).toBe("fresh");
+  });
+});
+
+describe("evalRegistryStore.save (auto-validate after write)", () => {
+  it("returns the fresh verdict for the saved collection", async () => {
+    vi.mocked(validateCustomCollection).mockResolvedValue(cleanVerdict);
+    useEvalRegistryStore.setState({ presets: [] });
+    const verdict = await useEvalRegistryStore.getState().save("mine", [task]);
+    expect(validateCustomCollection).toHaveBeenCalledWith("mine");
+    expect(verdict).toEqual(cleanVerdict);
+  });
+
+  it("still saves (returns null) when the auto-validate call itself hiccups", async () => {
+    vi.mocked(validateCustomCollection).mockRejectedValue(new Error("ipc down"));
+    useEvalRegistryStore.setState({ presets: [] });
+    const verdict = await useEvalRegistryStore.getState().save("mine", [task]);
+    expect(verdict).toBeNull();
+    expect(useEvalRegistryStore.getState().selected).toBe("mine");
   });
 });

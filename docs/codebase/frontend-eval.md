@@ -351,7 +351,23 @@ dispatches on `isPreset` (`get_builtin_collection` vs `load_custom_collection`).
 call the registry CRUD then re-list. Presets can't be deleted from disk, so
 `hidePreset` just hides them (persisted in `localStorage` under
 `qm-eval-hidden-presets`). `startNew()` enters the `NEW_COLLECTION = "__new__"`
-sentinel (never sent to the backend). `importFile` wraps `import_custom_collection`.
+sentinel (never sent to the backend).
+
+`importFile` is **two-phase**: it dry-runs `validate_collection_file` on the picked
+path first and only imports (`import_custom_collection`) a clean file — a failing
+`CollectionValidation` verdict is returned to the caller **without writing anything**,
+so the UI shows the structured per-task findings instead of a raw backend error
+string (the backend `evals::save` boundary would reject it anyway; this is the
+friendly layer). `save` auto-validates what was just written
+(`validate_custom_collection`, best-effort) and returns the verdict so the author
+sees "answer keys valid" without pressing Validate.
+
+In **EvalManager**, "[↓] Import .json" opens a **format-guide dialog first** (the
+expected v2 skeleton + copy-template button + a pointer to
+`docs/reference.md#agentic-authoring-contract`); the file picker only opens from
+its Continue. A blocked import shows a popup listing each finding (task id + exact
+defect) and mirrors them in the validation panel (`⚠` rows under each task,
+`eval-validation-semantic-*` testids).
 
 ### evalStore.ts — simple per-task results (legacy single-model)
 

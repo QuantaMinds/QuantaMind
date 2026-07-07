@@ -683,7 +683,7 @@ reached in ~3 steps. (Authoring note: v2 checkpoints should glob tolerant string
 trivial convention difference; mismatches between a scenario's world_state hints and its
 checkpoint args otherwise read as model failures.)
 
-(Authoring note — the two `world_state` reachability contracts, both CI-enforced in
+(Authoring note — the four `world_state` authoring contracts, all CI-enforced in
 `scenarios.rs`:
 
 1. **Every entity id must be reachable.** A digit-bearing top-level `world_state` key
@@ -706,7 +706,18 @@ is unreachable). A getter that acks hides the fact the task grades on: the model
 the right tool, learned nothing, and springs the trap blind. Guard:
 `every_expected_getter_call_resolves_to_real_world_state_data`.
 
-3. **The world must channel the model through the answer key, honestly.** Two coding-env
+3. **Every unfetched key must be RESERVED.** The inverse of the first two: a top-level
+ws key no intended path reaches (not in the prompt, any blob, any expected-call arg, or
+a tool name) is pure oracle data — `outcome`, `rule`, `real_bug`, `expected_tax`, … —
+yet `derive_response` would hand its whole blob to any call whose arg guesses the key
+string. Such keys must be listed in `world_state::RESERVED` (the single source of
+truth, ~32 names; `generator.rs` and the guards import it), which makes the responder
+ack and exempts them from alpha-renaming. Guard:
+`no_unfetched_world_state_key_is_resolvable_by_a_getter`; the getter-resolves guard
+above is the tripwire in the other direction — reserving a key a real getter needs
+turns it red.
+
+4. **The world must channel the model through the answer key, honestly.** Two coding-env
 conventions, learned from a live trace where a model wrote the correct fix and still
 failed (`md_co_trace_root_cause`): (a) `search_*` tools return LOCATORS ("defined in
 tests/test_round_paise.py"), never content — if search returns the content directly, the
@@ -717,7 +728,19 @@ state pass/fail CONDITIONS ("FAILS while … uses float round(); GREEN once … 
 via Decimal"), never a bare current-state field ("failing": …) — a bare state can never
 change, so a model that applied the correct fix re-runs, reads "failing", and loops until
 the cap. Guard: `scripted_natural_route_completes_trace_root_cause` proves the natural
-search → locate → read → fix → rerun route reaches the end state.)
+search → locate → read → fix → rerun route reaches the end state.
+
+Contracts 1–3 share ONE implementation: `oracle::semantic_findings(&[ToolTask])`
+(typed `SemanticFinding { task_id, kind: OrphanEntity | AckingGetter | UnfetchedKey,
+message }`), which operates on the TRANSPILED shape — the form custom collections
+persist as. The `scenarios.rs` CI guards load each bundled collection through
+`load_v2_collection` and filter findings by kind; `evals::save` hard-rejects any custom
+save/import with findings (write-side only — load stays permissive so a broken file can
+be opened and fixed); `oracle::validate_collection_deep` carries them per-task in
+`TaskValidation.semantic` so the Validate button and the import dry-run show the same
+messages. One implementation means CI and the import trust boundary can never drift.
+Contract 4 is behavioral (world SHAPE, not key reachability) and is enforced by the
+scripted natural-route regression in `runner_tests.rs`.)
 
 ---
 
@@ -1080,7 +1103,10 @@ in `toolcall_cmd` and are imported by the other command modules.
 ### File: `batch_cmd.rs`
 - `run_batch_eval`, `stop_batch_eval`, `check_unfinished_run`, `resume_batch_eval`,
   `discard_run`. `BatchRunState{cancel}`; `TauriBatchSink` emits progress/step
-  events; `OllamaVramGate` isolation; shared `run_passes` core.
+  events AND persists each agentic turn + terminal outcome to
+  `jobs::transcripts` (`agentic_transcripts/`, latest batch only, best-effort —
+  a write failure warns loudly and the run continues; see
+  `backend-persistence.md`); `OllamaVramGate` isolation; shared `run_passes` core.
 
 ```rust
 // Transactional finish: persist → verify on disk → only THEN delete the job log

@@ -29,6 +29,7 @@ All paths are under the OS app-config dir (`app.path().app_config_dir()`) unless
 | Eval run history | `history/<collection>.json` | JSON (`Vec<RunSummary>`, capped 100) | Eval / regression timeline |
 | Eval traces | `traces/<collection>.json` | JSON (`StoredCollectionTraces`) | Pipeline visualizer |
 | Batch job logs | `jobs/<run_id>.jsonl` | JSONL (header + units) | Batch eval (resume) |
+| Agentic transcripts | `agentic_transcripts/<collection>/<model>--<task>[--native].jsonl` | JSONL (steps + outcome) | Batch eval (post-mortem) |
 | Batch reports | `batch_reports/<collection>.json` | JSON (`BatchReport`) | Readiness page |
 | Readiness profiles | `readiness/<id>.json` | JSON (`ReadinessProfile`) | Readiness gating |
 | Context Stress Test status | `cliff/<collection>.json` | JSON (`{model: CliffStatus}`) | Readiness / Context Stress Test |
@@ -51,6 +52,7 @@ All paths are under the OS app-config dir (`app.path().app_config_dir()`) unless
 | `eval_history` | `commands/eval/matrix_cmd.rs`, `batch_cmd.rs` | `app_config_dir/history/` |
 | `eval_trace_store` | `commands/eval/toolcall_cmd.rs` | `app_config_dir/traces/` |
 | `jobs::queue` | `commands/eval/batch_cmd.rs` | `app_config_dir/jobs/` |
+| `jobs::transcripts` | `commands/eval/batch_cmd.rs` (`TauriBatchSink`) | `app_config_dir/agentic_transcripts/` |
 | `readiness::reports` | `commands/eval/batch_cmd.rs`, `readiness_cmd.rs` | `app_config_dir/batch_reports/` |
 | `readiness::profiles` | `commands/eval/readiness_cmd.rs` | `app_config_dir/readiness/` |
 | `readiness::cliff` | `commands/eval/readiness_cmd.rs` | `app_config_dir/cliff/` |
@@ -134,7 +136,7 @@ pub fn append(dir: &Path, collection_id: &str, new: &[RunSummary]) -> AppResult<
 
 ## File: `evals.rs`
 
-**Responsibility:** the custom eval-collection registry — JSON task files. **Why:** the source of truth for what gets evaluated; also the trust-boundary primitive for *all* file reads (collection load and CSV import both go through it). **What:** `MAX_BYTES = 1 MB`; `sanitize_name(name)` (rejects empty / `/` / `\` / `..` / leading `.`); `list(dir)` (sorted stems, missing → empty); `read_text_capped(path)` (cap-then-read raw text — the primitive the frontend never bypasses); `read_capped(path)` (cap → parse → `validate_tasks`); `load`/`save`/`delete`. **How/Where used:** `commands/eval/eval_registry.rs`, import commands. `sanitize_name` is reused by `eval_history` and `eval_trace_store` and `stt::eval_specs` to key their files.
+**Responsibility:** the custom eval-collection registry — JSON task files. **Why:** the source of truth for what gets evaluated; also the trust-boundary primitive for *all* file reads (collection load and CSV import both go through it). **What:** `MAX_BYTES = 1 MB`; `sanitize_name(name)` (rejects empty / `/` / `\` / `..` / leading `.`); `list(dir)` (sorted stems, missing → empty); `read_text_capped(path)` (cap-then-read raw text — the primitive the frontend never bypasses); `read_capped(path)` (cap → parse → `validate_tasks`); `load`/`save`/`delete`. `save` is additionally the **semantic write boundary**: after structural `validate_tasks` it runs `oracle::semantic_findings` (the world-state authoring contract — orphaned entity ids, expected getters that ack, unfetched oracle keys) and hard-rejects with an error naming each task + defect. Write-side only by design: `load`/`parse_collection` stay permissive so a pre-existing broken file can be opened and fixed. **How/Where used:** `commands/eval/eval_registry.rs`, import commands (import writes via `save`, so uploads hit the same boundary). `sanitize_name` is reused by `eval_history` and `eval_trace_store` and `stt::eval_specs` to key their files.
 
 ```rust
 pub fn sanitize_name(name: &str) -> AppResult<String> {
@@ -178,6 +180,14 @@ pub fn load(path: &Path) -> AppResult<Option<(RunConfig, Vec<CompletedUnit>)>> {
 ```
 
 **How/Where used:** `commands/eval/batch_cmd.rs`. On start a unit not present in `units` simply re-runs — a torn tail is "not done."
+
+### File: `jobs/transcripts.rs`
+**Responsibility:** the durable per-(model, task) agentic transcript — every `TrajectoryStep` (raw model output, injection, step kind, env snapshot, D9 usage fields) plus the terminal `TaskOutcome`, one JSONL line each. **Why:** the live `EVENT_AGENTIC_STEP` stream is the UI's copy and vanishes with the window; before this store there was NO on-disk artifact to post-mortem a failing run turn-by-turn (the single biggest observability gap in the agentic path). **What:**
+- `transcript_path(dir, collection_id, model, task_id, native)` → `agentic_transcripts/<collection>/<model>--<task>[--native].jsonl`; every segment through `safe_filename` (model names carry `:`), native and prompt passes get separate files. **`agentic_transcripts/`, NOT `transcripts/` — that dir is the STT feature's store.**
+- `begin_task` (truncate/create — retention is **latest batch only**, the `eval_trace_store` most-recent-only philosophy; disk bounded by collection × models), `append_step` / `append_outcome` (O(1) `OpenOptions::append`, the `queue.rs` pattern), `read` (size-capped, `MAX_READ_BYTES = 32 MB`).
+- `enum TranscriptRecord<'a> { Step(&TrajectoryStep), Outcome(&TaskOutcome) }` (`rename_all="snake_case"`) — each line self-describing (`{"step":…}` / `{"outcome":…}`).
+
+**How/Where used:** written best-effort by `TauriBatchSink` (`batch_cmd.rs`) — `task_started` → `begin_task`, `agentic_turn` → `append_step`, `task_done` → `append_outcome`; a write failure prints a loud `[batch] WARN` and the run continues (a disk hiccup must never kill a batch, but is never silent). No read IPC/UI yet — the viewer is deferred (`docs/process.md#future-considerations`); inspect with any text tool.
 
 ---
 
@@ -377,6 +387,7 @@ pub fn save(dir: &Path, t: &Transcript) -> AppResult<()> {
 | `eval_history` | `Vec<RunSummary>` | `history/<sanitized>.json` (cap 100) | `backend-eval-engine.md` |
 | `eval_trace_store` | `StoredCollectionTraces` | `traces/<sanitized>.json` | `backend-eval-engine.md` |
 | `jobs::queue` | `JobRecord` (Header/Unit) | `jobs/<safe>.jsonl` | `backend-eval-engine.md` |
+| `jobs::transcripts` | `TranscriptRecord` (Step/Outcome lines) | `agentic_transcripts/<safe>/<safe>--<safe>.jsonl` | `backend-eval-engine.md` |
 | `readiness::reports` | `BatchReport` | `batch_reports/<safe>.json` | `backend-eval-engine.md` |
 | `readiness::profiles` | `ReadinessProfile` | `readiness/<safe>.json` | `backend-eval-engine.md` |
 | `readiness::cliff` | `HashMap<String, CliffStatus>` | `cliff/<safe>.json` | `backend-eval-engine.md` |

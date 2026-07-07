@@ -389,6 +389,83 @@ async fn live_llama_completes_a_benign_task_end_to_end() {
     assert!(outcome.reached_end, "a benign single-call task should complete through the fixed runner");
 }
 
+/// LIVE E2E (ignored): the world-state Hard-tier RETURNS task
+/// (hard-support-ecommerce / hd_se_returns), k=1, against llama.cpp on :8081 with
+/// a THINKING model — the full diagnostic chain in one run: per-run
+/// `instantiate()` remap anchors on the prompt's entity ids, expected getters
+/// return real world_state data (never `{"ok":true}`), the authored 503/429
+/// transient faults fire and clear, `<think>` reconstruction survives parsing,
+/// and the verdict is honest. Every turn plus the outcome is persisted through
+/// the REAL `jobs::transcripts` store — proving the batch sink's write path on a
+/// live run and leaving a JSONL to post-mortem. k=1 means pass OR a legitimate
+/// capability failure are both acceptable; what MUST hold is that no turn is a
+/// harness artifact. Run (server must be up):
+///   cargo test --release --lib live_llama_world_state -- --ignored --nocapture
+#[tokio::test]
+#[ignore]
+async fn live_llama_world_state_hard_returns_k1_writes_a_transcript() {
+    use crate::inference::backend::backend_kind::BackendKind;
+    use crate::inference::eval::agentic::build::sandbox_for;
+    use crate::inference::eval::agentic::difficulty::passk::max_tokens_for;
+    use crate::inference::eval::agentic::model_turn::BackendTurn;
+    use crate::inference::eval::agentic::scoring::report::AgenticReport;
+    use crate::inference::eval::agentic::spec::Tier;
+    use crate::inference::eval::agentic::v2::collection::load_v2_collection;
+    use crate::inference::eval::agentic::v2::generator;
+    use crate::inference::eval::agentic::v2::scenarios::v2_json;
+    use crate::inference::eval::batch::TaskOutcome;
+    use crate::persistence::jobs::transcripts;
+
+    const MODEL: &str = "qwen3.5-9b_q4_k_m";
+    const COLLECTION: &str = "hard-support-ecommerce";
+
+    let tasks = load_v2_collection(v2_json(COLLECTION).unwrap()).unwrap();
+    let base = tasks.iter().find(|t| t.id.starts_with("hd_se_returns")).expect("returns task present");
+    // Mirror production: a generated task gets a FRESH instance per (model, run_index).
+    let task = generator::instantiate(base, generator::seed_for(MODEL, 0));
+    let (sandbox, cfg) = sandbox_for(&task).unwrap();
+    eprintln!("\nLIVE ws prompt (remapped ids): {}", task.prompt);
+
+    let turn = BackendTurn {
+        backend: BackendKind::LlamaCpp,
+        endpoint: "http://localhost:8081".into(),
+        model: MODEL.into(),
+        cancel: CancellationToken::new(),
+        options: None,
+        keep_alive: None,
+        is_thinking: true,
+        max_tokens: max_tokens_for(Tier::Hard, true),
+        cpu_offloaded: false, ctx_ceiling: crate::inference::eval::agentic::runner::NUM_CTX_CEILING, stop_cache: Default::default(),
+    };
+    let (tx, mut rx) = unbounded_channel();
+    let outcome = run_once(&turn, &sandbox, cfg.max_steps, cfg.max_recovery, 0, &tx).await.unwrap();
+    drop(tx);
+    let steps = drain(&mut rx);
+
+    // Persist through the REAL transcript store — the same calls TauriBatchSink makes.
+    let dir = std::env::temp_dir().join("qm-live-transcripts");
+    let path = transcripts::transcript_path(&dir, COLLECTION, MODEL, &task.id, false);
+    transcripts::begin_task(&path).unwrap();
+    for s in &steps {
+        transcripts::append_step(&path, s).unwrap();
+    }
+    let report = AgenticReport::from_outcomes(std::slice::from_ref(&outcome));
+    transcripts::append_outcome(&path, &TaskOutcome::Agentic { report }).unwrap();
+    eprintln!("LIVE ws transcript: {}", path.display());
+    eprintln!(
+        "LIVE ws outcome: reached_end={} steps={} failure={:?} tokens={}",
+        outcome.reached_end, outcome.steps, outcome.failure, outcome.output_tokens
+    );
+
+    // The turn-by-turn artifact must exist and be readable back through the store.
+    let text = transcripts::read(&path).unwrap();
+    assert_eq!(text.lines().count(), steps.len() + 1, "every step + the outcome line");
+    // Harness-artifact tripwires (a k=1 capability FAIL is fine; these are not):
+    assert_ne!(outcome.failure, Some(FailureKind::EmptyOutput), "empty output — a plumbing artifact");
+    assert_ne!(outcome.failure, Some(FailureKind::ForeignDialect), "dialect soup — a template artifact");
+    assert!(outcome.steps > 1, "must get past turn 1 — a 1-step end was the unreachable-answer-key bug");
+}
+
 #[tokio::test]
 async fn busy_loop_with_varying_calls_is_caught_before_the_step_cap() {
     // Every turn calls a decoy tool with a DIFFERENT query — the signatures never repeat, so the

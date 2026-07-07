@@ -1,0 +1,80 @@
+use crate::errors::{AppError, AppResult};
+use crate::inference::eval::agentic::step::TrajectoryStep;
+use crate::inference::eval::batch::TaskOutcome;
+use crate::persistence::readiness::safe_filename::safe_filename;
+use serde::Serialize;
+use std::fs::{File, OpenOptions};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+
+/// A deep pass^k transcript (k runs × steps × raw model output + env snapshots)
+/// can be large; cap reads so a runaway file can't OOM the process.
+pub const MAX_READ_BYTES: u64 = 32 * 1024 * 1024;
+
+/// One `.jsonl` line: a live turn or the task's terminal outcome (always last).
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+enum TranscriptRecord<'a> {
+    Step(&'a TrajectoryStep),
+    Outcome(&'a TaskOutcome),
+}
+
+/// The transcript path for one (collection, model, task, pass):
+/// `<dir>/<collection>/<model>--<task>[--native].jsonl`. Every segment goes
+/// through `safe_filename` (model names carry `:` and `/`; ids can be long) so
+/// the path is collision-proof and path-safe. `dir` is
+/// `app_config_dir/agentic_transcripts` — deliberately NOT `transcripts/`,
+/// which belongs to the STT feature.
+pub fn transcript_path(dir: &Path, collection_id: &str, model: &str, task_id: &str, native: bool) -> PathBuf {
+    let pass = if native { "--native" } else { "" };
+    dir.join(safe_filename(collection_id))
+        .join(format!("{}--{}{}.jsonl", safe_filename(model), safe_filename(task_id), pass))
+}
+
+/// Start a task's transcript: truncate/create. Retention is LATEST BATCH ONLY —
+/// re-running a (collection, model, task) replaces its transcript, so disk stays
+/// bounded by collection size × models (the `eval_trace_store` philosophy).
+pub fn begin_task(path: &Path) -> AppResult<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    File::create(path)?;
+    Ok(())
+}
+
+/// Append one live turn — an O(1) OS-atomic append (the `queue::append` pattern),
+/// so a crash mid-append can only truncate the trailing line.
+pub fn append_step(path: &Path, step: &TrajectoryStep) -> AppResult<()> {
+    append_record(path, &TranscriptRecord::Step(step))
+}
+
+/// Append the task's terminal outcome — the last line of a completed transcript.
+pub fn append_outcome(path: &Path, outcome: &TaskOutcome) -> AppResult<()> {
+    append_record(path, &TranscriptRecord::Outcome(outcome))
+}
+
+fn append_record(path: &Path, record: &TranscriptRecord<'_>) -> AppResult<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut f = OpenOptions::new().append(true).create(true).open(path)?;
+    writeln!(f, "{}", serde_json::to_string(record)?)?;
+    f.flush()?;
+    Ok(())
+}
+
+/// The raw transcript text, size-capped. Parsing is the reader's concern — each
+/// line is a self-describing tagged record (`{"step": …}` / `{"outcome": …}`).
+pub fn read(path: &Path) -> AppResult<String> {
+    let len = std::fs::metadata(path)?.len();
+    if len > MAX_READ_BYTES {
+        return Err(AppError::Validation(format!(
+            "transcript too large ({len} bytes > {MAX_READ_BYTES} cap)"
+        )));
+    }
+    Ok(std::fs::read_to_string(path)?)
+}
+
+#[cfg(test)]
+#[path = "transcripts_tests.rs"]
+mod tests;
