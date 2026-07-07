@@ -27,10 +27,8 @@
         "fix_makes_green": true,
         "wrong_fix": "editing tests/test_round_paise.py",
         "payments": {
-          "failing": "test_round_paise",
           "failing_test_file": "tests/test_round_paise.py",
-          "hint": "amounts differ by 1 paise on .5 boundaries",
-          "status_after_correct_fix": "green"
+          "result": "test_round_paise FAILS while payments/round.py uses float round() (amounts differ by 1 paise on .5 boundaries); GREEN once the source converts via Decimal — multiply by 100, then quantize ROUND_HALF_UP"
         },
         "test_round_paise": "def test_round_paise():\n    assert round_paise(1.005) == 101  # expects decimal quantize semantics, source must not use float round()",
         "tests/test_round_paise.py": "def test_round_paise():\n    assert round_paise(1.005) == 101  # expects decimal quantize semantics, source must not use float round()",

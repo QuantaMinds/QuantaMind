@@ -247,23 +247,27 @@ mod tests {
     /// replay "passes" it. Respects `returns_entity`: a getter mistagged as an action
     /// stops surfacing its fact, so this also guards the tags.
     ///
-    /// SCOPE: enforced on the **Easy** tier, where checkpoint args are pure retrieval
-    /// facts. Medium+ retrieval-chain reachability is a tracked follow-up — those tasks
-    /// mix retrieved facts with REASONED conclusions (e.g. the chosen statistical method
-    /// in the extreme clinical tasks is derived, not fetched), which this string-needle
-    /// heuristic can't distinguish without per-task authoring judgment. The follow-up,
-    /// its worklist, and the retrieval-vs-derivation principle are recorded in
-    /// `docs/process.md#future-considerations` ("Medium/Hard answer-key reachability").
+    /// SCOPE: ALL tiers, entity env only — the fs/corpus/web-ui responders don't derive
+    /// from `derive_response`, so the surfacing simulation below doesn't model them.
+    /// Originally Easy-only: Medium+ was deferred because reasoned conclusions were
+    /// thought to trip the string-needle heuristic. In practice the needle only fires
+    /// when a checkpoint arg segment contains a COMPLETE ws string value — a literal
+    /// echo, i.e. a retrieval demand; reasoned conclusions are either short tokens
+    /// inside long oracle strings (never contained) or short ws values that the
+    /// grounding pass made surfaceable through a checkpointed getter. With every
+    /// retrieved fact now resolvable (the answer-key grounding pass), the guard holds
+    /// tier-wide — closing the follow-up recorded in
+    /// `docs/process.md#future-considerations`.
     #[test]
-    fn every_required_easy_world_state_fact_is_tool_reachable() {
+    fn every_required_world_state_fact_is_tool_reachable_all_tiers() {
         use crate::inference::eval::agentic::v2::world_state::derive_response;
         use crate::inference::eval::toolcall::tasks::Call;
 
         let mut violations: Vec<String> = Vec::new();
         for (id, json) in V2_SCENARIOS {
             let v: Value = serde_json::from_str(json).unwrap();
-            if v["tier"].as_str().map(str::to_lowercase).as_deref() != Some("easy") {
-                continue; // Medium+ reachability is a tracked follow-up (see doc comment)
+            if matches!(v.get("environment").and_then(Value::as_str), Some("filesystem") | Some("web_corpus") | Some("web_ui")) {
+                continue; // non-entity responders — derive_response doesn't model them
             }
             for task in v["tasks"].as_array().into_iter().flatten() {
                 let tid = task["id"].as_str().unwrap_or("?");

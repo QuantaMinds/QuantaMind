@@ -683,7 +683,7 @@ reached in ~3 steps. (Authoring note: v2 checkpoints should glob tolerant string
 trivial convention difference; mismatches between a scenario's world_state hints and its
 checkpoint args otherwise read as model failures.)
 
-(Authoring note — the four `world_state` reachability contracts, all CI-enforced in
+(Authoring note — the five `world_state` authoring contracts, all CI-enforced in
 `scenarios.rs`:
 
 1. **Every entity id must be reachable.** A digit-bearing top-level `world_state` key
@@ -726,7 +726,21 @@ negative*: a capable model phrases the conclusion its own way and is scored a FA
 Guard: `every_expected_answer_token_is_grounded_in_reachable_data`. Unlike checks 1–3
 this one is a HEURISTIC, so its findings carry `SemanticSeverity::Warning`.
 
-All four contracts share ONE implementation: `oracle::semantic_findings(&[ToolTask])`
+5. **The world must channel the model through the answer key, honestly.** Two coding-env
+conventions, learned from a live trace where a model wrote the correct fix and still
+failed (`md_co_trace_root_cause`): (a) status getters (`run_tests`, `run_ci`) name the
+REAL failing-test file path in their own response (`failing_test_file`) — the way a real
+test runner reports it — so the model doesn't need an extra hop to discover which
+`read_file{*glob*}` checkpoint to satisfy; a bare test-name key holding full content
+(never a locator the model must chase) works the same way with one fewer step. (b) The
+STATUS TEXT states pass/fail CONDITIONS ("FAILS while … uses float round(); GREEN once …
+quantizes via Decimal"), never a bare current-state field ("failing": …) — a bare state
+can never change, so a model that applied the correct fix re-runs, reads "failing", and
+loops until the cap. Guard: `scripted_natural_route_completes_trace_root_cause` proves
+the natural run-test → read → locate-fix → read → fix → rerun route reaches the end
+state.
+
+Contracts 1–4 share ONE implementation: `oracle::semantic_findings(&[ToolTask])`
 (typed `SemanticFinding { task_id, kind: OrphanEntity | AckingGetter | UnfetchedKey |
 UngroundedAnswerToken, message }` + `severity()`), which operates on the TRANSPILED
 shape — the form custom collections persist as. The `scenarios.rs` CI guards load each
@@ -737,7 +751,9 @@ file can be opened and fixed; Warning-severity saves fine);
 `oracle::validate_collection_deep` carries errors per-task in `TaskValidation.semantic`
 (fails `ok`) and warnings in `semantic_warnings` (advisory — the UI renders them amber,
 import proceeds). One implementation means CI and the import trust boundary can never
-drift.)
+drift. Contract 5 is behavioral (world SHAPE, not key reachability or wording) and is
+enforced by the scripted natural-route regression in `runner_tests.rs`, not the shared
+validator.)
 
 ---
 
