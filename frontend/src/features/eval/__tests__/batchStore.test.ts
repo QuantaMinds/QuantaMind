@@ -107,6 +107,43 @@ describe("batchStore (rAF-buffered)", () => {
     expect(get().running).toBe(false);
   });
 
+  it("beginStop flips stopping immediately, before any backend response lands", () => {
+    get().startRun();
+    expect(get().stopping).toBe(false);
+    get().beginStop();
+    expect(get().stopping).toBe(true);
+    expect(get().running).toBe(true); // still running until the backend confirms the end
+  });
+
+  it("an intermediate complete during a stop keeps stopping true; only the final one clears it", () => {
+    get().startRun();
+    get().beginStop();
+    const report = { collection_id: "c", columns: [] } as unknown as BatchReport;
+    // Native pass ends first (not final) — the user is still waiting on the prompt pass to stop.
+    get().complete(report, false);
+    expect(get().stopping).toBe(true);
+    // The final complete is the actual end of the stop.
+    get().complete(report, true);
+    expect(get().stopping).toBe(false);
+    expect(get().running).toBe(false);
+  });
+
+  it("setError also clears stopping (an error ends the run too)", () => {
+    get().startRun();
+    get().beginStop();
+    get().setError("backend down");
+    expect(get().stopping).toBe(false);
+    expect(get().running).toBe(false);
+  });
+
+  it("a fresh startRun never inherits a stale stopping flag", () => {
+    get().startRun();
+    get().beginStop();
+    get().reset();
+    get().startRun();
+    expect(get().stopping).toBe(false);
+  });
+
   it("marks the live pass native when a native-tagged step streams", () => {
     get().startRun();
     get().ingestStep({ ...step("m1", "a1", 0), is_native: true });

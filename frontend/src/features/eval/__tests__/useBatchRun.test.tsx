@@ -19,7 +19,7 @@ vi.mock("../../../shared/ipc/eval/batch", async (orig) => ({
 vi.mock("../../../shared/ipc/core/client", () => ({ healthFor: vi.fn() }));
 
 import { useBatchRun } from "../hooks/useBatchRun";
-import { runBatchEval } from "../../../shared/ipc/eval/batch";
+import { runBatchEval, stopBatchEval } from "../../../shared/ipc/eval/batch";
 import { healthFor } from "../../../shared/ipc/core/client";
 import { useBatchStore } from "../state/batchStore";
 import type { ModelTarget } from "../../../shared/ipc/eval/matrix";
@@ -90,5 +90,28 @@ describe("useBatchRun pre-flight health check", () => {
       expect.anything(),
     );
     spy.mockRestore();
+  });
+});
+
+describe("useBatchRun stop", () => {
+  it("flips the store's `stopping` flag synchronously, before stopBatchEval resolves", async () => {
+    // A pending promise the test controls — proves the flag flips BEFORE the IPC
+    // round-trip finishes, not after (the whole point of the fix: no wait for feedback).
+    let resolveStop = () => {};
+    vi.mocked(stopBatchEval).mockImplementation(() => new Promise<void>((res) => { resolveStop = res; }));
+    useBatchStore.getState().startRun();
+    const { result } = renderHook(() => useBatchRun());
+
+    let stopPromise!: Promise<void>;
+    act(() => {
+      stopPromise = result.current.stop();
+    });
+    expect(useBatchStore.getState().stopping).toBe(true);
+    expect(useBatchStore.getState().running).toBe(true); // still running — only stopping changed
+
+    resolveStop();
+    await act(async () => {
+      await stopPromise;
+    });
   });
 });

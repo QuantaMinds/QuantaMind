@@ -142,6 +142,9 @@ export function useBatchRun() {
   );
 
   const stop = useCallback(async () => {
+    // Flip BEFORE the await so the button shows "Stopping…" the instant it's clicked,
+    // not after the IPC round-trip (and the in-flight turn/run behind it) resolves.
+    useBatchStore.getState().beginStop();
     await stopBatchEval();
   }, []);
 

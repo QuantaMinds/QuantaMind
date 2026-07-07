@@ -229,6 +229,15 @@ await runBatchEval(collectionId, targets, tasks, k, maxSteps, globalParams,
 `keepLoaded → keepAlive -1` keeps weights resident; off omits it (backend
 default).
 
+**`stop()`.** Calls `useBatchStore.getState().beginStop()` **synchronously before**
+`await stopBatchEval()` — the store (and therefore the Stop button) reflects the
+click instantly, instead of waiting on the IPC round-trip. The cancel token is
+checked at every layer down to the in-flight HTTP call itself (turn boundary,
+post-model-call, and inside `stream_generate`'s own request — see
+`backend-eval-engine.md#cancellation`), so in practice Stop lands within a few
+hundred ms. `stopping` stays true until that lands — the flag exists so the wait,
+however short, is always visible rather than the button looking unresponsive.
+
 ### useEvalRun.ts — sequential single-model runner
 
 **Responsibility.** Run every loaded task **sequentially** against one model via
@@ -267,7 +276,17 @@ events/sec; naïve `set()` per event would thrash React.
 **Shape.** `report` (heavy per-model Matrix, null until `batch-complete`),
 `outcomeByKey` (terminal `TaskOutcome` per `cellKey(model,taskId)`), `stepsByKey`
 (live `TrajectoryStep[]` per cell), `tasksByModel`, `progress {done,total}`,
-`flushes`, `error`.
+`flushes`, `error`, `running`, `stopping`.
+
+**`stopping`.** True from `beginStop()` until the run actually ends (`complete(...,
+final=true)` or `setError`) — a THIRD state alongside `running`, not a rename of it.
+`running` alone can't tell "actively executing" apart from "cancel requested,
+draining the current turn"; the Stop button reads `stopping` to switch to a
+disabled **Stopping…** state the instant it's clicked, rather than staying on an
+actionable-looking STOP BATCH until the backend's `batch-complete` lands. An
+intermediate complete (`final=false`, e.g. the native pass ending before the prompt
+pass) leaves `stopping` untouched — only the FINAL complete clears it, so the button
+doesn't flicker back to normal mid-stop.
 
 **How.** Two guards. (1) A **module-level rAF buffer**: events accumulate and
 flush at most once per animation frame. (2) An **event gate** (`accepting`): only
@@ -525,6 +544,13 @@ wired from `EvalPage` (this replaced the scoreboard buttons and the old collecti
 is at the bottom. The Decoy control carries an `InfoButton` (`TOOL_HELP.decoys`). Run is
 disabled without a model + tasks. Delete-collection differs: presets are *hidden*
 (`hidePreset`), customs are *removed*.
+
+**Run/Stop button, three visual states.** Idle → **▶ RUN BATCH**. Running
+(`batchStore.running`) → red **■ STOP BATCH** (clickable — same button toggles
+Run↔Stop via `handleRunBatch`). Stopping (`batchStore.stopping`, set the instant
+Stop is clicked) → muted, disabled **■ STOPPING…** with a "finishing the current
+step" hint, so the click has immediate visible feedback even though the backend
+may take a few seconds to actually halt (see `useBatchRun.ts` above).
 
 **The k pre-fill guard (EvalPage owns it).** `k` is always editable and pre-filled
 with the chosen tier's `PASS_K_BY_TIER` recommendation, but the pre-fill is a

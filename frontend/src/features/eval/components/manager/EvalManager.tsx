@@ -79,6 +79,7 @@ export function EvalManager({
   // header's multi (Ollama) / single (llama.cpp/MLX) picker. No per-page model list.
   const selectedModels = useSelectedModelStore((s) => s.selectedModels);
   const running = useBatchStore((s) => s.running);
+  const stopping = useBatchStore((s) => s.stopping);
   const report = useBatchStore((s) => s.report);
   const { run, stop } = useBatchRun();
 
@@ -750,18 +751,22 @@ export function EvalManager({
           <button
             type="button"
             onClick={() => void handleRunBatch()}
-            disabled={runDisabled}
-            title={running ? undefined : runDisabledReason}
+            disabled={runDisabled || stopping}
+            title={stopping ? "Stop requested — finishing the current step…" : running ? undefined : runDisabledReason}
             style={{
               ...runBatchBtnStyle,
-              background: running ? "#fee2e2" : runDisabled ? "#f1f5f9" : "#dcfce7",
-              color: running ? "#991b1b" : runDisabled ? "#94a3b8" : "#166534",
-              borderColor: running ? "#fca5a5" : runDisabled ? "#e2e8f0" : "#bbf7d0",
-              cursor: runDisabled ? "not-allowed" : "pointer",
+              background: stopping ? "#f1f5f9" : running ? "#fee2e2" : runDisabled ? "#f1f5f9" : "#dcfce7",
+              color: stopping ? "#64748b" : running ? "#991b1b" : runDisabled ? "#94a3b8" : "#166534",
+              borderColor: stopping ? "#e2e8f0" : running ? "#fca5a5" : runDisabled ? "#e2e8f0" : "#bbf7d0",
+              cursor: runDisabled || stopping ? "not-allowed" : "pointer",
             }}
             data-testid="eval-run-all"
           >
-            {running ? (
+            {stopping ? (
+              <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                <Spinner color="#64748b" /> ■ STOPPING…
+              </span>
+            ) : running ? (
               <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
                 <Spinner color="#991b1b" /> ■ STOP BATCH
               </span>
@@ -769,10 +774,16 @@ export function EvalManager({
               "▶ RUN BATCH"
             )}
           </button>
-          {running && (
+          {stopping ? (
             <div style={{ fontSize: 11, color: "#64748b", fontFamily: "Inter, sans-serif", textAlign: "center", marginTop: -6 }}>
-              Evaluating… click to cancel.
+              Stopping — finishing the current step, this can take a few seconds…
             </div>
+          ) : (
+            running && (
+              <div style={{ fontSize: 11, color: "#64748b", fontFamily: "Inter, sans-serif", textAlign: "center", marginTop: -6 }}>
+                Evaluating… click to cancel.
+              </div>
+            )
           )}
           {running && cpuNotice && (
             <div
