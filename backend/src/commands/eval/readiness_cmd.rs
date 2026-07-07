@@ -25,6 +25,7 @@ use crate::inference::eval::readiness::profile::ReadinessProfile;
 use crate::inference::eval::readiness::types::{CliffStatus, ModelVerdict};
 use crate::commands::llama::llama_runtime::{plan_launch, KvDims};
 use crate::commands::storage::storage_disk;
+use crate::inference::eval::readiness::rightsizing::right_size::{self, RightSizingGroup};
 use crate::inference::eval::readiness::vram_fit::{self, try_profile, Dims, MemoryProfile};
 use crate::inference::eval::toolcall::tasks::{validate_tasks, ToolTask};
 use crate::inference::generate::generate_options::GenerateOptions;
@@ -517,24 +518,36 @@ fn sibling_collection_ids(collection_id: &str) -> Vec<String> {
     list_builtin_collections().into_iter().filter(|c| c.domain == domain).map(|c| c.id).collect()
 }
 
+/// The Agent Report payload: the per-model verdicts plus the right-sizing summary
+/// derived from them (the smallest quant of each family still Ready on this
+/// hardware, percent-only). `right_sizing_hint` explains an empty summary
+/// ("assess ≥2 quants…"). Host-specific — never published.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct ReadinessAssessment {
+    pub verdicts: Vec<ModelVerdict>,
+    pub right_sizing: Vec<RightSizingGroup>,
+    pub right_sizing_hint: Option<String>,
+}
+
 /// Assess the collection's last persisted batch report against a profile. Scoring
 /// is `readiness::assess` — the one source of truth shared with the future CLI;
 /// this command adds no scoring logic of its own. When `cap_bytes` is set it also
-/// measures VRAM fit for each **Ollama** column (exact weights + real KV cache at
-/// the run's `num_ctx` vs the cap); single-model backends and an absent cap leave
-/// fit unmeasured (`memory = None`) — never a guessed fit. An empty vec means no
-/// run has been persisted yet (the page shows an empty state).
+/// measures VRAM fit for each **Ollama** and **llama.cpp** column (exact weights +
+/// real KV cache at the run's `num_ctx` vs the cap; llama.cpp graded at the launch's
+/// actual KV precision); MLX/remote backends and an absent cap leave fit unmeasured
+/// (`memory = None`) — never a guessed fit. Empty verdicts means no run has been
+/// persisted yet (the page shows an empty state).
 #[tauri::command]
 pub async fn assess_readiness(
     app: AppHandle,
     collection_id: String,
     profile_id: String,
     cap_bytes: Option<u64>,
-) -> Result<Vec<ModelVerdict>, AppError> {
+) -> Result<ReadinessAssessment, AppError> {
     let profile = profiles::load(&profiles_dir(&app)?, &profile_id)?;
     let report = match reports::load(&reports_dir(&app)?, &collection_id)? {
         Some(r) => r,
-        None => return Ok(Vec::new()),
+        None => return Ok(ReadinessAssessment { verdicts: Vec::new(), right_sizing: Vec::new(), right_sizing_hint: None }),
     };
 
     // Real model metadata by name (Ollama `/api/tags` + `/api/show`): the weight
@@ -545,6 +558,14 @@ pub async fn assess_readiness(
     let weights: HashMap<String, u64> = installed.iter().map(|m| (m.name.clone(), m.size_bytes)).collect();
     let quants: HashMap<String, String> =
         installed.iter().filter(|m| !m.quantization.is_empty()).map(|m| (m.name.clone(), m.quantization.clone())).collect();
+    // Right-sizing grouping metadata: `(family parameter_size, weights)` per model.
+    // Only models with BOTH a family and a size class can be grouped (an empty key
+    // would wrongly merge unrelated models) — mirrors the Quant tab's grouping.
+    let rs_meta: right_size::ModelMeta = installed
+        .iter()
+        .filter(|m| !m.family.is_empty() && !m.parameter_size.is_empty())
+        .map(|m| (m.name.clone(), (format!("{} {}", m.family, m.parameter_size), m.size_bytes)))
+        .collect();
 
     // Measured context-cliff depths for this collection (verbatim model keys). The
     // verdict only blocks on these when a profile opts in via `min_context_tokens`.
@@ -627,7 +648,10 @@ pub async fn assess_readiness(
     // Phase 7.3: rank best-first (Ready > Conditional > NotReady, ties by effort
     // then steps) so the page's recommendation banner + leaderboard are correct.
     recommend::rank(&mut out);
-    Ok(out)
+    // Right-sizing summary over the ranked verdicts (dedup keeps the best row per
+    // model). Percent-only; host-specific, never published.
+    let (right_sizing, right_sizing_hint) = right_size::summarize(&out, &rs_meta);
+    Ok(ReadinessAssessment { verdicts: out, right_sizing, right_sizing_hint })
 }
 
 #[cfg(test)]

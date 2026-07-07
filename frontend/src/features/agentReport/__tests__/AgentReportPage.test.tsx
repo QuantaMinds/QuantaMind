@@ -38,7 +38,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   // Non-empty presets so the page doesn't trigger a registry init() in the test.
   useEvalRegistryStore.setState({ presets: [{ id: "easy-coding", label: "Coding", domain: "coding", tier: "easy" }], collections: ["finance"], selected: "finance" });
-  useReadinessStore.setState({ profiles: [], selectedProfileId: "", verdicts: [], hardware: null, capBytes: null, assessed: false, loading: false, error: null });
+  useReadinessStore.setState({ profiles: [], selectedProfileId: "", verdicts: [], rightSizing: [], rightSizingHint: null, hardware: null, capBytes: null, assessed: false, loading: false, error: null });
   useBatchStore.setState({ report: null });
   vi.mocked(listReadinessProfiles).mockResolvedValue([profile("coding-agent", "Coding agent", 0.8)]);
   vi.mocked(getHardwareSnapshot).mockResolvedValue({
@@ -57,9 +57,13 @@ describe("AgentReportPage", () => {
   });
 
   it("assesses the selected collection + profile and renders the verdict table", async () => {
-    vi.mocked(assessReadiness).mockResolvedValue([
-      { model: "qwen", backend: "ollama", verdict: { status: "ready", blocking: [], conditions: [], path: "prompt_based" } },
-    ]);
+    vi.mocked(assessReadiness).mockResolvedValue({
+      verdicts: [
+        { model: "qwen", backend: "ollama", verdict: { status: "ready", blocking: [], conditions: [], path: "prompt_based" } },
+      ],
+      right_sizing: [],
+      right_sizing_hint: null,
+    });
     render(<AgentReportPage />);
     await waitFor(() => expect(screen.getByTestId("readiness-profile-select")).toBeInTheDocument());
     // Wait for the detected hardware cap to populate before running.
@@ -72,9 +76,13 @@ describe("AgentReportPage", () => {
   });
 
   it("auto-refreshes only when a batch completes for the shown collection or its domain", async () => {
-    vi.mocked(assessReadiness).mockResolvedValue([
-      { model: "qwen", backend: "ollama", verdict: { status: "ready", blocking: [], conditions: [], path: "prompt_based" } },
-    ]);
+    vi.mocked(assessReadiness).mockResolvedValue({
+      verdicts: [
+        { model: "qwen", backend: "ollama", verdict: { status: "ready", blocking: [], conditions: [], path: "prompt_based" } },
+      ],
+      right_sizing: [],
+      right_sizing_hint: null,
+    });
     // Already assessed for the shown collection (easy-coding); two tier-siblings + a
     // different-domain collection are present so the domain guard can be exercised.
     useEvalRegistryStore.setState({
@@ -110,7 +118,7 @@ describe("AgentReportPage", () => {
   });
 
   it("shows an empty state (not a fabricated verdict) when no report is persisted", async () => {
-    vi.mocked(assessReadiness).mockResolvedValue([]);
+    vi.mocked(assessReadiness).mockResolvedValue({ verdicts: [], right_sizing: [], right_sizing_hint: null });
     render(<AgentReportPage />);
     await waitFor(() => expect(screen.getByTestId("readiness-profile-select")).toBeInTheDocument());
     fireEvent.click(screen.getByTestId("readiness-run"));

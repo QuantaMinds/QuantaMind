@@ -159,6 +159,43 @@ export const ModelVerdictSchema = z.object({
 });
 export type ModelVerdict = z.infer<typeof ModelVerdictSchema>;
 
+/// One side of a right-sizing comparison (a single assessed variant). Percent-only
+/// feature — no cost/currency fields anywhere.
+export const RightSizingPickSchema = z.object({
+  model: z.string(),
+  quantization: z.string().nullish(),
+  weights_bytes: z.number().int().nonnegative(),
+  // Measured weights+KV total; null when the fit was unmeasured (never a guess).
+  total_bytes: z.number().int().nonnegative().nullish(),
+  pass_k: z.number().nullish(),
+  status: ReadinessSchema,
+});
+export type RightSizingPick = z.infer<typeof RightSizingPickSchema>;
+
+/// The smallest quant of one family that is still usable on this hardware vs the
+/// baseline (largest), with measured percent reductions. `memory_reduction_pct`
+/// is null unless both totals were measured at the same KV precision.
+export const RightSizingGroupSchema = z.object({
+  group: z.string(),
+  baseline: RightSizingPickSchema,
+  pick: RightSizingPickSchema,
+  size_reduction_pct: z.number(),
+  memory_reduction_pct: z.number().nullish(),
+  quality_delta_pp: z.number().nullish(),
+  pick_is_conditional: z.boolean(),
+  rationale: z.string(),
+});
+export type RightSizingGroup = z.infer<typeof RightSizingGroupSchema>;
+
+/// The Agent Report payload: ranked verdicts + the right-sizing summary derived
+/// from them. `right_sizing_hint` explains an empty summary.
+export const ReadinessAssessmentSchema = z.object({
+  verdicts: z.array(ModelVerdictSchema),
+  right_sizing: z.array(RightSizingGroupSchema).default([]),
+  right_sizing_hint: z.string().nullish(),
+});
+export type ReadinessAssessment = z.infer<typeof ReadinessAssessmentSchema>;
+
 /// Every readiness profile (built-ins seeded by Rust on first call).
 export async function listReadinessProfiles(): Promise<ReadinessProfile[]> {
   return z.array(ReadinessProfileSchema).parse(await invoke("list_readiness_profiles"));
@@ -173,15 +210,13 @@ export async function deleteReadinessProfile(id: string): Promise<void> {
 }
 
 /// Assess a collection's last persisted batch report against a profile. When
-/// `capBytes` is set, VRAM fit is measured for each Ollama model against that
-/// allocation cap. An empty array means no run has been persisted yet — the page
-/// shows an empty state.
+/// `capBytes` is set, VRAM fit is measured for each Ollama and llama.cpp model
+/// against that allocation cap. Returns the ranked verdicts plus the right-sizing
+/// summary; empty `verdicts` means no run has been persisted yet.
 export async function assessReadiness(
   collectionId: string,
   profileId: string,
   capBytes?: number,
-): Promise<ModelVerdict[]> {
-  return z
-    .array(ModelVerdictSchema)
-    .parse(await invoke("assess_readiness", { collectionId, profileId, capBytes }));
+): Promise<ReadinessAssessment> {
+  return ReadinessAssessmentSchema.parse(await invoke("assess_readiness", { collectionId, profileId, capBytes }));
 }
