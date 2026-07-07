@@ -7,7 +7,7 @@ use tauri::{AppHandle, Manager};
 /// Each is rebuilt on the next run. User-authored data (`evals/`, `readiness/`)
 /// and settings (`user_settings.yaml`, `model_settings.yaml`) are deliberately
 /// absent from this allow-list so a cache clear never destroys them.
-const CACHE_DIRS: &[&str] = &["jobs", "history", "batch_reports", "traces", "cliff"];
+const CACHE_DIRS: &[&str] = &["jobs", "history", "batch_reports", "traces", "cliff", "agentic_transcripts"];
 
 /// Regenerable cache files (the recent-workspace list is navigation history).
 const CACHE_FILES: &[&str] = &["recent_workspaces.yaml"];

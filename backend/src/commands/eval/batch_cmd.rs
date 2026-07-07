@@ -28,6 +28,7 @@ use crate::inference::ollama::ollama_placement::probe_placement;
 use crate::inference::ollama::ollama_show::{probe_ollama_version, probe_supports_tools};
 use crate::persistence::eval_history;
 use crate::persistence::jobs::queue::{self, RunConfig};
+use crate::persistence::jobs::transcripts;
 use crate::persistence::prompts::schema::InferenceParams;
 use crate::persistence::readiness::reports;
 use crate::sync::MutexExt;
@@ -50,6 +51,13 @@ fn history_dir(app: &AppHandle) -> Result<PathBuf, AppError> {
     Ok(dir.join("history"))
 }
 
+/// Per-(model, task) agentic transcript dir. NOT `transcripts/` — that name is
+/// the STT feature's store.
+fn transcripts_dir(app: &AppHandle) -> Result<PathBuf, AppError> {
+    let dir = app.path().app_config_dir().map_err(|e| AppError::Io(e.to_string()))?;
+    Ok(dir.join("agentic_transcripts"))
+}
+
 /// Where the last full batch report per collection is persisted — Rust's source
 /// of truth for the readiness verdict (the Agent Report page + future CLI read it).
 fn reports_dir(app: &AppHandle) -> Result<PathBuf, AppError> {
@@ -65,8 +73,27 @@ pub struct BatchRunState {
 
 /// Bridges domain batch events onto Tauri events — the single place the batch
 /// payload shapes meet the IPC layer (see `docs/architecture.md#layering`).
+/// Also persists each agentic turn to the on-disk transcript
+/// (`agentic_transcripts/`, latest batch only) so a failing run can be
+/// post-mortemed after the fact — the live event stream is the UI's copy, the
+/// transcript is the durable one. Writes are best-effort: a disk hiccup must
+/// never kill a batch, but it is logged loudly, never swallowed silently.
 struct TauriBatchSink {
     app: AppHandle,
+    collection_id: String,
+    /// `None` when `app_config_dir` was unavailable at construction — the run
+    /// proceeds without transcripts (warned once at construction).
+    transcripts_dir: Option<PathBuf>,
+}
+
+impl TauriBatchSink {
+    fn transcript(&self, model: &str, task_id: &str, native: bool) -> Option<PathBuf> {
+        let dir = self.transcripts_dir.as_ref()?;
+        Some(transcripts::transcript_path(dir, &self.collection_id, model, task_id, native))
+    }
+    fn warn_write(model: &str, task_id: &str, e: crate::errors::AppError) {
+        println!("[batch] WARN: transcript write failed for {model}/{task_id}: {e} — run continues, transcript incomplete");
+    }
 }
 
 impl BatchSink for TauriBatchSink {
@@ -74,16 +101,31 @@ impl BatchSink for TauriBatchSink {
         log_emit(&self.app, EVENT_BATCH_PROGRESS, BatchProgress::Started {
             model: model.into(), task_id: task_id.into(), index, total, category: category.into(), is_native,
         });
+        if let Some(path) = self.transcript(model, task_id, is_native) {
+            if let Err(e) = transcripts::begin_task(&path) {
+                Self::warn_write(model, task_id, e);
+            }
+        }
     }
     fn agentic_turn(&self, model: &str, task_id: &str, step: &TrajectoryStep, is_native: bool) {
         log_emit(&self.app, EVENT_AGENTIC_STEP, AgenticStepPayload {
             model: model.into(), task_id: task_id.into(), step: step.clone(), is_native,
         });
+        if let Some(path) = self.transcript(model, task_id, is_native) {
+            if let Err(e) = transcripts::append_step(&path, step) {
+                Self::warn_write(model, task_id, e);
+            }
+        }
     }
     fn task_done(&self, model: &str, task_id: &str, outcome: &TaskOutcome, is_native: bool) {
         log_emit(&self.app, EVENT_BATCH_PROGRESS, BatchProgress::Done {
             model: model.into(), task_id: task_id.into(), outcome: outcome.clone(), is_native,
         });
+        if let Some(path) = self.transcript(model, task_id, is_native) {
+            if let Err(e) = transcripts::append_outcome(&path, outcome) {
+                Self::warn_write(model, task_id, e);
+            }
+        }
     }
 }
 
@@ -261,7 +303,18 @@ pub(crate) async fn run_passes(
         *g = Some(cancel.clone());
     }
     let tasks = apply_overrides(config.tasks.clone(), config.k, config.max_steps, config.tier, config.decoy_tools);
-    let sink: Arc<dyn BatchSink> = Arc::new(TauriBatchSink { app: app.clone() });
+    let transcripts_dir = match transcripts_dir(app) {
+        Ok(d) => Some(d),
+        Err(e) => {
+            println!("[batch] WARN: no transcripts dir ({e}) — run proceeds without on-disk transcripts");
+            None
+        }
+    };
+    let sink: Arc<dyn BatchSink> = Arc::new(TauriBatchSink {
+        app: app.clone(),
+        collection_id: config.collection_id.clone(),
+        transcripts_dir,
+    });
     let job_path = queue::run_path(&jobs_dir(app)?, &config.collection_id);
     let rec_path = job_path.clone();
     let record = move |u: &CompletedUnit| {
