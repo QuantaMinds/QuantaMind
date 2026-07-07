@@ -44,3 +44,30 @@ be reserved) and `every_expected_getter_call_resolves_to_real_world_state_data`
 (reserving a key a real getter needs turns red). When authoring, put scoring
 data (`outcome`, per-entity verdicts, expected values) under a reserved key —
 never under a fetchable one.
+
+## The rest of the authoring contract
+
+The full user-facing version lives at `docs/reference.md#agentic-authoring-contract`;
+the mechanics that matter when writing a scenario file:
+
+- **Getters vs actions:** `returns_entity` absent/true = getter (surfaces the
+  entity blob); `false` = action (acks, never echoes data — answer-leniency).
+  The reporter tool (a `text` param) is exempt from the getter-data guard: its
+  ack IS its response.
+- **Decoys:** merged into the presented tool list at transpile but excluded from
+  `entity_tools`/`recognized_tools` — a decoy call gets the unknown-tool nudge,
+  never data. Pair with `must_not_call` (bare name, or `{name,args}` to trap a
+  real tool on the wrong entity → `ForbiddenCall`).
+- **Faults:** keyed by tool NAME with a global counter — `clears_after: N` means
+  the N+1-th call on that tool succeeds. The oracle satisfiability test retries
+  through transient faults; a `persistent` fault on a required tool is a dead
+  end it rejects.
+- **Prompts + generated tasks:** name every root entity id in the prompt —
+  `instantiate()` alpha-renames digit-bearing ids across prompt + world_state +
+  checkpoints + must_not_call, anchored on those mentions. Glob checkpoint args
+  for tolerant strings (`"decision": "*FULL*"`).
+- **Shared enforcement:** all of the above is checked by
+  `oracle::semantic_findings` — the same function behind the `scenarios.rs` CI
+  guards, `evals::save` (custom collections hard-block at write time), and the
+  import dry-run / Validate button (`validate_collection_deep`, per-task
+  `semantic` field).
