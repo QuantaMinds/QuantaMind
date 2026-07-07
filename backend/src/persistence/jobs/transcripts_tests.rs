@@ -95,8 +95,13 @@ fn oversize_transcript_read_is_capped() {
 #[test]
 fn an_unwritable_dir_errors_instead_of_panicking() {
     // The sink treats this Err as warn-and-continue; here we just prove the
-    // store surfaces it as an Err (no panic, no partial state).
-    let path = std::path::Path::new("/dev/null/nope/t.jsonl");
-    assert!(begin_task(path).is_err());
-    assert!(append_step(path, &step(0, 0, "x")).is_err());
+    // store surfaces it as an Err (no panic, no partial state). The unwritable
+    // path is a regular FILE used as a directory component — invalid on every
+    // platform (a unix-only path like /dev/null/... is creatable on Windows).
+    let dir = tempdir().unwrap();
+    let blocker = dir.path().join("blocker");
+    std::fs::write(&blocker, "a file, not a dir").unwrap();
+    let path = blocker.join("sub").join("t.jsonl");
+    assert!(begin_task(&path).is_err());
+    assert!(append_step(&path, &step(0, 0, "x")).is_err());
 }
