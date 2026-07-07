@@ -15,7 +15,9 @@ pub(crate) struct GenerateRequest<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub keep_alive: Option<i32>,
     /// `think:true` routes a reasoning model's scratchpad into the response's `thinking` field
-    /// so the harness can capture it. Omitted (`None`) for non-reasoning turns.
+    /// so the harness can capture it; `think:false` DISABLES thinking on a thinking-by-default
+    /// model (omitting the field would let it reason anyway, invisibly burning `num_predict`).
+    /// `None` omits the field (backend default — used by non-eval callers and warm-up).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub think: Option<bool>,
     pub stream: bool,
@@ -87,15 +89,22 @@ mod tests {
         assert!(!serde_json::to_string(&without).unwrap().contains("keep_alive"));
     }
 
-    /// `think:true` is sent for a reasoning turn and OMITTED otherwise (so a non-thinking
-    /// request is byte-identical to before this field existed).
+    /// `think` is sent BOTH ways for eval turns — `true` splits the scratchpad for capture,
+    /// `false` disables a thinking-by-default model — and omitted only when `None` (non-eval
+    /// callers / warm-up keep the pre-field request byte-identical).
     #[test]
-    fn think_serializes_only_when_requested() {
+    fn think_serializes_both_values_and_is_omitted_when_none() {
         let thinking = GenerateRequest {
             model: "m", prompt: "p", system: None, options: None,
             keep_alive: None, think: Some(true), stream: true,
         };
         assert!(serde_json::to_string(&thinking).unwrap().contains("\"think\":true"));
+
+        let suppressed = GenerateRequest {
+            model: "m", prompt: "p", system: None, options: None,
+            keep_alive: None, think: Some(false), stream: true,
+        };
+        assert!(serde_json::to_string(&suppressed).unwrap().contains("\"think\":false"));
 
         let plain = GenerateRequest {
             model: "m", prompt: "p", system: None, options: None,

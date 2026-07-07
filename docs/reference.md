@@ -1140,7 +1140,14 @@ the Phase-9 levers inline, so the chosen tier and decoy budget genuinely shape t
   before parsing AND before the transcript append (the scratchpad's inner JSON can't be mis-parsed as a
   call, and it never bloats the prefix-KV context). The flag persists per-model (`model_settings.yaml`,
   alongside temperature) and flows to the backend on each `ModelTarget`. Native-FC and the readiness probe
-  keep the legacy 256 cap. **Why it exists:** at 256 tokens a reasoning model is cut off mid-thought and
+  keep the legacy 256 cap. When **off**, the harness actively sends `think:false` on both Ollama wires
+  (`/api/generate` in `BackendTurn` and the native `/api/chat` in `NativeToolTurn`) — merely omitting the
+  field let a thinking-BY-DEFAULT model (qwen3.x) reason anyway into the invisible `thinking` channel,
+  burning the entire non-thinking token budget and scoring **Truncated with empty raw output** (observed
+  live: qwen3.6:35b on `md_co_trace_root_cause`). `think:false` is accepted by every Ollama version (only
+  `think:true` is capability-checked, so no `/api/show` probe is needed); MLX/vLLM/SGLang already get the
+  same suppression via `chat_template_kwargs.enable_thinking:false`, and llama.cpp needs no flag (its
+  reasoning arrives in `reasoning_content` and is re-wrapped by the wire layer). **Why it exists:** at 256 tokens a reasoning model is cut off mid-thought and
   scored Malformed/Hallucinated, so a terse small model can out-score a far larger reasoner for a purely
   structural reason — the toggle removes that harness artifact.
 - **Anti-Saturation** — an `Enable Decoy Tools` checkbox + `Decoy Count`. Enabled sends `decoyTools = N`,
