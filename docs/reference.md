@@ -449,6 +449,29 @@ measurements, and the recent-workspace list. It reports how much was freed.
 profiles, and app/model settings. The disk-usage number counts only model files,
 so it won't change after a clear — the freed amount is shown separately.
 
+### Import blocked — broken answer keys {#import-blocked}
+
+Importing or saving an eval collection can be rejected with **"Import blocked —
+broken answer keys"** (or the same findings as an error on save). Nothing was
+written: the file violates the world-state authoring contract, and running it
+would produce a task every model "fails" identically — a fixture bug, not a
+model measurement. Each finding names the task and the defect:
+
+- **"entity '…' is in neither the prompt nor any other entity's blob"** — the
+  model has no path to that id. Name it in the prompt (whole word) or inside
+  another entity's data that a getter surfaces.
+- **"expected getter …(…) resolves to NO world_state data (it acks)"** — the
+  fact the task grades on is parked where the responder can't reach it. Move it
+  under a top-level `world_state` key equal to the call's arg value (or the tool
+  name, for no-arg getters). Nested wrapper maps are unreachable.
+- **"world_state key '…' is oracle data no intended call fetches"** — answer-key
+  data must live under a reserved meta key (e.g. `outcome`, `ground_truth`), or
+  a lucky arg guess would be handed the whole answer.
+
+The full authoring rules are in
+[the agentic authoring contract](#agentic-authoring-contract). The import
+dialog's **Copy template** button gives a minimal valid skeleton to start from.
+
 ### Reporting something else
 
 Use the in-app **Feedback** button (bottom-right). Tick "Include diagnostic info"
@@ -793,6 +816,65 @@ block, a category that disagrees with `expected`, or a call to a tool the task
 doesn't offer is rejected as `invalid_task_schema`, naming the offending field.
 The in-app "Check JSON" button mirrors this for fast feedback but is not the
 trust boundary.
+
+## Agentic authoring contract (world-state tasks) {#agentic-authoring-contract}
+
+A multi-step **world-state** task (a v2 collection object — the shape the bundled
+tiered scenarios use, importable as your own `.json`) is graded against a hidden
+`world_state`: the answer key the sandbox consults when the model calls a tool.
+The model never sees `world_state`; it leaks **only through tool results**, one
+entity at a time, keyed by whatever id the model supplies in its own call args.
+That design is what makes these tasks discriminating — and it means a collection
+must obey the rules below or it fails every model identically for fixture
+reasons. Import and save **check all of this before writing** (see
+[Import blocked](#import-blocked)); the same checks gate the bundled scenarios
+in CI, from one shared implementation.
+
+**The rules:**
+
+1. **Every entity id must be reachable.** A `world_state` key the model is meant
+   to fetch (`O-1`, `AC-200`, `MShop`) must be named **whole-word in the prompt**
+   (a root entity the task tells the model to act on) or **inside another
+   entity's data** (a discovered entity — e.g. an order blob naming its
+   marketplace). There is no enumeration tool; an id reachable through neither
+   surface strands the model on turn 1, every run.
+2. **Facts live under top-level keys the getter's arg reaches.** The responder
+   returns the whole sub-object for the first string arg equal to a top-level
+   `world_state` key (or, for no-arg/computation getters, the blob authored
+   under the tool's own name). Nested wrapper maps
+   (`"policy": { "MShop": … }`) are unreachable — the getter acks, the model
+   learns nothing, and it decides blind.
+3. **Answer-key data goes under a reserved key.** Per-entity verdicts, expected
+   values, rationales (`outcome`, `ground_truth`, `expected_tax`, …) must sit
+   under a **reserved meta key** — reserved keys are never resolvable by any
+   call and never renamed by the per-run instance generator. An unreserved key
+   no intended call fetches is a leak: a lucky arg guess equal to the key string
+   would be handed the whole answer.
+4. **Getters vs actions.** Tools that surface entity data are getters (default);
+   tag pure actions (`full_refund`, `route_ewaste`) with
+   `"returns_entity": false` so they ack instead of echoing the data the model
+   was supposed to reason to. The reporter tool (the one with a `text` param) is
+   the reply channel; its ack **is** its response.
+5. **Decoys are traps, not information.** `decoy_tools` are shown to the model
+   alongside real tools but excluded from the getter set — calling one yields an
+   unknown-tool nudge, never data. Pair each decoy with `must_not_call` (bare
+   name, or `{name, args}` to trap a *real* tool used on the wrong entity) so
+   invoking it fails the run as `ForbiddenCall`. Decoy names may deliberately
+   shadow real ones (`full_refund_all` vs `full_refund`).
+6. **Traps must be avoidable and faults must clear.** The offline oracle check
+   proves a perfect agent can reach the end state without touching
+   `must_not_call` — and that a do-nothing agent fails (a task both agents pass
+   measures nothing). Transient `faults`
+   (`{on_call, type: "transient", status_code, clears_after}`) must have a
+   finite `clears_after` a retrying agent can outlast; a `persistent` fault on a
+   required tool is a dead end the oracle rejects.
+
+**Verify before running a model:** import runs the full check automatically;
+"✓ Validate collection" re-proves a saved collection any time (no model, no
+server, seconds). The schema itself is documented next to the bundled scenarios
+(`backend/src/inference/eval/agentic/v2/scenarios/SCHEMA.md`), and the import
+dialog's **Copy template** button gives a minimal valid skeleton exercising
+every rule.
 
 ## Model inspector & template guard {#model-inspector}
 

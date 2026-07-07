@@ -7,8 +7,11 @@ import {
   saveCustomCollection,
   deleteCustomCollection,
   importCustomCollection,
+  validateCollectionFile,
+  validateCustomCollection,
   type ToolTask,
   type BuiltinCollectionInfo,
+  type CollectionValidation,
 } from "../../../shared/ipc/eval/registry";
 
 /// The default read-only collection id (the first Easy-tier scenario).
@@ -50,10 +53,17 @@ interface EvalRegistryStore {
   init: () => Promise<void>;
   startNew: () => void; // enter an editable, unsaved new-collection selection
   select: (idOrName: string) => Promise<void>;
-  save: (name: string, tasks: ToolTask[]) => Promise<void>;
+  /// Save, then auto-validate: returns the fresh oracle+semantic verdict for the
+  /// saved collection (best-effort — null if the validate call itself fails).
+  save: (name: string, tasks: ToolTask[]) => Promise<CollectionValidation | null>;
   remove: (name: string) => Promise<void>;
   hidePreset: (id: string) => void; // "delete" a built-in preset (hide from list)
-  importFile: (path: string) => Promise<void>;
+  /// Two-phase import: dry-run the full validation on the FILE first; only a clean
+  /// file is imported (returns null). A failing verdict is returned WITHOUT writing
+  /// anything, so the caller can show what to fix — the backend save boundary would
+  /// reject it anyway, but this way the user gets the structured per-task verdict
+  /// instead of a raw error string.
+  importFile: (path: string) => Promise<CollectionValidation | null>;
   isPreset: (idOrName: string) => boolean;
   /// Replace a task's env snapshot (`agentic.world_state`) in memory and mark the selection edited.
   /// The edit rides to `run_batch_eval` verbatim; editing a bundled collection makes its run
@@ -104,6 +114,9 @@ export const useEvalRegistryStore = create<EvalRegistryStore>((set, get) => ({
     await saveCustomCollection(name, tasks);
     set({ collections: await listCustomCollections() });
     await get().select(name);
+    // Auto-validate what was just written so the author sees the verdict without
+    // pressing Validate. Best-effort: a validate hiccup must not fail the save.
+    return await validateCustomCollection(name).catch(() => null);
   },
   remove: async (name) => {
     await deleteCustomCollection(name);
@@ -111,8 +124,11 @@ export const useEvalRegistryStore = create<EvalRegistryStore>((set, get) => ({
     if (get().selected === name) await get().select(DEFAULT_PRESET);
   },
   importFile: async (path) => {
+    const verdict = await validateCollectionFile(path);
+    if (!verdict.ok) return verdict; // nothing written — caller shows what to fix
     const name = await importCustomCollection(path);
     set({ collections: await listCustomCollections() });
     await get().select(name);
+    return null;
   },
 }));

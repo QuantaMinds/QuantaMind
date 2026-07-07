@@ -13,9 +13,10 @@ use crate::errors::AppResult;
 use crate::inference::eval::agentic::build::sandbox_for;
 use crate::inference::eval::agentic::model_turn::ModelTurn;
 use crate::inference::eval::agentic::runner::run_once;
-use crate::inference::eval::agentic::sandbox::EndStateRule;
+use crate::inference::eval::agentic::sandbox::{EndStateRule, TaskCheckpoint};
 use crate::inference::eval::agentic::spec::FaultInjection;
-use crate::inference::eval::toolcall::tasks::{is_agentic, ToolTask};
+use crate::inference::eval::agentic::v2::world_state::{derive_response, ACK, RESERVED};
+use crate::inference::eval::toolcall::tasks::{is_agentic, Call, ToolTask};
 use crate::inference::generate::generate_spec::GenerateSpec;
 use crate::inference::generate::generate_stats::GenerateStats;
 use serde::Serialize;
@@ -51,6 +52,152 @@ fn concretize(v: &Value) -> Value {
         }
         other => other.clone(),
     }
+}
+
+/// The kind of semantic defect found in an authored task's answer key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SemanticFindingKind {
+    /// A digit-bearing `world_state` entity id named in neither the prompt nor any
+    /// other entity's blob — the model has no path to it (every run stalls).
+    OrphanEntity,
+    /// An expected getter call that `derive_response` can't resolve to real data —
+    /// the model calls the right tool, learns nothing, and decides blind.
+    AckingGetter,
+    /// A non-RESERVED `world_state` key no intended path fetches — pure oracle data
+    /// a lucky arg guess would exfiltrate whole.
+    UnfetchedKey,
+}
+
+/// One semantic defect in an authored task, with a message that names the task and
+/// the exact fix. The same checks back the bundled-scenario CI guards
+/// (`scenarios.rs`) and the custom-collection save/import trust boundary
+/// (`evals::save`) — one implementation, so CI and import can never drift.
+#[derive(Debug, Clone)]
+pub struct SemanticFinding {
+    pub task_id: String,
+    pub kind: SemanticFindingKind,
+    pub message: String,
+}
+
+impl std::fmt::Display for SemanticFinding {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+/// Whole-word token match, mirroring `generator::replace_ids`' boundary rule: a
+/// match is bounded by a non-alphanumeric byte (or the string edge) on both sides,
+/// so "M-1" never matches inside "M-12".
+fn names_token(text: &str, id: &str) -> bool {
+    let alnum = |b: u8| b.is_ascii_alphanumeric();
+    let tb = text.as_bytes();
+    let mut i = 0;
+    while let Some(off) = text[i..].find(id) {
+        let (s, e) = (i + off, i + off + id.len());
+        let left = s == 0 || !alnum(tb[s - 1]);
+        let right = e >= tb.len() || !alnum(tb[e]);
+        if left && right {
+            return true;
+        }
+        i = s + 1;
+    }
+    false
+}
+
+/// The machine-checkable world-state authoring contract, over TRANSPILED tasks
+/// (the shape custom collections persist as). Empty = clean. Only entity-env
+/// agentic tasks with a `world_state` are checked; single-turn, mocks-based, and
+/// filesystem/corpus/web-UI tasks pass through untouched.
+pub fn semantic_findings(tasks: &[ToolTask]) -> Vec<SemanticFinding> {
+    tasks.iter().flat_map(task_semantic_findings).collect()
+}
+
+fn task_semantic_findings(task: &ToolTask) -> Vec<SemanticFinding> {
+    let mut out = Vec::new();
+    let Some(spec) = task.agentic.as_ref() else { return out };
+    if !spec.environment.is_entity() {
+        return out;
+    }
+    let Some(ws_val) = spec.world_state.as_ref() else { return out };
+    let Some(ws) = ws_val.as_object() else { return out };
+    let tid = &task.id;
+    let mut push = |kind, message: String| {
+        out.push(SemanticFinding { task_id: tid.clone(), kind, message });
+    };
+
+    let checkpoints: &[TaskCheckpoint] = match &spec.end_state {
+        EndStateRule::RequireAll(cps) | EndStateRule::RequireSequence(cps) => cps,
+        _ => &[],
+    };
+    let in_another_blob =
+        |key: &str| ws.iter().any(|(k, val)| k != key && names_token(&val.to_string(), key));
+
+    // (1) Entity reachability: every digit-bearing non-reserved id must be named in
+    // the prompt (ROOT entity) or inside another entity's blob (DISCOVERED entity).
+    for key in ws.keys() {
+        let is_entity = !RESERVED.contains(&key.as_str()) && key.chars().any(|c| c.is_ascii_digit());
+        if is_entity && !names_token(&task.prompt, key) && !in_another_blob(key) {
+            push(
+                SemanticFindingKind::OrphanEntity,
+                format!("{tid}: world_state entity '{key}' is in neither the prompt nor any other entity's blob — the model has no path to its id; name it in the prompt or in a blob a getter surfaces"),
+            );
+        }
+    }
+
+    // (2) Answer-key data: every expected getter call must resolve to real
+    // world_state data, never the generic ack. Reporter tools (the text-bearing
+    // reply channel) are exempt: their ack IS the response. Raw args are tried
+    // before the glob-concretized form so a calc expression's literal `*`
+    // (multiplication) never reads as a false violation.
+    let reporters: Vec<&str> = task
+        .tools
+        .iter()
+        .filter(|t| t.parameters.pointer("/properties/text").is_some())
+        .map(|t| t.name.as_str())
+        .collect();
+    for cp in checkpoints {
+        let is_getter = spec.entity_tools.iter().any(|g| g == &cp.tool) && !reporters.contains(&cp.tool.as_str());
+        if !is_getter {
+            continue;
+        }
+        let resolves = derive_response(ws_val, &Call { name: cp.tool.clone(), args: cp.args.clone() }) != ACK
+            || derive_response(ws_val, &Call { name: cp.tool.clone(), args: concretize(&cp.args) }) != ACK;
+        if !resolves {
+            push(
+                SemanticFindingKind::AckingGetter,
+                format!("{tid}: expected getter {}({}) resolves to NO world_state data (it acks) — move the fact under a top-level key matching the call's arg value or the tool name", cp.tool, cp.args),
+            );
+        }
+    }
+
+    // (3) Leak containment: a non-reserved key no intended path reaches (prompt,
+    // another blob, an expected-call arg, or a real tool name) is pure oracle data
+    // `derive_response` would hand to any lucky arg guess.
+    let mut arg_values: HashSet<String> = HashSet::new();
+    for cp in checkpoints {
+        for v in cp.args.as_object().into_iter().flatten().map(|(_, v)| v) {
+            if let Some(s) = v.as_str() {
+                arg_values.insert(s.to_string());
+                arg_values.insert(s.trim_matches('*').to_string());
+            }
+        }
+    }
+    for key in ws.keys() {
+        if RESERVED.contains(&key.as_str()) {
+            continue;
+        }
+        let fetchable = names_token(&task.prompt, key)
+            || in_another_blob(key)
+            || arg_values.contains(key.as_str())
+            || spec.recognized_tools.iter().any(|t| t == key);
+        if !fetchable {
+            push(
+                SemanticFindingKind::UnfetchedKey,
+                format!("{tid}: world_state key '{key}' is oracle data no intended call fetches, yet any arg guess equal to '{key}' would be handed its whole blob — house it under a reserved meta key (e.g. \"outcome\", \"ground_truth\") or make it reachable"),
+            );
+        }
+    }
+    out
 }
 
 /// The oracle's call script for a checkpoint end-state: each checkpoint (concretized), repeated
@@ -93,12 +240,16 @@ fn oracle_calls(task: &ToolTask) -> Option<Vec<String>> {
 /// `"not_checkable"` (the last for stateful/abstain end-states this static path can't script —
 /// the user must confirm those with a real run). `discriminating` is whether a do-nothing agent
 /// correctly FAILS the task (`None` when not applicable). `detail` is the human explanation.
+/// `semantic` carries the world-state authoring-contract findings (`semantic_findings`) — the
+/// same defects `evals::save` hard-blocks on, surfaced here so the import dry-run and the
+/// Validate button explain exactly what to fix.
 #[derive(Serialize, Debug, Clone, PartialEq)]
 pub struct TaskValidation {
     pub id: String,
     pub reachable: String,
     pub discriminating: Option<bool>,
     pub detail: String,
+    pub semantic: Vec<String>,
 }
 
 /// Whole-collection verdict. `ok` is true only when there is no structural error AND no task
@@ -120,6 +271,7 @@ async fn validate_one(task: &ToolTask) -> TaskValidation {
     if !is_agentic(&task.category) {
         return TaskValidation {
             id: task.id.clone(),
+        semantic: Vec::new(),
             reachable: "yes".into(),
             discriminating: None,
             detail: "Single-turn task — graded on its expected call; validated structurally.".into(),
@@ -129,6 +281,7 @@ async fn validate_one(task: &ToolTask) -> TaskValidation {
     let Some(calls) = oracle_calls(task) else {
         return TaskValidation {
             id: task.id.clone(),
+        semantic: Vec::new(),
             reachable: "not_checkable".into(),
             discriminating: None,
             detail: "Stateful or abstain end-state — reachability can't be auto-derived; confirm with a real run.".into(),
@@ -140,6 +293,7 @@ async fn validate_one(task: &ToolTask) -> TaskValidation {
         Err(e) => {
             return TaskValidation {
                 id: task.id.clone(),
+        semantic: Vec::new(),
                 reachable: "no".into(),
                 discriminating: None,
                 detail: format!("Could not build the task environment: {e}"),
@@ -160,6 +314,7 @@ async fn validate_one(task: &ToolTask) -> TaskValidation {
         };
         return TaskValidation {
             id: task.id.clone(),
+        semantic: Vec::new(),
             reachable: "no".into(),
             discriminating: None,
             detail: format!("Answer key not reachable — {why}. Check the checkpoint tool names, args, and wildcards."),
@@ -173,6 +328,7 @@ async fn validate_one(task: &ToolTask) -> TaskValidation {
     let discriminates = matches!(&lazy_out, Ok(o) if !o.reached_end);
     TaskValidation {
         id: task.id.clone(),
+        semantic: Vec::new(),
         reachable: "yes".into(),
         discriminating: Some(discriminates),
         detail: if discriminates {
@@ -194,8 +350,9 @@ pub async fn validate_collection_deep(tasks: &[ToolTask]) -> CollectionValidatio
     let mut out = Vec::with_capacity(tasks.len());
     let mut all_ok = true;
     for t in tasks {
-        let v = validate_one(t).await;
-        if v.reachable == "no" || v.discriminating == Some(false) {
+        let mut v = validate_one(t).await;
+        v.semantic = task_semantic_findings(t).into_iter().map(|f| f.message).collect();
+        if v.reachable == "no" || v.discriminating == Some(false) || !v.semantic.is_empty() {
             all_ok = false;
         }
         out.push(v);
