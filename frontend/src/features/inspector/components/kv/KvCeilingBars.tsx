@@ -93,12 +93,23 @@ export function KvCeilingBars({
   const estimated = dims?.kv_estimated ?? false;
 
   if (!ceilings) {
+    // Backend-aware reason (the old copy always said "needs an Ollama model", misleading on
+    // llama.cpp). For llama.cpp the dims come from the GGUF and the size from the LOADED server,
+    // so a missing measurement almost always means the model isn't loaded.
+    const naReason =
+      backend === "llama_cpp"
+        ? dims
+          ? "load the model in llama.cpp to measure"
+          : "GGUF dimensions unavailable"
+        : backend === "ollama"
+          ? "needs an Ollama model with reported dimensions"
+          : "not measurable for this backend";
     return (
       <div className="text-[11px] font-mono space-y-1" data-testid="kv-ceilings">
         <div className="text-gray-500 font-semibold tracking-wider text-[10px] uppercase">
           CONTEXT CEILING BY KV CACHE PRECISION
         </div>
-        <div className="text-gray-400">Not available (needs an Ollama model with reported dimensions)</div>
+        <div className="text-gray-400" data-testid="kv-ceilings-na">Not available ({naReason})</div>
       </div>
     );
   }

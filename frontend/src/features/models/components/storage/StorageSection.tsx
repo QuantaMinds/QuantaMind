@@ -9,7 +9,6 @@ import { formatIpcError } from "../../../../shared/ipc/core/error";
 import { useInstalledModelsStore } from "../../state/installedModelsStore";
 import { useBatchStore } from "../../../eval/state/batchStore";
 import { useCliffStore } from "../../../eval/state/cliffStore";
-import { useEvalStore } from "../../../eval/state/evalStore";
 
 /// Storage controls shown at the top of the Downloads page: the Ollama models
 /// path, the shared GGUF weights folder, and a disk-usage summary.
@@ -40,7 +39,6 @@ export function StorageSection() {
       // reports, and cliff points don't linger after the files are gone.
       useBatchStore.getState().reset();
       useCliffStore.getState().reset();
-      useEvalStore.getState().reset();
       setFreed(bytes);
       setPending(false);
     } catch (e) {

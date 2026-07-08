@@ -344,6 +344,21 @@ pub(crate) async fn run_passes(
                 supported.insert(t.model.clone());
             }
         }
+        // Guard: native tool-calling is selected but NO target can run it — Ollama's /api/show
+        // lists no `tools` capability (a custom-imported quant), MLX has no native tool API, or
+        // the probe timed out. If native is the ONLY method, the run would otherwise skip every
+        // model silently and return an all-null report (n=0). Refuse with an actionable message
+        // (mirrors the Context-Stress-Test guard) instead of a silent no-result run. This Err
+        // surfaces beside the RUN BATCH button via the batch-store error banner.
+        if supported.is_empty() && !config.prompt {
+            let names = config.targets.iter().map(|t| t.model.as_str()).collect::<Vec<_>>().join(", ");
+            return Err(AppError::Inference(format!(
+                "Native tool-calling isn't available for {names} on this backend — tick \
+                 \"Prompt-based\" (under the model), or pick a model whose template advertises tool \
+                 support, then re-run. (If the model IS tool-capable, it may have been busy loading \
+                 when probed — try again.)"
+            )));
+        }
         let mut skeleton = skeleton_report(&config.collection_id, &config.targets);
         let targets = config.targets.clone();
         run_native_fc_pass(
@@ -549,7 +564,9 @@ fn total_units(c: &RunConfig) -> usize {
     let prompt = c.targets.len() * c.tasks.len();
     let native = if c.native {
         let native_capable = c.targets.iter().filter(|t| t.backend != BackendKind::Mlx).count();
-        let agentic = c.tasks.iter().filter(|t| t.category == "agentic").count();
+        // The native pass runs every AGENTIC task — both "agentic" and "agent_loop" (see
+        // `is_agentic`); counting only "agentic" under-sized the progress bar for agent_loop sets.
+        let agentic = c.tasks.iter().filter(|t| crate::inference::eval::toolcall::tasks::is_agentic(&t.category)).count();
         native_capable * agentic
     } else {
         0

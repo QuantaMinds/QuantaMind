@@ -30,6 +30,7 @@ import { runBatchEval } from "../../../../shared/ipc/eval/batch";
 import { useParamsStore } from "../../../../shared/state/paramsStore";
 import { useBackendStore } from "../../../../shared/state/backendStore";
 import { useBatchStore } from "../../state/batchStore";
+import { healthFor } from "../../../../shared/ipc/core/client";
 
 const sampleTasks = [{
   id: "w",
@@ -326,6 +327,41 @@ describe("EvalManager Sidebar Controls", () => {
     expect(vi.mocked(runBatchEval).mock.calls[0][1]).toEqual([
       { model: "phi3.5:latest", backend: "ollama", is_thinking: false },
     ]);
+  });
+
+  it("surfaces a batch-run store error in the EvalManager banner (not only the far scoreboard)", () => {
+    // A failed run writes to batchStore.error; EvalManager must render it beside the button so
+    // the click is never a silent no-op.
+    useBatchStore.setState({ error: "Ollama server isn't reachable — start it from the Workspace status bar, then re-run." });
+    render(<EvalManager {...props()} />);
+    expect(screen.getByTestId("eval-manager-error")).toHaveTextContent(/Ollama server isn't reachable/i);
+  });
+
+  it("surfaces a failed run for a NON-Ollama backend too (backend-agnostic)", async () => {
+    vi.mocked(healthFor).mockResolvedValueOnce({ available: false, version: null });
+    useInstalledModelsStore.setState({
+      list: [{ name: "qwen-gguf", size_bytes: 1, modified_at: "", family: "", parameter_size: "", quantization: "Q4_0", backend: "llama_cpp" }],
+      status: "ready", error: null, lastRefreshedAt: 1,
+    });
+    useSelectedModelStore.setState({ selectedModels: [{ name: "qwen-gguf", backend: "llama_cpp", size_bytes: 1 }] });
+    render(<EvalManager {...props({ model: "qwen-gguf" })} />);
+    fireEvent.click(screen.getByTestId("eval-run-all"));
+    // The health pre-flight fails for llama.cpp → store error → shown in THIS banner; no run dispatched.
+    expect(await screen.findByTestId("eval-manager-error")).toHaveTextContent(/llama\.cpp server isn't reachable/i);
+    expect(runBatchEval).not.toHaveBeenCalled();
+  });
+
+  it("clears the local validation error on run entry so a real run failure isn't masked (?? precedence)", async () => {
+    vi.mocked(healthFor).mockResolvedValueOnce({ available: false, version: null });
+    // 1) A LOCAL validation error: the header model isn't in the selected set.
+    const { rerender } = render(<EvalManager {...props({ model: "ghost-model" })} />);
+    fireEvent.click(screen.getByTestId("eval-run-all"));
+    expect(await screen.findByTestId("eval-manager-error")).toHaveTextContent(/isn't among the selected models/i);
+    // 2) A valid model whose run fails pre-flight → local error is cleared, the RUN error shows
+    //    (not the stale local one — `error ?? runError` would mask it if local weren't cleared).
+    rerender(<EvalManager {...props({ model: "llama3.2:1b" })} />);
+    fireEvent.click(screen.getByTestId("eval-run-all"));
+    expect(await screen.findByTestId("eval-manager-error")).toHaveTextContent(/isn't reachable/i);
   });
 
   it("the k field is always editable and shows the tier's recommended value as a hint", () => {

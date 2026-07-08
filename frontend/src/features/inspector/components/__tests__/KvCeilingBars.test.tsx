@@ -66,6 +66,19 @@ describe("KvCeilingBars", () => {
     expect(screen.getByTestId("kv-ceilings")).toHaveTextContent("Not available");
   });
 
+  it("the whole-panel 'Not available' reason is backend-aware (llama.cpp never says 'Ollama')", () => {
+    // dims present but no ceilings (model not loaded → no size): llama.cpp should say to LOAD it.
+    vi.mocked(useKvCeilings).mockReturnValue({ dims: dims(131_072), ceilings: null });
+    const { rerender } = render(<KvCeilingBars modelName="m" backend="llama_cpp" modelBytes={null} totalBytes={16e9} />);
+    let na = screen.getByTestId("kv-ceilings-na").textContent!;
+    expect(na).toMatch(/llama\.cpp/i);
+    expect(na).not.toMatch(/Ollama/i);
+    // Ollama keeps its own message.
+    mockCeilings(null);
+    rerender(<KvCeilingBars modelName="m" backend="ollama" modelBytes={null} totalBytes={16e9} />);
+    expect(screen.getByTestId("kv-ceilings-na").textContent).toMatch(/Ollama/i);
+  });
+
   it("marks the meters '~ estimated' when the model didn't report its KV head count (conservative, not silently wrong)", () => {
     mockCeilings({ f16: 14_848, q8: 29_696, q4: 59_648 }, 262_144, true);
     render(<KvCeilingBars modelName="m" backend="ollama" modelBytes={9e9} totalBytes={16e9} />);
