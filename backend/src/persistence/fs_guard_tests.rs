@@ -1,4 +1,5 @@
 use super::*;
+#[cfg(unix)]
 use std::os::unix::fs::symlink;
 use tempfile::tempdir;
 
@@ -29,6 +30,7 @@ fn rejects_parent_outside_root() {
 
 /// The core hardening: a symlink FILE inside the workspace whose target escapes root must be
 /// rejected — the old parent-only check let this through and read/wrote the target.
+#[cfg(unix)]
 #[test]
 fn rejects_symlink_final_component_escaping_root() {
     let root = tempdir().unwrap();
@@ -46,6 +48,7 @@ fn rejects_symlink_final_component_escaping_root() {
 }
 
 /// A dangling symlink (points at a missing target) must not become a write-through primitive.
+#[cfg(unix)]
 #[test]
 fn rejects_dangling_symlink() {
     let root = tempdir().unwrap();
@@ -55,6 +58,7 @@ fn rejects_dangling_symlink() {
 }
 
 /// A symlink that stays WITHIN root is fine (canonicalizes to a path under root).
+#[cfg(unix)]
 #[test]
 fn accepts_symlink_pointing_inside_root() {
     let root = tempdir().unwrap();

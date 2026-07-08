@@ -51,6 +51,7 @@ mod tests {
         assert!(save_inner("/tmp/qm_x", &[1, 2, 3]).is_err());
     }
 
+    #[cfg(unix)]
     #[test]
     fn refuses_to_write_through_a_symlink() {
         use std::os::unix::fs::symlink;
