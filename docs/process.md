@@ -17,7 +17,7 @@ Locked decisions. Do not substitute. Alternatives go to
 | Build tool | Vite 7.x | Fast HMR, Tauri-friendly (moved 5→7 with the React 19 upgrade). |
 | Styling | Tailwind CSS 3.x | Utility-first, no design-system overhead |
 | State management | Zustand | 1KB, no boilerplate, scales |
-| Editor component | `@monaco-editor/react` | Same editor as VS Code |
+| Editor component | `@monaco-editor/react` + bundled `monaco-editor` | Same editor as VS Code; `monaco-editor` is a direct dep so the editor is **self-hosted** (no jsDelivr CDN load) — offline-safe + strict-CSP-safe. |
 | HTTP client (Rust) | `reqwest` + `tokio` | Standard, battle-tested |
 | Serialization | `serde` + `serde_json` / native JSON | Type-safe across IPC |
 | Validation (TS) | `zod` | Runtime schema validation |

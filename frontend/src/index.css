@@ -1,4 +1,7 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+/* No remote font: a Google Fonts @import leaks the user's IP to Google on every launch
+   (a phone-home) and blocks a strict CSP. We rely on the native system-font stack below
+   (San Francisco / Segoe UI / Roboto), with Inter used only if installed locally. Self-hosting
+   Inter via @fontsource is a follow-up (see docs/security.md). */
 @import "./styles/tokens.css";
 @tailwind base;
 @tailwind components;
