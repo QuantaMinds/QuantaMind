@@ -299,6 +299,35 @@ describe("EvalManager Sidebar Controls", () => {
     });
   });
 
+  it("surfaces an error (never a silent no-op) when the header model isn't among the selected models", async () => {
+    // A stale/mismatched selection (e.g. right after a backend switch) leaves the button
+    // ENABLED (a model is chosen) but the model isn't in the global set. It must say so, not
+    // dead-click — the bug was `handleRunBatch` returning silently, so Run Batch "did nothing".
+    render(<EvalManager {...props({ model: "ghost-model" })} />);
+    const runBtn = screen.getByTestId("eval-run-all");
+    expect(runBtn).not.toBeDisabled();
+    fireEvent.click(runBtn);
+    expect(await screen.findByText(/isn't among the selected models/i)).toBeInTheDocument();
+    expect(runBatchEval).not.toHaveBeenCalled();
+  });
+
+  it("resolves an Ollama :latest tag mismatch instead of no-opping the run", async () => {
+    vi.mocked(runBatchEval).mockResolvedValue({ collection_id: "easy-coding", columns: [] });
+    useInstalledModelsStore.setState({
+      list: [{ name: "phi3.5:latest", size_bytes: 1, modified_at: "", family: "", parameter_size: "", quantization: "Q4_0", backend: "ollama" }],
+      status: "ready", error: null, lastRefreshedAt: 1,
+    });
+    useSelectedModelStore.setState({ selectedModels: [{ name: "phi3.5:latest", backend: "ollama", size_bytes: 1 }] });
+    // Header model carries the bare tag; the selected entry has `:latest` — an exact === no-ops.
+    render(<EvalManager {...props({ model: "phi3.5" })} />);
+    fireEvent.click(screen.getByTestId("eval-run-all"));
+    await waitFor(() => expect(runBatchEval).toHaveBeenCalled());
+    // The RESOLVED entry's name is what runs (correct for the backend).
+    expect(vi.mocked(runBatchEval).mock.calls[0][1]).toEqual([
+      { model: "phi3.5:latest", backend: "ollama", is_thinking: false },
+    ]);
+  });
+
   it("the k field is always editable and shows the tier's recommended value as a hint", () => {
     render(<EvalManager {...props({ tierSel: "hard", effectiveTier: "hard", recommendedK: 16, k: 16 })} />);
     // Editable input (not a locked span), pre-filled to the recommended value.
