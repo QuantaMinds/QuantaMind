@@ -89,6 +89,12 @@ impl LlamaServerState {
         }
     }
 
+    /// The running server's `(model_path, launch ctx)`, if any — so the Inspector can surface
+    /// the loaded llama.cpp model (Ollama's `/api/ps` only knows Ollama models).
+    pub fn running_summary(&self) -> Option<(String, u32)> {
+        self.inner.lock_recover().as_ref().map(|s| (s.model_path.clone(), s.ctx))
+    }
+
     pub fn store(&self, child: Child, model_path: String, ctx: u32) {
         *self.inner.lock_recover() = Some(RunningServer { child, model_path, ctx, readout: None });
     }

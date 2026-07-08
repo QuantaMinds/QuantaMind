@@ -941,8 +941,12 @@ pressure, **never `q4_0`**); MLX's server exposes no KV-quant flag; vLLM/SGLang 
 `kv_cache_dtype=fp8` at launch. The readiness verdict grades the fit at the precision your launch
 would actually use, and never presents a `q4_0` cache as auto-selectable.
 
-- **Dims come from Ollama `/api/show`.** On llama.cpp / MLX the predictor falls back to a
-  file-size × 1.3 heuristic, **flagged approximate** (`~`).
+- **Dims come from Ollama `/api/show`, or the GGUF header on llama.cpp.** For a llama.cpp
+  model the KV-cache dimensions (`block_count`/`head_count`/`head_count_kv`/`embedding_length`)
+  are read straight from the installed GGUF (the llama-server API exposes only `n_ctx`, not the
+  transformer dims), and the running model is folded into the loaded-models list from
+  `LlamaServerState`, so the ceiling + VRAM meters render for llama.cpp too. MLX still falls back
+  to a file-size × 1.3 heuristic, **flagged approximate** (`~`).
 - **Speed is memory-bandwidth-bound, not FLOPS-bound.** Token throughput tracks GB/s, so the tab
   shows the chip's nominal bandwidth (curated table) or "Not available" — never a guessed number.
 - **Available VRAM comes from the GPU probe.** Chain (Phase 3): NVIDIA (`nvidia-smi`) → AMD

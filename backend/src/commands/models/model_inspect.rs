@@ -1,6 +1,8 @@
+use crate::commands::storage::storage_disk;
 use crate::errors::AppError;
 use crate::inference::backend::backend_kind::BackendKind;
 use crate::inference::backend::endpoint;
+use crate::inference::gguf::gguf::inspect_gguf;
 use crate::inference::ollama::ollama_show::show_model;
 use crate::inference::vram_math::{kv_cache_bytes_at, KvPrecision};
 use serde::Serialize;
@@ -61,6 +63,32 @@ fn dims_from_model_info(info: &serde_json::Map<String, serde_json::Value>) -> Op
     })
 }
 
+/// KV-cache dimensions for a llama.cpp model, read from the installed GGUF header. The
+/// llama-server API does NOT expose the transformer dims the KV-cache math needs (`/props`
+/// gives only `n_ctx`; `/v1/models` gives `n_embd`/`n_params` but not head/layer counts) —
+/// the GGUF header is the authoritative source. `None` when the file isn't found or a
+/// required dimension is absent, so the ceiling meters say "Not available", never a guess.
+/// `head_count_kv` tolerates absence (defaults to `head_count`, flagged `kv_estimated`).
+fn gguf_dims(model: &str) -> Option<ModelDims> {
+    let path = storage_disk::find_installed_gguf(model)?;
+    dims_from_gguf_meta(&inspect_gguf(&path).ok()?)
+}
+
+/// Map GGUF header metadata to `ModelDims`. Pure (no file I/O) so the mapping unit-tests
+/// directly. `block_count`/`head_count`/`embedding_length` are required → `None` if any is
+/// absent; `head_count_kv` tolerates absence (defaults to `head_count`, flags `kv_estimated`).
+fn dims_from_gguf_meta(m: &crate::inference::gguf::gguf::GgufMetadata) -> Option<ModelDims> {
+    let head_count = m.head_count?;
+    Some(ModelDims {
+        layers: m.block_count?,
+        head_count,
+        head_count_kv: m.head_count_kv.unwrap_or(head_count),
+        kv_estimated: m.head_count_kv.is_none(),
+        embedding_length: m.embedding_length?,
+        context_length: m.context_length.unwrap_or(0) as u64,
+    })
+}
+
 fn has_role_markers(template: &str) -> bool {
     let l = template.to_lowercase();
     ["assistant", "<|im_start", "[inst]", "<|start_header_id", "<|user", "### instruction", "<start_of_turn>"]
@@ -94,9 +122,16 @@ pub async fn inspect_model(
     backend: Option<BackendKind>,
 ) -> Result<ModelInspect, AppError> {
     if !matches!(backend.unwrap_or_default(), BackendKind::Ollama) {
+        // Template/capabilities live in Ollama's `/api/show` only, so `available` stays false
+        // (the card still shows "Ollama only"). But for llama.cpp we CAN fill the KV-cache dims
+        // from the GGUF header, so the context-ceiling meters render instead of "Not available".
+        let dims = matches!(backend, Some(BackendKind::LlamaCpp))
+            .then(|| gguf_dims(&model))
+            .flatten();
         return Ok(ModelInspect {
             available: false,
             note: Some("Not available — Ollama only".into()),
+            dims,
             ..Default::default()
         });
     }
@@ -190,6 +225,46 @@ mod tests {
         let (base, why) = classify_base("", &["completion".into()]);
         assert!(base);
         assert!(why.unwrap().contains("empty chat template"));
+    }
+
+    fn gguf_meta(block: Option<u64>, head: Option<u64>, head_kv: Option<u64>, embd: Option<u64>, ctx: Option<u32>) -> crate::inference::gguf::gguf::GgufMetadata {
+        crate::inference::gguf::gguf::GgufMetadata {
+            architecture: "qwen2".into(),
+            parameter_count: Some(7_000_000_000),
+            context_length: ctx,
+            quantization: Some("Q4_K_M".into()),
+            family: "qwen2".into(),
+            block_count: block,
+            head_count: head,
+            head_count_kv: head_kv,
+            embedding_length: embd,
+        }
+    }
+
+    #[test]
+    fn gguf_dims_map_full_metadata() {
+        let d = dims_from_gguf_meta(&gguf_meta(Some(28), Some(28), Some(4), Some(3584), Some(32768))).unwrap();
+        assert_eq!(d.layers, 28);
+        assert_eq!(d.head_count, 28);
+        assert_eq!(d.head_count_kv, 4);
+        assert_eq!(d.embedding_length, 3584);
+        assert_eq!(d.context_length, 32768);
+        assert!(!d.kv_estimated); // head_count_kv was present
+    }
+
+    #[test]
+    fn gguf_dims_default_head_count_kv_when_absent() {
+        let d = dims_from_gguf_meta(&gguf_meta(Some(28), Some(28), None, Some(3584), Some(32768))).unwrap();
+        assert_eq!(d.head_count_kv, 28); // defaulted to head_count (MHA), overestimates for GQA
+        assert!(d.kv_estimated);
+    }
+
+    #[test]
+    fn gguf_dims_none_when_a_required_dim_is_missing() {
+        // Missing block_count / head_count / embedding_length → unmeasured, never a guess.
+        assert!(dims_from_gguf_meta(&gguf_meta(None, Some(28), Some(4), Some(3584), Some(32768))).is_none());
+        assert!(dims_from_gguf_meta(&gguf_meta(Some(28), None, Some(4), Some(3584), Some(32768))).is_none());
+        assert!(dims_from_gguf_meta(&gguf_meta(Some(28), Some(28), Some(4), None, Some(32768))).is_none());
     }
 
     #[test]

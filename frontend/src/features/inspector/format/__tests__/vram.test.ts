@@ -29,6 +29,28 @@ describe("vramUsage", () => {
   it("clamps resident larger than size", () => {
     expect(vramUsage(1000, 5000, 4000).usedBytes).toBe(1000);
   });
+
+  // On Apple Silicon unified memory there is ONE shared pool — the whole model is resident and
+  // nothing is "offloaded to RAM", for EVERY backend regardless of the reported size_vram.
+  it("unified: whole model is resident, zero offload, even when size_vram is 0 (llama.cpp)", () => {
+    const u = vramUsage(6.6 * 1024 ** 3, 0, 16 * 1024 ** 3, true);
+    expect(u.usedBytes).toBe(6.6 * 1024 ** 3);
+    expect(u.offloadBytes).toBe(0);
+    expect(Math.round(u.pct)).toBe(41);
+  });
+
+  it("unified: same result when size_vram equals size (Ollama /api/ps)", () => {
+    const size = 6.6 * 1024 ** 3;
+    expect(vramUsage(size, size, 16 * 1024 ** 3, true)).toEqual(
+      vramUsage(size, 0, 16 * 1024 ** 3, true),
+    );
+  });
+
+  it("discrete GPU is unchanged: size_vram is the resident amount, the rest offloads", () => {
+    const u = vramUsage(1000, 600, 4000, false);
+    expect(u.usedBytes).toBe(600);
+    expect(u.offloadBytes).toBe(400);
+  });
 });
 
 describe("pickLoaded", () => {

@@ -25,7 +25,7 @@ export function VramBar({
     );
   }
 
-  const u = vramUsage(entry.size_bytes, entry.size_vram_bytes, deviceTotalBytes);
+  const u = vramUsage(entry.size_bytes, entry.size_vram_bytes, deviceTotalBytes, unified);
   const where = unified ? "in unified memory" : "in VRAM";
   const ctx = entry.context_length;
   const tip = ctx ? `Full ${ctx}-token KV cache is preallocated into memory at load` : undefined;

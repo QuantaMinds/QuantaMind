@@ -11,9 +11,19 @@ export interface VramUsage {
 /// `deviceTotalBytes` = unified RAM (Apple) or VRAM total (NVIDIA); when
 /// unknown, falls back to the model size so the bar still renders. `offload`
 /// is the part spilled to system RAM (size − resident). Pure.
-export function vramUsage(sizeBytes: number, sizeVramBytes: number, deviceTotalBytes?: number | null): VramUsage {
+///
+/// `unified` (Apple Silicon): the CPU and GPU share ONE memory pool, so a loaded model is
+/// fully resident "in unified memory" and NOTHING is offloaded — the VRAM/RAM split (and the
+/// `size_vram` field, however each backend reports it) is meaningless here. So on unified the
+/// whole footprint counts as resident and `offload` is 0, for every backend (Ollama + llama.cpp).
+export function vramUsage(
+  sizeBytes: number,
+  sizeVramBytes: number,
+  deviceTotalBytes?: number | null,
+  unified = false,
+): VramUsage {
   const size = Math.max(0, sizeBytes);
-  const usedBytes = Math.max(0, Math.min(sizeVramBytes, size));
+  const usedBytes = unified ? size : Math.max(0, Math.min(sizeVramBytes, size));
   const offloadBytes = Math.max(0, size - usedBytes);
   const totalBytes = deviceTotalBytes && deviceTotalBytes > 0 ? deviceTotalBytes : size || 1;
   const pct = Math.min(100, (usedBytes / totalBytes) * 100);
