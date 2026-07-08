@@ -102,8 +102,9 @@ Engineering docs live in four files under `docs/` (link with anchors, e.g.
 - **`reference.md`** — `#analysis-schema` (bench/analysis contract),
   `#troubleshooting` (error-state help; anchors back the in-app links).
 - **`security.md`** — `#invariants` (the rule-7 security invariants), `#trust-boundaries`
-  (webview↔Rust, sidecars, publish), `#secret-inventory`, `#threat-model` (scoped to the
-  single-user local model). Public disclosure policy lives in root `SECURITY.md`, not here.
+  (webview↔Rust, sidecars, publish), `#secret-inventory`, `#enterprise-seams`, `#threat-model`
+  (scoped to the single-user local model). Public disclosure policy lives in root `SECURITY.md`;
+  hands-on test scenarios in the companion `security-testing.md`.
 
 `docs/prompts/` is a runtime app asset (bundled prompt templates), not docs.
 

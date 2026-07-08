@@ -2,7 +2,8 @@
 
 Security model for QuantaMind, a **single-user, local-first** desktop app (Tauri 2 +
 Rust + React). This doc is the internal engineering reference. The **public**
-responsible-disclosure policy lives in the root `SECURITY.md`, not here.
+responsible-disclosure policy lives in the root `SECURITY.md`, not here. Test scenarios for
+these controls live in [`security-testing.md`](security-testing.md).
 
 Scope note: QuantaMind is not an enterprise multi-tenant service. The threat model below is
 deliberately scoped to a single user on their own machine plus one optional, opt-in publish
