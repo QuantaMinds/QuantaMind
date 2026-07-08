@@ -267,6 +267,25 @@ describe("ContextCliffPanel", () => {
     expect(runContextCliff).not.toHaveBeenCalled();
   });
 
+  it("carries the GGUF path from a Matrix re-probe into the llama.cpp probe (modelPath, not empty)", async () => {
+    const { useCliffStore } = await import("../state/cliffStore");
+    vi.mocked(runContextCliff).mockResolvedValue(reportOf({ status: "NoCliff", tested: 0 }, [rung(0, 1.0)]) as never);
+    useInstalledModelsStore.setState({
+      list: [{ name: "m", size_bytes: 1, modified_at: "", family: "", parameter_size: "", quantization: "", backend: "llama_cpp", path: "/w/m.gguf" }],
+      status: "ready", error: null, lastRefreshedAt: 1,
+    });
+    useSelectedModelStore.setState({ selectedModels: [{ name: "m", backend: "llama_cpp", size_bytes: 1 }] });
+    // A Matrix re-probe now carries the GGUF path (the fix); the override must keep it.
+    useCliffStore.setState({ request: { model: "m", backend: "llama_cpp", collectionId: "easy-coding", maxTokens: 16384, steps: 5, path: "/w/m.gguf" } });
+    render(<ContextCliffPanel />);
+    await waitFor(() => expect(screen.getByTestId("cliff-run")).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId("cliff-run"));
+    await waitFor(() => expect(runContextCliff).toHaveBeenCalled());
+    // modelPath is positional arg #9 — must be the real GGUF path, not undefined (which the
+    // backend turns into "" → the false "Start llama.cpp with …" WrongModel error).
+    expect(vi.mocked(runContextCliff).mock.calls[0][9]).toBe("/w/m.gguf");
+  });
+
   it("explains how Accuracy is calculated via an info button on the column header", async () => {
     vi.mocked(runContextCliff).mockResolvedValue(reportOf({ status: "NoCliff", tested: 5000 }, [rung(5000, 1.0)], 5000) as never);
     render(<ContextCliffPanel />);

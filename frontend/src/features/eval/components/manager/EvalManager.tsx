@@ -81,6 +81,11 @@ export function EvalManager({
   const running = useBatchStore((s) => s.running);
   const stopping = useBatchStore((s) => s.stopping);
   const report = useBatchStore((s) => s.report);
+  // A failed run (backend unreachable pre-flight, or an IPC throw) writes to the batch store,
+  // NOT this component's local `error`. Surface it in the SAME banner so a click that fails is
+  // never a silent no-op — the store's only other reader (MatrixScoreboard) is a different panel
+  // and is unmounted while editing. `startRun()` resets it, so it self-clears on the next run.
+  const runError = useBatchStore((s) => s.error);
   const { run, stop } = useBatchRun();
 
   const [collectionsExpanded, setCollectionsExpanded] = useState(true);
@@ -411,9 +416,9 @@ export function EvalManager({
         </div>
       </div>
 
-      {error && (
+      {(error ?? runError) && (
         <div style={{ padding: "10px 16px" }}>
-          <p style={errorTextStyle}>{error}</p>
+          <p style={errorTextStyle} data-testid="eval-manager-error">{error ?? runError}</p>
         </div>
       )}
 

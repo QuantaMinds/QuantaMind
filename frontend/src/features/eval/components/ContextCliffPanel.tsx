@@ -90,7 +90,9 @@ export function ContextCliffPanel() {
   // NEVER auto-runs (guardrail 1) — the user clicks Execute.
   useEffect(() => {
     if (!request) return;
-    setOverride({ name: request.model, backend: request.backend });
+    // Carry the GGUF `path` into the override — without it the llama.cpp probe sends an empty
+    // path and the backend falsely reports "WrongModel" ("Start llama.cpp with …").
+    setOverride({ name: request.model, backend: request.backend, path: request.path });
     setActive(request.collectionId);
     setMaxTokens(request.maxTokens);
     setTestSteps(request.steps);

@@ -116,6 +116,29 @@ fn raise_or_reduce_msg(running_ctx: u32, needed_ctx: u32) -> String {
     )
 }
 
+/// The readiness error (if any) for a llama.cpp cliff probe. Pure over the probe result so the
+/// gate unit-tests without a running server. An EMPTY `path` is a CALLER bug (the re-probe
+/// dropped the GGUF path): it can never equal the running server's real path, so without this it
+/// would masquerade as `WrongModel` and emit the misleading "start with a bigger context"
+/// message. Fail honestly and distinctly instead.
+fn llama_cliff_gate(path: &str, readiness: LlamaProbeReadiness, model: &str, needed_ctx: u32) -> Option<AppError> {
+    if path.is_empty() {
+        return Some(AppError::Inference(format!(
+            "No model path was provided for the llama.cpp Context Stress Test of \"{model}\" — \
+             reselect the model in the picker, then run."
+        )));
+    }
+    match readiness {
+        LlamaProbeReadiness::NotRunning | LlamaProbeReadiness::WrongModel => {
+            Some(AppError::Inference(start_with_model_msg(model, needed_ctx)))
+        }
+        LlamaProbeReadiness::Ready { ctx } if ctx < needed_ctx => {
+            Some(AppError::Inference(raise_or_reduce_msg(ctx, needed_ctx)))
+        }
+        LlamaProbeReadiness::Ready { .. } => None,
+    }
+}
+
 /// Look up an installed model's metadata, tolerant of the `:latest` tag mismatch
 /// between an eval target and the `/api/tags` listing. Used for both the real
 /// weight size and the real quantization.
@@ -298,14 +321,8 @@ pub async fn run_context_cliff(
     // ignored by the single-model server). Ollama/MLX size per request, so skip them.
     if backend == BackendKind::LlamaCpp {
         let path = model_path.as_deref().unwrap_or("");
-        match llama_state.probe_readiness(path) {
-            LlamaProbeReadiness::NotRunning | LlamaProbeReadiness::WrongModel => {
-                return Err(AppError::Inference(start_with_model_msg(&model, needed_ctx)));
-            }
-            LlamaProbeReadiness::Ready { ctx } if ctx < needed_ctx => {
-                return Err(AppError::Inference(raise_or_reduce_msg(ctx, needed_ctx)));
-            }
-            LlamaProbeReadiness::Ready { .. } => {}
+        if let Some(err) = llama_cliff_gate(path, llama_state.probe_readiness(path), &model, needed_ctx) {
+            return Err(err);
         }
     }
 
@@ -649,6 +666,31 @@ pub async fn assess_readiness(
 #[cfg(test)]
 mod cliff_preflight_tests {
     use super::*;
+
+    /// An EMPTY path (the re-probe dropped it) must fail with a DISTINCT "no model path"
+    /// error, NOT the misleading "start with a bigger context" WrongModel message — even
+    /// though probe_readiness("") returns WrongModel.
+    #[test]
+    fn empty_path_yields_a_distinct_no_path_error_not_wrong_model() {
+        let err = llama_cliff_gate("", LlamaProbeReadiness::WrongModel, "qwen2.5-coder", 6144).unwrap();
+        let msg = err.to_string();
+        assert!(msg.contains("No model path was provided"), "honest distinct error: {msg}");
+        assert!(!msg.contains("Context window of at least"), "must NOT be the start-with-model message: {msg}");
+    }
+
+    #[test]
+    fn llama_gate_maps_readiness_when_path_is_present() {
+        // Wrong/absent model → start-with-model message.
+        assert!(llama_cliff_gate("/w/m.gguf", LlamaProbeReadiness::WrongModel, "m", 6144)
+            .unwrap().to_string().contains("Start llama.cpp"));
+        assert!(llama_cliff_gate("/w/m.gguf", LlamaProbeReadiness::NotRunning, "m", 6144)
+            .unwrap().to_string().contains("Start llama.cpp"));
+        // Loaded but too small → raise/reduce message.
+        assert!(llama_cliff_gate("/w/m.gguf", LlamaProbeReadiness::Ready { ctx: 4096 }, "m", 6144)
+            .unwrap().to_string().contains("Raise"));
+        // Loaded with enough context → no error (the probe proceeds).
+        assert!(llama_cliff_gate("/w/m.gguf", LlamaProbeReadiness::Ready { ctx: 8192 }, "m", 6144).is_none());
+    }
 
     /// The "wrong/no model" hand-off must name the model and the window so the user
     /// can act; the frontend `friendly()` mapping also keys off this phrasing.

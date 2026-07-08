@@ -197,7 +197,11 @@ export function PerformanceMatrix({
   // button and the "↻" re-probe affordance on already-measured cells.
   const reprobe = (model: string) => {
     const backend = report?.columns.find((c) => c.model === model)?.backend ?? "ollama";
-    if (collectionId) setCliffRequest({ model, backend, collectionId, maxTokens: PREFILL_MAX_TOKENS, steps: PREFILL_STEPS });
+    // Carry the model's GGUF path (llama.cpp) from the installed list — same source the server
+    // launched with — so the probe matches the running server by its exact path (Fix: the
+    // re-probe used to drop it, causing a false "Start llama.cpp with …" error). Absent for Ollama.
+    const path = models.find((m) => m.name === model)?.path;
+    if (collectionId) setCliffRequest({ model, backend, collectionId, maxTokens: PREFILL_MAX_TOKENS, steps: PREFILL_STEPS, path });
     goAudit("audit");
   };
   // A small re-probe control shown next to a measured cliff badge — the path to Audit

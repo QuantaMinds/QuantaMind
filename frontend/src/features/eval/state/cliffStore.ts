@@ -27,6 +27,10 @@ export interface CliffRequest {
   /// Pre-filled ladder depth (Test Steps) so the panel lands fully ready — the user
   /// can still adjust it before clicking Execute.
   steps: number;
+  /// GGUF path for a llama.cpp model, carried so the probe can match the RUNNING server by
+  /// its exact launch path. Without it the override drops the path → the backend compares the
+  /// server's real path against "" → false "WrongModel" ("Start llama.cpp with …"). Absent for Ollama.
+  path?: string;
 }
 
 export interface RunProbeArgs {
