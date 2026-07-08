@@ -20,7 +20,7 @@ export function VramBar({
   if (!entry) {
     return (
       <div className="text-xs text-gray-400 font-mono" data-testid="vram-na">
-        VRAM not available (model not loaded or non-Ollama backend)
+        VRAM not available — load the model to measure
       </div>
     );
   }
