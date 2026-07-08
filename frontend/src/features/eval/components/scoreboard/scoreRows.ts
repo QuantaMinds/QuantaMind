@@ -17,6 +17,16 @@ const TOP_ERROR_LABEL: Record<TopError, string> = {
   reasoning_overrun: "Over-reasoned",
 };
 
+/// Why an all-errored native pass failed (every run threw a backend Err → no scored result).
+/// SchemaRejected = the model/template can't express tool calls natively (the honest "this
+/// model can't do native FC"); InfraHost = the backend crashed/timed out (blame the machine).
+const NATIVE_ERROR_LABEL: Record<"none" | "infra_host" | "schema_rejected" | "mixed", string> = {
+  none: "Native failed",
+  schema_rejected: "Native unsupported",
+  infra_host: "Backend error",
+  mixed: "Native failed",
+};
+
 /// One per-model row of the Matrix Scoreboard. Every metric is a display string;
 /// null/inapplicable sources render "N/A" (agentic metrics on a column that had
 /// none) or "—" (single-turn rows have no steps/effort) — never a fabricated 0.
@@ -74,7 +84,17 @@ export function toScoreRows(report: BatchReport | null, models: InstalledModelIn
     // Native FC pass^k is the parallel measurement; "N/A" when not run for this
     // model (unsupported backend / no `tools` capability) — never a fabricated 0.
     const nat = c.agentic_native_fc;
-    const passKNative = c.error ? "Error" : nat ? `${nat.tasks_passed}/${nat.tasks_total}` : "N/A";
+    // Native ran but EVERY task errored (broken template / infra) → no scored result. Show a
+    // clear failure, not a misleading green "0/0". `top_error` is "None" here (nothing scored),
+    // so the reason comes from `native_error_class`.
+    const nativeAllErrored = nat != null && nat.tasks_total === 0 && (nat.tasks_errored ?? 0) > 0;
+    const passKNative = c.error
+      ? "Error"
+      : nativeAllErrored
+        ? NATIVE_ERROR_LABEL[nat!.native_error_class ?? "none"]
+        : nat
+          ? `${nat.tasks_passed}/${nat.tasks_total}`
+          : "N/A";
     return {
       model: c.model,
       label: modelLabel(info ?? { name: c.model }),
@@ -92,7 +112,7 @@ export function toScoreRows(report: BatchReport | null, models: InstalledModelIn
       hasPrompt: ag != null || c.toolcall != null || c.error != null,
       effortNative: nat ? fmtTokens(nat.avg_output_tokens_success) : "N/A",
       schemaResilNative: nat ? fmtPct(nat.schema_resilience) : "—",
-      topErrorNative: c.error ? "Error" : nat ? TOP_ERROR_LABEL[nat.top_error] : "—",
+      topErrorNative: c.error ? "Error" : nativeAllErrored ? NATIVE_ERROR_LABEL[nat!.native_error_class ?? "none"] : nat ? TOP_ERROR_LABEL[nat.top_error] : "—",
       failuresNative: nat?.failures ?? null,
       composite: fmtPct(c.toolcall?.composite),
     };

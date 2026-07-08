@@ -196,6 +196,11 @@ export const AggAgenticSchema = z.object({
   avg_output_tokens_success: z.number().nullable(),
   schema_resilience: z.number().nullable(),
   top_error: TopErrorSchema,
+  // Native-FC only: tasks whose every run ERRORED (a backend Err — broken template / infra),
+  // carried separately from tasks_total. Without these the UI painted an all-errored native
+  // run as a perfect green "0/0". `.default` mirrors the Rust `#[serde(default)]`.
+  tasks_errored: z.number().int().optional(),
+  native_error_class: z.enum(["none", "infra_host", "schema_rejected", "mixed"]).optional(),
   // Summed failure breakdown — the readiness verdict gates on the exact loop /
   // hallucination counts, which `top_error` alone would hide. `.default` mirrors
   // the Rust `#[serde(default)]` so pre-Phase-7 reports still parse.

@@ -100,4 +100,29 @@ describe("toScoreRows", () => {
     // Prompt steps and native steps are NOT conflated — each pass keeps its own cost.
     expect(rows[0]).toMatchObject({ avgSteps: "3.2", avgStepsNative: "1.5", passKNative: "2/2" });
   });
+
+  it("an all-errored native pass reads as a FAILURE, not a misleading '0/0' (broken template)", () => {
+    const nat = (native_error_class: "schema_rejected" | "infra_host") => ({
+      tasks_passed: 0, tasks_total: 0, passes: 0, total_runs: 0, avg_steps: null,
+      avg_output_tokens_success: null, schema_resilience: null, top_error: "none" as const,
+      failures: { infinite_loop_hits: 0, hallucinated_completions: 0, malformed_json_calls: 0, schema_unrecovered_calls: 0 },
+      tasks_errored: 3, native_error_class,
+    });
+    const report: BatchReport = {
+      collection_id: "c",
+      columns: [
+        { model: "qwen-gguf", backend: "llama_cpp", toolcall: null, agentic: null, agentic_native_fc: nat("schema_rejected"), error: null },
+        { model: "qwen-ollama", backend: "ollama", toolcall: null, agentic: null, agentic_native_fc: nat("infra_host"), error: null },
+      ],
+    };
+    const rows = toScoreRows(report, []);
+    // Schema-rejected (the template/model can't do native tools) → honest capability failure.
+    expect(rows[0].passKNative).toBe("Native unsupported");
+    expect(rows[0].topErrorNative).toBe("Native unsupported");
+    // Infra/host error → blamed on the machine, not the model.
+    expect(rows[1].passKNative).toBe("Backend error");
+    // Neither is the old green "0/0".
+    expect(rows[0].passKNative).not.toBe("0/0");
+    expect(rows[1].passKNative).not.toBe("0/0");
+  });
 });
