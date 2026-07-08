@@ -2,6 +2,7 @@ use crate::commands::storage::storage_types::InstalledModelInfo;
 use crate::errors::AppError;
 use crate::inference::backend::backend_kind::BackendKind;
 use crate::inference::backend::remote_config::{self, RemoteEndpoint};
+use crate::inference::backend::remote_guard::credential_allowed;
 use reqwest::Client;
 use serde::Deserialize;
 use std::time::Duration;
@@ -49,7 +50,8 @@ pub async fn list_remote_models(ep: &RemoteEndpoint, backend: BackendKind) -> Ve
         Err(_) => return Vec::new(),
     };
     let mut req = client.get(format!("{url}/v1/models"));
-    if let Some(key) = ep.api_key.as_deref().filter(|k| !k.is_empty()) {
+    // rule 7d: only send the key over https/loopback (defense-in-depth behind the save guard).
+    if let Some(key) = ep.api_key.as_deref().filter(|k| !k.is_empty() && credential_allowed(url)) {
         req = req.bearer_auth(key);
     }
     let parsed = match req.send().await {

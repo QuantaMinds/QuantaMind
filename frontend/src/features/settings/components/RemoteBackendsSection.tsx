@@ -4,6 +4,7 @@ import {
   setUserSettings,
   type UserSettings,
 } from "../../../shared/ipc/settings/userSettings";
+import { rawMessage } from "../../../shared/ipc/core/error";
 import { useInstalledModelsStore } from "../../models/state/installedModelsStore";
 
 type SaveState = "idle" | "saving" | "saved" | "error";
@@ -16,6 +17,7 @@ type SaveState = "idle" | "saving" | "saved" | "error";
 export function RemoteBackendsSection() {
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [save, setSave] = useState<SaveState>("idle");
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     getUserSettings()
@@ -29,6 +31,7 @@ export function RemoteBackendsSection() {
   const persist = async () => {
     if (!settings) return;
     setSave("saving");
+    setSaveError(null);
     try {
       await setUserSettings(settings);
       // The saved URL/key just changed which remote models are reachable — refetch
@@ -38,6 +41,9 @@ export function RemoteBackendsSection() {
       setSave("saved");
     } catch (e) {
       console.error("settings save failed:", e);
+      // Surface the backend's actionable reason (e.g. the https-only credential
+      // guardrail) instead of a bare "Save failed".
+      setSaveError(rawMessage(e));
       setSave("error");
     }
   };
@@ -120,6 +126,11 @@ export function RemoteBackendsSection() {
         {save === "saved" && <span className="text-xs text-green-600">Saved</span>}
         {save === "error" && <span className="text-xs text-red-600">Save failed</span>}
       </div>
+      {save === "error" && saveError && (
+        <p data-testid="remote-backends-error" className="text-xs text-red-600">
+          {saveError}
+        </p>
+      )}
     </div>
   );
 }

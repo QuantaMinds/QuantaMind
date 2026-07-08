@@ -1,4 +1,5 @@
 use crate::errors::{AppError, AppResult};
+use crate::inference::backend::remote_guard::credential_allowed;
 use crate::inference::generate::generate_options::GenerateOptions;
 use crate::inference::generate::generate_stats::GenerateStats;
 use crate::inference::http::http::{body_or_note, streaming_client};
@@ -117,7 +118,9 @@ pub async fn chat_with_tools(
         seed: o.seed,
     };
     let mut req = client.post(format!("{endpoint}/v1/chat/completions")).json(&body);
-    if let Some(key) = api_key.filter(|k| !k.is_empty()) {
+    // Attach the key only over a safe channel (rule 7d) — defense-in-depth behind the
+    // save-time guardrail that blocks a key on a cleartext remote URL.
+    if let Some(key) = api_key.filter(|k| !k.is_empty() && credential_allowed(endpoint)) {
         req = req.bearer_auth(key);
     }
     let resp = req.send().await.map_err(|e| {

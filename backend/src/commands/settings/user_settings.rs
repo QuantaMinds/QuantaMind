@@ -1,6 +1,7 @@
 use crate::commands::storage::storage_disk::{gguf_dir_resolved, mlx_dir_resolved};
 use crate::errors::{AppError, AppResult};
 use crate::inference::backend::remote_config;
+use crate::inference::backend::remote_guard::credential_allowed;
 use crate::persistence::user_settings::{load, save, UserSettings};
 use crate::secrets::{self, Persisted};
 use crate::sync::MutexExt;
@@ -35,6 +36,29 @@ fn store_or_clear(key: &str, val: Option<&str>) -> bool {
 fn persist_api_keys(s: &UserSettings) {
     store_or_clear(secrets::VLLM_API_KEY, s.vllm_api_key.as_deref());
     store_or_clear(secrets::SGLANG_API_KEY, s.sglang_api_key.as_deref());
+}
+
+/// Guardrail (rule 7d): refuse to accept an API key bound to a cleartext `http://` remote
+/// endpoint, so the key can never be sent in the clear. Rejected at save so the bad state is
+/// never stored. Loopback http is fine (no network to sniff); https is fine.
+fn reject_cleartext_credentials(s: &UserSettings) -> AppResult<()> {
+    check_credential_transport("vLLM", s.vllm_url.as_deref(), s.vllm_api_key.as_deref())?;
+    check_credential_transport("SGLang", s.sglang_url.as_deref(), s.sglang_api_key.as_deref())
+}
+
+fn check_credential_transport(label: &str, url: Option<&str>, key: Option<&str>) -> AppResult<()> {
+    let key = key.map(str::trim).filter(|k| !k.is_empty());
+    let url = url.map(str::trim).filter(|u| !u.is_empty());
+    if let (Some(url), Some(_)) = (url, key) {
+        if !credential_allowed(url) {
+            return Err(AppError::Validation(format!(
+                "{label}: refusing to store the API key — {url} is not HTTPS, so the key would \
+                 be sent in cleartext. Use an https:// URL, or clear the key if the server has \
+                 no auth."
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// On load, move any legacy plaintext keys out of the YAML into the keychain, then hydrate
@@ -124,6 +148,7 @@ pub fn set_user_settings(
     settings: UserSettings,
 ) -> Result<(), AppError> {
     state.ensure_loaded(&app)?;
+    reject_cleartext_credentials(&settings)?;
     persist_api_keys(&settings);
     push_remote_endpoints(&settings);
     *state.inner.lock_recover() = settings.clone();
@@ -139,3 +164,7 @@ pub fn resolve_models_folder(
 ) -> Result<String, AppError> {
     Ok(state.weights_dir(&app)?.to_string_lossy().into_owned())
 }
+
+#[cfg(test)]
+#[path = "user_settings_tests.rs"]
+mod tests;
