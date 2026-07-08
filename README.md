@@ -177,6 +177,7 @@ QuantaMind is a workbench, not a chat app — each surface answers one question 
 | 🎙️ **Speech-to-Text** | Fully local transcription via whisper.cpp, with an optional voice → assistant pipeline. |
 | 📦 **Models** | Install from Ollama Library, Hugging Face, or a local `.gguf`; disk-safe, resumable, with a storage manager. |
 | 📊 **Analysis & Latency** | Multi-model compare and quantization diffing, with throughput/TTFT charts and Markdown/JSON export. |
+| 📖 **Docs** | Built-in, task-oriented user guides (getting started, choosing a backend, running tests, troubleshooting) with ⌘K full-text search. |
 
 ![The Tests scoreboard: a batch run scoring a 100% pass rate on Easy-tier agentic tasks, with a per-model Pass^k summary below.](docs/screenshots/tests-scoreboard.png)
 

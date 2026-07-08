@@ -12,6 +12,7 @@ import { startInstalledModelsBus } from "./features/models/state/installedModels
 import { useModelSettingsStore } from "./features/models/state/modelSettingsStore";
 import { FeedbackButton } from "./features/feedback/components/FeedbackButton";
 import { HelpPage } from "./features/help/components/HelpPage";
+import { DocsPage } from "./features/docs/components/DocsPage";
 import { WorkspaceSidebar } from "./WorkspaceSidebar";
 import { useAutoSave } from "./features/workspaces/hooks/useAutoSave";
 import { HistoryPanel } from "./features/history/components/HistoryPanel";
@@ -35,6 +36,7 @@ const TABS: { id: TopView; label: string }[] = [
    { id: "downloads", label: "Downloads" },
    { id: "settings", label: "Settings" },
    { id: "help", label: "Help" },
+   { id: "docs", label: "Docs" },
 ];
 
 const tabClass = (active: boolean) =>
@@ -100,6 +102,7 @@ export default function App() {
            <div hidden={view !== "downloads"} data-testid="view-downloads"><ErrorBoundary label="Downloads"><DownloadsPage /></ErrorBoundary></div>
            <div hidden={view !== "settings"} data-testid="view-settings"><ErrorBoundary label="Settings"><SettingsPage /></ErrorBoundary></div>
            <div hidden={view !== "help"} data-testid="view-help"><ErrorBoundary label="Help"><HelpPage /></ErrorBoundary></div>
+           <div hidden={view !== "docs"} data-testid="view-docs"><ErrorBoundary label="Docs"><DocsPage /></ErrorBoundary></div>
          </main>
 
          {/* Overlay/floating components stay outside sticky header */}
