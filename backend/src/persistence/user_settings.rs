@@ -57,7 +57,13 @@ pub fn save(path: &Path, s: &UserSettings) -> AppResult<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| AppError::Io(e.to_string()))?;
     }
-    let yaml = serde_yaml::to_string(s).map_err(|e| AppError::Internal(e.to_string()))?;
+    // Secrets never touch disk (rule 7a). The API-key fields are kept on the struct for the
+    // IPC contract, but the keychain (`SecureSecrets`) is their only durable store, so this
+    // boundary strips them before serializing — regardless of caller. See docs/security.md.
+    let mut on_disk = s.clone();
+    on_disk.vllm_api_key = None;
+    on_disk.sglang_api_key = None;
+    let yaml = serde_yaml::to_string(&on_disk).map_err(|e| AppError::Internal(e.to_string()))?;
     std::fs::write(path, yaml).map_err(|e| AppError::Io(e.to_string()))
 }
 

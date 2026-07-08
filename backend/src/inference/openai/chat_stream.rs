@@ -1,4 +1,5 @@
 use crate::errors::{AppError, AppResult};
+use crate::inference::backend::remote_guard::credential_allowed;
 use crate::inference::generate::generate_options::GenerateOptions;
 use crate::inference::generate::generate_stats::GenerateStats;
 use crate::inference::http::http::{body_or_note, streaming_client};
@@ -36,7 +37,9 @@ pub async fn stream_generate(
         think,
     );
     let mut req = client.post(format!("{endpoint}/v1/chat/completions")).json(&body);
-    if let Some(key) = api_key.filter(|k| !k.is_empty()) {
+    // Attach the key only over a safe channel (rule 7d); the save guardrail already blocks
+    // storing a key on a cleartext remote URL — this is defense-in-depth for any other path.
+    if let Some(key) = api_key.filter(|k| !k.is_empty() && credential_allowed(endpoint)) {
         req = req.bearer_auth(key);
     }
     // Race the request against cancel: a wedged server (e.g. a non-chat model

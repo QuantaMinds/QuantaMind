@@ -4,6 +4,7 @@ use crate::inference::eval::agentic::spec::Tier;
 use crate::inference::eval::readiness::hardware::hwclass::HardwareClass;
 use crate::inference::eval::readiness::types::{AgentPath, ModelVerdict, Readiness};
 use crate::persistence::prompts::schema::InferenceParams;
+use crate::redact::redact_path;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -179,7 +180,10 @@ impl PublishRow {
             .flatten();
 
         Some(PublishRow {
-            model: v.model.clone(),
+            // Defense-in-depth (rule 7f): these are the only free-text fields on the wire. A
+            // registry tag/name passes through unchanged; a local model whose name is ever a
+            // filesystem path has its username stripped so no machine identity is published.
+            model: redact_path(&v.model),
             quant,
             cohort_key: ctx.cohort_key.clone(),
             tool_version: ctx.engine_version.clone(),
@@ -198,7 +202,7 @@ impl PublishRow {
             think_budget,
             ctx_ceiling: v.ctx_ceiling,
             cpu_offloaded: v.cpu_offloaded,
-            collection_name: ctx.collection_name.clone(),
+            collection_name: redact_path(&ctx.collection_name),
             collection_hash,
             schema_version: PUBLISH_SCHEMA_VERSION,
             engine_version: ctx.engine_version.clone(),

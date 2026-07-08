@@ -1,6 +1,6 @@
 # Frontend Overview — App Shell & Shared Layer
 
-> The React 18/19 + TypeScript shell of the QuantaMind Tauri 2 desktop app, plus
+> The React 19 + TypeScript shell of the QuantaMind Tauri 2 desktop app, plus
 > the cross-cutting **shared layer**: the typed IPC client to Rust, the global
 > Zustand stores, the shared UI kit, and the pure model/format helpers.
 >

@@ -19,7 +19,19 @@ pub fn save_inner(path: &str, bytes: &[u8]) -> AppResult<()> {
     if bytes.is_empty() {
         return Err(AppError::Validation("image is empty".into()));
     }
-    fs::write(Path::new(path), bytes).map_err(|e| AppError::Io(format!("write {path}: {e}")))?;
+    // This is a webview-reachable write-to-any-path primitive. It only ever exports a PNG the
+    // user picked in a save dialog, so pin the extension and refuse to write THROUGH a symlink
+    // — a compromised caller could otherwise clobber an arbitrary file via a planted link (7b).
+    if !path.to_ascii_lowercase().ends_with(".png") {
+        return Err(AppError::Validation("readiness export must be a .png path".into()));
+    }
+    let target = Path::new(path);
+    if let Ok(meta) = target.symlink_metadata() {
+        if meta.file_type().is_symlink() {
+            return Err(AppError::Validation("refusing to write through a symlink".into()));
+        }
+    }
+    fs::write(target, bytes).map_err(|e| AppError::Io(format!("write {path}: {e}")))?;
     Ok(())
 }
 
@@ -31,6 +43,30 @@ mod tests {
     fn rejects_empty_path_and_empty_bytes() {
         assert!(save_inner("", &[1, 2, 3]).is_err());
         assert!(save_inner("/tmp/qm_x.png", &[]).is_err());
+    }
+
+    #[test]
+    fn rejects_non_png_extension() {
+        assert!(save_inner("/tmp/qm_x.txt", &[1, 2, 3]).is_err());
+        assert!(save_inner("/tmp/qm_x", &[1, 2, 3]).is_err());
+    }
+
+    #[test]
+    fn refuses_to_write_through_a_symlink() {
+        use std::os::unix::fs::symlink;
+        let dir = std::env::temp_dir().join("qm_symlink_export_test");
+        let _ = std::fs::create_dir_all(&dir);
+        let victim = dir.join("victim.png");
+        std::fs::write(&victim, b"original").expect("seed victim");
+        let link = dir.join("link.png");
+        let _ = std::fs::remove_file(&link);
+        symlink(&victim, &link).expect("make symlink");
+
+        let err = save_inner(&link.to_string_lossy(), &[0x89, 0x50]);
+        assert!(err.is_err(), "must refuse to write through a symlink");
+        // The victim is untouched.
+        assert_eq!(std::fs::read(&victim).expect("read victim"), b"original");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

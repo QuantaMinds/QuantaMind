@@ -1,6 +1,6 @@
 use crate::errors::{AppError, AppResult};
 use crate::persistence::prompts::schema::PromptFile;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 pub const EXT: &str = "quantamind.yaml";
 
@@ -41,22 +41,6 @@ pub fn rename(old: &Path, new: &Path) -> AppResult<()> {
         std::fs::create_dir_all(parent).map_err(|e| AppError::Io(e.to_string()))?;
     }
     std::fs::rename(old, new).map_err(|e| AppError::Io(e.to_string()))
-}
-
-/// Reject paths that escape `root` via `..` or symlinks. Returns the
-/// canonicalised path on success. Requires `root` to exist.
-pub fn ensure_within(root: &Path, candidate: &Path) -> AppResult<PathBuf> {
-    let root_abs = root.canonicalize().map_err(|e| AppError::Io(e.to_string()))?;
-    let parent = candidate.parent().unwrap_or(Path::new("/"));
-    let parent_abs = parent.canonicalize().map_err(|e| AppError::Io(e.to_string()))?;
-    if !parent_abs.starts_with(&root_abs) {
-        return Err(AppError::Validation(format!(
-            "path escapes workspace: {}", candidate.display()
-        )));
-    }
-    let name = candidate.file_name()
-        .ok_or_else(|| AppError::Validation("missing file name".into()))?;
-    Ok(parent_abs.join(name))
 }
 
 #[cfg(test)]

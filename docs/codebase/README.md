@@ -1,7 +1,7 @@
 # QuantaMind — Codebase Documentation
 
 > A native desktop workbench for running, comparing, and managing local large
-> language models. Tauri 2.x + Rust backend + React 18 / TypeScript frontend.
+> language models. Tauri 2.x + Rust backend + React 19 / TypeScript frontend.
 > Local-first, no telemetry, ~30 MB binary.
 
 This folder is the **deep, file-by-file reference** for the entire codebase.

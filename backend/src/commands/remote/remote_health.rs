@@ -1,5 +1,6 @@
 use crate::commands::system::health::HealthStatus;
 use crate::inference::backend::remote_config;
+use crate::inference::backend::remote_guard::credential_allowed;
 use reqwest::Client;
 use std::time::Duration;
 
@@ -18,7 +19,8 @@ pub async fn remote_health(endpoint: &str, api_key: Option<&str>) -> HealthStatu
         Err(_) => return HealthStatus { available: false, version: None },
     };
     let mut req = client.get(format!("{endpoint}/v1/models"));
-    if let Some(key) = api_key.filter(|k| !k.is_empty()) {
+    // rule 7d: only send the key over https/loopback (defense-in-depth behind the save guard).
+    if let Some(key) = api_key.filter(|k| !k.is_empty() && credential_allowed(endpoint)) {
         req = req.bearer_auth(key);
     }
     match req.send().await {

@@ -10,12 +10,15 @@
 #![cfg_attr(target_os = "windows", deny(clippy::disallowed_methods))]
 #![cfg_attr(not(target_os = "windows"), allow(clippy::disallowed_methods))]
 
+pub mod audit;
 pub mod commands;
 pub mod errors;
 pub mod inference;
 pub mod metrics;
 pub mod os;
 pub mod persistence;
+pub mod redact;
+pub mod secrets;
 pub mod sync;
 pub mod time_iso;
 pub mod validation;

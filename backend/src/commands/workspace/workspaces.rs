@@ -1,5 +1,6 @@
 use crate::errors::{AppError, AppResult};
-use crate::persistence::prompts::{io as p_io, tree, tree::TreeNode};
+use crate::persistence::fs_guard;
+use crate::persistence::prompts::{tree, tree::TreeNode};
 use crate::persistence::workspaces::{
     load as load_recents, record as record_recent, save as save_recents, RecentEntry, RecentList,
 };
@@ -24,19 +25,13 @@ impl WorkspaceState {
             .ok_or_else(|| AppError::Validation("no workspace open".into()))
     }
     pub fn ensure_within(&self, candidate: &Path) -> AppResult<PathBuf> {
-        p_io::ensure_within(&self.root()?, candidate)
+        fs_guard::ensure_within(&self.root()?, candidate)
     }
-    /// Resolve a path whose parent must already exist inside the workspace.
-    /// The file itself may or may not exist; only the parent is canonicalised.
+    /// Resolve a path for creating a new file inside the workspace. Same confinement as
+    /// `ensure_within` (the shared `fs_guard`): the parent is canonicalised + confined, and a
+    /// symlink final component that escapes root is rejected. The file itself need not exist.
     pub fn resolve_new(&self, candidate: &Path) -> AppResult<PathBuf> {
-        let root = self.root()?;
-        let parent = candidate.parent().ok_or_else(|| AppError::Validation("missing parent".into()))?;
-        let parent_abs = parent.canonicalize().map_err(|e| AppError::Io(e.to_string()))?;
-        if !parent_abs.starts_with(&root) {
-            return Err(AppError::Validation(format!("path escapes workspace: {}", candidate.display())));
-        }
-        let name = candidate.file_name().ok_or_else(|| AppError::Validation("missing name".into()))?;
-        Ok(parent_abs.join(name))
+        fs_guard::ensure_within(&self.root()?, candidate)
     }
     fn set(&self, p: PathBuf) {
         *self.root.lock_recover() = Some(p);

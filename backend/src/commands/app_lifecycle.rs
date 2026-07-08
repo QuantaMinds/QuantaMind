@@ -61,7 +61,9 @@ pub fn sweep_orphans() -> usize {
         }
         let cmd = proc.cmd().iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>().join(" ");
         if is_our_server_cmd(&cmd) {
-            eprintln!("[reap] killing orphaned QuantaMind server: {cmd}");
+            // The command line embeds ~/.quantamind/... weight paths (→ username); redact so
+            // the log — which a user may paste into a bug report — carries no identity (7f).
+            eprintln!("[reap] killing orphaned QuantaMind server: {}", crate::redact::redact_path(&cmd));
             if proc.kill_with(Signal::Term).is_none() {
                 proc.kill();
             }
