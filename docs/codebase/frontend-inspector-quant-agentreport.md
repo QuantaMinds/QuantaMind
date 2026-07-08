@@ -1,7 +1,7 @@
 # Frontend — Latency, Quant, Agent Report & Publish
 
 File-by-file reference for the three local-analysis surfaces of the QuantaMind
-desktop app and the Publish UI that closes the loop. React 18 + TS 5 + Zustand +
+desktop app and the Publish UI that closes the loop. React 19 + TS 5 + Zustand +
 [visx](https://airbnb.io/visx) charts, all driven over Tauri IPC into the Rust
 backend. Everything here is **single-turn / batch over already-measured data** —
 no surface runs inference itself; they read run history, loaded-model VRAM, eval

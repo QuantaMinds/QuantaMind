@@ -13,8 +13,8 @@ Locked decisions. Do not substitute. Alternatives go to
 |---|---|---|
 | Desktop shell | Tauri 2.x | 30MB binary, native WebView, Rust backend |
 | Backend language | Rust (stable, ed. 2021) | Tauri default, safe IPC + HTTP |
-| Frontend framework | React 18 + TS 5.x | Largest open-source contributor pool |
-| Build tool | Vite 5.x | Fast HMR, Tauri-friendly |
+| Frontend framework | React 19 + TS 5.x | Largest open-source contributor pool; moved 18→19 in Phase 4 for `visx` v4 (stable v3 pins React ≤18). |
+| Build tool | Vite 7.x | Fast HMR, Tauri-friendly (moved 5→7 with the React 19 upgrade). |
 | Styling | Tailwind CSS 3.x | Utility-first, no design-system overhead |
 | State management | Zustand | 1KB, no boilerplate, scales |
 | Editor component | `@monaco-editor/react` | Same editor as VS Code |

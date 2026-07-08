@@ -24,6 +24,18 @@ Project guide for Claude Code sessions. Read this top-to-bottom before any work.
    This project's hardest bugs (empty `.` output, foreign-dialect soup, the
    native-path discard, read_file acking empty) surfaced ONLY by running the live
    model — a green test just proves the path you told it to run.
+7. **Security invariants (never violate).** See `docs/security.md#invariants`.
+   (a) Secrets go ONLY through the `SecureSecrets` port (OS keychain), never
+   plaintext on disk. (b) Every command that takes a filesystem path from the
+   frontend goes through `fs_guard` (canonicalize the FULL path, confine to an
+   allowed root). (c) The webview CSP stays restrictive — no new webview plugin
+   scope (`fs`/`http`/`shell`) without an explicit review note. (d) Credentialed
+   HTTP is `https`-only (loopback exempt). (e) Treat ALL model output as untrusted
+   (OWASP LLM) — render inert, never `innerHTML`/execute. (f) **No local machine
+   info leaves the machine** — no absolute path, username, hostname, or env value
+   in any log, error body, transcript, or publish payload; paths pass through
+   `redact_path`, env is captured by allowlist, and anything published is a *proven*
+   field allowlist. (g) Publish/telemetry is strictly opt-in and disclosed.
 
 ## Workflow per step (mandatory loop)
 
@@ -43,7 +55,7 @@ If step 5 or 6 fails, do not "fix" by loosening the assertion. Fix the code.
 
 ## Quick reference
 
-- **Stack:** Tauri 2.x + Rust + React 18 + TS 5 + Vite + Tailwind + Zustand.
+- **Stack:** Tauri 2.x + Rust + React 19 + TS 5 + Vite + Tailwind + Zustand.
   Full table in `docs/process.md#tech-stack`.
 - **Layout:** `frontend/src/` (React features) + `frontend/` configs,
   `backend/src/` (Rust commands + inference) + `backend/tauri.conf.json`,
@@ -78,7 +90,7 @@ If step 5 or 6 fails, do not "fix" by loosening the assertion. Fix the code.
 
 ## Docs
 
-Engineering docs live in three files under `docs/` (link with anchors, e.g.
+Engineering docs live in four files under `docs/` (link with anchors, e.g.
 `docs/architecture.md#layering`):
 
 - **`architecture.md`** — `#architecture` (modules + IPC), `#layering`
@@ -89,6 +101,9 @@ Engineering docs live in three files under `docs/` (link with anchors, e.g.
   `#data-quality` (verify output), `#phase-roadmap`, `#future-considerations`.
 - **`reference.md`** — `#analysis-schema` (bench/analysis contract),
   `#troubleshooting` (error-state help; anchors back the in-app links).
+- **`security.md`** — `#invariants` (the rule-7 security invariants), `#trust-boundaries`
+  (webview↔Rust, sidecars, publish), `#secret-inventory`, `#threat-model` (scoped to the
+  single-user local model). Public disclosure policy lives in root `SECURITY.md`, not here.
 
 `docs/prompts/` is a runtime app asset (bundled prompt templates), not docs.
 

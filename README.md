@@ -212,7 +212,7 @@ QuantaMind is a workbench, not a chat app — each surface answers one question 
 
 ## Tech stack
 
-Tauri 2.x + Rust + React 18 + TypeScript 5 + Vite + Tailwind + Zustand. These choices are **locked** — substitutions require explicit review.
+Tauri 2.x + Rust + React 19 + TypeScript 5 + Vite + Tailwind + Zustand. These choices are **locked** — substitutions require explicit review.
 
 <details>
 <summary><b>Full dependency table</b></summary>
@@ -221,8 +221,8 @@ Tauri 2.x + Rust + React 18 + TypeScript 5 + Vite + Tailwind + Zustand. These ch
 |---|---|---|
 | Desktop shell | **Tauri 2.x** | ~30 MB binaries, native WebView, Rust backend |
 | Backend language | **Rust 1.75+** (ed. 2021) | Tauri default; safe IPC + HTTP |
-| Frontend | **React 18 + TypeScript 5** | Largest open-source contributor pool |
-| Build tool | **Vite 5** | Fast HMR, Tauri-friendly |
+| Frontend | **React 19 + TypeScript 5** | Largest open-source contributor pool |
+| Build tool | **Vite 7** | Fast HMR, Tauri-friendly |
 | Styling | **Tailwind CSS 3** | Utility-first, no design-system overhead |
 | State | **Zustand** | ~1 KB, no boilerplate, scales |
 | Editor | **`@monaco-editor/react`** | Same editor as VS Code |
