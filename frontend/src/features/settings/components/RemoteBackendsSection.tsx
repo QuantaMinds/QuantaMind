@@ -6,6 +6,7 @@ import {
 } from "../../../shared/ipc/settings/userSettings";
 import { rawMessage } from "../../../shared/ipc/core/error";
 import { useInstalledModelsStore } from "../../models/state/installedModelsStore";
+import { useRemoteEndpointsStore } from "../../workspace/state/remoteEndpointsStore";
 
 type SaveState = "idle" | "saving" | "saved" | "error";
 
@@ -34,6 +35,9 @@ export function RemoteBackendsSection() {
     setSaveError(null);
     try {
       await setUserSettings(settings);
+      // Mirror the new endpoints into the reactive store so the health pollers start/stop
+      // immediately (a just-configured endpoint begins polling; a cleared one stops).
+      useRemoteEndpointsStore.getState().setUrls({ vllmUrl: settings.vllm_url, sglangUrl: settings.sglang_url });
       // The saved URL/key just changed which remote models are reachable — refetch
       // so the header picker reflects the new endpoint (health-edge refresh only
       // fires when reachability flips; a same-state URL change wouldn't trigger it).

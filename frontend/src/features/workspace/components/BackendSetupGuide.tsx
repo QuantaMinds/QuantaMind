@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useNavStore } from "../../../shared/state/navStore";
-import { useMlxBackend } from "../hooks/useMlxBackend";
+import { useMlxBackend } from "../hooks/useBackendHealth";
 import { useHostOs } from "../../../shared/os/useHostOs";
 import type { HostOs } from "../../../shared/ipc/system/os_platform";
 

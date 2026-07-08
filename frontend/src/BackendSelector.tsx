@@ -1,8 +1,8 @@
+import { useEffect } from "react";
 import type { BackendKind } from "./shared/ipc/models/storage";
 import { useBackendStore } from "./shared/state/backendStore";
-import { useMlxBackend } from "./features/workspace/hooks/useMlxBackend";
-import { useLlamaBackend } from "./features/workspace/hooks/useLlamaBackend";
-import { useVllmBackend, useSglangBackend } from "./features/workspace/hooks/useRemoteBackends";
+import { useMlxBackend, useLlamaBackend, useVllmBackend, useSglangBackend } from "./features/workspace/hooks/useBackendHealth";
+import { useRemoteEndpointsStore } from "./features/workspace/state/remoteEndpointsStore";
 
 const BASE_BACKENDS: { id: BackendKind; label: string }[] = [
   { id: "llama_cpp", label: "llama.cpp" },
@@ -22,6 +22,11 @@ function dotClass(healthy: boolean | null): string {
 /// dot reflects the selected backend's server: green = running. useMlxBackend /
 /// useLlamaBackend poll their health into backendStore (Ollama via the StatusBar).
 export function BackendSelector() {
+  // Load the configured remote endpoints once so the vLLM/SGLang pollers can gate on them —
+  // without this they'd default to unconfigured and never poll even when an endpoint IS set.
+  useEffect(() => {
+    void useRemoteEndpointsStore.getState().load();
+  }, []);
   const { appleSilicon } = useMlxBackend();
   useLlamaBackend();
   useVllmBackend();

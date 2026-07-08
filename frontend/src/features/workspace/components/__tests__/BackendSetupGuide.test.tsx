@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 
 vi.mock("@tauri-apps/plugin-shell", () => ({ open: vi.fn() }));
-vi.mock("../../hooks/useMlxBackend", () => ({ useMlxBackend: vi.fn() }));
+vi.mock("../../hooks/useBackendHealth", () => ({ useMlxBackend: vi.fn() }));
 
-import { useMlxBackend } from "../../hooks/useMlxBackend";
+import { useMlxBackend } from "../../hooks/useBackendHealth";
 import { BackendSetupGuide } from "../BackendSetupGuide";
 
 const setAppleSilicon = (appleSilicon: boolean) =>

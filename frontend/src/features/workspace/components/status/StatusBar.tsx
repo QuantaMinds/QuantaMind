@@ -6,7 +6,11 @@ import { useBackendStore } from "../../../../shared/state/backendStore";
 import { formatMetrics } from "../../format";
 import { backendStatus } from "./backendStatus";
 
-const POLL_MS = 5000;
+// Ollama is polled fast (5s) only while it's the selected backend; a slow 30s heartbeat
+// otherwise — so a user on llama.cpp/MLX isn't probing Ollama every 5s (matches the other
+// backends' selected-aware cadence in usePolledBackendHealth).
+const POLL_FAST_MS = 5000;
+const POLL_SLOW_MS = 30000;
 
 type Props = {
   model: string | null;
@@ -34,12 +38,12 @@ export function StatusBar({ model, onModelClick }: Props) {
       }
     };
     tick();
-    const id = setInterval(tick, POLL_MS);
+    const id = setInterval(tick, activeBackend === "ollama" ? POLL_FAST_MS : POLL_SLOW_MS);
     return () => {
       cancelled = true;
       clearInterval(id);
     };
-  }, [setOllamaHealthy]);
+  }, [setOllamaHealthy, activeBackend]);
 
   // The status reflects the active backend, not always Ollama. llama.cpp and
   // MLX track their server's run state and name the loaded model.

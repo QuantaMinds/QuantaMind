@@ -3,7 +3,7 @@ import { renderHook, waitFor } from "@testing-library/react";
 
 vi.mock("../../../shared/ipc/core/client", () => ({ checkLlamaHealth: vi.fn() }));
 
-import { useLlamaBackend } from "../hooks/useLlamaBackend";
+import { useLlamaBackend } from "../hooks/useBackendHealth";
 import { checkLlamaHealth } from "../../../shared/ipc/core/client";
 import { useBackendStore } from "../../../shared/state/backendStore";
 
