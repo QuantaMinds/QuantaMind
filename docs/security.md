@@ -27,10 +27,13 @@ The rule-7 invariants from `CLAUDE.md`. Every change must uphold all of them:
 5. **Model output is untrusted (OWASP LLM Top-10).** Render model output as inert, escaped
    text — never `innerHTML`/`dangerouslySetInnerHTML`/`eval`. Treat file/web content the
    model reads as an indirect-prompt-injection source.
-6. **No local machine info leaves the machine.** No absolute path, username, hostname, or env
-   value appears in any log, error body, transcript, or publish payload. Paths pass through
-   `redact_path`; env is captured by allowlist; the publish payload is a *proven* field
-   allowlist (test-enforced).
+6. **No local machine info leaves the machine.** No absolute path or username appears in any
+   log, error body, or publish payload. Paths pass through `redact_path` (`backend/src/redact.rs`)
+   at the log/error/publish boundaries, and the publish payload is a *proven* field allowlist
+   (`row_tests.rs` asserts no username survives + no un-allowlisted field ships). Note: the
+   agentic transcripts do NOT capture the OS environment — their "env" is the SIMULATED task
+   sandbox (scenario-defined file trees / web corpus / UI state), so there is no
+   username/hostname/env-var there to redact.
 7. **Publish/telemetry is opt-in + disclosed.** Nothing leaves the machine without an
    explicit user action, and the exact payload is shown before it is sent.
 
@@ -75,9 +78,10 @@ In scope (single-user local): a malicious website driving a local sidecar via th
 cf. CVE-2024-37032 path-traversal, CVE-2024-39720 malicious-GGUF DoS); on-path theft of a
 cloud API key sent to a remote GPU; and — the user's top concern — **leakage of local machine
 identity (paths/username/hostname/env) off the machine via logs, errors, transcripts, or the
-publish payload**. Defenses: `fs_guard`, `verify_digest`, restrictive CSP, `https`-only
-credentials, `SecureSecrets`, capture-time redaction + `redact_path`, and a proven publish
-allowlist.
+publish payload**. Defenses: `fs_guard`, restrictive CSP, `https`-only credentials,
+`SecureSecrets`, `redact_path` at the log/error/publish boundaries, and a proven publish
+allowlist. (The transcript "env snapshot" is the simulated task sandbox, not the OS
+environment — verified against `env_view.rs` — so it is not a machine-identity surface.)
 
 Out of scope: a local attacker who already has the user's disk/keychain (they've already won);
 multi-user/enterprise tenancy; nation-state supply-chain compromise of upstream deps (mitigated,

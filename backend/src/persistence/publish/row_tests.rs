@@ -62,6 +62,50 @@ fn published_row_carries_no_right_sizing_data() {
     assert!(!json.contains("reduction_pct"), "no percent-reduction data on the wire: {json}");
 }
 
+/// rule 7f: the publish payload is the only thing that leaves the machine, so PROVE no
+/// machine identity (username / home path) can ride out via its free-text fields, even when
+/// the source model name / collection name is itself an absolute local path.
+#[test]
+fn published_row_carries_no_machine_identity() {
+    let mut ctx = PublishContext::test_ctx("apple-silicon/m3-pro/32-64gb", "0.2.0");
+    ctx.collection_hash = Some("abc123".into());
+    ctx.collection_name = "/Users/alice/private-collection".into();
+    let r = PublishRow::project(
+        &verdict("/Users/alice/models/secret.gguf", Some(0.8), Some("Q4_K_M")),
+        &ctx,
+    )
+    .expect("measured built-in projects");
+    let json = serde_json::to_string(&r).unwrap();
+    // The username (the machine identity) must not survive anywhere in the wire form.
+    assert!(!json.contains("alice"), "username leaked to the publish wire: {json}");
+    // redact_path masked it to <user> rather than dropping the field.
+    assert!(r.model.contains("<user>"), "model not redacted: {}", r.model);
+    assert!(r.collection_name.contains("<user>"), "collection not redacted: {}", r.collection_name);
+}
+
+/// Allowlist guard: a serialized row must contain ONLY known fields, so a newly-added
+/// `PublishRow` field can't silently start shipping something identifying. If this fails,
+/// add the field to `ALLOWED` on purpose (and confirm it carries no PII/path/host).
+#[test]
+fn serialized_row_has_only_allowlisted_fields() {
+    const ALLOWED: &[&str] = &[
+        "model", "quant", "cohort_key", "tool_version", "metrics", "params", "status",
+        "eval_method", "tier_tested", "cleared_tier", "hardware_class", "recommended_tier",
+        "by_tier", "failure_distribution", "is_thinking", "think_preset", "think_budget",
+        "ctx_ceiling", "cpu_offloaded", "collection_name", "collection_hash", "schema_version",
+        "engine_version", "build_hash",
+    ];
+    let mut ctx = PublishContext::test_ctx("apple-silicon/m3-pro/32-64gb", "0.2.0");
+    ctx.collection_hash = Some("abc123".into());
+    let mut thinking = verdict("qwen", Some(0.8), Some("Q4_K_M"));
+    thinking.is_thinking = true; // populate the optional think_budget so it's covered too
+    let r = PublishRow::project(&thinking, &ctx).unwrap();
+    let val = serde_json::to_value(&r).unwrap();
+    for key in val.as_object().unwrap().keys() {
+        assert!(ALLOWED.contains(&key.as_str()), "unexpected field on the publish wire: {key}");
+    }
+}
+
 #[test]
 fn projects_the_full_verdict_by_allowlist() {
     let mut ctx = PublishContext::test_ctx("apple-silicon/m3-pro/32-64gb", "0.2.0");

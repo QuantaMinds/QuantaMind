@@ -32,10 +32,10 @@ Project guide for Claude Code sessions. Read this top-to-bottom before any work.
    scope (`fs`/`http`/`shell`) without an explicit review note. (d) Credentialed
    HTTP is `https`-only (loopback exempt). (e) Treat ALL model output as untrusted
    (OWASP LLM) — render inert, never `innerHTML`/execute. (f) **No local machine
-   info leaves the machine** — no absolute path, username, hostname, or env value
-   in any log, error body, transcript, or publish payload; paths pass through
-   `redact_path`, env is captured by allowlist, and anything published is a *proven*
-   field allowlist. (g) Publish/telemetry is strictly opt-in and disclosed.
+   info leaves the machine** — no absolute path or username in any log, error
+   body, or publish payload; paths pass through `redact_path`, and anything
+   published is a *proven* field allowlist (test-enforced). (g) Publish/telemetry
+   is strictly opt-in and disclosed.
 
 ## Workflow per step (mandatory loop)
 

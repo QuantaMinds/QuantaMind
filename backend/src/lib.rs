@@ -16,6 +16,7 @@ pub mod inference;
 pub mod metrics;
 pub mod os;
 pub mod persistence;
+pub mod redact;
 pub mod secrets;
 pub mod sync;
 pub mod time_iso;
