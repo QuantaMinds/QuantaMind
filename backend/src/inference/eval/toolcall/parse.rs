@@ -375,6 +375,20 @@ pub fn strip_think(text: &str) -> String {
     out
 }
 
+/// Strip the `<think>` scratchpad before parsing tool calls, applied when the model is FLAGGED
+/// thinking OR when the output actually CONTAINS a `<think>` tag. The second clause is dynamic
+/// detection: a model that reasons but was NOT flagged thinking (a mis-set/absent toggle, e.g.
+/// qwen2.5-coder) still has its tool call parsed from the answer beneath the reasoning, instead
+/// of the scratchpad's braces being mis-scored as ForeignDialect/EmptyOutput. A terse model with
+/// no `<think>` is byte-for-byte unchanged (the non-thinking path stays identical).
+pub fn think_stripped(raw: &str, is_thinking: bool) -> String {
+    if is_thinking || raw.contains("<think>") {
+        strip_think(raw)
+    } else {
+        raw.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -492,6 +506,32 @@ mod tests {
             extract_calls_dialect("{\"name\":\"transfer\",\"args\":{\"amount\":1}} (i.e. call:transfer{amount:1})").unwrap();
         assert_eq!(dialect, ToolCallDialect::Standard);
         assert_eq!(calls[0].name, "transfer");
+    }
+
+    #[test]
+    fn think_stripped_strips_dynamically_when_output_has_think_even_if_not_flagged() {
+        // The mis-flag case: a reasoning model NOT flagged thinking (is_thinking=false) still
+        // emits <think>. We must strip it so the tool call underneath parses, not treat the
+        // scratchpad's braces as soup.
+        let raw = "<think>let me reason</think>{\"name\":\"go\",\"args\":{}}";
+        let cleaned = think_stripped(raw, false);
+        assert!(!cleaned.contains("<think>"));
+        assert_eq!(extract_calls(&cleaned).unwrap()[0].name, "go");
+    }
+
+    #[test]
+    fn think_stripped_leaves_a_terse_no_think_output_byte_identical() {
+        // A model with no <think> and not flagged thinking is unchanged (the non-thinking path
+        // stays byte-for-byte identical — no accidental behavior change).
+        let raw = "{\"name\":\"go\",\"args\":{}}";
+        assert_eq!(think_stripped(raw, false), raw);
+        assert_eq!(think_stripped("plain prose answer", false), "plain prose answer");
+    }
+
+    #[test]
+    fn think_stripped_still_strips_when_flagged_thinking() {
+        let raw = "<think>x</think>done";
+        assert_eq!(think_stripped(raw, true), "done");
     }
 
     #[test]

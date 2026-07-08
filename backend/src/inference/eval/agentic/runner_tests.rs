@@ -2402,15 +2402,17 @@ async fn thinking_model_strips_scratchpad_so_a_braced_forbidden_call_inside_thin
 }
 
 #[tokio::test]
-async fn without_thinking_the_same_braced_scratchpad_is_misparsed_and_springs_the_trap() {
-    // The inversion the fix exists to prevent: with is_thinking=false the runner does NOT
-    // strip, so `objects()` finds the forbidden `danger` JSON INSIDE the <think> block and
-    // the pre-scan traps it — a correct model wrongly failed for a purely structural reason.
+async fn even_unflagged_a_think_scratchpad_is_stripped_so_braced_forbidden_calls_dont_trap() {
+    // DYNAMIC detection (the fix): even with is_thinking=false, output that CONTAINS <think> is
+    // stripped, so the forbidden `danger` JSON inside the scratchpad is gone and only the real
+    // `finish` call is parsed. A reasoning model whose thinking toggle was never set (e.g.
+    // qwen2.5-coder) is no longer wrongly failed for a purely structural reason — same clean
+    // success as the flagged case above.
     let model = ThinkingModel::new(vec![THINK_WITH_FORBIDDEN_BRACES], false, 256);
     let (tx, _rx) = unbounded_channel();
     let outcome = run_once(&model, &finish_sandbox_forbidding_danger(), 8, 2, 0, &tx).await.unwrap();
-    assert!(!outcome.reached_end);
-    assert_eq!(outcome.failure, Some(FailureKind::ForbiddenCall));
+    assert!(outcome.reached_end);
+    assert_eq!(outcome.failure, None);
 }
 
 #[tokio::test]
