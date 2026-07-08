@@ -153,7 +153,11 @@ pub fn set_user_settings(
     push_remote_endpoints(&settings);
     *state.inner.lock_recover() = settings.clone();
     // `save` strips the API-key fields; the keychain (above) is their only durable store.
-    save(&settings_path(&app)?, &settings)
+    let result = save(&settings_path(&app)?, &settings);
+    if result.is_ok() {
+        crate::audit::record(crate::audit::AuditEvent::SettingsChanged); // audit seam (no-op in OSS)
+    }
+    result
 }
 
 /// The absolute shared GGUF weights folder, for display in the UI.

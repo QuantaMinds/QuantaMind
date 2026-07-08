@@ -111,6 +111,10 @@ pub async fn publish_to_board(state: tauri::State<'_, AuthState>, verdicts: Vec<
     if outcome == PublishOutcome::NeedsAuth {
         state.clear();
     }
+    if matches!(outcome, PublishOutcome::Ok { .. }) {
+        // Audit seam (no-op in OSS): data left the machine.
+        crate::audit::record(crate::audit::AuditEvent::Published { rows: preview.rows.len() });
+    }
     Ok(outcome)
 }
 

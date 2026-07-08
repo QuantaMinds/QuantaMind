@@ -1,3 +1,4 @@
+pub mod at_rest;
 pub mod eval_history;
 pub mod eval_trace_store;
 pub mod evals;

@@ -77,6 +77,22 @@ The rule-7 invariants from `CLAUDE.md`. Every change must uphold all of them:
 
 No hardcoded secrets anywhere in the repo (CI secret-scans over history enforce this).
 
+## enterprise-seams
+
+These are laid as no-op ports in the OSS build so the separate enterprise product can attach
+without a call-site redo. They are deliberately unimplemented here (see the scope note above).
+
+- **Encryption at rest** — `persistence::at_rest` (`AtRest` trait; `Passthrough` no-op).
+  Attach point: `persistence::jobs::transcripts::append_record` seals each appended JSONL line
+  via `seal`; the reader opens via `open`. Because the transcript is append-only JSONL, the
+  enterprise cipher must be a PER-LINE AEAD and the reader applies `open` per line. Extend the
+  same trait to the history/readiness funnels if at-rest coverage must widen.
+- **Audit log** — `crate::audit` (`AuditSink` trait; `NoopAudit` no-op; free `audit::record`).
+  Emit points wired today: publish success (`publish_cmd::publish_to_board`), OAuth sign-in
+  (`login_cmd::start_login`), and settings change (`settings::user_settings::set_user_settings`).
+  The enterprise sink writes a tamper-evident (hash-chained / WORM) record; add emit calls at
+  any new security-relevant event.
+
 ## threat-model
 
 In scope (single-user local): a malicious website driving a local sidecar via the browser

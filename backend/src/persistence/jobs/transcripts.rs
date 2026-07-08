@@ -1,6 +1,7 @@
 use crate::errors::{AppError, AppResult};
 use crate::inference::eval::agentic::step::TrajectoryStep;
 use crate::inference::eval::batch::TaskOutcome;
+use crate::persistence::at_rest::{at_rest, AtRest};
 use crate::persistence::readiness::safe_filename::safe_filename;
 use serde::Serialize;
 use std::fs::{File, OpenOptions};
@@ -58,7 +59,12 @@ fn append_record(path: &Path, record: &TranscriptRecord<'_>) -> AppResult<()> {
         std::fs::create_dir_all(parent)?;
     }
     let mut f = OpenOptions::new().append(true).create(true).open(path)?;
-    writeln!(f, "{}", serde_json::to_string(record)?)?;
+    // Encryption-at-rest seam (no-op in the OSS build; see persistence::at_rest). Passthrough
+    // returns the line unchanged, so this is byte-identical to a plain writeln today.
+    let line = serde_json::to_string(record)?;
+    let sealed = at_rest().seal(line.as_bytes());
+    f.write_all(&sealed)?;
+    f.write_all(b"\n")?;
     f.flush()?;
     Ok(())
 }

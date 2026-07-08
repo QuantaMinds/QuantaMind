@@ -72,6 +72,7 @@ pub async fn start_login(app: AppHandle, state: State<'_, AuthState>) -> Result<
     let tokens = exchange_code(publish_api(), &code, &verifier).await?;
     let persisted = store_refresh_token(&tokens.refresh_token);
     state.set(tokens.access_token);
+    crate::audit::record(crate::audit::AuditEvent::LoggedIn); // audit seam (no-op in OSS)
     Ok(persisted == Persisted::Keychain)
 }
 
