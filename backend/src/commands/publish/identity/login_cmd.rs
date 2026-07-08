@@ -1,5 +1,5 @@
 use super::auth::{store_refresh_token, Persisted};
-use super::pkce::{await_redirect, pkce_pair};
+use super::pkce::{await_redirect, new_state, pkce_pair};
 use super::token::exchange_code;
 use crate::commands::publish::auth_state::AuthState;
 use crate::commands::publish::publish_cmd::publish_api;
@@ -45,6 +45,7 @@ pub async fn start_login(app: AppHandle, state: State<'_, AuthState>) -> Result<
     ensure_reachable(publish_api()).await?;
 
     let (verifier, challenge) = pkce_pair();
+    let oauth_state = new_state();
     let listener = TcpListener::bind("127.0.0.1:0").await.map_err(|e| AppError::Io(e.to_string()))?;
     let port = listener.local_addr().map_err(|e| AppError::Io(e.to_string()))?.port();
     let redirect = format!("http://127.0.0.1:{port}/callback");
@@ -57,13 +58,14 @@ pub async fn start_login(app: AppHandle, state: State<'_, AuthState>) -> Result<
             ("code_challenge_method", "S256"),
             ("code_challenge", &challenge),
             ("redirect_uri", &redirect),
+            ("state", &oauth_state),
         ],
     )
     .map_err(|e| AppError::Internal(e.to_string()))?;
 
     app.shell().open(url.to_string(), None).map_err(|e| AppError::Internal(e.to_string()))?;
 
-    let code = tokio::time::timeout(LOGIN_TIMEOUT, await_redirect(listener))
+    let code = tokio::time::timeout(LOGIN_TIMEOUT, await_redirect(listener, &oauth_state))
         .await
         .map_err(|_| AppError::Validation("sign-in timed out — please try again".into()))??;
 

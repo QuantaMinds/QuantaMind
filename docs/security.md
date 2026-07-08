@@ -51,12 +51,18 @@ The rule-7 invariants from `CLAUDE.md`. Every change must uphold all of them:
   of `@monaco-editor/react`'s default jsDelivr load), so the app ships zero runtime remote code
   and works fully offline.
 - **Sidecars (loopback).** Ollama (`:11434`), llama-server (`:8081`), MLX (`:8082/8083`),
-  whisper-server (`:8093`) run unauthenticated on `127.0.0.1`. They are reachable by any
-  local process while running (standard local-LLM model). Mitigation: a Host-header/origin
-  guard on any listener the app itself runs (DNS-rebinding defense, cf. Ollama CVE-2024-28224).
-- **Publish (`api.quantamind.co`) — the only exfiltration path.** OAuth2 + PKCE, bearer token,
-  payload is a strict field allowlist (`persistence/publish/row.rs`) with "no task content
-  ever" and no machine identifiers. Opt-in; payload shown pre-send.
+  whisper-server (`:8093`) run unauthenticated on `127.0.0.1`. They are reachable by any local
+  process while running (standard local-LLM model). These are external processes we don't own,
+  so they legitimately speak `http` on loopback — a blanket `https`-only client would break
+  them; the credential guard (rule 7d) is instead scoped to requests that CARRY a key. The one
+  listener the app itself runs — the OAuth callback — validates the `Host` header is loopback
+  (DNS-rebinding defense, cf. Ollama CVE-2024-28224). The MLX locator prefers the configured
+  path, then known-safe install dirs, and only then `$PATH` (with a warning), to blunt
+  PATH-poisoning.
+- **Publish (`api.quantamind.co`) — the only exfiltration path.** OAuth2 + PKCE + a `state`
+  nonce (CSRF), bearer token; the callback is rejected on a `Host`/`state` mismatch. Payload is
+  a strict field allowlist (`persistence/publish/row.rs`) with "no task content ever" and no
+  machine identifiers (test-proven). Opt-in; payload shown pre-send.
 - **Downloaded artifacts.** Model weights from HuggingFace over TLS + `verify_digest`. The app
   updater is minisign-signature-verified over HTTPS.
 
