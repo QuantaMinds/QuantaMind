@@ -52,6 +52,20 @@ pub fn gguf_dest(dir: &Path, name: &str) -> PathBuf {
     dir.join(format!("{safe}.gguf"))
 }
 
+/// Resolve a llama.cpp column's GGUF on disk under `dir`: the sanitized `gguf_dest`
+/// mapping for a model tag, or the name joined verbatim when it already ends in `.gguf`.
+/// `None` when the file is absent (the caller then treats data as unmeasured, never guessed).
+pub fn find_gguf(dir: &Path, model: &str) -> Option<PathBuf> {
+    let path = if model.ends_with(".gguf") { dir.join(model) } else { gguf_dest(dir, model) };
+    path.exists().then_some(path)
+}
+
+/// `find_gguf` against the default/env-resolved weights folder — the common case for
+/// commands that don't carry the user-setting override.
+pub fn find_installed_gguf(model: &str) -> Option<PathBuf> {
+    find_gguf(&gguf_dir(), model)
+}
+
 /// Local MLX weights folder. Each MLX repo is snapshotted into its own subdir
 /// here (multi-file safetensors models, unlike single-file GGUF). Precedence:
 /// user setting → `QUANTAMIND_MLX_DIR` env → `~/.quantamind/mlx` on Unix /

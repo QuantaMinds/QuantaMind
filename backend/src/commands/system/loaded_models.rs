@@ -63,7 +63,49 @@ pub async fn fetch_loaded(endpoint: &str, timeout: Duration) -> AppResult<Vec<Lo
         .collect())
 }
 
+/// Fold the running llama.cpp model into the loaded list: Ollama's `/api/ps` only knows
+/// Ollama models, so a llama.cpp column would otherwise show "not loaded". `size_bytes` is the
+/// GGUF's on-disk footprint (the dominant resident term); `size_vram_bytes` stays 0 (the GPU
+/// split is `-ngl`-dependent and unmeasured here — never fabricated), so the bar shows the
+/// model's footprint against device memory. `context_length` is the launch `-c`.
+fn append_llama(models: &mut Vec<LoadedModel>, running: Option<(String, u32)>) {
+    let Some((path, ctx)) = running else { return };
+    let name = std::path::Path::new(&path)
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.clone());
+    let size_bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    models.push(LoadedModel { name, size_bytes, size_vram_bytes: 0, context_length: Some(ctx) });
+}
+
 #[tauri::command]
-pub async fn get_loaded_models() -> Result<Vec<LoadedModel>, AppError> {
-    fetch_loaded(DEFAULT_OLLAMA, DEFAULT_TIMEOUT).await
+pub async fn get_loaded_models(
+    llama: tauri::State<'_, crate::commands::llama::llama_server_types::LlamaServerState>,
+) -> Result<Vec<LoadedModel>, AppError> {
+    let mut models = fetch_loaded(DEFAULT_OLLAMA, DEFAULT_TIMEOUT).await?;
+    append_llama(&mut models, llama.running_summary());
+    Ok(models)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn append_llama_adds_running_model_by_stem() {
+        let mut models = vec![];
+        append_llama(&mut models, Some(("/Users/x/.quantamind/gguf/qwen2.5-coder-7b_q4_k_m.gguf".into(), 8192)));
+        assert_eq!(models.len(), 1);
+        // Name is the file STEM (matches the Inspector's llama.cpp row.model), ctx carried.
+        assert_eq!(models[0].name, "qwen2.5-coder-7b_q4_k_m");
+        assert_eq!(models[0].context_length, Some(8192));
+        assert_eq!(models[0].size_vram_bytes, 0); // GPU split unmeasured, never fabricated
+    }
+
+    #[test]
+    fn append_llama_is_a_noop_when_no_server_runs() {
+        let mut models = vec![];
+        append_llama(&mut models, None);
+        assert!(models.is_empty());
+    }
 }

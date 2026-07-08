@@ -145,14 +145,6 @@ fn device_cap_bytes(unified: bool, total_memory_bytes: u64, vram_total_bytes: Op
     }
 }
 
-/// Resolve a llama.cpp column's GGUF on disk: the sanitized `gguf_dest` mapping for a
-/// model tag, or the name joined verbatim when it already ends in `.gguf`. Missing
-/// file → `None` — the fit then stays unmeasured (soft condition), never a guess.
-fn find_gguf(dir: &std::path::Path, model: &str) -> Option<std::path::PathBuf> {
-    let path = if model.ends_with(".gguf") { dir.join(model) } else { storage_disk::gguf_dest(dir, model) };
-    path.exists().then_some(path)
-}
-
 /// VRAM fit for a llama.cpp column, graded at the KV precision the launch would
 /// ACTUALLY use on this machine — `plan_launch` downgrades to a Q8 cache under memory
 /// pressure, and the resulting profile says so (`kv_precision`), which `assess` turns
@@ -612,7 +604,7 @@ pub async fn assess_readiness(
             try_profile(w, dims, report.num_ctx, cap_bytes, KvPrecision::F16)
         } else if col.backend == BackendKind::LlamaCpp {
             total_memory_bytes.and_then(|total| {
-                let path = find_gguf(&storage_disk::gguf_dir(), &col.model)?;
+                let path = storage_disk::find_installed_gguf(&col.model)?;
                 let weights = std::fs::metadata(&path).ok()?.len();
                 let meta = crate::inference::gguf::gguf::inspect_gguf(&path).ok()?;
                 llama_profile_from_meta(weights, &meta, report.num_ctx, cap_bytes, total)
@@ -728,9 +720,9 @@ mod cliff_preflight_tests {
     #[test]
     fn find_gguf_returns_none_for_a_missing_file() {
         let dir = std::env::temp_dir().join("qm-nonexistent-gguf-dir");
-        assert!(find_gguf(&dir, "does-not-exist").is_none());
+        assert!(storage_disk::find_gguf(&dir, "does-not-exist").is_none());
         // A name that already ends in .gguf but isn't present is also None.
-        assert!(find_gguf(&dir, "ghost.gguf").is_none());
+        assert!(storage_disk::find_gguf(&dir, "ghost.gguf").is_none());
     }
 
     /// A missing head_count_kv falls back to MHA (conservative overestimate) and the
@@ -752,7 +744,7 @@ mod cliff_preflight_tests {
     #[ignore = "reads a real GGUF from ~/.quantamind/gguf"]
     fn live_llama_gguf_profile_grades_at_plan_precision() {
         let dir = storage_disk::gguf_dir();
-        let path = find_gguf(&dir, "qwen3.5-9b_q4_k_m").expect("qwen3.5-9b_q4_k_m.gguf installed");
+        let path = storage_disk::find_gguf(&dir, "qwen3.5-9b_q4_k_m").expect("qwen3.5-9b_q4_k_m.gguf installed");
         let weights = std::fs::metadata(&path).unwrap().len();
         let meta = crate::inference::gguf::gguf::inspect_gguf(&path).unwrap();
         let total = crate::commands::system::hardware::snapshot().total_memory_bytes;
