@@ -66,21 +66,18 @@ pub async fn fetch_loaded(endpoint: &str, timeout: Duration) -> AppResult<Vec<Lo
 /// Fold the running llama.cpp model into the loaded list: Ollama's `/api/ps` only knows
 /// Ollama models, so a llama.cpp column would otherwise show "not loaded". `size_bytes` is the
 /// GGUF's on-disk footprint (the dominant resident term); `context_length` is the launch `-c`.
-///
-/// `size_vram_bytes`: on **unified** memory (Apple Silicon) the CPU and GPU share ONE pool, so
-/// the whole model is resident "in unified memory (VRAM)" — matching how Ollama's `/api/ps`
-/// reports it — and there is no "offload to RAM". On a **discrete** GPU the app passes no
-/// `-ngl`, so llama.cpp defaults to CPU (weights in system RAM, not VRAM); reporting `0` there
-/// is honest (the bar then shows it as offloaded), never a fabricated GPU residency.
-fn append_llama(models: &mut Vec<LoadedModel>, running: Option<(String, u32)>, unified: bool) {
+/// `size_vram_bytes` stays 0 — the GPU split is unmeasured here (the app sets no `-ngl`, so
+/// llama.cpp defaults to CPU), never a fabricated GPU residency. The unified-memory case (where
+/// the whole model is resident with no offload) is handled once, backend-agnostically, in the
+/// frontend `vramUsage(unified)` — the same rule then applies to Ollama's `/api/ps` numbers too.
+fn append_llama(models: &mut Vec<LoadedModel>, running: Option<(String, u32)>) {
     let Some((path, ctx)) = running else { return };
     let name = std::path::Path::new(&path)
         .file_stem()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.clone());
     let size_bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-    let size_vram_bytes = if unified { size_bytes } else { 0 };
-    models.push(LoadedModel { name, size_bytes, size_vram_bytes, context_length: Some(ctx) });
+    models.push(LoadedModel { name, size_bytes, size_vram_bytes: 0, context_length: Some(ctx) });
 }
 
 #[tauri::command]
@@ -88,8 +85,7 @@ pub async fn get_loaded_models(
     llama: tauri::State<'_, crate::commands::llama::llama_server_types::LlamaServerState>,
 ) -> Result<Vec<LoadedModel>, AppError> {
     let mut models = fetch_loaded(DEFAULT_OLLAMA, DEFAULT_TIMEOUT).await?;
-    let unified = crate::commands::system::hardware::snapshot().gpu.unified;
-    append_llama(&mut models, llama.running_summary(), unified);
+    append_llama(&mut models, llama.running_summary());
     Ok(models)
 }
 
@@ -100,30 +96,18 @@ mod tests {
     #[test]
     fn append_llama_adds_running_model_by_stem() {
         let mut models = vec![];
-        append_llama(&mut models, Some(("/Users/x/.quantamind/gguf/qwen2.5-coder-7b_q4_k_m.gguf".into(), 8192)), false);
+        append_llama(&mut models, Some(("/Users/x/.quantamind/gguf/qwen2.5-coder-7b_q4_k_m.gguf".into(), 8192)));
         assert_eq!(models.len(), 1);
         // Name is the file STEM (matches the Inspector's llama.cpp row.model), ctx carried.
         assert_eq!(models[0].name, "qwen2.5-coder-7b_q4_k_m");
         assert_eq!(models[0].context_length, Some(8192));
-    }
-
-    #[test]
-    fn unified_reports_model_resident_in_vram_discrete_reports_zero() {
-        // Unified (Apple Silicon): one shared pool → the whole model is "in unified memory",
-        // matching Ollama's /api/ps, so size_vram == size_bytes (no false "offloaded to RAM").
-        let mut u = vec![];
-        append_llama(&mut u, Some(("/x/model_q4.gguf".into(), 8192)), true);
-        assert_eq!(u[0].size_vram_bytes, u[0].size_bytes);
-        // Discrete + no -ngl → llama.cpp defaults to CPU (weights in RAM), so 0 is honest.
-        let mut d = vec![];
-        append_llama(&mut d, Some(("/x/model_q4.gguf".into(), 8192)), false);
-        assert_eq!(d[0].size_vram_bytes, 0);
+        assert_eq!(models[0].size_vram_bytes, 0); // GPU split unmeasured; unified handled in the UI
     }
 
     #[test]
     fn append_llama_is_a_noop_when_no_server_runs() {
         let mut models = vec![];
-        append_llama(&mut models, None, true);
+        append_llama(&mut models, None);
         assert!(models.is_empty());
     }
 }
