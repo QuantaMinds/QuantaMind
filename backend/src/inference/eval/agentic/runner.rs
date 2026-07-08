@@ -9,7 +9,7 @@ use crate::inference::eval::agentic::v2::env_webui::WebUiState;
 use crate::inference::eval::agentic::v2::r#match::text_matches;
 use crate::inference::eval::agentic::step::{StepKind, TrajectoryStep};
 use crate::inference::eval::toolcall::parse::{
-    extract_calls_dialect, is_empty_output, looks_like_broken_json, looks_like_foreign_dialect, strip_think,
+    extract_calls_dialect, is_empty_output, looks_like_broken_json, looks_like_foreign_dialect, think_stripped,
     ToolCallDialect,
 };
 use crate::inference::eval::toolcall::prompt::{agentic_system, TerminalGuidance};
@@ -485,7 +485,7 @@ async fn run_steps<M: ModelTurn>(
             };
             let truncated = stats.finish_reason.as_deref() == Some("length");
             let zero_calls = {
-                let clean = if turn.is_thinking() { strip_think(&raw) } else { raw.clone() };
+                let clean = think_stripped(&raw, turn.is_thinking());
                 extract_calls_dialect(&clean).is_none()
             };
             if truncated && zero_calls && truncation_retries < TRUNCATION_RETRY_LIMIT {
@@ -546,12 +546,13 @@ async fn run_steps<M: ModelTurn>(
             });
         };
 
-        // For a reasoning model, parse and persist the `<think>`-stripped output: its inner
-        // braces must not be mis-parsed as a tool call, and re-sending the scratchpad every
-        // step would bloat the prefix-KV cache. The streamed `raw_output` above keeps the
-        // FULL text so the UI can still show the reasoning. A terse model is unchanged
-        // (`clean == raw`), so the non-thinking path stays byte-for-byte identical.
-        let clean = if turn.is_thinking() { strip_think(&raw) } else { raw.clone() };
+        // Parse and persist the `<think>`-stripped output: its inner braces must not be
+        // mis-parsed as a tool call, and re-sending the scratchpad every step would bloat the
+        // prefix-KV cache. Stripped when flagged thinking OR when the output CONTAINS `<think>`
+        // (dynamic — catches a reasoning model that wasn't flagged). The streamed `raw_output`
+        // keeps the FULL text so the UI still shows the reasoning. A terse model with no
+        // `<think>` is unchanged (`clean == raw`), so the non-thinking path stays identical.
+        let clean = think_stripped(&raw, turn.is_thinking());
 
         // The model emits ZERO or MORE tool calls per turn (the system prompt invites a
         // JSON array). We process EVERY parsed call in array order — dropping all but the
