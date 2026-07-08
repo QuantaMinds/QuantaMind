@@ -275,8 +275,25 @@ export function EvalManager({
       await stop();
       return;
     }
-    const picked = selectedModels.find((m) => m.name === model);
-    if (!picked || tasks.length === 0) return;
+    if (tasks.length === 0) {
+      setError("Add at least one task to the collection before running.");
+      return;
+    }
+    // Resolve the header model within the selected set, tolerating an Ollama `:latest` tag
+    // mismatch ("phi3.5" vs a "phi3.5:latest" entry, or vice versa) the same way the
+    // loaded-model lookup does. An exact `===` would let a stale/mismatched selection (e.g.
+    // just after switching backend) SILENTLY no-op the Run Batch button — a dead click with
+    // no feedback. If it still can't resolve, say so instead of doing nothing.
+    const base = model.replace(/:latest$/, "");
+    const picked = selectedModels.find(
+      (m) => m.name === model || m.name === base || m.name === `${base}:latest`,
+    );
+    if (!picked) {
+      setError(
+        `"${model || "No model"}" isn't among the selected models — pick a model from the Model dropdown, then run.`,
+      );
+      return;
+    }
     // `k` is always user-set (read fresh from the prop here, not a stale closure) and
     // always sent — it wins over the tier-derived value in the backend. The tier still
     // flows (for spec.tier); decoys flow only when the checkbox is on.
