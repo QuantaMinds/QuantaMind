@@ -75,22 +75,4 @@ fn rename_to_existing_rejects() {
         other => panic!("expected Validation, got {:?}", other),
     }
 }
-
-#[test]
-fn ensure_within_accepts_child_path() {
-    let root = tempdir().unwrap();
-    let child = root.path().join("sub/x.quantamind.yaml");
-    std::fs::create_dir_all(child.parent().unwrap()).unwrap();
-    assert!(ensure_within(root.path(), &child).is_ok());
-}
-
-#[test]
-fn ensure_within_rejects_traversal() {
-    let root = tempdir().unwrap();
-    let parent_dir = tempdir().unwrap();
-    let escape = parent_dir.path().join("x.quantamind.yaml");
-    match ensure_within(root.path(), &escape) {
-        Err(AppError::Validation(_)) => (),
-        other => panic!("expected Validation, got {:?}", other),
-    }
-}
+// `ensure_within` moved to `persistence::fs_guard`; its tests live in `fs_guard_tests.rs`.
