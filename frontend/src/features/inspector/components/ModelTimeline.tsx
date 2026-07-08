@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useInstalledModelsStore } from "../../models/state/installedModelsStore";
 import type { CompareRow } from "../../compare/state/compareRow";
 import type { LoadedModel } from "../../../shared/ipc/system/vram";
 import type { HistoryEntry } from "../../../shared/ipc/workspace/history";
@@ -38,6 +39,11 @@ export function ModelTimeline({
 }) {
   const [hovered, setHovered] = useState<LatencyBar | null>(null);
   const label = useModelLabel();
+  // The model's ACTUAL backend (llama.cpp reads KV dims from its GGUF; Ollama from /api/show).
+  // Resolved by name from the installed list — CompareRow doesn't carry it. Was hardcoded
+  // "ollama", which stranded llama.cpp/MLX on the Ollama path → the KV meters said "Not
+  // available (needs an Ollama model)".
+  const backend = useInstalledModelsStore((s) => s.list).find((mm) => mm.name === row.model)?.backend;
   const m = row.metrics;
   const { bars, stats } = buildLatencyBars(m?.timeline ?? [], m?.ttft_ms ?? null);
   const histogram = buildHistogram(bars);
@@ -97,11 +103,10 @@ export function ModelTimeline({
           promptTokens={m?.stats?.prompt_eval_count ?? null}
           contextLength={vram?.context_length ?? null}
         />
-        {/* The Inspector operates on loaded Ollama models (/api/ps + /api/show),
-            so dims resolve via the Ollama path — same assumption as VramBar. */}
+        {/* Dims resolve per backend: llama.cpp from its GGUF header, Ollama from /api/show. */}
         <KvCeilingBars
           modelName={row.model}
-          backend="ollama"
+          backend={backend}
           modelBytes={vram?.size_bytes ?? null}
           totalBytes={deviceTotalBytes ?? null}
           unified={unified}
