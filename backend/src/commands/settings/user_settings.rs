@@ -2,6 +2,7 @@ use crate::commands::storage::storage_disk::{gguf_dir_resolved, mlx_dir_resolved
 use crate::errors::{AppError, AppResult};
 use crate::inference::backend::remote_config;
 use crate::persistence::user_settings::{load, save, UserSettings};
+use crate::secrets::{self, Persisted};
 use crate::sync::MutexExt;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -15,6 +16,44 @@ pub const USER_SETTINGS_FILE: &str = "user_settings.yaml";
 fn push_remote_endpoints(s: &UserSettings) {
     remote_config::set_vllm(s.vllm_url.clone(), s.vllm_api_key.clone());
     remote_config::set_sglang(s.sglang_url.clone(), s.sglang_api_key.clone());
+}
+
+/// Store one API key in the keychain, or clear it when blanked. Returns whether it landed
+/// durably (`true` when stored to the keychain, or when there was nothing to store).
+fn store_or_clear(key: &str, val: Option<&str>) -> bool {
+    match val.map(str::trim).filter(|v| !v.is_empty()) {
+        Some(v) => secrets::store(key, v) == Persisted::Keychain,
+        None => {
+            secrets::clear(key);
+            true
+        }
+    }
+}
+
+/// Route the two cloud API keys to the keychain (rule 7a). Best-effort: keys always reach
+/// the session store even if the keychain is denied. Used on every save.
+fn persist_api_keys(s: &UserSettings) {
+    store_or_clear(secrets::VLLM_API_KEY, s.vllm_api_key.as_deref());
+    store_or_clear(secrets::SGLANG_API_KEY, s.sglang_api_key.as_deref());
+}
+
+/// On load, move any legacy plaintext keys out of the YAML into the keychain, then hydrate
+/// the in-memory copy from the keychain. Mutates `s` to hold the live keys. Returns `true`
+/// when a legacy plaintext key was found AND durably re-homed, so the caller must rewrite
+/// the YAML to strip it. If the keychain was unavailable we leave the file untouched this
+/// launch (never destroy the user's only copy) and retry next launch.
+fn migrate_and_hydrate_keys(s: &mut UserSettings) -> bool {
+    let had_plaintext = s.vllm_api_key.is_some() || s.sglang_api_key.is_some();
+    let mut durable = true;
+    if let Some(k) = s.vllm_api_key.as_deref() {
+        durable &= store_or_clear(secrets::VLLM_API_KEY, Some(k));
+    }
+    if let Some(k) = s.sglang_api_key.as_deref() {
+        durable &= store_or_clear(secrets::SGLANG_API_KEY, Some(k));
+    }
+    s.vllm_api_key = secrets::get(secrets::VLLM_API_KEY);
+    s.sglang_api_key = secrets::get(secrets::SGLANG_API_KEY);
+    had_plaintext && durable
 }
 
 #[derive(Default)]
@@ -34,7 +73,13 @@ impl UserSettingsState {
         if *loaded {
             return Ok(());
         }
-        let loaded_settings = load(&settings_path(app)?)?;
+        let path = settings_path(app)?;
+        let mut loaded_settings = load(&path)?;
+        // Migrate any legacy plaintext keys into the keychain + hydrate from it. Only rewrite
+        // the file to strip plaintext once the key is durably re-homed (never lose the copy).
+        if migrate_and_hydrate_keys(&mut loaded_settings) {
+            save(&path, &loaded_settings)?;
+        }
         push_remote_endpoints(&loaded_settings);
         *self.inner.lock_recover() = loaded_settings;
         *loaded = true;
@@ -79,8 +124,10 @@ pub fn set_user_settings(
     settings: UserSettings,
 ) -> Result<(), AppError> {
     state.ensure_loaded(&app)?;
+    persist_api_keys(&settings);
     push_remote_endpoints(&settings);
     *state.inner.lock_recover() = settings.clone();
+    // `save` strips the API-key fields; the keychain (above) is their only durable store.
     save(&settings_path(&app)?, &settings)
 }
 

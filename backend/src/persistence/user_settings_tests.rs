@@ -16,7 +16,7 @@ fn empty_file_loads_as_default() {
 }
 
 #[test]
-fn round_trip_preserves_fields() {
+fn round_trip_preserves_non_secret_fields() {
     let dir = tempdir().unwrap();
     let p = dir.path().join("u.yaml");
     let s = UserSettings {
@@ -31,7 +31,27 @@ fn round_trip_preserves_fields() {
         sglang_api_key: Some("secret-sglang".into()),
     };
     save(&p, &s).unwrap();
-    assert_eq!(load(&p).unwrap(), s);
+    // Everything BUT the two API keys round-trips; the keys are stripped by `save`.
+    let expected = UserSettings { vllm_api_key: None, sglang_api_key: None, ..s };
+    assert_eq!(load(&p).unwrap(), expected);
+}
+
+/// The invariant (rule 7a): a plaintext API key never reaches the YAML on disk, even when
+/// the caller hands `save` a struct that still carries it.
+#[test]
+fn api_keys_are_never_written_to_disk() {
+    let dir = tempdir().unwrap();
+    let p = dir.path().join("u.yaml");
+    let s = UserSettings {
+        vllm_api_key: Some("secret-vllm".into()),
+        sglang_api_key: Some("secret-sglang".into()),
+        ..UserSettings::default()
+    };
+    save(&p, &s).unwrap();
+    let raw = std::fs::read_to_string(&p).unwrap();
+    assert!(!raw.contains("secret-vllm"), "vllm key leaked to disk: {raw}");
+    assert!(!raw.contains("secret-sglang"), "sglang key leaked to disk: {raw}");
+    assert!(!raw.contains("api_key"), "api_key field name present on disk: {raw}");
 }
 
 #[test]
