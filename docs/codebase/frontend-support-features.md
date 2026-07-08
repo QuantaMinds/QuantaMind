@@ -1,4 +1,4 @@
-# Frontend: Support Features (Settings · Onboarding · Help/Updater · Feedback · History · Audit)
+# Frontend: Support Features (Settings · Onboarding · Help/Updater · Docs · Feedback · History · Audit)
 
 The "support surfaces" that surround the core local-LLM workflow: first-run
 onboarding, app settings + hardware, in-app help with an app updater, a
@@ -37,6 +37,7 @@ tab nav.
 <div hidden={view !== "audit"}><AuditPage /></div>
 <div hidden={view !== "settings"}><SettingsPage /></div>
 <div hidden={view !== "help"}><HelpPage /></div>
+<div hidden={view !== "docs"}><DocsPage /></div>   {/* tab: authored user guides + ⌘K search */}
 <FeedbackButton />      {/* overlay: fixed bottom-right pill */}
 <HistoryPanel />        {/* overlay: null unless useHistoryStore.open */}
 <StartupUpdate />       {/* overlay: null unless a 24h-gated update is found */}
@@ -49,6 +50,7 @@ tab nav.
 | **Settings** | Tab (`settings`) | `settings/components/SettingsPage`, `HardwareSection`, `RemoteBackendsSection` | `get/set_user_settings`, `resolve_models_folder`, `getHardwareSnapshot` | [prompt-workspace-system](backend-prompt-workspace-system.md) (settings) |
 | **Onboarding** | Overlay (gated) | `onboarding/components/OnboardingCoach`, `state/onboardingStore`, `steps` | `get/set_user_settings` (`first_run_complete`), `scaffold_onboarding_workspace`, `pull_model` | [prompt-workspace-system](backend-prompt-workspace-system.md) (onboarding) |
 | **Help + Updater** | Tab (`help`) + startup overlay | `help/components/HelpPage`, `HelpContent`, `HelpSidebar`, `helpSections`, `UpdateChecker`, `StartupUpdate`; `hooks/useUpdater`; `updateSchedule` | `@tauri-apps/plugin-updater` (`check`), `plugin-process` (`relaunch`), `get/set_user_settings` (`last_update_check_at`) | — (updater is a Tauri plugin) |
+| **Docs** | Tab (`docs`) | `docs/components/DocsPage`, `DocsSidebar`, `DocsContent`, `DocsSearch`; `docs/content` (authored guides), `docs/render` (inert markdown + TOC), `docs/search` (no-dep ranked search) | — (all content is bundled in the JS; no backend/IPC) | — (frontend-only) |
 | **Feedback** | Overlay (button + modal) | `feedback/components/FeedbackButton`, `FeedbackModal`; `hooks/useSubmitFeedback`; `shared/ipc/system/feedback` | `@tauri-apps/plugin-shell` (`open` mailto) | — (mailto, no backend cmd) |
 | **History** | Overlay (header-toggled drawer) | `history/components/HistoryPanel`, `HistoryRow`; `recordRun`; `state/historyStore` | `history_append/list/get/clear/remove_by_path` | [prompt-workspace-system](backend-prompt-workspace-system.md) (history) |
 | **Audit** | Tab (`audit`) | `audit/components/AuditPage` | `loadCollectionHistory` (eval matrix), batch CSV/JSON export | — (eval matrix, see eval docs) |
