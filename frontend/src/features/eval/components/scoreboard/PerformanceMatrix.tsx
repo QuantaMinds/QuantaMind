@@ -54,21 +54,27 @@ const methodNativeStyle: React.CSSProperties = { ...methodPillBase, background: 
 const methodPromptStyle: React.CSSProperties = { ...methodPillBase, background: "#f1f5f9", border: "1px solid #e2e8f0", color: "#475569" };
 
 function getPassKBadge(val: string) {
-  if (val === "Error") {
-    return <span style={{ ...badgeStyle, background: "#fee2e2", border: "1px solid #fca5a5", color: "#991b1b" }}>Error</span>;
+  // A failed native pass (every run errored) reads as a hard red failure — NOT the old
+  // misleading green "0/0". "Backend error" (infra) is amber (blame the machine, not the model).
+  if (val === "Error" || val === "Native failed" || val === "Native unsupported") {
+    return <span style={{ ...badgeStyle, background: "#fee2e2", border: "1px solid #fca5a5", color: "#991b1b" }}>{val}</span>;
+  }
+  if (val === "Backend error") {
+    return <span style={{ ...badgeStyle, background: "#fffbeb", border: "1px solid #fef3c7", color: "#b45309" }}>{val}</span>;
   }
   if (val === "—" || val === "N/A") {
     return <span style={{ color: "#94a3b8" }}>—</span>;
   }
-  
-  const isPerfect = val.includes("/") 
-    ? val.split("/")[0] === val.split("/")[1]
-    : val === "100%";
-    
+
+  // "0/0" is NOT perfect — a zero denominator means nothing was scored (guard the old
+  // `"0"==="0"` → green bug). Perfect requires a positive denominator.
+  const [num, den] = val.includes("/") ? val.split("/") : ["", ""];
+  const isPerfect = val.includes("/") ? Number(den) > 0 && num === den : val === "100%";
+
   if (isPerfect) {
     return <span style={{ ...badgeStyle, background: "#dcfce7", border: "1px solid #bbf7d0", color: "#166534" }}>{val}</span>;
   }
-  
+
   return <span style={{ ...badgeStyle, background: "#fffbeb", border: "1px solid #fef3c7", color: "#b45309" }}>{val}</span>;
 }
 
@@ -113,6 +119,13 @@ function getTopErrorBadge(val: string) {
     // Amber: the model emitted nothing usable — a generation/template artifact, not a hard
     // capability failure (often this model needs native tool-calling).
     return <span style={{ ...badgeStyle, background: "#fffbeb", border: "1px solid #fef3c7", color: "#b45309" }}>No Output</span>;
+  }
+  if (val === "Native unsupported" || val === "Native failed") {
+    // The model/template can't do native tool-calling — a real capability failure (red).
+    return <span style={{ ...badgeStyle, background: "#fee2e2", border: "1px solid #fca5a5", color: "#991b1b" }}>{val}</span>;
+  }
+  if (val === "Backend error") {
+    return <span style={{ ...badgeStyle, background: "#fffbeb", border: "1px solid #fef3c7", color: "#b45309" }}>{val}</span>;
   }
   if (val === "—" || val === "N/A") {
     return <span style={{ color: "#94a3b8" }}>—</span>;
