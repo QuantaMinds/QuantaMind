@@ -11,12 +11,11 @@ import { AgentReportPage } from "./features/agentReport/components/AgentReportPa
 import { startInstalledModelsBus } from "./features/models/state/installedModelsBus";
 import { useModelSettingsStore } from "./features/models/state/modelSettingsStore";
 import { FeedbackButton } from "./features/feedback/components/FeedbackButton";
-import { HelpPage } from "./features/help/components/HelpPage";
 import { DocsPage } from "./features/docs/components/DocsPage";
 import { WorkspaceSidebar } from "./WorkspaceSidebar";
 import { useAutoSave } from "./features/workspaces/hooks/useAutoSave";
 import { HistoryPanel } from "./features/history/components/HistoryPanel";
-import { StartupUpdate } from "./features/help/components/StartupUpdate";
+import { StartupUpdate } from "./features/updater/components/StartupUpdate";
 import { OnboardingCoach } from "./features/onboarding/components/OnboardingCoach";
 import { AppHeader } from "./AppHeader";
 import { useGlobalHotkeys } from "./appHotkeys";
@@ -35,7 +34,6 @@ const TABS: { id: TopView; label: string }[] = [
    { id: "models", label: "Models" },
    { id: "downloads", label: "Downloads" },
    { id: "settings", label: "Settings" },
-   { id: "help", label: "Help" },
    { id: "docs", label: "Docs" },
 ];
 
@@ -101,7 +99,6 @@ export default function App() {
            <div hidden={view !== "models"} data-testid="view-models"><ErrorBoundary label="Models"><ModelsPage /></ErrorBoundary></div>
            <div hidden={view !== "downloads"} data-testid="view-downloads"><ErrorBoundary label="Downloads"><DownloadsPage /></ErrorBoundary></div>
            <div hidden={view !== "settings"} data-testid="view-settings"><ErrorBoundary label="Settings"><SettingsPage /></ErrorBoundary></div>
-           <div hidden={view !== "help"} data-testid="view-help"><ErrorBoundary label="Help"><HelpPage /></ErrorBoundary></div>
            <div hidden={view !== "docs"} data-testid="view-docs"><ErrorBoundary label="Docs"><DocsPage /></ErrorBoundary></div>
          </main>
 

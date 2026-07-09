@@ -36,7 +36,7 @@ describe("navStore", () => {
   });
 
   it("caps history at 20 entries", () => {
-    const views = ["models", "compare", "downloads", "help"] as const;
+    const views = ["models", "compare", "downloads", "docs"] as const;
     for (let i = 0; i < 30; i++) useNavStore.getState().setTopView(views[i % 4]);
     expect(useNavStore.getState().history.length).toBeLessThanOrEqual(20);
   });

@@ -2,6 +2,8 @@
 /// dense engineering docs/*.md). Each page is a markdown string rendered by `DocMarkdown`.
 /// Grouped into collapsible sidebar sections, mirroring a docs-site nav tree.
 
+import { referenceToDocSection } from "./reference";
+
 export type DocPage = { id: string; title: string; description: string; body: string };
 export type DocSection = { id: string; title: string; pages: DocPage[] };
 
@@ -276,8 +278,8 @@ MLX only runs on Apple Silicon. On Intel Macs or other platforms it isn't offere
 
 ## Still stuck?
 
-The **Help** tab has a per-feature reference (what every page does and why), and the app's status
-messages usually name the exact fix.
+The **Reference** section (in the sidebar) has a per-feature breakdown of what every page does and
+why, and the app's status messages usually name the exact fix.
 `.trim();
 
 export const DOC_SECTIONS: DocSection[] = [
@@ -300,12 +302,13 @@ export const DOC_SECTIONS: DocSection[] = [
     ],
   },
   {
-    id: "help",
-    title: "Help",
+    id: "troubleshooting",
+    title: "Troubleshooting",
     pages: [
       { id: "troubleshooting", title: "Troubleshooting", description: "Common issues and quick fixes.", body: troubleshooting },
     ],
   },
+  referenceToDocSection(),
 ];
 
 export const DEFAULT_PAGE_ID = "getting-started";

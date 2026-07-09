@@ -69,10 +69,11 @@ describe("CsvImportModal", () => {
     expect(screen.getByTestId("csv-import-submit")).toBeDisabled();
   });
 
-  it("Learn more navigates to the Help view", async () => {
+  it("Learn more navigates to the Docs reference (CSV-import block)", async () => {
     const { useNavStore } = await import("../../../shared/state/navStore");
     render(<CsvImportModal onImport={vi.fn()} onClose={vi.fn()} />);
     fireEvent.click(screen.getByTestId("csv-import-learnmore"));
-    expect(useNavStore.getState().topView).toBe("help");
+    expect(useNavStore.getState().topView).toBe("docs");
+    await waitFor(() => expect(location.hash).toBe("#docs-reference-eval--collection-editor-csv-import"));
   });
 });

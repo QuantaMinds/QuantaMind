@@ -83,7 +83,7 @@ the back button returns the user to where they were.
 | `models` | Models | `features/models/components/ModelsPage.tsx` | [frontend-models](frontend-models.md) |
 | `downloads` | Downloads | `features/models/components/DownloadsPage.tsx` | [frontend-models](frontend-models.md) |
 | `settings` | Settings | `features/settings/components/SettingsPage.tsx` | [frontend-support-features](frontend-support-features.md) |
-| `help` | Help | `features/help/components/HelpPage.tsx` | [frontend-support-features](frontend-support-features.md) |
+| `docs` | Docs | `features/docs/components/DocsPage.tsx` | [frontend-support-features](frontend-support-features.md) |
 
 The Quant view is a **sub-tab merged into Analysis**; it shares the readiness
 data model with Latency/Agent Report and is documented on

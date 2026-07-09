@@ -14,7 +14,6 @@ export type TopView =
   | "audit"
   | "agentReport"
   | "settings"
-  | "help"
   | "docs";
 
 interface NavStore {
