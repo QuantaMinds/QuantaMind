@@ -1,9 +1,10 @@
-# Frontend: Support Features (Settings · Onboarding · Help/Updater · Docs · Feedback · History · Audit)
+# Frontend: Support Features (Settings · Onboarding · Docs · Updater · Feedback · History · Audit)
 
 The "support surfaces" that surround the core local-LLM workflow: first-run
-onboarding, app settings + hardware, in-app help with an app updater, a
-feedback channel, replayable run history, and the audit/compliance page. None
-of these generate tokens; they make the app usable, updatable, and accountable.
+onboarding, app settings + hardware, the in-app Docs tab (friendly guides + a
+per-feature reference, with ⌘K search), an app updater, a feedback channel,
+replayable run history, and the audit/compliance page. None of these generate
+tokens; they make the app usable, updatable, and accountable.
 
 Related docs:
 - App shell, shared state, IPC core, and `GlobalControls`/`ParamsControl`/`ModelSelector`/`BackendSelector` — [`frontend-overview.md`](frontend-overview.md).
@@ -35,9 +36,8 @@ tab nav.
 <OnboardingCoach />     {/* overlay: null unless first_run_complete === false */}
 <nav>…tabs…</nav>
 <div hidden={view !== "audit"}><AuditPage /></div>
-<div hidden={view !== "settings"}><SettingsPage /></div>
-<div hidden={view !== "help"}><HelpPage /></div>
-<div hidden={view !== "docs"}><DocsPage /></div>   {/* tab: authored user guides + ⌘K search */}
+<div hidden={view !== "settings"}><SettingsPage /></div>   {/* hosts UpdateChecker */}
+<div hidden={view !== "docs"}><DocsPage /></div>   {/* tab: authored guides + per-feature reference + ⌘K search */}
 <FeedbackButton />      {/* overlay: fixed bottom-right pill */}
 <HistoryPanel />        {/* overlay: null unless useHistoryStore.open */}
 <StartupUpdate />       {/* overlay: null unless a 24h-gated update is found */}
@@ -47,10 +47,10 @@ tab nav.
 
 | Feature | Mount | Key files | IPC / plugin | Backend doc |
 |---|---|---|---|---|
-| **Settings** | Tab (`settings`) | `settings/components/SettingsPage`, `HardwareSection`, `RemoteBackendsSection` | `get/set_user_settings`, `resolve_models_folder`, `getHardwareSnapshot` | [prompt-workspace-system](backend-prompt-workspace-system.md) (settings) |
+| **Settings** | Tab (`settings`) | `settings/components/SettingsPage`, `HardwareSection`, `RemoteBackendsSection`, `UpdateChecker` (re-homed from the old Help tab) | `get/set_user_settings`, `resolve_models_folder`, `getHardwareSnapshot`, `@tauri-apps/plugin-updater` | [prompt-workspace-system](backend-prompt-workspace-system.md) (settings) |
 | **Onboarding** | Overlay (gated) | `onboarding/components/OnboardingCoach`, `state/onboardingStore`, `steps` | `get/set_user_settings` (`first_run_complete`), `scaffold_onboarding_workspace`, `pull_model` | [prompt-workspace-system](backend-prompt-workspace-system.md) (onboarding) |
-| **Help + Updater** | Tab (`help`) + startup overlay | `help/components/HelpPage`, `HelpContent`, `HelpSidebar`, `helpSections`, `UpdateChecker`, `StartupUpdate`; `hooks/useUpdater`; `updateSchedule` | `@tauri-apps/plugin-updater` (`check`), `plugin-process` (`relaunch`), `get/set_user_settings` (`last_update_check_at`) | — (updater is a Tauri plugin) |
-| **Docs** | Tab (`docs`) | `docs/components/DocsPage`, `DocsSidebar`, `DocsContent`, `DocsSearch`; `docs/content` (authored guides), `docs/render` (inert markdown + TOC), `docs/search` (no-dep ranked search) | — (all content is bundled in the JS; no backend/IPC) | — (frontend-only) |
+| **Docs** | Tab (`docs`) | `docs/components/DocsPage`, `DocsSidebar`, `DocsContent`, `DocsSearch`; `docs/content` (authored guides), `docs/reference` (per-feature reference, folded in from the old Help tab), `docs/render` (inert markdown + TOC), `docs/search` (no-dep ranked search) | — (all content is bundled in the JS; no backend/IPC) | — (frontend-only) |
+| **Updater** | Settings section + startup overlay | `updater/components/UpdateChecker` (in Settings), `StartupUpdate` (overlay); `hooks/useUpdater`; `updateSchedule` | `@tauri-apps/plugin-updater` (`check`), `plugin-process` (`relaunch`), `get/set_user_settings` (`last_update_check_at`) | — (updater is a Tauri plugin) |
 | **Feedback** | Overlay (button + modal) | `feedback/components/FeedbackButton`, `FeedbackModal`; `hooks/useSubmitFeedback`; `shared/ipc/system/feedback` | `@tauri-apps/plugin-shell` (`open` mailto) | — (mailto, no backend cmd) |
 | **History** | Overlay (header-toggled drawer) | `history/components/HistoryPanel`, `HistoryRow`; `recordRun`; `state/historyStore` | `history_append/list/get/clear/remove_by_path` | [prompt-workspace-system](backend-prompt-workspace-system.md) (history) |
 | **Audit** | Tab (`audit`) | `audit/components/AuditPage` | `loadCollectionHistory` (eval matrix), batch CSV/JSON export | — (eval matrix, see eval docs) |
@@ -146,20 +146,31 @@ export function currentStep(ollamaHealthy: boolean | null, modelCount: number): 
 
 ---
 
-## Help + Updater (tab + startup overlay)
+## Docs — per-feature reference (folded in from the old Help tab)
 
-The Help tab is a documented index of every page/metric; bolted onto its top is
-the manual update checker. A separate always-mounted overlay does the automatic,
-once-per-day background check.
-
-### Help page (presentational — compact)
+There used to be two documentation tabs — a friendly **Docs** tab and a dense
+**Help** tab. They were merged into one **Docs** tab: the Help tab's per-feature
+reference now lives as a **Reference** sidebar section inside Docs, and the app
+updater it used to host moved to **Settings**. See the Docs feature in
+[`frontend-overview.md`](frontend-overview.md) for the shell (sidebar / markdown
+renderer / ⌘K search).
 
 | File | What it is |
 |---|---|
-| `help/components/helpSections.tsx` | The content: a `HELP_SECTIONS: HelpSection[]` array of What/Why/How blocks (sections: workspace, analysis, inspector, models, downloads, eval, …). Computed metrics also carry a `formula` + `source` file so derivations are visible, never hand-waved. ~489 lines of data; no logic. |
-| `help/components/HelpSidebar.tsx` | Left rail; one button per section; highlights `activeId`; calls `onSelect`. |
-| `help/components/HelpContent.tsx` | Center pane; renders the active section's blocks as What/Why/How cards (+ optional `formula`/`source`). Each block gets a `#help-<section>-<block>` anchor id. |
-| `help/components/HelpPage.tsx` | Hosts sidebar + content + the `UpdateChecker`. Reads a `#help-<section>` URL hash to deep-link from other pages (e.g. a CSV importer's "learn more"), scrolling to the named block; re-applies on `hashchange`. |
+| `docs/reference.ts` | The reference content: a `REFERENCE_SECTIONS: ReferenceSection[]` array of What/Why/How blocks (sections: workspace, analysis, inspector, models, downloads, eval, …). Computed metrics carry a `formula` + `source` file so derivations are visible, never hand-waved. `referenceToDocSection()` renders it into one `DocSection` (id `reference`, one `DocPage` per section, block heading → `##` so it lands in the TOC) — reusing the Docs markdown renderer + search verbatim, so the reference is part of the same ⌘K index as the guides. All plain strings; no logic. |
+
+The one external deep-link into this content — the CSV importer's "Learn more" —
+targets `#docs-reference-eval--collection-editor-csv-import` (the merged Docs
+hash scheme supports an optional `--<heading-slug>` suffix to scroll to a block;
+see `docs/components/DocsPage.tsx`).
+
+---
+
+## Updater (Settings section + startup overlay)
+
+The manual update checker is a section in the **Settings** tab; a separate
+always-mounted overlay does the automatic, once-per-day background check. Both
+live under `features/updater/`.
 
 ### `updateSchedule.ts` — the 24h gate (pure)
 - **Responsibility:** decide whether a background check is due. Treats "never
@@ -176,7 +187,7 @@ export function shouldCheck(last: string | null | undefined, nowMs: number): boo
 ```
 
 ### `hooks/useUpdater.ts` — manual check + install state machine
-- **Responsibility:** drive the Help tab's update checker — a small state
+- **Responsibility:** drive the Settings update checker — a small state
   machine over the Tauri updater plugin.
 - **What:** statuses `idle → checking → up_to_date | available → downloading →
   installing | error`. Tracks `currentVersion`, the `Update` handle, and
@@ -212,7 +223,7 @@ The IPC wrapper (`shared/ipc/system/updater.ts`) calls
 `Started`/`Progress` events from `update.downloadAndInstall(...)`, then calls
 `@tauri-apps/plugin-process` `relaunch()`.
 
-### `components/UpdateChecker.tsx` (Help tab)
+### `components/UpdateChecker.tsx` (in Settings)
 - Presentational view over `useUpdater`: "You're on vX", a "Check for updates"
   button, and per-status banners (up-to-date / available with release notes via
   shared `Markdown` / downloading % / installing / error). Never auto-installs —

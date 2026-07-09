@@ -42,7 +42,7 @@ export function CsvImportModal({
   onImport: (name: string, tasks: ToolTask[]) => Promise<void>;
   onClose: () => void;
 }) {
-  const goHelp = useNavStore((s) => s.setTopView);
+  const goDocs = useNavStore((s) => s.setTopView);
   const [toolsJson, setToolsJson] = useState(TOOLS_TEMPLATE);
   const [csvText, setCsvText] = useState("");
   const [name, setName] = useState("");
@@ -91,7 +91,9 @@ export function CsvImportModal({
     }
   };
 
-  const learnMore = () => { goHelp("help"); setTimeout(() => { location.hash = "#help-eval-csv-import"; }, 0); };
+  // Deep-link into the merged Docs tab: the Tests reference page, scrolled to the CSV-import block
+  // (the block heading's slug — see features/docs/reference.ts).
+  const learnMore = () => { goDocs("docs"); setTimeout(() => { location.hash = "#docs-reference-eval--collection-editor-csv-import"; }, 0); };
 
   return (
     <div

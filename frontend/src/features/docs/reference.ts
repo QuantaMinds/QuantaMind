@@ -1,34 +1,32 @@
-import type { ReactNode } from "react";
+import type { DocPage, DocSection } from "./content";
 
 /// One documented thing — a panel, a graph, a control, or a computed metric.
 /// Every block answers the same three questions, so the page reads consistently
 /// no matter which feature it describes. `formula`/`source` are for blocks whose
 /// number is computed (the user can see exactly how it's derived and where).
-export interface HelpBlock {
-  /// Anchor within a section (url hash → `#help-<section>-<id>`).
+export interface ReferenceBlock {
+  /// Anchor within a page — the block heading's slug is the `#docs-…--<slug>` target.
   id: string;
   heading: string;
-  what: ReactNode;
-  why: ReactNode;
-  how: ReactNode;
+  what: string;
+  why: string;
+  how: string;
   /// A literal formula / algorithm, rendered monospace. Optional.
   formula?: string;
   /// Where the number is actually computed, e.g. a Rust file. Optional.
   source?: string;
 }
 
-/// One page of the app (or a cross-cutting topic), shown as a sidebar entry with
-/// its blocks in the center pane.
-export interface HelpSection {
-  /// Sidebar id + url hash (`#help-<id>`).
+/// One page of the app (or a cross-cutting topic), shown as a Reference sidebar entry.
+export interface ReferenceSection {
   id: string;
   title: string;
   /// One-line summary under the section title.
   blurb: string;
-  blocks: HelpBlock[];
+  blocks: ReferenceBlock[];
 }
 
-export const HELP_SECTIONS: HelpSection[] = [
+export const REFERENCE_SECTIONS: ReferenceSection[] = [
   {
     id: "workspace",
     title: "Workspace",
@@ -504,3 +502,30 @@ export const HELP_SECTIONS: HelpSection[] = [
     ],
   },
 ];
+
+/// Render one reference block into the markdown `DocMarkdown` understands. The heading is level-2
+/// so it lands in the right-rail TOC; its slug is the `#docs-<page>--<slug>` deep-link anchor.
+function blockToMarkdown(b: ReferenceBlock): string {
+  const parts = [
+    `## ${b.heading}`,
+    `**What it is** — ${b.what}`,
+    `**Why it matters** — ${b.why}`,
+    `**How it works** — ${b.how}`,
+  ];
+  if (b.formula) parts.push("```\n" + b.formula + "\n```");
+  if (b.source) parts.push(`Source: \`${b.source}\``);
+  return parts.join("\n\n");
+}
+
+/// One reference section → one `DocPage` (id `reference-<sectionId>`), its blocks stacked as
+/// markdown. Reuses the Docs renderer + search verbatim — the per-feature reference becomes part
+/// of the same ⌘K index as the guides.
+function sectionToPage(s: ReferenceSection): DocPage {
+  const body = [`# ${s.title}`, `_${s.blurb}_`, ...s.blocks.map(blockToMarkdown)].join("\n\n");
+  return { id: `reference-${s.id}`, title: s.title, description: s.blurb, body };
+}
+
+/// Fold the whole per-feature reference into a single "Reference" sidebar section for the Docs tab.
+export function referenceToDocSection(sections: ReferenceSection[] = REFERENCE_SECTIONS): DocSection {
+  return { id: "reference", title: "Reference", pages: sections.map(sectionToPage) };
+}

@@ -6,10 +6,23 @@ import { DocsSidebar } from "./DocsSidebar";
 import { DocsContent } from "./DocsContent";
 import { DocsSearch } from "./DocsSearch";
 
-/// A `#docs-<pageId>` deep link (mirrors the Help tab's hash convention) → page id, if valid.
-function pageFromHash(): string | null {
+/// A `#docs-<pageId>` deep link, optionally with a `--<anchorSlug>` suffix to scroll to a heading
+/// within the page (`#docs-<pageId>--<slug>`). `--` is the separator; heading slugs never contain
+/// one. Returns the valid page id + optional anchor, or null.
+function hashTarget(): { pageId: string; anchor: string | null } | null {
   const m = /^#docs-(.+)$/.exec(window.location.hash);
-  return m && findPage(m[1]) ? m[1] : null;
+  if (!m) return null;
+  const [pageId, anchor] = m[1].split("--", 2);
+  return findPage(pageId) ? { pageId, anchor: anchor ?? null } : null;
+}
+
+/// Scroll to a heading anchor, scoped to the Docs subtree so a slug can't match an always-mounted
+/// sibling tab. Deferred a tick so the target page has rendered first (mirrors the old Help scroll).
+function scrollToAnchor(slug: string) {
+  setTimeout(() => {
+    const root = document.querySelector('[data-testid="page-docs"]');
+    root?.querySelector(`#${CSS.escape(slug)}`)?.scrollIntoView({ block: "start" });
+  }, 0);
 }
 
 /// The Docs tab: a docs-site layout — collapsible sidebar nav, center content, right-rail TOC,
@@ -17,13 +30,20 @@ function pageFromHash(): string | null {
 /// reference).
 export function DocsPage() {
   const isActive = useNavStore((s) => s.topView === "docs");
-  const [pageId, setPageId] = useState<string>(() => pageFromHash() ?? DEFAULT_PAGE_ID);
+  const [pageId, setPageId] = useState<string>(() => hashTarget()?.pageId ?? DEFAULT_PAGE_ID);
   const [searchOpen, setSearchOpen] = useState(false);
 
-  // Deep-link both ways: react to hash changes, and stamp the hash when a page is chosen (while
+  // Deep-link both ways: react to hash changes (honoring an optional `--<anchor>` to scroll to a
+  // block, e.g. the CSV-import "Learn more" link), and stamp the hash when a page is chosen (while
   // Docs is active) so links + back/forward work.
   useEffect(() => {
-    const onHash = () => { const p = pageFromHash(); if (p) setPageId(p); };
+    const onHash = () => {
+      const t = hashTarget();
+      if (!t) return;
+      setPageId(t.pageId);
+      if (t.anchor) scrollToAnchor(t.anchor);
+    };
+    onHash();
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);

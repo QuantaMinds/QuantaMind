@@ -57,7 +57,7 @@ React UI  ──(invoke "command_name", args)──▶  Rust #[tauri::command]
 | [frontend-models.md](frontend-models.md) | Models + Downloads tabs (HF/Ollama/local install, cards, storage) | `features/models/` |
 | [frontend-stt.md](frontend-stt.md) | Voice/STT (header control, catalog, server panel, workspace transcribe, STT eval, STT inspector) | `features/stt/`, `features/sttWorkspace/`, `features/sttEval/`, `features/sttInspector/` |
 | [frontend-inspector-quant-agentreport.md](frontend-inspector-quant-agentreport.md) | Latency tab, Quant sub-tab, Agent Report tab | `features/inspector/`, `features/quant/`, `features/agentReport/` |
-| [frontend-support-features.md](frontend-support-features.md) | Settings, Onboarding, Help/Updater, Feedback, History, Audit | `features/settings/`, `features/onboarding/`, `features/help/`, `features/feedback/`, `features/history/`, `features/audit/` |
+| [frontend-support-features.md](frontend-support-features.md) | Settings, Onboarding, Docs (guides + reference + ⌘K), Updater, Feedback, History, Audit | `features/settings/`, `features/onboarding/`, `features/docs/`, `features/updater/`, `features/feedback/`, `features/history/`, `features/audit/` |
 
 ---
 
@@ -77,7 +77,7 @@ page component and one documentation page above:
 | `models` | `features/models/components/ModelsPage.tsx` | [frontend-models](frontend-models.md) |
 | `downloads` | `features/models/components/DownloadsPage.tsx` | [frontend-models](frontend-models.md) |
 | `settings` | `features/settings/components/SettingsPage.tsx` | [frontend-support-features](frontend-support-features.md) |
-| `help` | `features/help/components/HelpPage.tsx` | [frontend-support-features](frontend-support-features.md) |
+| `docs` | `features/docs/components/DocsPage.tsx` | [frontend-support-features](frontend-support-features.md) |
 
 The Quant view is a **sub-tab merged into Analysis** (see commit history); it is
 documented alongside Latency/Agent Report because it shares the readiness
