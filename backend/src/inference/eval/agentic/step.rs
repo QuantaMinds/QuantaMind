@@ -100,4 +100,13 @@ pub struct TrajectoryStep {
     pub context_used: Option<u32>,
     #[serde(default)]
     pub context_window: Option<u32>,
+    /// The REAL per-run prompt — post `generator::instantiate` entity-id renaming for a
+    /// generated task — sent ONLY on step 0 of a run (fixed for the whole run; repeating it
+    /// every turn would bloat the stream for nothing). A generated task re-randomizes its
+    /// entity ids per Pass^k run for contamination resistance, so the frontend's reconstructed
+    /// "Input" preview (built from the STATIC collection template) shows the wrong ids for
+    /// every run but the first seed that happens to match — this is the one place the model's
+    /// ACTUAL prompt is available to show instead. `None` on every other step.
+    #[serde(default)]
+    pub initial_prompt: Option<String>,
 }

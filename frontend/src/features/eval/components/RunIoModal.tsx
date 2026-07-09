@@ -74,7 +74,7 @@ export function RunIoModal({ task, outcome, steps, title, decoys, mode, setMode,
         {/* Body */}
         <div style={bodyStyle}>
           {mode === "input" ? (
-            <InputView task={task} outcome={outcome} decoys={decoys} />
+            <InputView task={task} outcome={outcome} decoys={decoys} steps={steps} />
           ) : (
             <OutputView outcome={outcome} steps={steps} />
           )}
@@ -84,8 +84,18 @@ export function RunIoModal({ task, outcome, steps, title, decoys, mode, setMode,
   );
 }
 
-function InputView({ task, outcome, decoys }: { task: ToolTask; outcome: TaskOutcome | undefined; decoys?: number }) {
-  const input = buildRunInput(task, outcome, decoys);
+function InputView({
+  task,
+  outcome,
+  decoys,
+  steps,
+}: {
+  task: ToolTask;
+  outcome: TaskOutcome | undefined;
+  decoys?: number;
+  steps: TrajectoryStep[];
+}) {
+  const input = buildRunInput(task, outcome, decoys, steps);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }} data-testid="run-io-input">
       {input.note && (

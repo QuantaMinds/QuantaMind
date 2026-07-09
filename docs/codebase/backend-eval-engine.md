@@ -545,10 +545,21 @@ value above.
   HallucinatedCompletion, EndStateReached, InfiniteLoop, ForbiddenCall, TurnTimeout,
   ReportedInProse, ForeignDialect, EmptyOutput, Truncated, ReasoningOverrun}`;
   `TrajectoryStep{run_index, step_index, raw_output, injection, kind, …, reasoning_tokens,
-  context_used, context_window}` (the last three drive the D9 two-bar diagnostic).
+  context_used, context_window, initial_prompt}` (the D9 trio drives the two-bar diagnostic).
   `ReportedInProse` (G3) = did all the work but answered in plain text instead of the
   required reporter tool (content-correct, wrong-channel); the UI renders it TEAL — the
   mildest failure, distinct from a hard red fail.
+- **`initial_prompt`:** the REAL per-run prompt (`sandbox.initial_prompt`, post
+  `generator::instantiate` id-renaming for a generated task — see #cancellation's neighbor,
+  the id-remap contract at line ~742), sent ONLY on step 0 of each run (`runner.rs` computes
+  `(step_index == 0).then(|| sandbox.initial_prompt.clone())` at every `TrajectoryStep` send
+  site). Exists because a generated task re-randomizes its entity ids per Pass^k run
+  (contamination resistance) — the frontend's `agenticSystemPreview`/`buildRunInput`
+  reconstruction reads the STATIC collection template and so shows the wrong ids for every
+  run but the one seed that happens to match; this is the one place the model's ACTUAL prompt
+  is available to show instead (`RunIoModal`'s Input tab, `TraceDebugger`'s System Prompt Pkg
+  tab). `None` on every other step — repeating a run-fixed value every turn would bloat the
+  stream for nothing.
 
 ### File: `report.rs`
 - **Responsibility:** Fold per-run outcomes into the Pass^k `AgenticReport`;

@@ -57,6 +57,22 @@ describe("buildRunInput", () => {
     expect(got.system).toContain("search_flights");
   });
 
+  it("prefers the REAL per-run prompt (step 0's initial_prompt) over the reconstructed template", () => {
+    // A generated task re-randomizes its entity ids per run — the static task.prompt template
+    // would show the wrong ids for every seed but one. Step 0's initial_prompt is the real thing.
+    const steps: TrajectoryStep[] = [
+      { ...step(0, 0, '{"name":"search_flights"}', "tool_call"), initial_prompt: "Book a trip to Osaka (renamed)." },
+    ];
+    const got = buildRunInput(agenticTask, undefined, undefined, steps);
+    expect(got.user).toBe("Book a trip to Osaka (renamed).");
+    expect(got.system).toContain("Constructed agentic prompt package"); // system is unaffected either way
+  });
+
+  it("falls back to the static template when no steps have streamed yet (not-yet-run)", () => {
+    const got = buildRunInput(agenticTask, undefined, undefined, []);
+    expect(got.user).toBe("Book a trip to Tokyo.");
+  });
+
   it("notes injected decoy tools on an agentic input so the reconstruction isn't passed off as exact", () => {
     const got = buildRunInput(agenticTask, undefined, 3);
     expect(got.note).toContain("3 synthetic decoy tools");

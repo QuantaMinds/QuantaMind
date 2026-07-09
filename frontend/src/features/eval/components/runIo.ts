@@ -22,7 +22,12 @@ export interface RunInputView {
   note: string | null;
 }
 
-export function buildRunInput(task: ToolTask, outcome: TaskOutcome | undefined, decoys?: number): RunInputView {
+export function buildRunInput(
+  task: ToolTask,
+  outcome: TaskOutcome | undefined,
+  decoys?: number,
+  steps?: TrajectoryStep[],
+): RunInputView {
   // The real captured prompt — only single-turn traces persist it.
   if (outcome?.kind === "single") {
     return { system: outcome.trace.system_message, user: outcome.trace.user_prompt, note: null };
@@ -34,7 +39,12 @@ export function buildRunInput(task: ToolTask, outcome: TaskOutcome | undefined, 
       decoys && decoys > 0
         ? `The model was also given ${decoys} synthetic decoy tool${decoys === 1 ? "" : "s"} at run time, not shown here.`
         : null;
-    return { system: agenticSystemPreview(task), user: task.prompt, note };
+    // Step 0 of a run carries the REAL user prompt (`TrajectoryStep.initial_prompt`) — a
+    // generated task re-randomizes its entity ids per Pass^k run, so the static `task.prompt`
+    // template is only right for the one seed that happens to match. The system package is
+    // unaffected (tool schemas carry no entity ids) — only the user line needs the override.
+    const realUser = steps?.find((s) => s.step_index === 0)?.initial_prompt;
+    return { system: agenticSystemPreview(task), user: realUser ?? task.prompt, note };
   }
   // A single-turn task with no trace: its system message is built at run time, so we
   // can only show the user line verbatim. Distinguish errored-before-trace from never-run.

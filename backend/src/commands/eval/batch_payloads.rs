@@ -74,6 +74,7 @@ mod tests {
                 reasoning_tokens: None,
                 context_used: None,
                 context_window: None,
+                initial_prompt: None,
             },
         };
         let v = serde_json::to_value(&payload).unwrap();

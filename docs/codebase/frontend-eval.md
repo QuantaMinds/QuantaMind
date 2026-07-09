@@ -166,8 +166,13 @@ Non-environment tasks stream `env.kind === "none"` → no panel, zero change to 
 an **Output** button (single-turn → on the Turn-1 card; agentic → on each "Run N of
 K" header, `stopPropagation` so they don't toggle the run's expand). They open
 `RunIoModal` scoped to that run: **Input** = the prompt the model was given (single →
-captured `trace.system_message` + `user_prompt`; agentic → the package reconstructed
-from `task.tools`); **Output** = the raw response (single → `trace.raw_output`;
+captured `trace.system_message` + `user_prompt`; agentic → the system package
+reconstructed from `task.tools` (unaffected by per-run id-randomization — tool schemas
+carry no entity ids) + the user line, which prefers the REAL per-run prompt
+(`TrajectoryStep.initial_prompt` on that run's step 0) over the static `task.prompt`
+template when a run has actually streamed — a generated task re-randomizes its entity
+ids per Pass^k run, so the template is only right for the one seed that happens to
+match); **Output** = the raw response (single → `trace.raw_output`;
 agentic → *only that run's* turns — `steps` filtered by `run_index` — incl. each
 turn's sandbox injection and an `(empty output)` fallback for a whitespace turn). The
 "no response" cases are surfaced explicitly, never a blank, each with its own testid:
@@ -177,11 +182,15 @@ trajectory rather than a false "not run". `decoys` threads from `EvalPage` so a
 reconstructed agentic Input admits the decoy tools the model also saw.
 
 The view-model logic is the pure **`components/runIo.ts`** (`buildRunInput(task,
-outcome, decoys?)` / `buildRunOutput(outcome, steps)`) — no React, encoding the
+outcome, decoys?, steps?)` / `buildRunOutput(outcome, steps)`) — no React, encoding the
 no-response branches and the fidelity **`note`** (non-null whenever the shown Input
 isn't verbatim: a not-yet-run/**errored** single-turn task, or a decoy-widened agentic
-run). `RunIoModal.tsx` is the thin renderer. The agentic system-package string lives
-once in **`agenticPrompt.ts`** (`agenticSystemPreview`), imported by both `runIo` and
+run). `steps` is optional and, when the caller has it (`RunIoModal` always does —
+`TraceDebugger` computes the same `initial_prompt` lookup locally for its own System
+Prompt Pkg tab), the real prompt silently wins with no `note` — the fixed reconstruction
+was never "approximate on purpose", just the best available before a run streamed.
+`RunIoModal.tsx` is the thin renderer. The agentic system-package string lives once in
+**`agenticPrompt.ts`** (`agenticSystemPreview`), imported by both `runIo` and
 `TraceDebugger`, so the two can't diverge. Tested in `__tests__/runIo.test.ts` (unit)
 and `__tests__/TraceDebuggerRunIo.test.tsx` (rendered).
 

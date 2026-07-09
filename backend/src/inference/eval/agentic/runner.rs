@@ -477,6 +477,7 @@ async fn run_steps<M: ModelTurn>(
                         reasoning_tokens: None,
                         context_used: None,
                         context_window: None,
+                        initial_prompt: (step_index == 0).then(|| sandbox.initial_prompt.clone()),
                     });
                     return Ok(RunOutcome::failure(step_index + 1, output_tokens, FailureKind::TurnTimeout)
                         .with_schema(hit_schema_error, schema_recovered)
@@ -543,6 +544,7 @@ async fn run_steps<M: ModelTurn>(
             let _ = tx.send(TrajectoryStep {
                 run_index, step_index, raw_output: raw.clone(), injection, kind, env, cache_n, prefill_tokens, prefill_ms,
                 reasoning_tokens, context_used: None, context_window: None,
+                initial_prompt: (step_index == 0).then(|| sandbox.initial_prompt.clone()),
             });
         };
 
@@ -601,6 +603,7 @@ async fn run_steps<M: ModelTurn>(
                             reasoning_tokens: Some(reasoning_tokens),
                             context_used: Some(context_used),
                             context_window: Some(num_ctx),
+                            initial_prompt: (step_index == 0).then(|| sandbox.initial_prompt.clone()),
                         });
                         return Ok(RunOutcome::failure(step_index + 1, output_tokens, failure)
                             .with_schema(hit_schema_error, schema_recovered)
@@ -826,6 +829,7 @@ async fn run_steps<M: ModelTurn>(
                 reasoning_tokens: None,
                 context_used: None,
                 context_window: None,
+                initial_prompt: None, // never step 0 — stall detection needs several turns first
             });
             return Ok(RunOutcome::failure(step_index + 1, output_tokens, FailureKind::InfiniteLoop)
                 .with_schema(hit_schema_error, schema_recovered)
@@ -846,6 +850,7 @@ async fn run_steps<M: ModelTurn>(
         reasoning_tokens: None,
         context_used: None,
         context_window: None,
+        initial_prompt: None, // only reached after max_steps turns already ran
     });
     Ok(RunOutcome::failure(max_steps, output_tokens, FailureKind::InfiniteLoop)
         .with_schema(hit_schema_error, schema_recovered)

@@ -126,6 +126,27 @@ async fn reaches_end_state_after_a_tool_call() {
 }
 
 #[tokio::test]
+async fn only_step_0_of_a_run_carries_the_real_initial_prompt() {
+    // The trace debugger's "Input" reconstruction can't see a generated task's per-run entity-id
+    // randomization (`generator::instantiate`), so `initial_prompt` exists to carry the model's
+    // ACTUAL prompt through — but only once, on step 0; every later step must leave it `None`
+    // (repeating a fixed value every turn would bloat the stream for nothing).
+    let model = ScriptedModel::new(vec![
+        (r#"{"name":"get_balance","args":{"account_id":"ACC-123"}}"#, 40),
+        (r#"{"name":"execute_transfer","args":{"amount":450.0}}"#, 30),
+    ]);
+    let sb = sandbox();
+    let (tx, mut rx) = unbounded_channel();
+    run_once(&model, &sb, 8, 2, 0, &tx).await.unwrap();
+    drop(tx);
+
+    let steps = drain(&mut rx);
+    assert_eq!(steps.len(), 2);
+    assert_eq!(steps[0].initial_prompt.as_deref(), Some(sb.initial_prompt.as_str()));
+    assert_eq!(steps[1].initial_prompt, None);
+}
+
+#[tokio::test]
 async fn unknown_tool_injects_an_error_and_the_loop_continues() {
     let model = ScriptedModel::new(vec![
         (r#"{"name":"search_web","args":{"q":"rates"}}"#, 12), // not in the sandbox

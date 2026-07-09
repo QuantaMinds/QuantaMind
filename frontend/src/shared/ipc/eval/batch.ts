@@ -96,6 +96,12 @@ export const TrajectoryStepSchema = z.object({
   reasoning_tokens: z.number().int().nonnegative().nullable().optional(),
   context_used: z.number().int().nonnegative().nullable().optional(),
   context_window: z.number().int().nonnegative().nullable().optional(),
+  // The REAL per-run prompt, present only on step 0 of a run (null/absent every other step).
+  // A generated task's entity ids are re-randomized per Pass^k run (see generator::instantiate),
+  // so this is the one place the model's ACTUAL prompt is available — agenticPrompt.ts's
+  // reconstruction from the static collection template shows the wrong ids for every seed but
+  // one. `.optional()` for pre-this-change cached/persisted reports.
+  initial_prompt: z.string().nullable().optional(),
 });
 export type TrajectoryStep = z.infer<typeof TrajectoryStepSchema>;
 

@@ -18,6 +18,7 @@ fn step(run_index: u32, step_index: u32, raw: &str) -> TrajectoryStep {
         reasoning_tokens: None,
         context_used: None,
         context_window: None,
+        initial_prompt: None,
     }
 }
 

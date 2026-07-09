@@ -469,6 +469,10 @@ export function TraceDebugger({
   const onNative = tracePass === "native" && hasNative;
   const steps = (onNative ? nativeSteps : stepsByKey[key]) || [];
   const outcome = onNative ? nativeOutcomeByKey[key] : outcomeByKey[key];
+  // A generated task re-randomizes its entity ids per Pass^k run, so the static `task.prompt`
+  // template (used below as the reconstructed preview's fallback) is only right for the one
+  // seed that happens to match. Step 0 of whichever run has streamed carries the REAL prompt.
+  const realUserPrompt = steps.find((s) => s.step_index === 0)?.initial_prompt;
 
   // Split the flat trajectory into per-run sections. Runs execute sequentially, so
   // every group but the last is complete; while `running`, the last group may still
@@ -611,7 +615,7 @@ export function TraceDebugger({
             userPrompt={
               outcome?.kind === "single"
                 ? outcome.trace.user_prompt
-                : task.prompt
+                : (realUserPrompt ?? task.prompt)
             }
           />
         )}
