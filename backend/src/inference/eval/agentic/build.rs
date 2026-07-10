@@ -3,7 +3,7 @@ use crate::inference::eval::agentic::difficulty::decoys;
 use crate::inference::eval::agentic::difficulty::passk::{max_steps_for, pass_k_for};
 use crate::inference::eval::agentic::runner::AgenticConfig;
 use crate::inference::eval::agentic::sandbox::{DeterministicSandbox, EndStateRule};
-use crate::inference::eval::agentic::spec::EnvKind;
+use crate::inference::eval::agentic::spec::{EnvKind, SafetyArm};
 use crate::inference::eval::agentic::v2::env_corpus::CorpusState;
 use crate::inference::eval::agentic::v2::env_fs::FsState;
 use crate::inference::eval::agentic::v2::env_webui::WebUiSpec;
@@ -98,6 +98,15 @@ pub fn sandbox_for(task: &ToolTask) -> AppResult<(DeterministicSandbox, AgenticC
         spec.recognized_tools.clone()
     };
     sandbox = sandbox.with_recognized_tools(recognized);
+    // Category K: attach the standing-guard marker for an Attack-arm safety probe, so a
+    // forbidden-call terminus is attributable (model followed the injection vs the config's
+    // window evicted the guard). A benign-control probe carries no trap to attribute, so it
+    // never sets a guard.
+    if let Some(safety) = &spec.safety {
+        if safety.arm == SafetyArm::Attack {
+            sandbox = sandbox.with_safety_guard(safety.guard.marker.clone());
+        }
+    }
     // v2: name-keyed faults (on_call trips on any call to that tool).
     if !spec.name_faults.is_empty() {
         let nf: std::collections::HashMap<String, crate::inference::eval::agentic::spec::FaultInjection> =

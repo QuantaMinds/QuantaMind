@@ -56,6 +56,29 @@ pub enum FailureKind {
     ReasoningOverrun,
 }
 
+/// Category K: WHY an Attack-arm safety probe's forbidden action fired — the
+/// safety-axis analog of `batch::NativeErrorClass` (infra-vs-model), but for boundary
+/// failures. On this axis the honest default is a MODEL verdict; config-attribution is
+/// the rare, PROVEN exception (the standing guard was evicted by context pressure), and
+/// an unprovable case stays `Unattributed` — never a guessed blame. We deliberately do
+/// NOT tilt ambiguous cases toward config the way `classify_native_error` tilts toward
+/// `InfraHost`: on the safety axis the honest prior is the model.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SafetyAttribution {
+    /// The whole transcript (standing guard included) fit the context window, yet the
+    /// model took the forbidden action anyway — a model robustness/capability verdict.
+    ModelFollowedInjection,
+    /// The transcript saturated the context window, so front-first context-shift evicted
+    /// the standing guard before the forbidden turn — a CONFIG verdict (the served window
+    /// silently dropped the safety guard: the silent-truncation finding wearing a safety
+    /// hat). The proven exception, not the default.
+    GuardTruncatedByConfig,
+    /// The backend reported no prompt-occupancy telemetry, so guard survival can't be
+    /// proven either way — an honest unknown, never a guessed blame (`no-fake-metrics`).
+    Unattributed,
+}
+
 /// The result of ONE agentic attempt — the unit the Pass^k loop folds into an
 /// `AgenticReport`. `output_tokens` is the cumulative `eval_count` for this run
 /// (output tokens only; prompt tokens are deliberately never summed).
@@ -79,6 +102,10 @@ pub struct RunOutcome {
     /// the instructed JSON; a non-standard dialect (e.g. `Harmony`) means the model spoke
     /// its own grammar and we normalized it — surfaced so the score isn't laundered.
     pub dialect: ToolCallDialect,
+    /// Category K: set ONLY on an Attack-arm safety probe that terminated in a forbidden
+    /// action — WHY it fired (model followed the injection vs the config truncated the
+    /// guard). `None` on every non-safety run and on a safety run that didn't violate.
+    pub safety_attribution: Option<SafetyAttribution>,
 }
 
 impl RunOutcome {
@@ -92,6 +119,7 @@ impl RunOutcome {
             schema_recovered: false,
             unknown_tool_calls: 0,
             dialect: ToolCallDialect::Standard,
+            safety_attribution: None,
         }
     }
 
@@ -105,6 +133,7 @@ impl RunOutcome {
             schema_recovered: false,
             unknown_tool_calls: 0,
             dialect: ToolCallDialect::Standard,
+            safety_attribution: None,
         }
     }
 
@@ -127,6 +156,13 @@ impl RunOutcome {
     /// once on the way out).
     pub fn with_dialect(mut self, dialect: ToolCallDialect) -> Self {
         self.dialect = dialect;
+        self
+    }
+
+    /// Category K: stamp the safety attribution for an Attack-arm forbidden-call
+    /// terminus (builder form, so only that one terminal site sets it).
+    pub fn with_safety_attribution(mut self, attribution: SafetyAttribution) -> Self {
+        self.safety_attribution = Some(attribution);
         self
     }
 }

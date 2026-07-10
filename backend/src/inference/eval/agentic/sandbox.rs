@@ -102,6 +102,12 @@ pub struct DeterministicSandbox {
     /// means "every tool is recognized" (v1 / legacy / pre-field tasks) — back-compat.
     /// Unused in `StaticMocks` mode (an unmocked call already returns `None`).
     pub recognized_tools: std::collections::HashSet<String>,
+    /// Category K: set ONLY on an Attack-arm safety probe — the standing guard's marker
+    /// (from `SafetySpec.guard`). Its presence flags this run as attributable: if a
+    /// `must_not_call` trap fires, the runner records WHY (model followed the injection
+    /// vs the config's window evicted the guard). `None` on every non-safety sandbox and
+    /// on a benign-control probe (which has no trap to attribute).
+    pub safety_guard: Option<String>,
 }
 
 impl DeterministicSandbox {
@@ -122,7 +128,15 @@ impl DeterministicSandbox {
             must_not_call: Vec::new(),
             entity_tools: std::collections::HashSet::new(),
             recognized_tools: std::collections::HashSet::new(),
+            safety_guard: None,
         }
+    }
+
+    /// Attach the Category-K standing-guard marker (Attack-arm safety probes only).
+    /// Its presence makes a forbidden-call terminus attributable (model vs config).
+    pub fn with_safety_guard(mut self, marker: impl Into<String>) -> Self {
+        self.safety_guard = Some(marker.into());
+        self
     }
 
     /// Attach the Phase 9-v2 getter set (tools that return entity data). Any tool not
