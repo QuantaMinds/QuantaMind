@@ -1,7 +1,7 @@
 use super::*;
 use crate::errors::AppResult;
 use crate::inference::backend::backend_kind::BackendKind;
-use crate::inference::eval::agentic::model_turn::ModelTurn;
+use crate::inference::eval::agentic::model_turn::{BackendTurn, ModelTurn};
 use crate::inference::eval::agentic::sandbox::{EndStateRule, TaskCheckpoint};
 use crate::inference::eval::agentic::spec::AgenticSpec;
 use crate::inference::eval::toolcall::matrix::ModelTarget;
@@ -637,4 +637,56 @@ async fn live_diag_app_native_pass_for_gemma4() {
     eprintln!("STEP agentic_native_fc = {:?}", col.agentic_native_fc);
     eprintln!("STEP native_turns streamed = {}", *sink.native_turns.lock().unwrap());
     eprintln!("(N/A in the matrix means agentic_native_fc is None or total_runs==0 → all errored)");
+}
+
+// ── Category K: LIVE boundary run against a real Ollama model (rule 6) ────────────
+// Ignored by default (needs Ollama on :11434 + the model pulled). Run with:
+//   cargo test --lib category_k_live_boundary_run -- --ignored --nocapture
+// Set QM_LIVE_MODEL / QM_LIVE_COLLECTION to try another model / domain. Prints the
+// real BoundaryReport so resistance / over-refusal / attribution / gate can be
+// inspected against the trace.
+#[tokio::test]
+#[ignore = "live: requires a running Ollama server and a pulled model"]
+async fn category_k_live_boundary_run() {
+    use crate::inference::eval::agentic::v2::collection::load_v2_collection;
+    use crate::inference::eval::agentic::v2::scenarios::v2_json;
+
+    let model = std::env::var("QM_LIVE_MODEL").unwrap_or_else(|_| "qwen2.5-coder-7b-instruct:q4_k_m".into());
+    let collection = std::env::var("QM_LIVE_COLLECTION").unwrap_or_else(|_| "boundary-coding".into());
+    let tasks = load_v2_collection(v2_json(&collection).unwrap()).unwrap();
+
+    let targets = vec![ModelTarget { model: model.clone(), backend: BackendKind::Ollama, is_thinking: false }];
+    let sink = Arc::new(CountingSink::default());
+    let make = move |t: &ModelTarget| BackendTurn {
+        backend: BackendKind::Ollama,
+        endpoint: "http://localhost:11434".into(),
+        model: t.model.clone(),
+        cancel: CancellationToken::new(),
+        options: None,
+        keep_alive: None,
+        is_thinking: false,
+        max_tokens: 512,
+        cpu_offloaded: false,
+        ctx_ceiling: crate::inference::eval::agentic::runner::NUM_CTX_CEILING,
+        stop_cache: Default::default(),
+    };
+
+    let report = run_batch(&collection, &targets, &tasks, CancellationToken::new(), sink, make).await.unwrap();
+    let agg = report.columns[0].agentic.as_ref().expect("agentic aggregate present");
+    let b = agg.boundary.as_ref().expect("boundary report present for a Category-K collection");
+
+    println!("\n=== Category K live: {model} on {collection} ===");
+    println!("capability pass_k (separate axis): {:?}", agg.pass_k());
+    println!("resistance:       {:?}  ({}/{} attack runs resisted)", b.resistance, b.resisted, b.attack_probes);
+    println!("over-refusal:     {:?}  ({}/{} benign runs refused)", b.over_refusal_rate, b.over_refusals, b.benign_probes);
+    println!("attribution:      model_followed={} guard_truncated={} unattributed={}", b.attribution.model_followed, b.attribution.guard_truncated, b.attribution.unattributed);
+    println!("by_attack:        {:?}", b.by_attack);
+    println!("gate:             {:?}", b.gate);
+    println!("caveat:           {}", b.caveat);
+
+    // Pipeline assertions (not a model-quality judgment): both arms ran and the metric exists.
+    assert!(b.attack_probes > 0, "attack arm must have run");
+    assert!(b.benign_probes > 0, "benign control arm must have run");
+    assert!(b.resistance.is_some() && b.over_refusal_rate.is_some());
+    assert!(!b.caveat.is_empty(), "static-set caveat must be present");
 }
