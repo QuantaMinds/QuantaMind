@@ -145,6 +145,71 @@ export const FailureTrackerSchema = z.object({
 });
 export type FailureTracker = z.infer<typeof FailureTrackerSchema>;
 
+// ── Category K: safety / boundary mirrors ────────────────────────────────────────
+// `z.string()` (not a strict enum) for the vector so a slice-2 vector can't fail report
+// parsing; the panel labels known values and falls back to the raw string.
+export const AttackVectorSchema = z.string();
+export type AttackVector = z.infer<typeof AttackVectorSchema>;
+
+export const SafetyArmSchema = z.enum(["attack", "benign_control"]);
+export type SafetyArm = z.infer<typeof SafetyArmSchema>;
+
+/// WHY an Attack-arm forbidden call fired. Model is the default verdict; config is the
+/// proven exception (the served window evicted the guard); unattributed is the honest
+/// unknown. Mirrors Rust `SafetyAttribution`.
+export const SafetyAttributionSchema = z.enum([
+  "model_followed_injection",
+  "guard_truncated_by_config",
+  "unattributed",
+]);
+export type SafetyAttribution = z.infer<typeof SafetyAttributionSchema>;
+
+export const SafetyAttributionCountsSchema = z.object({
+  model_followed: z.number().int().default(0),
+  guard_truncated: z.number().int().default(0),
+  unattributed: z.number().int().default(0),
+});
+export type SafetyAttributionCounts = z.infer<typeof SafetyAttributionCountsSchema>;
+
+/// A report's safety classification (arm + vector), stamped by the batch layer.
+export const ReportSafetySchema = z.object({ arm: SafetyArmSchema, attack: AttackVectorSchema });
+export type ReportSafety = z.infer<typeof ReportSafetySchema>;
+
+/// The dual-threshold gate verdict. `inconclusive` when the benign control arm is absent —
+/// never a silent pass. Discriminated on "status" (Rust `#[serde(tag = "status")]`).
+export const BoundaryGateSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("pass") }),
+  z.object({ status: z.literal("fail"), resistance: z.number(), over_refusal: z.number() }),
+  z.object({ status: z.literal("inconclusive") }),
+]);
+export type BoundaryGate = z.infer<typeof BoundaryGateSchema>;
+
+export const BoundaryByAttackSchema = z.object({
+  attack: AttackVectorSchema,
+  resisted: z.number().int(),
+  total: z.number().int(),
+});
+export type BoundaryByAttack = z.infer<typeof BoundaryByAttackSchema>;
+
+/// Per-config Category-K aggregate — resistance (attack arm) paired with over-refusal
+/// (benign control arm), attribution split, per-vector breakdown, gate, and the
+/// non-omittable static-set caveat. Kept separate from capability `pass_k`. Mirrors Rust
+/// `BoundaryReport`.
+export const BoundaryReportSchema = z.object({
+  attack_probes: z.number().int(),
+  resisted: z.number().int(),
+  resistance: z.number().nullable(),
+  benign_probes: z.number().int(),
+  over_refusals: z.number().int(),
+  over_refusal_rate: z.number().nullable(),
+  by_attack: z.array(BoundaryByAttackSchema),
+  attribution: SafetyAttributionCountsSchema,
+  native_fc: z.boolean(),
+  gate: BoundaryGateSchema,
+  caveat: z.string(),
+});
+export type BoundaryReport = z.infer<typeof BoundaryReportSchema>;
+
 export const AgenticReportSchema = z.object({
   passes: z.number().int(),
   total_runs: z.number().int(),
@@ -162,6 +227,10 @@ export const AgenticReportSchema = z.object({
   // (instructed JSON) or a model-native grammar like "harmony". `z.string()` (not an enum)
   // so a future backend dialect can't fail report parsing; absent on pre-fix reports.
   dialect: z.string().optional(),
+  // Category K: the model/config/unattributed split of this task's forbidden-call
+  // terminuses, and its safety classification. Both absent on a capability task.
+  safety_attribution: SafetyAttributionCountsSchema.optional(),
+  safety: ReportSafetySchema.nullish(),
 });
 export type AgenticReport = z.infer<typeof AgenticReportSchema>;
 
@@ -210,6 +279,9 @@ export const AggAgenticSchema = z.object({
     malformed_json_calls: 0,
     schema_unrecovered_calls: 0,
   }),
+  // Category K: the safety/boundary aggregate for this run-path, when the collection carries
+  // Category-K tasks. Nullish → a capability-only run parses with no boundary metric.
+  boundary: BoundaryReportSchema.nullish(),
 });
 export type AggAgentic = z.infer<typeof AggAgenticSchema>;
 

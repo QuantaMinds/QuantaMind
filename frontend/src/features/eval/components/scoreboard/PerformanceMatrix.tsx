@@ -7,6 +7,7 @@ import { toScoreRows } from "./scoreRows";
 import { InfoButton } from "../../../../shared/ui/InfoButton";
 import { Tooltip } from "../../../../shared/ui/Tooltip";
 import { TOOL_HELP, metricTitle } from "../../help";
+import { BoundaryPanel } from "../../../agentReport/components/BoundaryPanel";
 import type { FailureTracker } from "../../../../shared/ipc/eval/batch";
 
 /// A sensible top-of-ladder default for the probe pre-fill — the Audit panel clamps
@@ -481,6 +482,8 @@ export function PerformanceMatrix({
           <span style={{ color: "#991b1b", fontWeight: 600 }}>fails from start</span> = already failing at the smallest context (a tool-call failure, not a context limit).
         </div>
       )}
+      {/* Category K: the safety/boundary axis, when the collection carries Category-K tasks. */}
+      <BoundaryPanel report={report} />
     </div>
   );
 }

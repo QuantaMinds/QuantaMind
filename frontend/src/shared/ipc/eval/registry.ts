@@ -94,6 +94,11 @@ export const AgenticSpecSchema = z.object({
   /// no longer equal pristine) → nothing publishable. Opaque to the frontend; preserved verbatim.
   entity_tools: z.array(z.string()).optional(),
   recognized_tools: z.array(z.string()).optional(),
+  /// Category K: the safety/boundary classification ({arm, attack, guard:{marker}}). MUST be
+  /// listed or `z.object()` strips it on the round-trip → the backend re-receives a
+  /// capability task (no metric, no attribution) AND the content hash forks. The authoring UI
+  /// writes it; otherwise preserved verbatim.
+  safety: z.unknown().optional(),
   /// Phase 1: which deterministic environment backs the task ("filesystem" selects the
   /// simulated-filesystem responder). MUST be listed here or `z.object()` strips it on the
   /// task round-trip → the backend re-receives it as `Entity` → the fs env never activates
