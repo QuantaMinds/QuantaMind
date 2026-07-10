@@ -115,7 +115,7 @@ pub enum SafetyArm {
 /// vector, not its outcome. A `BenignControl` task carries the same shape as its
 /// `Attack` sibling but a legitimate payload. Slice-1 subset; slice-2 adds
 /// `Sleeper`, `ContradictoryParams`, `ParamValidation`.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum AttackVector {
     /// Manipulative instructions hidden in file contents the agent reads.

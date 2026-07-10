@@ -1,4 +1,4 @@
-use crate::inference::eval::agentic::spec::Tier;
+use crate::inference::eval::agentic::spec::{AttackVector, SafetyArm, Tier};
 use crate::inference::eval::toolcall::parse::ToolCallDialect;
 use serde::{Deserialize, Serialize};
 
@@ -77,6 +77,44 @@ pub enum SafetyAttribution {
     /// The backend reported no prompt-occupancy telemetry, so guard survival can't be
     /// proven either way — an honest unknown, never a guessed blame (`no-fake-metrics`).
     Unattributed,
+}
+
+/// Category K: the split of attributed forbidden-call terminuses across an Attack-arm
+/// task's Pass^k runs. Folded in `from_outcomes` from each run's `safety_attribution`;
+/// all-zero on every non-safety task (a non-attributed run contributes nothing), so it
+/// is `#[serde(default)]`-safe and carried on every report without leaking into
+/// capability scoring.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SafetyAttributionCounts {
+    pub model_followed: u32,
+    pub guard_truncated: u32,
+    pub unattributed: u32,
+}
+
+impl SafetyAttributionCounts {
+    fn record(&mut self, a: SafetyAttribution) {
+        match a {
+            SafetyAttribution::ModelFollowedInjection => self.model_followed += 1,
+            SafetyAttribution::GuardTruncatedByConfig => self.guard_truncated += 1,
+            SafetyAttribution::Unattributed => self.unattributed += 1,
+        }
+    }
+
+    /// Sum another split into this one (the aggregate over a model's safety tasks).
+    pub fn merge(&mut self, o: &SafetyAttributionCounts) {
+        self.model_followed += o.model_followed;
+        self.guard_truncated += o.guard_truncated;
+        self.unattributed += o.unattributed;
+    }
+}
+
+/// Category K: the safety classification of the task a report scored, stamped by the
+/// batch layer (which has the `ToolTask`) so `agg_agentic` can carve out the boundary
+/// metric without re-reading the tasks. `None` on every capability report.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ReportSafety {
+    pub arm: SafetyArm,
+    pub attack: AttackVector,
 }
 
 /// The result of ONE agentic attempt — the unit the Pass^k loop folds into an
@@ -335,6 +373,15 @@ pub struct AgenticReport {
     /// credited. `#[serde(default)]` → pre-fix reports load as `Standard`.
     #[serde(default)]
     pub dialect: ToolCallDialect,
+    /// Category K: the model/config/unattributed split of this task's forbidden-call
+    /// terminuses (folded from the runs' `safety_attribution`). All-zero on a capability
+    /// task. `#[serde(default)]` so older reports load.
+    #[serde(default)]
+    pub safety_attribution: SafetyAttributionCounts,
+    /// Category K: this report's safety classification (arm + vector), stamped by the
+    /// batch layer. `None` on a capability task. `#[serde(default)]` so older reports load.
+    #[serde(default)]
+    pub safety: Option<ReportSafety>,
 }
 
 impl AgenticReport {
@@ -345,6 +392,7 @@ impl AgenticReport {
         let mut success_tokens: Vec<u32> = Vec::new();
         let mut schema_hits = 0u32;
         let mut schema_recovered = 0u32;
+        let mut attribution = SafetyAttributionCounts::default();
         for o in outcomes {
             // Diagnostic, counted for every run regardless of pass/fail.
             failures.unknown_tool_calls += o.unknown_tool_calls;
@@ -353,6 +401,11 @@ impl AgenticReport {
                 success_tokens.push(o.output_tokens);
             } else if let Some(f) = o.failure {
                 failures.record(f);
+            }
+            // Category K: only an Attack-arm forbidden-call terminus carries this, so a
+            // non-safety run contributes nothing (keeps the split honest and zero elsewhere).
+            if let Some(a) = o.safety_attribution {
+                attribution.record(a);
             }
             if o.hit_schema_error {
                 schema_hits += 1;
@@ -380,6 +433,8 @@ impl AgenticReport {
             tier: Tier::default(), // stamped by the runner via with_tier (the task carries the tier)
             requested_runs: None,  // stamped via with_truncation only when the budget cut the batch short
             dialect,
+            safety_attribution: attribution,
+            safety: None, // stamped by the batch layer via with_safety (it holds the ToolTask)
         }
     }
 
@@ -387,6 +442,14 @@ impl AgenticReport {
     /// `from_outcomes` and its tests stay unchanged). Called by the batch runner.
     pub fn with_tier(mut self, tier: Tier) -> Self {
         self.tier = tier;
+        self
+    }
+
+    /// Category K: stamp the safety classification (arm + vector) of the task this report
+    /// scored (builder form, like `with_tier`). Called by the batch layer, which holds the
+    /// `ToolTask`. A capability report never calls this, so `safety` stays `None`.
+    pub fn with_safety(mut self, arm: SafetyArm, attack: AttackVector) -> Self {
+        self.safety = Some(ReportSafety { arm, attack });
         self
     }
 

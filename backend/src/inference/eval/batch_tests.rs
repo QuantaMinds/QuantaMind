@@ -265,7 +265,7 @@ fn agg_agentic_sums_failure_breakdown_not_just_top_error() {
         (0..9).map(|_| RunOutcome::failure(2, 5, FailureKind::Hallucinated)).collect();
     let b = AgenticReport::from_outcomes(&b_outcomes);
 
-    let agg = agg_agentic(&[a, b]);
+    let agg = agg_agentic(&[a, b], false);
 
     assert_eq!(agg.top_error, TopError::Hallucinated); // headline still the majority mode
     assert_eq!(agg.failures.infinite_loop_hits, 1); // …but the loop is NOT hidden
@@ -382,7 +382,7 @@ fn a_budget_truncated_task_is_not_credited_as_a_strict_pass_k() {
     // Truncated at 1 of 16, and that single run passed: `passes == total_runs` (1 == 1)
     // would otherwise credit it as a full pass^16. The truncation flag must veto that —
     // we never observed the other 15 runs, so the all-k guarantee is unproven.
-    let agg = agg_agentic(&[task_report(1, 1).with_truncation(16)]);
+    let agg = agg_agentic(&[task_report(1, 1).with_truncation(16)], false);
     assert_eq!(agg.tasks_passed, 0, "a truncated batch can't claim the all-k guarantee");
     assert_eq!(agg.tasks_total, 1);
     // The observed run still feeds the secondary per-run rate honestly.
@@ -394,7 +394,7 @@ fn a_budget_truncated_task_is_not_credited_as_a_strict_pass_k() {
 fn pass_k_credits_a_task_only_when_all_k_runs_pass() {
     // Two flaky tasks (3/5 and 4/5): pass@k would read 7/10 = 0.7, but neither task
     // passed ALL k, so strict Pass^k is 0 — the whole point of the metric.
-    let agg = agg_agentic(&[task_report(3, 5), task_report(4, 5)]);
+    let agg = agg_agentic(&[task_report(3, 5), task_report(4, 5)], false);
     assert_eq!(agg.tasks_passed, 0);
     assert_eq!(agg.tasks_total, 2);
     assert_eq!(agg.pass_k(), Some(0.0));
@@ -412,7 +412,7 @@ fn agg_buckets_strict_pass_k_by_tier() {
         task_report(16, 16).with_tier(Tier::Hard),
         task_report(3, 5).with_tier(Tier::Hard),
     ];
-    let agg = agg_agentic(&reports);
+    let agg = agg_agentic(&reports, false);
 
     let easy = agg.by_tier.iter().find(|s| s.tier == Tier::Easy).unwrap();
     assert_eq!((easy.tasks_passed, easy.tasks_total), (1, 1));
@@ -438,7 +438,7 @@ fn agg_buckets_per_tier_avg_steps_and_failures() {
         task_report(16, 16).with_tier(Tier::Hard),
         task_report(3, 5).with_tier(Tier::Hard),
     ];
-    let agg = agg_agentic(&reports);
+    let agg = agg_agentic(&reports, false);
 
     let easy = agg.by_tier.iter().find(|s| s.tier == Tier::Easy).unwrap();
     let hard = agg.by_tier.iter().find(|s| s.tier == Tier::Hard).unwrap();
@@ -471,12 +471,12 @@ fn tier_stat_deserializes_a_pre_9b_payload_with_defaulted_per_tier_fields() {
 #[test]
 fn pass_k_is_the_fraction_of_fully_passing_tasks() {
     // One task clean (5/5), one fully failing (0/5): one of two tasks credited → 0.5.
-    let agg = agg_agentic(&[task_report(5, 5), task_report(0, 5)]);
+    let agg = agg_agentic(&[task_report(5, 5), task_report(0, 5)], false);
     assert_eq!(agg.tasks_passed, 1);
     assert_eq!(agg.tasks_total, 2);
     assert_eq!(agg.pass_k(), Some(0.5));
     // Both tasks clean → 1.0.
-    assert_eq!(agg_agentic(&[task_report(5, 5), task_report(5, 5)]).pass_k(), Some(1.0));
+    assert_eq!(agg_agentic(&[task_report(5, 5), task_report(5, 5)], false).pass_k(), Some(1.0));
 }
 
 /// A model that records each `warm_up` and `run` event with its model name, proving
@@ -539,6 +539,7 @@ fn ollama_version_makes_a_native_garble_diagnosable_on_the_report() {
         by_tier: vec![],
         tasks_errored: 0,
         native_error_class: Default::default(),
+        boundary: None,
     };
     let report = BatchReport {
         collection_id: "c".into(),
