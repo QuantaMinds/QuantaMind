@@ -163,6 +163,7 @@ mod tests {
                 generated: false,
                 entity_tools: vec![],
                 recognized_tools: vec![],
+                safety: None,
             }),
         }
     }

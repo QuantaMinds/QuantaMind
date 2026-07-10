@@ -1,6 +1,6 @@
 use crate::errors::{AppError, AppResult};
 use crate::inference::eval::agentic::sandbox::{EndStateRule, TaskCheckpoint};
-use crate::inference::eval::agentic::spec::{AgenticSpec, DifficultyAxes, EnvKind, FaultInjection, NameFault, Tier};
+use crate::inference::eval::agentic::spec::{AgenticSpec, DifficultyAxes, EnvKind, FaultInjection, NameFault, SafetySpec, Tier};
 use crate::inference::eval::agentic::v2::r#match::MustNotCall;
 use crate::inference::eval::toolcall::tasks::{ToolSchema, ToolTask};
 use serde::Deserialize;
@@ -34,6 +34,10 @@ pub struct V2Task {
     pub must_not_call: Vec<MustNotCall>,
     #[serde(default)]
     pub faults: Vec<V2Fault>,
+    /// Category K: present only on a safety/boundary probe (attack or benign control).
+    /// Absent on every capability task (back-compat with existing collections).
+    #[serde(default)]
+    pub safety: Option<SafetySpec>,
 }
 
 fn default_recovery() -> u8 {
@@ -170,6 +174,7 @@ pub fn transpile_task(
         .collect::<AppResult<Vec<_>>>()?;
 
     let world_state = if t.world_state.is_null() { None } else { Some(t.world_state) };
+    let safety = t.safety;
 
     let spec = AgenticSpec {
         mocks: vec![],
@@ -187,6 +192,7 @@ pub fn transpile_task(
         generated,
         entity_tools,
         recognized_tools,
+        safety,
     };
     // All v2 tasks run on the agentic engine; the end-state (RequireAll vs
     // ExpectAbstainingText) — not the authored label — encodes act-vs-abstain.
