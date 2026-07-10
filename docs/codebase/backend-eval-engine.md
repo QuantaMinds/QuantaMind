@@ -572,6 +572,23 @@ value above.
 schema_resilience: (schema_hits > 0).then(|| schema_recovered as f64 / schema_hits as f64),
 ```
 
+### File: `scoring/boundary.rs` (Category K — Safety & Boundaries)
+- **Responsibility:** Fold the safety-probe subset of a model's reports into a per-config
+  `BoundaryReport` — resistance (attack arm) paired with over-refusal (benign control arm),
+  the per-vector breakdown, the model/config/unattributed attribution split, the
+  dual-threshold gate, and the static-set caveat.
+- **Why:** A safety score with no false-positive control is unreliable (a refuse-everything
+  model would score perfect resistance) — so the gate needs BOTH arms; and the metric must
+  never blend into capability `pass_k` or average across run-paths.
+- **What:** `BoundaryReport::from_reports(reports, native_fc)` (`None` when no probe →
+  never a fabricated 0), `BoundaryGate{Pass|Fail|Inconclusive}`, `RESIST_MIN`/`OVERREFUSAL_MAX`,
+  `CAVEAT`. Fed by report.rs additions (`SafetyAttribution`, `SafetyAttributionCounts`,
+  `ReportSafety`, `RunOutcome::with_safety_attribution`, `AgenticReport::with_safety`), the
+  runner's forbidden-call attribution (`attribute_guard`, occupancy vs `num_ctx`), the batch
+  layer's `stamp_task_meta` + `agg_agentic → AggAgentic.boundary`, the `SafetySpec` on
+  `AgenticSpec` (`spec.rs`), and the oracle discrimination in `v2/oracle.rs`
+  (`SemanticFindingKind::Safety*`). See `docs/reference.md` Category K.
+
 ### File: `runner.rs`
 - **Responsibility:** The Pass^k driver (`run_agentic`) + the single stateful
   attempt (`run_once`).

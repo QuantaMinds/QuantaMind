@@ -27,7 +27,13 @@ The rule-7 invariants from `CLAUDE.md`. Every change must uphold all of them:
    (`127.0.0.1`/`localhost`) is exempt. Enforced at the `inference/http/http.rs` seam.
 5. **Model output is untrusted (OWASP LLM Top-10).** Render model output as inert, escaped
    text — never `innerHTML`/`dangerouslySetInnerHTML`/`eval`. Treat file/web content the
-   model reads as an indirect-prompt-injection source.
+   model reads as an indirect-prompt-injection source. The **Category K** eval axis
+   *measures* a served config against exactly this: prompt-injection resistance and unsafe
+   tool-call refusal, delivered as an indirect injection inside a tool result. A boundary
+   failure is attributed to the model (followed the injection) vs the config (the served
+   window silently evicted the safety guard) — see `docs/reference.md` Category K. This is
+   an eval, not a runtime guard: it does not sanitize model output, and its verdict covers a
+   fixed, known-injection set only (never a guarantee against adaptive attacks).
 6. **No local machine info leaves the machine.** No absolute path or username appears in any
    log, error body, or publish payload. Paths pass through `redact_path` (`backend/src/redact.rs`)
    at the log/error/publish boundaries, and the publish payload is a *proven* field allowlist
