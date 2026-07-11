@@ -60,12 +60,16 @@ impl BatchSink for CountingSink {
 #[derive(Default)]
 struct DiagSink {
     steps: Mutex<Vec<(String, String)>>,
+    injections: Mutex<Vec<String>>,
 }
 impl BatchSink for DiagSink {
     fn task_started(&self, _m: &str, _t: &str, _i: usize, _total: usize, _cat: &str, _n: bool) {}
     fn agentic_turn(&self, _m: &str, _t: &str, step: &TrajectoryStep, _n: bool) {
         let snippet: String = step.raw_output.chars().take(160).collect::<String>().replace('\n', " ");
         self.steps.lock().unwrap().push((format!("{:?}", step.kind), snippet));
+        if let Some(inj) = &step.injection {
+            self.injections.lock().unwrap().push(inj.chars().take(220).collect());
+        }
     }
     fn task_done(&self, _m: &str, _t: &str, _o: &TaskOutcome, _n: bool) {}
 }
@@ -778,4 +782,61 @@ async fn category_k_live_guard_truncation_proof() {
     // The proof: config attribution appears ONLY under window pressure, on identical content.
     assert!(sm_guard >= 1, "small window must attribute at least one forbidden call to GuardTruncatedByConfig (saturation evicts the guard)");
     assert_eq!(lg_guard, 0, "large window must NOT attribute to config — the guard fit, so a forbidden call is the model's");
+}
+
+// ── Feature A + B: LIVE payload-noise extraction + Tokens/Task (rule 6) ───────────
+//   cargo test --lib noisy_extraction_live -- --ignored --nocapture
+// Runs the noisy-extraction collection against a real Ollama model. Confirms the getter
+// returns the messy envelope (`data`/`_meta`/pagination) the model must dig the field out
+// of, and prints Effort vs Tokens/Task (T*) so the amortized cost is visible on a real run.
+#[tokio::test]
+#[ignore = "live: requires a running Ollama server and a pulled model"]
+async fn noisy_extraction_live() {
+    use crate::inference::eval::agentic::v2::collection::load_v2_collection;
+    use crate::inference::eval::agentic::v2::scenarios::v2_json;
+
+    let model = std::env::var("QM_LIVE_MODEL").unwrap_or_else(|_| "qwen2.5-coder-7b-instruct:q4_k_m".into());
+    let tasks = load_v2_collection(v2_json("noisy-extraction").unwrap()).unwrap();
+    let targets = vec![ModelTarget { model: model.clone(), backend: BackendKind::Ollama, is_thinking: false }];
+    let sink = Arc::new(DiagSink::default());
+    let make = move |t: &ModelTarget| BackendTurn {
+        backend: BackendKind::Ollama,
+        endpoint: "http://localhost:11434".into(),
+        model: t.model.clone(),
+        cancel: CancellationToken::new(),
+        options: None,
+        keep_alive: None,
+        is_thinking: false,
+        max_tokens: 512,
+        cpu_offloaded: false,
+        ctx_ceiling: crate::inference::eval::agentic::runner::NUM_CTX_CEILING,
+        stop_cache: Default::default(),
+    };
+
+    let report = run_batch("noisy-extraction", &targets, &tasks, CancellationToken::new(), sink.clone(), make).await.unwrap();
+    let agg = report.columns[0].agentic.as_ref().expect("agentic aggregate present");
+
+    println!("\n=== noisy-extraction live: {model} ===");
+    println!("pass_k:        {:?}", agg.pass_k());
+    println!("Effort:        {:?} (mean output tokens over successes)", agg.avg_output_tokens_success);
+    println!("Tokens/Task:   {:?} (T* — total tokens / completions, incl. failed-run waste)", agg.tokens_per_completed);
+    println!("--- a tool result the model saw (should be a noisy envelope) ---");
+    let injections = sink.injections.lock().unwrap();
+    if let Some(first) = injections.first() {
+        println!("  {first}");
+    }
+    println!("--- model steps (kind | raw) ---");
+    for (kind, raw) in sink.steps.lock().unwrap().iter().take(10) {
+        println!("  {kind:<22} | {raw}");
+    }
+
+    // The getter returned the noisy envelope (nested `data` + metadata), not the bare blob.
+    assert!(
+        injections.iter().any(|i| i.contains("\"data\":") && i.contains("_meta")),
+        "a getter result must be wrapped in the payload-noise envelope",
+    );
+    // T* is a real amortized cost when anything completed, and never below Effort.
+    if let (Some(tstar), Some(eff)) = (agg.tokens_per_completed, agg.avg_output_tokens_success) {
+        assert!(tstar >= eff - 1e-9, "T* ({tstar}) must be >= Effort ({eff}) — the waste tax");
+    }
 }
