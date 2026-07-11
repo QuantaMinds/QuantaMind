@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { BoundaryPanel } from "../components/BoundaryPanel";
+import { BoundaryPanel } from "../components/scoreboard/BoundaryPanel";
 import { BoundaryReportSchema } from "../../../shared/ipc/eval/batch";
 import type { BatchReport, BoundaryReport } from "../../../shared/ipc/eval/batch";
 

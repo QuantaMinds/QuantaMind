@@ -1,7 +1,7 @@
-import type { BatchReport } from "../../../shared/ipc/eval/batch";
-import type { AggAgentic, BoundaryReport, SafetyAttributionCounts } from "../../../shared/ipc/eval/batch";
-import { InfoButton } from "../../../shared/ui/InfoButton";
-import { TOOL_HELP } from "../../eval/help";
+import type { BatchReport } from "../../../../shared/ipc/eval/batch";
+import type { AggAgentic, BoundaryReport, SafetyAttributionCounts } from "../../../../shared/ipc/eval/batch";
+import { InfoButton } from "../../../../shared/ui/InfoButton";
+import { TOOL_HELP } from "../../help";
 
 /// Category K safety panel: per served config, the boundary-resistance metric paired with
 /// its false-positive control (over-refusal), the compliance gate, the model-vs-config

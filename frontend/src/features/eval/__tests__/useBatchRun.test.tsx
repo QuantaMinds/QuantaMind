@@ -16,11 +16,11 @@ vi.mock("../../../shared/ipc/eval/batch", async (orig) => ({
   runBatchEval: vi.fn().mockResolvedValue(undefined),
   stopBatchEval: vi.fn(),
 }));
-vi.mock("../../../shared/ipc/core/client", () => ({ healthFor: vi.fn() }));
+vi.mock("../../../shared/ipc/core/client", () => ({ healthFor: vi.fn(), credentialFor: vi.fn() }));
 
 import { useBatchRun } from "../hooks/useBatchRun";
 import { runBatchEval, stopBatchEval } from "../../../shared/ipc/eval/batch";
-import { healthFor } from "../../../shared/ipc/core/client";
+import { healthFor, credentialFor, type RemoteAuthReport } from "../../../shared/ipc/core/client";
 import { useBatchStore } from "../state/batchStore";
 import type { ModelTarget } from "../../../shared/ipc/eval/matrix";
 
@@ -73,6 +73,44 @@ describe("useBatchRun pre-flight health check", () => {
 
     await act(async () => { await result.current.run("c", targets, tasks, 1, 8, false); });
 
+    await waitFor(() => expect(runBatchEval).toHaveBeenCalled());
+    expect(useBatchStore.getState().error).toBeNull();
+  });
+
+  // ── Remote-credential pre-flight (the seam: probe → real message → setError → abort) ──
+  const authReport = (p: Partial<RemoteAuthReport>): RemoteAuthReport =>
+    ({ status: "ok", http_status: null, host: "https://gpu.example.com:8000", insecure_key: false, ...p });
+
+  it("blocks a vLLM run on a REJECTED KEY with the key message — never 'unreachable', never runs", async () => {
+    vi.mocked(credentialFor).mockResolvedValue(authReport({ status: "unauthorized", http_status: 401 }));
+    const { result } = renderHook(() => useBatchRun());
+    const targets: ModelTarget[] = [{ model: "m", backend: "vllm" }];
+
+    await act(async () => { await result.current.run("c", targets, tasks, 1, 8, false); });
+
+    expect(credentialFor).toHaveBeenCalledWith("vllm");
+    expect(healthFor).not.toHaveBeenCalled(); // remote routes through the credential probe, not healthFor
+    expect(runBatchEval).not.toHaveBeenCalled();
+    const err = useBatchStore.getState().error ?? "";
+    expect(err).toMatch(/API key/i);
+    expect(err).not.toMatch(/reach|start/i); // the never-conflate invariant, at the UI level
+    expect(useBatchStore.getState().running).toBe(false);
+  });
+
+  it("blocks a DOWN vLLM server with the reach message — never blames the key", async () => {
+    vi.mocked(credentialFor).mockResolvedValue(authReport({ status: "unreachable" }));
+    const { result } = renderHook(() => useBatchRun());
+    await act(async () => { await result.current.run("c", [{ model: "m", backend: "vllm" }], tasks, 1, 8, false); });
+    const err = useBatchStore.getState().error ?? "";
+    expect(err).toMatch(/reach/i);
+    expect(err).not.toMatch(/API key/i);
+    expect(runBatchEval).not.toHaveBeenCalled();
+  });
+
+  it("proceeds when the vLLM credential resolves OK", async () => {
+    vi.mocked(credentialFor).mockResolvedValue(authReport({ status: "ok" }));
+    const { result } = renderHook(() => useBatchRun());
+    await act(async () => { await result.current.run("c", [{ model: "m", backend: "vllm" }], tasks, 1, 8, false); });
     await waitFor(() => expect(runBatchEval).toHaveBeenCalled());
     expect(useBatchStore.getState().error).toBeNull();
   });
