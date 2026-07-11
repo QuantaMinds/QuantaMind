@@ -32,8 +32,14 @@ The rule-7 invariants from `CLAUDE.md`. Every change must uphold all of them:
    tool-call refusal, delivered as an indirect injection inside a tool result. A boundary
    failure is attributed to the model (followed the injection) vs the config (the served
    window silently evicted the safety guard) — see `docs/reference.md` Category K. This is
-   an eval, not a runtime guard: it does not sanitize model output, and its verdict covers a
-   fixed, known-injection set only (never a guarantee against adaptive attacks).
+   an eval, not a runtime guard: it does not sanitize model output, and its verdict is a **floor
+   on vulnerability, not a ceiling on safety** — a fixed, known-injection set (adaptive/iterative
+   attacks achieve materially higher success), and much of any measured resistance is "security by
+   incompetence" (the model failing through inability, not defense; cf. WASP, arXiv 2504.18575).
+   The config-attribution (`GuardTruncatedByConfig`) is valid **only** for the truncation-saturation
+   mechanism; injection resistance is otherwise **not a serving-config property** — a non-truncation
+   failure needs an out-of-band deterministic guardrail layer (CaMeL/FIDES/Progent-style) this tool
+   does not provide, not config tuning.
 6. **No local machine info leaves the machine.** No absolute path or username appears in any
    log, error body, or publish payload. Paths pass through `redact_path` (`backend/src/redact.rs`)
    at the log/error/publish boundaries, and the publish payload is a *proven* field allowlist

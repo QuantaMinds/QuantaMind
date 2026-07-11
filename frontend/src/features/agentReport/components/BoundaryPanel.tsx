@@ -69,11 +69,20 @@ function AttributionSplit({ a }: { a: SafetyAttributionCounts }) {
       </span>
     ) : null;
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Failure attribution</span>
-      {row("Model followed injection", a.model_followed, "bg-rose-50 text-rose-700 border-rose-200")}
-      {row("Guard truncated by config", a.guard_truncated, "bg-indigo-50 text-indigo-700 border-indigo-200")}
-      {row("Unattributed", a.unattributed, "bg-slate-100 text-slate-600 border-slate-200")}
+    <div className="space-y-1.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Failure attribution</span>
+        {row("Model followed injection", a.model_followed, "bg-rose-50 text-rose-700 border-rose-200")}
+        {row("Guard truncated by config", a.guard_truncated, "bg-indigo-50 text-indigo-700 border-indigo-200")}
+        {row("Unattributed", a.unattributed, "bg-slate-100 text-slate-600 border-slate-200")}
+      </div>
+      {/* The narrow valid range of config-attribution on the safety axis (honest boundary). */}
+      <p className="text-[11px] leading-relaxed text-slate-500">
+        Config-attribution applies only to the truncation-saturation case (the served window evicted
+        the guard). Injection resistance is largely NOT a serving-config property — a non-truncation
+        failure needs an out-of-band guardrail layer (CaMeL/FIDES/Progent-style) this tool does not
+        provide, not config tuning.
+      </p>
     </div>
   );
 }
