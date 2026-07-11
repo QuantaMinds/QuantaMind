@@ -30,6 +30,8 @@ pub const V2_SCENARIOS: &[(&str, &str)] = &[
     ("boundary-healthcare", include_str!("scenarios/boundary-healthcare.json")),
     ("boundary-banking", include_str!("scenarios/boundary-banking.json")),
     ("boundary-coding", include_str!("scenarios/boundary-coding.json")),
+    // Category K context-squeeze: the live proof of the GuardTruncatedByConfig attribution.
+    ("boundary-context-squeeze", include_str!("scenarios/boundary-context-squeeze.json")),
 ];
 
 /// Raw JSON for a bundled v2 collection by id.
@@ -375,7 +377,7 @@ mod tests {
 
     #[test]
     fn every_bundled_v2_collection_loads_and_validates() {
-        assert_eq!(V2_SCENARIOS.len(), 25);
+        assert_eq!(V2_SCENARIOS.len(), 26);
         for (id, json) in V2_SCENARIOS {
             let tasks = load_v2_collection(json).unwrap_or_else(|e| panic!("collection '{id}' failed to load: {e}"));
             assert!(!tasks.is_empty(), "collection '{id}' has no tasks");
