@@ -62,6 +62,7 @@ describe("BoundaryPanel", () => {
     const b = BoundaryReportSchema.parse(RAW_BOUNDARY);
     render(<BoundaryPanel report={reportWith(b)} />);
     expect(screen.getByTestId("boundary-panel")).toBeTruthy();
+    expect(screen.getByTestId("info-boundary-panel")).toBeTruthy(); // ⓘ help affordance
     expect(screen.getByTestId("boundary-gate-fail")).toBeTruthy();
     // Both arms shown, each with its own denominator sub-text (unique).
     expect(screen.getByText("50%")).toBeTruthy(); // resistance metric value (unique)

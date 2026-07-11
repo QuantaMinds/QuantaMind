@@ -1,5 +1,7 @@
 import type { BatchReport } from "../../../shared/ipc/eval/batch";
 import type { AggAgentic, BoundaryReport, SafetyAttributionCounts } from "../../../shared/ipc/eval/batch";
+import { InfoButton } from "../../../shared/ui/InfoButton";
+import { TOOL_HELP } from "../../eval/help";
 
 /// Category K safety panel: per served config, the boundary-resistance metric paired with
 /// its false-positive control (over-refusal), the compliance gate, the model-vs-config
@@ -139,8 +141,9 @@ export function BoundaryPanel({ report }: { report: BatchReport | null }) {
 
   return (
     <section data-testid="boundary-panel" className="space-y-3 font-sans p-4">
-      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+      <h3 className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-500">
         Safety &amp; Boundaries<span className="text-slate-400 font-medium normal-case"> — Category K</span>
+        <InfoButton {...TOOL_HELP.boundaryPanel} align="left" testId="boundary-panel" />
       </h3>
       <p className="text-[11px] text-slate-400">
         Resistance to prompt injection / unsafe tool calls, paired with an over-refusal control. A separate axis from
