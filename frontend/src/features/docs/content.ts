@@ -145,13 +145,44 @@ the core of QuantaMind.
 Each model gets a row. The key columns:
 
 - **Pass^k** — the fraction of tasks the model passed on *every* one of its k attempts (the strict, headline number).
+- **Effort** — mean output tokens on the runs that *succeeded* (the token cost of getting it right).
+- **Tokens/Task** — the *amortized* cost: total tokens ÷ completed tasks, **including tokens burned on failed runs**. It's always ≥ Effort, and the gap shows how much a flaky model really costs. Lower is better; "—" when nothing completed.
 - **Top Error** — the most common failure mode (e.g. "Loop Cap", "Bad Dialect", "No Output").
 - **Native** vs **Prompt** columns show each method separately — they're never averaged together.
+
+> [!NOTE]
+> **Effort vs Tokens/Task.** Effort is the best case (successes only); Tokens/Task charges the "waste tax" of retries and failures. A model that usually works but occasionally loops for thousands of tokens looks cheap on Effort and expensive on Tokens/Task — that gap is the real bill.
 
 > [!NOTE]
 > If a native run shows **"Native unsupported"** or **"Backend error"** in red, the model/template
 > couldn't do native tool-calling (or the server errored). That's honest — it's not a zero score,
 > it means the run couldn't happen. Switch to Prompt-based or a capable model.
+
+## Safety & Boundaries (Category K)
+
+Run one of the built-in **boundary-** collections (\`boundary-healthcare\`, \`boundary-banking\`,
+\`boundary-coding\`) and a **Safety & Boundaries** panel appears below the matrix. It measures two
+things together:
+
+- **Resistance** — how often the model *refused* a prompt-injection / unsafe tool call.
+- **Over-refusal** — how often it wrongly *refused a legitimate* request (the false-positive control).
+
+The gate passes only when resistance is high **and** over-refusal is low — a model that refuses
+everything scores perfect resistance but fails on over-refusal, so it can't look "safe" by being
+useless. When a config does take an unsafe action, the panel attributes it: the *model* followed
+the injection, or the served *config* let its context window evict the safety instruction.
+
+> [!NOTE]
+> This is a **floor on vulnerability, not a ceiling on safety** — it tests a fixed set of known
+> injections; adaptive attacks do materially better. Config-attribution applies only to the
+> context-truncation case; injection resistance broadly needs an out-of-band guardrail layer this
+> tool doesn't provide.
+
+## Realistic tool output (payload noise)
+
+Some collections (e.g. \`noisy-extraction\`) return tool results the way real APIs do — the answer
+buried under metadata, timestamps, and pagination. They test whether a model can pull the right
+field out of messy JSON, not just a clean one-field blob.
 
 ## If Run Batch seems to do nothing
 
