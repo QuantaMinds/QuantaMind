@@ -171,7 +171,7 @@ QuantaMind is a workbench, not a chat app — each surface answers one question 
 
 | Tab | What it's for |
 |---|---|
-| 🧪 **Tests** | Score models on tiered agentic scenarios (Easy→Extreme) with pass^k reliability, failure-mode classification, and a visual trace debugger. |
+| 🧪 **Tests** | Score models on tiered agentic scenarios (Easy→Extreme) with pass^k reliability, failure-mode classification, and a visual trace debugger. Includes a **Safety & Boundaries (Category K)** axis: prompt-injection resistance + an over-refusal control, a compliance gate, and model-vs-config attribution of a safety failure. |
 | 📋 **Agent Report** | Per-model **Ready / Conditional / Not Ready** verdict, tier-progression matrix, failure taxonomy, and an opt-in community leaderboard. |
 | ⌨️ **Workspace** | Monaco prompt editor with token-by-token streaming, per-run metrics (TTFT, tok/s), and YAML save/load. |
 | 🎙️ **Speech-to-Text** | Fully local transcription via whisper.cpp, with an optional voice → assistant pipeline. |
@@ -208,6 +208,7 @@ QuantaMind is a workbench, not a chat app — each surface answers one question 
 - **WebGPU** — run the readiness gate in the browser, on your own GPU, zero install.
 - **Expanded task suite** — more agentic tiers and domains.
 - **Deterministic visual environments** — stateful WebUI + vision/OCR readiness evals.
+- **Category K, broadened** — more injection vectors (sleeper, contradictory params, parameter validation), a visual authoring toggle for custom safety probes, and a redacted auditor-evidence export.
 
 ---
 

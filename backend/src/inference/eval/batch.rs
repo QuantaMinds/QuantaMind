@@ -4,10 +4,11 @@ use crate::inference::backend::endpoint;
 use crate::inference::eval::agentic::build::sandbox_for;
 use crate::inference::eval::agentic::model_turn::ModelTurn;
 use crate::inference::eval::agentic::sandbox::DeterministicSandbox;
+use crate::inference::eval::agentic::scoring::boundary::BoundaryReport;
 use crate::inference::eval::agentic::scoring::report::{AgenticReport, FailureTracker, TopError};
 use crate::inference::eval::agentic::runner::{run_agentic_with, AgenticConfig};
 use crate::inference::eval::agentic::difficulty::passk::ThinkPreset;
-use crate::inference::eval::agentic::spec::Tier;
+use crate::inference::eval::agentic::spec::{AttackVector, SafetyArm, Tier};
 use crate::inference::eval::agentic::step::TrajectoryStep;
 use crate::inference::eval::agentic::v2::generator;
 use crate::inference::eval::toolcall::eval::{aggregate, trace_one_with, TaskResult, ToolCallReport, TraceResult};
@@ -181,6 +182,12 @@ pub struct AggAgentic {
     /// never read as model incapability — only a native-path schema rejection does.
     #[serde(default)]
     pub native_error_class: NativeErrorClass,
+    /// Category K: the safety/boundary aggregate over this path's Category-K tasks, when the
+    /// collection carries any. `None` for a capability-only collection — never a fabricated 0.
+    /// Kept OUT of `pass_k`/composite so the two metrics are never blended; sitting on the
+    /// per-path aggregate keeps prompt-vs-native structurally separate.
+    #[serde(default)]
+    pub boundary: Option<BoundaryReport>,
 }
 
 /// Why a native-FC task produced no scored result (every run errored). Kept distinct from
@@ -328,7 +335,7 @@ pub fn batch_summaries(report: &BatchReport, ts: &str) -> Vec<RunSummary> {
         .collect()
 }
 
-fn agg_agentic(reports: &[AgenticReport]) -> AggAgentic {
+fn agg_agentic(reports: &[AgenticReport], native_fc: bool) -> AggAgentic {
     let mut failures = FailureTracker::default();
     for r in reports {
         failures.merge(&r.failures); // centralized — never drops a field (e.g. unknown/forbidden)
@@ -377,12 +384,33 @@ fn agg_agentic(reports: &[AgenticReport]) -> AggAgentic {
         by_tier,
         tasks_errored: 0,
         native_error_class: NativeErrorClass::None,
+        // Category K: fold the safety-probe subset into the per-path boundary aggregate
+        // (None when the collection carries no Category-K tasks). `native_fc` keeps the
+        // prompt and native aggregates un-blendable downstream.
+        boundary: BoundaryReport::from_reports(reports, native_fc),
     }
 }
 
 /// The difficulty tier a task declares (Easy for a single-turn or pre-Phase-9 task).
 fn task_tier(task: &ToolTask) -> Tier {
     task.agentic.as_ref().map(|a| a.tier).unwrap_or_default()
+}
+
+/// The Category-K safety classification a task declares (arm + vector), or `None` for a
+/// capability task.
+fn task_safety(task: &ToolTask) -> Option<(SafetyArm, AttackVector)> {
+    task.agentic.as_ref().and_then(|a| a.safety.as_ref()).map(|s| (s.arm, s.attack))
+}
+
+/// Stamp the per-task metadata `agg_agentic` reads off each report: the difficulty tier
+/// (always) and the safety classification (Category-K tasks only). Centralized so both
+/// the prompt and native-FC paths stamp identically.
+fn stamp_task_meta(report: AgenticReport, task: &ToolTask) -> AgenticReport {
+    let report = report.with_tier(task_tier(task));
+    match task_safety(task) {
+        Some((arm, attack)) => report.with_safety(arm, attack),
+        None => report,
+    }
 }
 
 /// Run one agentic task, forwarding its live `TrajectoryStep`s to the sink as
@@ -405,7 +433,7 @@ async fn run_one_agentic<M: ModelTurn + Send + Sync>(
     let result = run_agentic_for(turn, task, model, &sandbox, cfg, cancel, &tx).await;
     drop(tx);
     let _ = pump.await;
-    result.map(|r| r.with_tier(task_tier(task)))
+    result.map(|r| stamp_task_meta(r, task))
 }
 
 /// Drive Pass^k for a task: a `generated` task builds a FRESH procedural instance
@@ -557,7 +585,7 @@ where
         }
 
         let toolcall = (!single_results.is_empty()).then(|| aggregate(&single_tasks, single_results));
-        let agentic = (!agentic_reports.is_empty()).then(|| agg_agentic(&agentic_reports));
+        let agentic = (!agentic_reports.is_empty()).then(|| agg_agentic(&agentic_reports, false));
         columns.push(BatchColumn {
             model: target.model.clone(),
             backend: target.backend,
@@ -612,8 +640,8 @@ pub fn fold_report(
                 model: target.model.clone(),
                 backend: target.backend,
                 toolcall: (!single_results.is_empty()).then(|| aggregate(&single_tasks, single_results)),
-                agentic: (!agentic_reports.is_empty()).then(|| agg_agentic(&agentic_reports)),
-                agentic_native_fc: (!native_reports.is_empty()).then(|| agg_agentic(&native_reports)),
+                agentic: (!agentic_reports.is_empty()).then(|| agg_agentic(&agentic_reports, false)),
+                agentic_native_fc: (!native_reports.is_empty()).then(|| agg_agentic(&native_reports, true)),
                 error: col_error,
                 is_thinking: target.is_thinking,
                 cpu_offloaded: false, // stamped by the command layer
@@ -719,7 +747,7 @@ where
             let _ = pump.await;
             match result {
                 Ok(report) => {
-                    let report = report.with_tier(task_tier(task));
+                    let report = stamp_task_meta(report, task);
                     let outcome = TaskOutcome::Agentic { report: report.clone() };
                     record(&CompletedUnit {
                         model: col.model.clone(),
@@ -753,7 +781,7 @@ where
         // is empty-safe (total_runs 0), and `inputs.rs` filters native on `total_runs > 0`,
         // so an all-errored column never pollutes the verdict — it's pure visibility.
         if !reports.is_empty() || errored > 0 {
-            let mut agg = agg_agentic(&reports);
+            let mut agg = agg_agentic(&reports, true);
             agg.tasks_errored = errored;
             agg.native_error_class = error_class;
             col.agentic_native_fc = Some(agg);

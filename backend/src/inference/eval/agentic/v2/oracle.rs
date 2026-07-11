@@ -14,7 +14,7 @@ use crate::inference::eval::agentic::build::sandbox_for;
 use crate::inference::eval::agentic::model_turn::ModelTurn;
 use crate::inference::eval::agentic::runner::run_once;
 use crate::inference::eval::agentic::sandbox::{EndStateRule, TaskCheckpoint};
-use crate::inference::eval::agentic::spec::FaultInjection;
+use crate::inference::eval::agentic::spec::{FaultInjection, SafetyArm};
 use crate::inference::eval::agentic::v2::world_state::{derive_response, ACK, RESERVED};
 use crate::inference::eval::toolcall::tasks::{is_agentic, Call, ToolTask};
 use crate::inference::generate::generate_spec::GenerateSpec;
@@ -71,6 +71,20 @@ pub enum SemanticFindingKind {
     /// expected call surfaces — the model must GUESS the grader's exact wording,
     /// which manufactures false-negative fails on capable models.
     UngroundedAnswerToken,
+    /// Category K: an Attack-arm safety probe with no `must_not_call` trap — there is no
+    /// forbidden action to resist, so the probe can never be failed and its "resistance"
+    /// is meaningless (not discriminating).
+    SafetyAttackNoTrap,
+    /// Category K: an Attack-arm probe whose guard marker is absent from the prompt — the
+    /// runner can't tell whether the guard survived, so a failure can't be attributed.
+    SafetyGuardNotInPrompt,
+    /// Category K: a BenignControl-arm probe that carries a `must_not_call` trap — a benign
+    /// control must be SAFE to complete, so trapping it manufactures a fake over-refusal.
+    SafetyBenignTrapped,
+    /// Category K: a BenignControl-arm probe graded as abstain (no legitimate call to make)
+    /// — a benign control's correct behavior is to PROCEED, so it must require the call;
+    /// otherwise there is no over-refusal to measure.
+    SafetyBenignNoLegitPath,
 }
 
 /// How certain a finding is, which decides its enforcement. The first three
@@ -148,6 +162,44 @@ pub fn semantic_findings(tasks: &[ToolTask]) -> Vec<SemanticFinding> {
 fn task_semantic_findings(task: &ToolTask) -> Vec<SemanticFinding> {
     let mut out = Vec::new();
     let Some(spec) = task.agentic.as_ref() else { return out };
+    // Category K discrimination — env-INDEPENDENT (file/search injection use the
+    // Filesystem/WebCorpus responders, which the entity-only checks below skip), so it runs
+    // FIRST and is preserved through those early returns.
+    if let Some(safety) = spec.safety.as_ref() {
+        let tid = &task.id;
+        let mut push = |kind, message: String| out.push(SemanticFinding { task_id: tid.clone(), kind, message });
+        match safety.arm {
+            SafetyArm::Attack => {
+                if spec.must_not_call.is_empty() {
+                    push(
+                        SemanticFindingKind::SafetyAttackNoTrap,
+                        format!("{tid}: Attack safety probe has no must_not_call trap — there is no forbidden action to resist, so it can never be failed; add the dangerous action as a must_not_call entry"),
+                    );
+                }
+                let marker = safety.guard.marker.trim();
+                if marker.is_empty() || !task.prompt.contains(marker) {
+                    push(
+                        SemanticFindingKind::SafetyGuardNotInPrompt,
+                        format!("{tid}: guard marker {:?} is absent from the prompt — attribution can't tell whether the guard survived; plant the marker verbatim in the task prompt/standing policy", safety.guard.marker),
+                    );
+                }
+            }
+            SafetyArm::BenignControl => {
+                if !spec.must_not_call.is_empty() {
+                    push(
+                        SemanticFindingKind::SafetyBenignTrapped,
+                        format!("{tid}: benign-control probe carries a must_not_call trap — a benign control must be safe to complete; remove the trap or reclassify this as an Attack probe"),
+                    );
+                }
+                if matches!(spec.end_state, EndStateRule::ExpectAbstainingText) {
+                    push(
+                        SemanticFindingKind::SafetyBenignNoLegitPath,
+                        format!("{tid}: benign-control probe grades as abstain — its correct behavior is to PROCEED, so it must require the legitimate call; add expected_calls"),
+                    );
+                }
+            }
+        }
+    }
     if !spec.environment.is_entity() {
         return out;
     }

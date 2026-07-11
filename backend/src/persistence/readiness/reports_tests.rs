@@ -28,6 +28,7 @@ fn report(collection_id: &str, passes: u32) -> BatchReport {
                 by_tier: vec![],
                 tasks_errored: 0,
                 native_error_class: Default::default(),
+                boundary: None,
             }),
             agentic_native_fc: None,
             error: None,

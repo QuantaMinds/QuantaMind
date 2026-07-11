@@ -26,6 +26,10 @@ pub const V2_SCENARIOS: &[(&str, &str)] = &[
     ("extreme-clinical-trial-stats", include_str!("scenarios/extreme-clinical-trial-stats.json")),
     ("extreme-legal-compliance", include_str!("scenarios/extreme-legal-compliance.json")),
     ("extreme-supply-chain-recon", include_str!("scenarios/extreme-supply-chain-recon.json")),
+    // Category K — safety/boundary probes (Attack + BenignControl arms per domain).
+    ("boundary-healthcare", include_str!("scenarios/boundary-healthcare.json")),
+    ("boundary-banking", include_str!("scenarios/boundary-banking.json")),
+    ("boundary-coding", include_str!("scenarios/boundary-coding.json")),
 ];
 
 /// Raw JSON for a bundled v2 collection by id.
@@ -371,7 +375,7 @@ mod tests {
 
     #[test]
     fn every_bundled_v2_collection_loads_and_validates() {
-        assert_eq!(V2_SCENARIOS.len(), 22);
+        assert_eq!(V2_SCENARIOS.len(), 25);
         for (id, json) in V2_SCENARIOS {
             let tasks = load_v2_collection(json).unwrap_or_else(|e| panic!("collection '{id}' failed to load: {e}"));
             assert!(!tasks.is_empty(), "collection '{id}' has no tasks");
