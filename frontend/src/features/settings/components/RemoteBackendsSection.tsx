@@ -10,6 +10,34 @@ import { useRemoteEndpointsStore } from "../../workspace/state/remoteEndpointsSt
 
 type SaveState = "idle" | "saving" | "saved" | "error";
 
+/// True when a key is set on a URL that isn't https or loopback — the backend WITHHOLDS the
+/// key over plain http (rule 7d, never transmits a credential unencrypted), so we warn the
+/// user their key won't be used. Mirrors the backend `credential_allowed` guard. Fail-closed
+/// on an unparseable URL (flag it).
+function keyWithheldInsecure(url: string | null | undefined, key: string | null | undefined): boolean {
+  if (!key) return false;
+  try {
+    const u = new URL((url ?? "").trim());
+    if (u.protocol === "https:") return false;
+    const h = u.hostname.replace(/^\[|\]$/g, "");
+    return !(h === "localhost" || h === "::1" || /^127\./.test(h));
+  } catch {
+    return true;
+  }
+}
+
+/// Honest security note: we DON'T leak the key over http (we withhold it) — but that means it
+/// won't authenticate either. Pre-empts the "you're sending keys in cleartext" reaction.
+function InsecureKeyNote() {
+  return (
+    <p data-testid="insecure-key-note" className="text-xs text-amber-600">
+      Your API key won't be sent over plain http — credentials are never transmitted over an
+      unencrypted connection. Use an <code>https://</code> URL (or a loopback address for local
+      testing) so the key is actually used.
+    </p>
+  );
+}
+
 /// Configure the remote vLLM / SGLang endpoints. These backends run on a remote
 /// GPU (not app-managed), so the app just points its HTTP client at the URL you
 /// enter here; the optional API key is sent as `Authorization: Bearer` (set it
@@ -104,6 +132,7 @@ export function RemoteBackendsSection() {
           password: true,
           placeholder: "optional",
         })}
+        {keyWithheldInsecure(settings.vllm_url, settings.vllm_api_key) && <InsecureKeyNote />}
       </div>
 
       <div className="space-y-2">
@@ -115,6 +144,7 @@ export function RemoteBackendsSection() {
           password: true,
           placeholder: "optional",
         })}
+        {keyWithheldInsecure(settings.sglang_url, settings.sglang_api_key) && <InsecureKeyNote />}
       </div>
 
       <div className="flex items-center gap-3">

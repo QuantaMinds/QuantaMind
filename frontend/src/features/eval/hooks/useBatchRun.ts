@@ -12,7 +12,8 @@ import {
   type ThinkPreset,
 } from "../../../shared/ipc/eval/batch";
 import { formatIpcError } from "../../../shared/ipc/core/error";
-import { healthFor } from "../../../shared/ipc/core/client";
+import { healthFor, credentialFor } from "../../../shared/ipc/core/client";
+import { remoteCredentialMessage } from "../remoteCredential";
 import type { ModelTarget } from "../../../shared/ipc/eval/matrix";
 import type { ToolTask } from "../../../shared/ipc/eval/registry";
 import type { Tier } from "../../../shared/ipc/eval/readiness";
@@ -97,6 +98,23 @@ export function useBatchRun() {
       // even before the 5s poll first ticks.
       const backends = Array.from(new Set(targets.map((t) => t.backend)));
       for (const backend of backends) {
+        // Remote (vLLM/SGLang): resolve+validate the CREDENTIAL up front, so a bad/expired key
+        // fails fast here with the right message (a 401 ≠ "unreachable"), not a mid-run 401.
+        if (backend === "vllm" || backend === "sglang") {
+          let msg: string | null;
+          try {
+            msg = remoteCredentialMessage(backend, await credentialFor(backend));
+          } catch {
+            const label = backend === "sglang" ? "SGLang" : "vLLM";
+            msg = `Couldn't validate the ${label} endpoint — check it in Settings, then re-run.`;
+          }
+          if (msg) {
+            useBatchStore.getState().setError(msg);
+            return;
+          }
+          continue;
+        }
+        // Local backends: a reachability probe is enough (no credential).
         let available = false;
         try {
           available = (await healthFor(backend)).available;
