@@ -7,7 +7,7 @@ import { toScoreRows } from "./scoreRows";
 import { InfoButton } from "../../../../shared/ui/InfoButton";
 import { Tooltip } from "../../../../shared/ui/Tooltip";
 import { TOOL_HELP, metricTitle } from "../../help";
-import { BoundaryPanel } from "../../../agentReport/components/BoundaryPanel";
+import { BoundaryPanel } from "./BoundaryPanel";
 import type { FailureTracker } from "../../../../shared/ipc/eval/batch";
 
 /// A sensible top-of-ladder default for the probe pre-fill — the Audit panel clamps
