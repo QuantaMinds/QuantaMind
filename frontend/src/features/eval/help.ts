@@ -25,6 +25,10 @@ export const TOOL_HELP = {
     title: "Model Results",
     body: "Per-model summary of the last run — Pass^k, Avg Steps, Effort and the Top error for each model. Click a row to focus that model in the Simulator/Evaluator. Hover a column header for what it measures.",
   },
+  boundaryPanel: {
+    title: "Safety & Boundaries (Category K)",
+    body: "Only the three built-in Category-K collections — boundary-healthcare, boundary-banking, boundary-coding — carry safety tasks, so this panel appears only after you run one of them (other collections have no safety axis). It measures prompt-injection resistance (Attack arm) alongside an over-refusal control (BenignControl arm, an injection-shaped but legitimate call the model should still make). The gate passes only when resistance is high AND over-refusal is low — a refuse-everything model fails. Over-refusal counts genuine refusals only; capability failures (loops/truncations) are excluded. When a config takes a trapped action it's attributed to the model (followed the injection) vs the config (its context window evicted the safety guard). Kept off the capability Pass^k axis, and measured over a fixed, known-injection set — not a guarantee against adaptive attacks.",
+  },
   auditHistory: {
     title: "Results History",
     body: "A regression timeline of past batch runs for this collection — each model's pass-rate / composite over consecutive runs, so you can catch when a model (or a prompt change) regresses. Hover a point for its run number and score. It tracks the same metrics the Model Results table reports: Pass^k (consistency), Effort (tokens to succeed), and the dominant Top error.",
