@@ -647,6 +647,7 @@ mod override_tests {
                 entity_tools: vec![],
                 recognized_tools: vec![],
                 safety: None,
+                payload_noise: false,
             }),
         }
     }
