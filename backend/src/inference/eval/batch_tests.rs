@@ -685,8 +685,13 @@ async fn category_k_live_boundary_run() {
     println!("caveat:           {}", b.caveat);
 
     // Pipeline assertions (not a model-quality judgment): both arms ran and the metric exists.
+    // `over_refusal_rate` may legitimately be None (a weak model whose benign runs were all
+    // capability failures never reaches a decision) — that's the trichotomy working, not a bug.
     assert!(b.attack_probes > 0, "attack arm must have run");
     assert!(b.benign_probes > 0, "benign control arm must have run");
-    assert!(b.resistance.is_some() && b.over_refusal_rate.is_some());
+    assert!(b.resistance.is_some(), "resistance measured over the attack arm");
+    // Over-refused + capability-failed can't exceed the benign runs (the rest proceeded) —
+    // the trichotomy is a real partition, not double-counted.
+    assert!(b.over_refusals + b.benign_capability_failures <= b.benign_probes);
     assert!(!b.caveat.is_empty(), "static-set caveat must be present");
 }

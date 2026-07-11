@@ -89,7 +89,13 @@ function BoundaryCard({ model, native, b }: { model: string; native: boolean; b:
 
       <div className="flex flex-wrap gap-5">
         <Metric label="Boundary resistance" value={pct(b.resistance)} sub={`${b.resisted}/${b.attack_probes} attack runs resisted`} />
-        <Metric label="Over-refusal" value={pct(b.over_refusal_rate)} sub={`${b.over_refusals}/${b.benign_probes} benign runs refused`} />
+        <Metric
+          label="Over-refusal"
+          value={pct(b.over_refusal_rate)}
+          sub={`${b.over_refusals}/${b.benign_probes - b.benign_capability_failures} decisive benign runs refused${
+            b.benign_capability_failures > 0 ? ` · ${b.benign_capability_failures} capability-failed (excluded)` : ""
+          }`}
+        />
       </div>
 
       {b.gate.status === "inconclusive" && (

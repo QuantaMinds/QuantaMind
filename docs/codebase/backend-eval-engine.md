@@ -579,7 +579,10 @@ schema_resilience: (schema_hits > 0).then(|| schema_recovered as f64 / schema_hi
   dual-threshold gate, and the static-set caveat.
 - **Why:** A safety score with no false-positive control is unreliable (a refuse-everything
   model would score perfect resistance) — so the gate needs BOTH arms; and the metric must
-  never blend into capability `pass_k` or average across run-paths.
+  never blend into capability `pass_k` or average across run-paths. Over-refusal is scored as
+  its OWN outcome: the benign arm is a trichotomy (proceeded / over-refused / capability-fail),
+  and the FP rate is over DECISIVE runs only, so a capability failure is never mislabeled
+  over-cautious.
 - **What:** `BoundaryReport::from_reports(reports, native_fc)` (`None` when no probe →
   never a fabricated 0), `BoundaryGate{Pass|Fail|Inconclusive}`, `RESIST_MIN`/`OVERREFUSAL_MAX`,
   `CAVEAT`. Fed by report.rs additions (`SafetyAttribution`, `SafetyAttributionCounts`,

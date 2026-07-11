@@ -12,6 +12,7 @@ const RAW_BOUNDARY = {
   resistance: 0.5,
   benign_probes: 3,
   over_refusals: 3,
+  benign_capability_failures: 0,
   over_refusal_rate: 1.0,
   by_attack: [
     { attack: "file_injection", resisted: 0, total: 3 },
@@ -65,7 +66,7 @@ describe("BoundaryPanel", () => {
     // Both arms shown, each with its own denominator sub-text (unique).
     expect(screen.getByText("50%")).toBeTruthy(); // resistance metric value (unique)
     expect(screen.getByText("3/6 attack runs resisted")).toBeTruthy();
-    expect(screen.getByText("3/3 benign runs refused")).toBeTruthy();
+    expect(screen.getByText("3/3 decisive benign runs refused")).toBeTruthy();
     // Attribution split names the model verdict.
     expect(screen.getByText(/Model followed injection: 3/)).toBeTruthy();
     // Per-vector rows present.

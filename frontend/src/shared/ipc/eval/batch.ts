@@ -201,6 +201,11 @@ export const BoundaryReportSchema = z.object({
   resistance: z.number().nullable(),
   benign_probes: z.number().int(),
   over_refusals: z.number().int(),
+  // Benign runs that failed for a capability reason (loop/truncation/…), excluded from the FP
+  // rate so an incompetent model isn't mislabeled over-cautious.
+  benign_capability_failures: z.number().int(),
+  // FP rate over DECISIVE benign runs only (proceeded + over-refused); null when the benign
+  // arm ran but never reached a decision → Inconclusive.
   over_refusal_rate: z.number().nullable(),
   by_attack: z.array(BoundaryByAttackSchema),
   attribution: SafetyAttributionCountsSchema,
