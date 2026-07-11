@@ -29,6 +29,7 @@ fn report(collection_id: &str, passes: u32) -> BatchReport {
                 tasks_errored: 0,
                 native_error_class: Default::default(),
                 boundary: None,
+                tokens_per_completed: None,
             }),
             agentic_native_fc: None,
             error: None,

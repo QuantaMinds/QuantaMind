@@ -556,6 +556,7 @@ fn ollama_version_makes_a_native_garble_diagnosable_on_the_report() {
         tasks_errored: 0,
         native_error_class: Default::default(),
         boundary: None,
+        tokens_per_completed: None,
     };
     let report = BatchReport {
         collection_id: "c".into(),
