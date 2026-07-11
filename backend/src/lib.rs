@@ -107,6 +107,8 @@ pub fn run() {
             commands::llama::llama_runtime::check_llama_health,
             commands::remote::remote_health::check_vllm_health,
             commands::remote::remote_health::check_sglang_health,
+            commands::remote::remote_health::check_vllm_credential,
+            commands::remote::remote_health::check_sglang_credential,
             commands::remote::remote_models::list_vllm_models,
             commands::remote::remote_models::list_sglang_models,
             commands::mlx::mlx_models::list_mlx_models,
