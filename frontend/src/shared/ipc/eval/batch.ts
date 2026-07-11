@@ -242,6 +242,9 @@ export const AgenticReportSchema = z.object({
   // terminuses, and its safety classification. Both absent on a capability task.
   safety_attribution: SafetyAttributionCountsSchema.optional(),
   safety: ReportSafetySchema.nullish(),
+  // T* numerator: total generated tokens over ALL runs (pass + fail). Optional (serde
+  // default) so older reports parse.
+  output_tokens_total: z.number().int().optional(),
 });
 export type AgenticReport = z.infer<typeof AgenticReportSchema>;
 
@@ -293,6 +296,9 @@ export const AggAgenticSchema = z.object({
   // Category K: the safety/boundary aggregate for this run-path, when the collection carries
   // Category-K tasks. Nullish → a capability-only run parses with no boundary metric.
   boundary: BoundaryReportSchema.nullish(),
+  // T*: tokens-per-completed-task (total tokens / completions, run-weighted). Nullish →
+  // null when nothing completed, absent on older reports.
+  tokens_per_completed: z.number().nullish(),
 });
 export type AggAgentic = z.infer<typeof AggAgenticSchema>;
 
