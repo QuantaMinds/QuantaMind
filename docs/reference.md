@@ -709,6 +709,15 @@ Error), with a click-through Trace Debugger. See [the workspace](#eval-runner).
   - **`decoy_tools`** authored per task (presented but never expected); **`faults`**
     keyed by tool name (`on_call`, trips on any args, transient `clears_after` is a
     global per-tool counter).
+  - **`payload_noise`** (per task, default false) — when set, the sandbox wraps each
+    `WorldState` getter blob in a deterministic messy envelope (`{"data":<blob>,"_meta":
+    {…request_id/timestamp/latency_ms…},"pagination":{…total…},"warnings":[]}`, `v2/noise.rs`),
+    so the model must extract the right field from realistic noisy JSON. The answer stays
+    nested under `data`; distractor numbers (`latency_ms`, `pagination.total`) are NOT the
+    answer. All fields are pure functions of the seeded `canonical(call)` (no wall
+    clock/RNG) so the temp-0 reproducibility contract holds; only real getter blobs are
+    wrapped (never an ack/not-found), and the oracle's grounding path stays clean. A
+    wrong-field extraction surfaces as the existing non-completion (no separate outcome).
   - **`tier`/`pass_k`** scale reliability — Easy 5 / Medium 8 / Hard 16 / Extreme 24
     (τ-bench: top models cluster at pass^1, spread at pass^8). `axes` document the
     tier (`min_required_steps`, decoys, hidden prereqs, conflicting constraints,
@@ -757,8 +766,18 @@ Error), with a click-through Trace Debugger. See [the workspace](#eval-runner).
   (on `BatchColumn` and the history `RunSummary`) marks this — effort must never be
   ranked across thinking/non-thinking models, the same rule already applied to
   prompt-path vs native-FC pass-rates.
-- **The Model Results columns.** Per model: **Pass^k · Avg Steps · Effort · Schema Resil.
-  · Context Limit · Top Error**. `Schema Resil.` is the Driver-D metric above;
+- **Tokens/Task (T\*) — the amortized cost.** Alongside Effort, `tokens_per_completed`
+  = total generated tokens over **every** run (pass AND fail) ÷ completions
+  (`output_tokens_total / passes`, run-weighted at the aggregate). Where Effort is the
+  best-case cost of the runs that succeeded, T\* charges the tokens **wasted on failed
+  runs** to the tasks that landed — the real enterprise cost of an unreliable model
+  ([Confident AI's "tokens per successful task"](https://www.confident-ai.com/blog/llm-agent-evaluation-complete-guide)).
+  So `T* ≥ Effort`, and the gap is the waste tax (live example: Effort 141 vs T\* 250 on a
+  qwen-7b run where a third of the attempts failed). Output tokens only (same basis as
+  Effort), `None`/"—" when nothing completed, per run-path, never ranked across
+  thinking/terse models.
+- **The Model Results columns.** Per model: **Pass^k · Avg Steps · Effort · Tokens/Task ·
+  Schema Resil. · Context Limit · Top Error**. `Schema Resil.` is the Driver-D metric above;
   `Context Limit` is the measured context limit from the Audit probe (real
   `prompt_eval_count` at the accuracy collapse), read from the backend per
   (collection, model); unmeasured cells show **"Run probe ↗"** which pre-fills the
