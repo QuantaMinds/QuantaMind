@@ -22,6 +22,7 @@ const COLUMN_HELP: Record<string, string | undefined> = {
   "Native FC": "Pass^k measured via the model's NATIVE tool_calls API (Ollama /api/chat), not the prompt-based proxy. N/A when not measured / unsupported.",
   "Avg Steps": metricTitle("avgSteps"),
   Effort: metricTitle("effort"),
+  "Tokens/Task": metricTitle("tokensPerTask"),
   "Schema Resil.": metricTitle("schemaResil"),
   "Context Limit": metricTitle("cliffDepth"),
   "Top Error": metricTitle("topError"),
@@ -245,6 +246,7 @@ export function PerformanceMatrix({
     "Pass^k",
     "Steps",
     "Effort",
+    "Tokens/Task",
     "Schema Resil.",
     "Context Limit",
     "Top Error",
@@ -318,6 +320,7 @@ export function PerformanceMatrix({
                         passK: r.passKNative,
                         steps: r.avgStepsNative,
                         effort: r.effortNative,
+                        tokensPerTask: r.tokensPerTaskNative,
                         schemaResil: r.schemaResilNative,
                         topError: r.topErrorNative,
                         failures: r.failuresNative,
@@ -332,6 +335,7 @@ export function PerformanceMatrix({
                         passK: r.passK,
                         steps: r.avgSteps,
                         effort: r.effort,
+                        tokensPerTask: r.tokensPerTask,
                         schemaResil: r.schemaResil,
                         topError: r.topError,
                         failures: r.failures,
@@ -384,6 +388,7 @@ export function PerformanceMatrix({
                       {p.steps}
                     </td>
                     <td style={{ ...td, color: p.effort === "—" || p.effort === "N/A" ? "#94a3b8" : "#334155", fontFamily: p.effort !== "—" && p.effort !== "N/A" ? "'JetBrains Mono', monospace" : "inherit", fontSize: 12 }}>{p.effort}</td>
+                    <td style={{ ...td, color: p.tokensPerTask === "—" || p.tokensPerTask === "N/A" ? "#94a3b8" : "#334155", fontFamily: p.tokensPerTask !== "—" && p.tokensPerTask !== "N/A" ? "'JetBrains Mono', monospace" : "inherit", fontSize: 12 }}>{p.tokensPerTask}</td>
                     <td style={td}>{getSchemaResilBadge(p.schemaResil)}</td>
                     {first && (
                     <td rowSpan={span} style={td}>

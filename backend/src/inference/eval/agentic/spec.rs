@@ -215,6 +215,12 @@ pub struct AgenticSpec {
     /// byte-identically (same back-compat contract as `axes`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub safety: Option<SafetySpec>,
+    /// When set, the sandbox wraps world_state getter blobs in a deterministic messy
+    /// envelope (nested `data` + synthetic metadata/timestamps/pagination) so the model must
+    /// extract the right field from noisy real-world JSON. `false` (omitted) on every task
+    /// today — same back-compat contract as `axes`.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub payload_noise: bool,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -266,6 +272,7 @@ mod tests {
             entity_tools: vec![],
             recognized_tools: vec![],
             safety: None,
+            payload_noise: false,
         };
         let v = serde_json::to_value(&spec).unwrap();
         assert!(v.get("tier").is_none()); // Easy is the default → omitted
@@ -276,6 +283,7 @@ mod tests {
         assert!(v.get("entity_tools").is_none()); // empty → omitted
         assert!(v.get("environment").is_none()); // Entity is the default → omitted
         assert!(v.get("safety").is_none()); // Category K: absent on a capability task → omitted
+        assert!(v.get("payload_noise").is_none()); // false (default) → omitted
     }
 
     #[test]

@@ -108,6 +108,10 @@ pub struct DeterministicSandbox {
     /// vs the config's window evicted the guard). `None` on every non-safety sandbox and
     /// on a benign-control probe (which has no trap to attribute).
     pub safety_guard: Option<String>,
+    /// When true, WorldState getter blobs are wrapped in a deterministic messy envelope
+    /// (nested `data` + synthetic metadata) so the model must extract the right field from
+    /// noise. `false` on every non-noise sandbox (byte-identical to before).
+    pub payload_noise: bool,
 }
 
 impl DeterministicSandbox {
@@ -129,6 +133,7 @@ impl DeterministicSandbox {
             entity_tools: std::collections::HashSet::new(),
             recognized_tools: std::collections::HashSet::new(),
             safety_guard: None,
+            payload_noise: false,
         }
     }
 
@@ -136,6 +141,13 @@ impl DeterministicSandbox {
     /// Its presence makes a forbidden-call terminus attributable (model vs config).
     pub fn with_safety_guard(mut self, marker: impl Into<String>) -> Self {
         self.safety_guard = Some(marker.into());
+        self
+    }
+
+    /// Enable payload noise: WorldState getter blobs are wrapped in a deterministic messy
+    /// envelope so the model must extract the right field from noise.
+    pub fn with_payload_noise(mut self, on: bool) -> Self {
+        self.payload_noise = on;
         self
     }
 
@@ -223,6 +235,12 @@ impl DeterministicSandbox {
                     // The empty-set legacy arm keeps the v1 ack byte-identical.
                     if r == r#"{"ok":true}"# && !self.entity_tools.is_empty() {
                         return Some(r#"{"error":"not found"}"#.to_string());
+                    }
+                    // Payload noise wraps ONLY real entity blobs (never an ack or an error) so
+                    // the model must dig the field out of realistic messy JSON.
+                    if self.payload_noise && r != r#"{"ok":true}"# && !r.starts_with(r#"{"error""#) {
+                        let seed = crate::inference::eval::agentic::v2::noise::seed_from(&canonical(call));
+                        return Some(crate::inference::eval::agentic::v2::noise::wrap(&r, seed));
                     }
                     Some(r)
                 } else if self.recognized_tools.is_empty() || self.recognized_tools.contains(&call.name) {
@@ -457,6 +475,33 @@ mod tests {
         .with_world_state(json!({ "D-1": { "kind": "major" } }))
         .with_entity_tools(["get_dep".to_string()]); // non-empty getters, empty recognized set
         assert_eq!(sb.respond(&call("anything", json!({ "dep": "D-1" }))).as_deref(), Some(r#"{"ok":true}"#));
+    }
+
+    #[test]
+    fn payload_noise_wraps_getter_blobs_but_not_acks_and_is_off_by_default() {
+        let base = DeterministicSandbox::new(
+            "p".into(),
+            vec![],
+            vec![],
+            EndStateRule::RequireAll(vec![TaskCheckpoint { tool: "act".into(), args: json!({}) }]),
+        )
+        .with_world_state(json!({ "A-1": { "balance": 450 } }))
+        .with_entity_tools(["get".to_string()])
+        .with_recognized_tools(["get".to_string(), "act".to_string()]);
+
+        // Off by default → byte-identical to the raw blob (back-compat).
+        let plain = base.respond(&call("get", json!({ "id": "A-1" })));
+        assert_eq!(plain.as_deref(), Some(r#"{"balance":450}"#));
+
+        // On → the blob is nested under `data` amid distractor metadata; the answer survives.
+        let noisy = base.with_payload_noise(true);
+        let got = noisy.respond(&call("get", json!({ "id": "A-1" }))).unwrap();
+        assert!(got.contains(r#""data":{"balance":450}"#), "blob nested under data: {got}");
+        assert!(got.contains("pagination"), "distractor metadata present");
+        // An ACTION ack is NEVER wrapped (only real getter blobs are).
+        assert_eq!(noisy.respond(&call("act", json!({}))).as_deref(), Some(r#"{"ok":true}"#));
+        // A miss (unresolved getter) stays the honest not-found error, not wrapped.
+        assert_eq!(noisy.respond(&call("get", json!({ "id": "NOPE" }))).as_deref(), Some(r#"{"error":"not found"}"#));
     }
 
     #[test]

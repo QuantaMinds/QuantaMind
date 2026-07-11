@@ -107,6 +107,11 @@ pub fn sandbox_for(task: &ToolTask) -> AppResult<(DeterministicSandbox, AgenticC
             sandbox = sandbox.with_safety_guard(safety.guard.marker.clone());
         }
     }
+    // Payload noise: wrap world_state getter blobs in messy JSON so the model must extract
+    // the right field from noise.
+    if spec.payload_noise {
+        sandbox = sandbox.with_payload_noise(true);
+    }
     // v2: name-keyed faults (on_call trips on any call to that tool).
     if !spec.name_faults.is_empty() {
         let nf: std::collections::HashMap<String, crate::inference::eval::agentic::spec::FaultInjection> =
@@ -173,6 +178,7 @@ mod tests {
                 entity_tools: vec![],
                 recognized_tools: vec![],
                 safety: None,
+                payload_noise: false,
             }),
         }
     }

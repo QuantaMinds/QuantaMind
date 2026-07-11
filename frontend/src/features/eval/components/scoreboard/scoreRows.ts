@@ -43,6 +43,9 @@ export interface ScoreRow {
   /// to the native Pass^k so the two passes' step costs are comparable, not conflated.
   avgStepsNative: string;
   effort: string;
+  /// T* — total generated tokens ÷ completed tasks (amortized cost incl. failed-run waste).
+  /// "—" when nothing completed. Distinct from `effort` (successes-only average).
+  tokensPerTask: string;
   schemaResil: string;
   topError: string;
   /// `true` when the NATIVE (Tool-Calling) pass was measured for this model — the matrix renders
@@ -53,6 +56,7 @@ export interface ScoreRow {
   hasPrompt: boolean;
   /// Native-pass counterparts, used for the Tool-Calling row. `null`/N-A when native wasn't run.
   effortNative: string;
+  tokensPerTaskNative: string;
   schemaResilNative: string;
   topErrorNative: string;
   failuresNative: FailureTracker | null;
@@ -104,6 +108,7 @@ export function toScoreRows(report: BatchReport | null, models: InstalledModelIn
       avgSteps: ag ? fmtNum(ag.avg_steps) : "—",
       avgStepsNative: c.error ? "Error" : nat ? fmtNum(nat.avg_steps) : "N/A",
       effort: ag ? fmtTokens(ag.avg_output_tokens_success) : "—",
+      tokensPerTask: ag ? fmtTokens(ag.tokens_per_completed ?? null) : "—",
       // Schema resilience is agentic-only; null (no run hit a schema error) → "—".
       schemaResil: ag ? fmtPct(ag.schema_resilience) : "—",
       topError: c.error ? "Error" : ag ? TOP_ERROR_LABEL[ag.top_error] : "—",
@@ -111,6 +116,7 @@ export function toScoreRows(report: BatchReport | null, models: InstalledModelIn
       hasNative: nat != null,
       hasPrompt: ag != null || c.toolcall != null || c.error != null,
       effortNative: nat ? fmtTokens(nat.avg_output_tokens_success) : "N/A",
+      tokensPerTaskNative: nat ? fmtTokens(nat.tokens_per_completed ?? null) : "N/A",
       schemaResilNative: nat ? fmtPct(nat.schema_resilience) : "—",
       topErrorNative: c.error ? "Error" : nativeAllErrored ? NATIVE_ERROR_LABEL[nat!.native_error_class ?? "none"] : nat ? TOP_ERROR_LABEL[nat.top_error] : "—",
       failuresNative: nat?.failures ?? null,

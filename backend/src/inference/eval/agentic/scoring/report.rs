@@ -382,6 +382,13 @@ pub struct AgenticReport {
     /// batch layer. `None` on a capability task. `#[serde(default)]` so older reports load.
     #[serde(default)]
     pub safety: Option<ReportSafety>,
+    /// Total generated tokens summed over ALL runs of this task (pass AND fail) — the
+    /// numerator of the tokens-per-completed-task cost metric. Distinct from
+    /// `avg_output_tokens_success`, which averages over successful runs only. Output tokens
+    /// only (same `eval_count` basis as `output_tokens`). `#[serde(default)]` so older
+    /// reports load as 0.
+    #[serde(default)]
+    pub output_tokens_total: u32,
 }
 
 impl AgenticReport {
@@ -414,6 +421,9 @@ impl AgenticReport {
                 }
             }
         }
+        // T* numerator: tokens spent on EVERY run, including the ones that failed — the
+        // "waste tax" a completed task actually cost.
+        let output_tokens_total: u32 = outcomes.iter().map(|o| o.output_tokens).sum();
         let steps: Vec<u32> = outcomes.iter().map(|o| o.steps).collect();
         // Surface the first non-standard dialect any run needed; `Standard` if all runs
         // spoke the instructed JSON. (A model is consistent in practice, so one flag is enough.)
@@ -435,7 +445,16 @@ impl AgenticReport {
             dialect,
             safety_attribution: attribution,
             safety: None, // stamped by the batch layer via with_safety (it holds the ToolTask)
+            output_tokens_total,
         }
+    }
+
+    /// Tokens-per-completed-task (T*): total generated tokens over ALL runs ÷ completed
+    /// runs — the amortized cost of one completion, charging the tokens wasted on failed
+    /// runs to the completions that landed. `None` when nothing completed (never a
+    /// fabricated 0/∞). Always `>= avg_output_tokens_success` (the gap is the waste tax).
+    pub fn tokens_per_completed(&self) -> Option<f64> {
+        (self.passes > 0).then(|| self.output_tokens_total as f64 / self.passes as f64)
     }
 
     /// Stamp the difficulty tier of the task this report scored (builder form, so
@@ -567,6 +586,32 @@ mod tests {
         assert_eq!(r.passes, 2);
         assert_eq!(r.total_runs, 3);
         assert_eq!(r.avg_output_tokens_success, Some(200.0)); // (300 + 100) / 2, NOT the 1500
+    }
+
+    #[test]
+    fn tokens_per_completed_charges_the_waste_tax_of_failed_runs() {
+        // Same shape: 300 + 100 on the two passes, 1500 burned on the failed run.
+        let outcomes = vec![
+            RunOutcome::success(2, 300),
+            RunOutcome::success(2, 100),
+            RunOutcome::failure(8, 1500, FailureKind::InfiniteLoop),
+        ];
+        let r = AgenticReport::from_outcomes(&outcomes);
+        // Effort excludes the 1500 (successes only): (300+100)/2 = 200.
+        assert_eq!(r.avg_output_tokens_success, Some(200.0));
+        // T* INCLUDES it: total 1900 / 2 completions = 950 — the amortized cost.
+        assert_eq!(r.output_tokens_total, 1900);
+        assert_eq!(r.tokens_per_completed(), Some(950.0));
+        // The waste tax: T* > Effort whenever a run failed.
+        assert!(r.tokens_per_completed().unwrap() > r.avg_output_tokens_success.unwrap());
+    }
+
+    #[test]
+    fn tokens_per_completed_is_none_when_nothing_completed() {
+        let outcomes = vec![RunOutcome::failure(2, 50, FailureKind::InfiniteLoop)];
+        let r = AgenticReport::from_outcomes(&outcomes);
+        assert_eq!(r.output_tokens_total, 50); // tokens were still spent
+        assert_eq!(r.tokens_per_completed(), None); // ...but nothing completed → "—", never 0/∞
     }
 
     #[test]

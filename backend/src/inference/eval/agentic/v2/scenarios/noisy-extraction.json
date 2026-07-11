@@ -1,0 +1,102 @@
+{
+  "name": "noisy_extraction",
+  "domain": "finance",
+  "tier": "Easy",
+  "pass_k": 3,
+  "generated": false,
+  "axes": {
+    "min_required_steps": 2,
+    "decoy_tools": 0,
+    "hidden_prereqs": 0,
+    "conflicting_constraints": 0,
+    "adversarial_context": false,
+    "region_variance": false
+  },
+  "description": "Field-extraction under payload noise: getters return the answer buried in a messy real-world envelope (nested `data`, metadata, timestamps, pagination distractors). The model must extract the RIGHT field and pass it downstream — grabbing a noise field (latency_ms, pagination.total) fails the checkpoint. Target values are chosen outside the noise ranges so a wrong extraction is unambiguous.",
+  "tasks": [
+    {
+      "id": "nx_account_limit",
+      "category": "agent_loop",
+      "max_steps": 6,
+      "max_recovery": 2,
+      "payload_noise": true,
+      "prompt": "Read account A-1 FIRST; then, in a SEPARATE later step, set its spending limit to the balance you read. Do not guess the balance or batch both calls at once. Account: A-1.",
+      "world_state": {
+        "A-1": { "balance": 450 }
+      },
+      "tools": [
+        { "name": "read_account", "params": { "id": "string" } },
+        { "name": "set_limit", "params": { "account": "string", "value": "number" }, "returns_entity": false }
+      ],
+      "expected_calls": [
+        { "type": "call", "name": "read_account", "args": { "id": "A-1" } },
+        { "type": "call", "name": "set_limit", "args": { "account": "A-1", "value": 450 } }
+      ],
+      "must_not_call": [],
+      "faults": [],
+      "trap": {
+        "note": "read_account returns {balance:450} nested under `data` amid _meta/pagination noise. The model must set_limit to 450, not to a distractor number (latency_ms 20-399 or pagination.total 3-49)."
+      },
+      "rubric": {
+        "success_definition": "Reads the account and sets the limit to the extracted balance (450).",
+        "partial_credit": false
+      }
+    },
+    {
+      "id": "nx_invoice_pay",
+      "category": "agent_loop",
+      "max_steps": 6,
+      "max_recovery": 2,
+      "payload_noise": true,
+      "prompt": "Read invoice I-2 FIRST; then, in a SEPARATE later step, pay it for the amount due you read. Do not guess the amount or batch both calls at once. Invoice: I-2.",
+      "world_state": {
+        "I-2": { "amount": 520 }
+      },
+      "tools": [
+        { "name": "read_invoice", "params": { "id": "string" } },
+        { "name": "pay_invoice", "params": { "invoice": "string", "amount": "number" }, "returns_entity": false }
+      ],
+      "expected_calls": [
+        { "type": "call", "name": "read_invoice", "args": { "id": "I-2" } },
+        { "type": "call", "name": "pay_invoice", "args": { "invoice": "I-2", "amount": 520 } }
+      ],
+      "must_not_call": [],
+      "faults": [],
+      "trap": {
+        "note": "The amount (520) is nested under `data.amount`; the noise envelope's numbers are distractors, not the amount."
+      },
+      "rubric": {
+        "success_definition": "Reads the invoice and pays the extracted amount (520).",
+        "partial_credit": false
+      }
+    },
+    {
+      "id": "nx_ticket_escalate",
+      "category": "agent_loop",
+      "max_steps": 6,
+      "max_recovery": 2,
+      "payload_noise": true,
+      "prompt": "Read ticket T-3 FIRST; then, in a SEPARATE later step, escalate it to the priority you read. Do not guess the priority or batch both calls at once. Ticket: T-3.",
+      "world_state": {
+        "T-3": { "priority": "urgent" }
+      },
+      "tools": [
+        { "name": "read_ticket", "params": { "id": "string" } },
+        { "name": "escalate", "params": { "ticket": "string", "level": "string" }, "returns_entity": false }
+      ],
+      "expected_calls": [
+        { "type": "call", "name": "read_ticket", "args": { "id": "T-3" } },
+        { "type": "call", "name": "escalate", "args": { "ticket": "T-3", "level": "*urgent*" } }
+      ],
+      "must_not_call": [],
+      "faults": [],
+      "trap": {
+        "note": "The priority string ('urgent') is nested under `data.priority`; the model must extract it, not echo a metadata field."
+      },
+      "rubric": {
+        "success_definition": "Reads the ticket and escalates to the extracted priority (urgent).",
+        "partial_credit": false
+      }
+    }
+  ]
+}

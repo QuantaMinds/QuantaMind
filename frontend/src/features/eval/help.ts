@@ -66,6 +66,10 @@ export const METRIC_HELP = {
     title: "Effort",
     body: "Mean output tokens on the runs that SUCCEEDED — the token cost of getting it right. Failed runs are excluded so a model isn't rewarded for giving up early.",
   },
+  tokensPerTask: {
+    title: "Tokens/Task",
+    body: "Total generated tokens ÷ completed tasks — the amortized cost of one completion, INCLUDING the tokens burned on failed runs. Unlike Effort (successes only), this charges the 'waste tax' of unreliability, so it's always ≥ Effort and the gap shows how much a flaky model really costs. Output tokens only; lower is better; '—' when nothing completed. Not comparable across thinking vs terse models.",
+  },
   topError: {
     title: "Top error",
     body: "The model's dominant agentic failure mode across the collection: Loop Cap (hit the step limit), Fake Done (claimed success without the end-state), Bad Schema (burned its recovery budget on schema-invalid calls), or Malformed (unparseable tool JSON). 'None' means no failures dominated. Hover the ⓘ next to the badge for the full count of all four modes.",

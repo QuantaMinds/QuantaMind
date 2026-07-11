@@ -38,6 +38,32 @@ describe("toScoreRows", () => {
     expect(rows[1]).toMatchObject({ quant: "—", passK: "0/5", avgSteps: "N/A", effort: "N/A", topError: "Loop Cap" });
   });
 
+  it("shows Tokens/Task (T*) distinct from Effort, and — when nothing completed", () => {
+    const report: BatchReport = {
+      collection_id: "c",
+      columns: [
+        {
+          model: "qwen",
+          backend: "ollama",
+          toolcall: null,
+          // Effort (successes-only mean) 100, but T* (all tokens ÷ completions) 140 — the waste tax.
+          agentic: { tasks_passed: 2, tasks_total: 3, passes: 2, total_runs: 3, avg_steps: 2, avg_output_tokens_success: 100, tokens_per_completed: 140, schema_resilience: null, top_error: "hallucinated", failures: { infinite_loop_hits: 0, hallucinated_completions: 1, malformed_json_calls: 0, schema_unrecovered_calls: 0 } },
+          error: null,
+        },
+        {
+          model: "loopy", // nothing completed → T* is null → "—", never a fabricated 0
+          backend: "ollama",
+          toolcall: null,
+          agentic: { tasks_passed: 0, tasks_total: 2, passes: 0, total_runs: 2, avg_steps: 3, avg_output_tokens_success: null, tokens_per_completed: null, schema_resilience: null, top_error: "infinite_loop", failures: { infinite_loop_hits: 2, hallucinated_completions: 0, malformed_json_calls: 0, schema_unrecovered_calls: 0 } },
+          error: null,
+        },
+      ],
+    };
+    const rows = toScoreRows(report, []);
+    expect(rows[0]).toMatchObject({ effort: "100 tok", tokensPerTask: "140 tok" });
+    expect(rows[1]).toMatchObject({ tokensPerTask: "N/A" }); // null T* → fmtTokens → N/A
+  });
+
   it("maps schema resilience as a percent (— when null) and the top error label", () => {
     const report: BatchReport = {
       collection_id: "c",

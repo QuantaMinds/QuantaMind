@@ -188,6 +188,13 @@ pub struct AggAgentic {
     /// per-path aggregate keeps prompt-vs-native structurally separate.
     #[serde(default)]
     pub boundary: Option<BoundaryReport>,
+    /// T*: tokens-per-completed-task — total generated tokens over every run ÷ completions
+    /// (run-weighted). The amortized cost including tokens wasted on failed runs, so
+    /// `>= avg_output_tokens_success` (Effort). `None` when nothing completed. Output tokens
+    /// only; per-path (never blended across native/prompt). `#[serde(default)]` so older
+    /// reports load.
+    #[serde(default)]
+    pub tokens_per_completed: Option<f64>,
 }
 
 /// Why a native-FC task produced no scored result (every run errored). Kept distinct from
@@ -371,6 +378,13 @@ fn agg_agentic(reports: &[AgenticReport], native_fc: bool) -> AggAgentic {
         })
         .collect();
     by_tier.sort_by_key(|s| s.tier);
+    // T* (tokens per completed task), run-weighted so it's the honest amortized cost:
+    // total generated tokens across every run ÷ total completed runs. `None` when nothing
+    // completed (never a fabricated 0). Unlike Effort (mean-of-per-task-success-means), this
+    // charges the tokens wasted on failed runs to the completions that landed.
+    let total_output_tokens: u64 = reports.iter().map(|r| r.output_tokens_total as u64).sum();
+    let total_passes: u64 = reports.iter().map(|r| r.passes as u64).sum();
+    let tokens_per_completed = (total_passes > 0).then(|| total_output_tokens as f64 / total_passes as f64);
     AggAgentic {
         tasks_passed: reports.iter().filter(|r| r.is_strict_pass()).count() as u32,
         tasks_total: reports.len() as u32,
@@ -388,6 +402,7 @@ fn agg_agentic(reports: &[AgenticReport], native_fc: bool) -> AggAgentic {
         // (None when the collection carries no Category-K tasks). `native_fc` keeps the
         // prompt and native aggregates un-blendable downstream.
         boundary: BoundaryReport::from_reports(reports, native_fc),
+        tokens_per_completed,
     }
 }
 

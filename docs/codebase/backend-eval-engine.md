@@ -365,6 +365,12 @@ from the measured generated-token count on a thinking turn (not just on a `Trunc
   back-compat); the order keeps v1 behavior byte-identical. The whitelist is built in
   `build::sandbox_for` — from `task.tools` for v1 (decoy-free there) or
   `spec.recognized_tools` for v2 (whose `task.tools` already carries the merged decoys).
+- **Payload noise (`v2/noise.rs`):** a per-task `payload_noise` flag (threaded to the sandbox via
+  `with_payload_noise`) makes `respond` wrap a GETTER blob in a deterministic messy envelope
+  (`{"data":<blob>,"_meta":{…},"pagination":{…},"warnings":[]}`) so the model must extract the
+  right field from noise. `noise::wrap(blob, seed_from(canonical(call)))` is a pure fn (no wall
+  clock/RNG → reproducible); only real blobs are wrapped (never an ack/not-found), and the
+  oracle grounding path (which calls `derive_response` directly) stays clean.
 - **Stateful web-UI env (Slice 3):** `ResponderKind::WebUi(WebUiSpec)` holds only the IMMUTABLE
   initial state; the MUTABLE `WebUiState` (`v2/env_webui.rs`) is per-run — constructed fresh in
   `run_steps` beside the fault `SandboxState`, NEVER in the shared sandbox. `apply(call)` mutates on
@@ -575,7 +581,10 @@ value above.
   `reported_in_prose` ranks LEAST-severe in `top()`, so count-first surfaces it as a
   capable model's headline while a genuine failure dominates on a tie), `TopError`,
   `AgenticReport{passes, total_runs, failures, avg_output_tokens_success, avg_steps,
-  top_error, schema_resilience, tier, requested_runs, dialect}` (`from_outcomes`;
+  top_error, schema_resilience, tier, requested_runs, dialect, output_tokens_total}`
+  (the last is the T\* numerator — tokens over ALL runs; `tokens_per_completed()` =
+  `output_tokens_total / passes`, the amortized cost incl. failed-run waste, `None` when
+  nothing completed. `AggAgentic.tokens_per_completed` folds it run-weighted.) (`from_outcomes`;
   builders `with_tier`/`with_truncation`; `is_strict_pass()` = all-ran-passed AND not
   budget-truncated).
 

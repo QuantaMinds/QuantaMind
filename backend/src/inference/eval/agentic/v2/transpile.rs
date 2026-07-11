@@ -38,6 +38,10 @@ pub struct V2Task {
     /// Absent on every capability task (back-compat with existing collections).
     #[serde(default)]
     pub safety: Option<SafetySpec>,
+    /// When true, the sandbox wraps world_state getter blobs in a messy envelope so the model
+    /// must extract the right field from noise. Absent → false (back-compat).
+    #[serde(default)]
+    pub payload_noise: bool,
 }
 
 fn default_recovery() -> u8 {
@@ -175,6 +179,7 @@ pub fn transpile_task(
 
     let world_state = if t.world_state.is_null() { None } else { Some(t.world_state) };
     let safety = t.safety;
+    let payload_noise = t.payload_noise;
 
     let spec = AgenticSpec {
         mocks: vec![],
@@ -193,6 +198,7 @@ pub fn transpile_task(
         entity_tools,
         recognized_tools,
         safety,
+        payload_noise,
     };
     // All v2 tasks run on the agentic engine; the end-state (RequireAll vs
     // ExpectAbstainingText) — not the authored label — encodes act-vs-abstain.
