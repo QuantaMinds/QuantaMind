@@ -365,6 +365,17 @@ from the measured generated-token count on a thinking turn (not just on a `Trunc
   back-compat); the order keeps v1 behavior byte-identical. The whitelist is built in
   `build::sandbox_for` — from `task.tools` for v1 (decoy-free there) or
   `spec.recognized_tools` for v2 (whose `task.tools` already carries the merged decoys).
+- **Field-scoped getters (`returns_fields`):** a getter may surface only a SUBSET of the
+  resolved blob. Authored `returns_fields` (`transpile`) → `spec.field_projections` (name →
+  fields) → the sandbox via `with_field_projections`; `respond` calls
+  `world_state::project_fields` on the resolved entity blob (AFTER the not-found guard, so a
+  wrong id still reports `{"error":"not found"}`, never a projected `{}`). Models one resource
+  read through disjoint endpoints — `get_service`→`{class}`, `check_sessions`→`{active_sessions}`
+  — so a model can't read one fact from the other's call (the two are no longer interchangeable;
+  each becomes a genuinely required checkpoint). A requested field absent from the entity yields
+  `{}` (honest, never fabricated); the `bundled_collections_pass_deep_integrity_checks` guard
+  rejects a `returns_fields` that names no world_state field. Absent → the whole blob (the
+  no-projection default; back-compat byte-identical).
 - **Payload noise (`v2/noise.rs`):** a per-task `payload_noise` flag (threaded to the sandbox via
   `with_payload_noise`) makes `respond` wrap a GETTER blob in a deterministic messy envelope
   (`{"data":<blob>,"_meta":{…},"pagination":{…},"warnings":[]}`) so the model must extract the

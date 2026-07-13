@@ -221,6 +221,14 @@ pub struct AgenticSpec {
     /// today — same back-compat contract as `axes`.
     #[serde(default, skip_serializing_if = "is_false")]
     pub payload_noise: bool,
+    /// Phase 9-v2: field-scoped getters. Maps a getter tool name → the subset of the
+    /// resolved entity blob that tool surfaces (a real API returns different fields from
+    /// different endpoints on the same resource: `get_service` yields `class`, a separate
+    /// `check_sessions` yields `active_sessions`). A getter absent from this map returns the
+    /// WHOLE blob (back-compat). Empty (omitted) on every task today — same back-compat
+    /// contract as `axes`.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub field_projections: std::collections::BTreeMap<String, Vec<String>>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -273,6 +281,7 @@ mod tests {
             recognized_tools: vec![],
             safety: None,
             payload_noise: false,
+            field_projections: Default::default(),
         };
         let v = serde_json::to_value(&spec).unwrap();
         assert!(v.get("tier").is_none()); // Easy is the default → omitted

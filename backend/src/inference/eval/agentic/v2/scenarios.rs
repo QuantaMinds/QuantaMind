@@ -115,6 +115,24 @@ mod tests {
                         }
                     }
                 }
+                // field-scoped getters must name fields that exist in some world_state entity —
+                // a typo'd field would silently surface `{}` (an honest-but-empty view that
+                // teaches the model nothing), so reject it at load time, not at run time.
+                if !spec.field_projections.is_empty() {
+                    let mut known: HashSet<&str> = HashSet::new();
+                    if let Some(ws) = spec.world_state.as_ref().and_then(|w| w.as_object()) {
+                        for entity in ws.values() {
+                            if let Some(obj) = entity.as_object() {
+                                known.extend(obj.keys().map(String::as_str));
+                            }
+                        }
+                    }
+                    for (tool, fields) in &spec.field_projections {
+                        for f in fields {
+                            assert!(known.contains(f.as_str()), "{id}/{}: returns_fields '{f}' of '{tool}' names no world_state field", t.id);
+                        }
+                    }
+                }
             }
         }
     }
@@ -220,6 +238,77 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// LIVE (ignored): field-scoped getters against a real Ollama model. Runs the API-key
+    /// rotation task and dumps every call + injected tool result, so we can eyeball that
+    /// `get_service` surfaces ONLY `class` (no `active_sessions` leak) while `check_sessions`
+    /// surfaces `active_sessions` — the whole point of the field-projection change (cp3 is now
+    /// load-bearing, not redundant). Run:
+    ///   cargo test --lib live_field_scoped_rotation -- --ignored --nocapture
+    #[tokio::test]
+    #[ignore = "hits a live Ollama on :11434 with qwen2.5-coder-7b-instruct installed"]
+    async fn live_field_scoped_rotation_splits_class_from_sessions() {
+        use crate::inference::backend::backend_kind::BackendKind;
+        use crate::inference::eval::agentic::build::sandbox_for;
+        use crate::inference::eval::agentic::model_turn::{BackendTurn, ModelTurn};
+        use crate::inference::eval::agentic::runner::{run_once, NUM_CTX_CEILING};
+        use tokio::sync::mpsc::unbounded_channel;
+        use tokio_util::sync::CancellationToken;
+
+        let model = std::env::var("QM_LIVE_MODEL").unwrap_or_else(|_| "qwen2.5-coder-7b-instruct:q4_k_m".into());
+        let tasks = load_v2_collection(V2_SCENARIOS.iter().find(|(id, _)| *id == "medium-coding").unwrap().1).unwrap();
+        let t = tasks.into_iter().find(|t| t.id == "md_co_secret_rotation_by_svc").expect("task present");
+        let (sandbox, cfg) = sandbox_for(&t).unwrap();
+
+        // Prompt path (JSON dialect) — the same path the reported failing run used; no native
+        // tool support needed, so it runs on any chat model.
+        let turn = BackendTurn {
+            backend: BackendKind::Ollama,
+            endpoint: "http://localhost:11434".into(),
+            model,
+            cancel: CancellationToken::new(),
+            options: None,
+            keep_alive: Some(300),
+            is_thinking: false,
+            max_tokens: 512,
+            cpu_offloaded: false,
+            ctx_ceiling: NUM_CTX_CEILING,
+            stop_cache: Default::default(),
+        };
+        turn.warm_up().await.unwrap();
+        let (tx, mut rx) = unbounded_channel();
+        let outcome = run_once(&turn, &sandbox, cfg.max_steps, cfg.max_recovery, 0, &tx).await.unwrap();
+        drop(tx);
+
+        let mut get_service_injections = Vec::new();
+        let mut check_sessions_injections = Vec::new();
+        eprintln!("\n===== LIVE trajectory: md_co_secret_rotation_by_svc =====");
+        while let Ok(step) = rx.try_recv() {
+            eprintln!("[step {}] kind={:?}\n  CALL: {}\n  RESULT: {:?}", step.step_index, step.kind, step.raw_output.trim(), step.injection);
+            if let Some(inj) = &step.injection {
+                if step.raw_output.contains("get_service") { get_service_injections.push(inj.clone()); }
+                if step.raw_output.contains("check_sessions") { check_sessions_injections.push(inj.clone()); }
+            }
+        }
+        eprintln!("VERDICT: reached_end={} failure={:?}", outcome.reached_end, outcome.failure);
+
+        // Data-quality gate — the DISJOINTNESS invariant, true for ANY trajectory (independent of
+        // model capability or which call trips the 503 fault): the two endpoints never overlap.
+        // get_service never surfaces active_sessions; check_sessions never surfaces class. This is
+        // exactly the redundancy the projection removed — one endpoint can't substitute for the other.
+        for inj in &get_service_injections {
+            assert!(!inj.contains("active_sessions"), "get_service leaked active_sessions: {inj}");
+        }
+        for inj in &check_sessions_injections {
+            assert!(!inj.contains("class"), "check_sessions leaked class (whole blob): {inj}");
+        }
+        // The positive (check_sessions{S-2} → {"active_sessions":true}, get_service → {"class":…}) is
+        // pinned deterministically in the sandbox/world_state unit tests + the oracle satisfiability
+        // gate; here we log whichever the live model actually elicited.
+        eprintln!(
+            "get_service results seen: {get_service_injections:?}\ncheck_sessions results seen: {check_sessions_injections:?}"
+        );
     }
 
     /// Every nested STRING value in `v` (object values + array elements; object KEYS

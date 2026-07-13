@@ -60,6 +60,10 @@ pub struct V2Tool {
     pub params: BTreeMap<String, String>,
     #[serde(default)]
     pub returns_entity: Option<bool>,
+    /// Field-scoped getter: the subset of the resolved entity blob this getter surfaces
+    /// (models a real endpoint that returns part of a resource). Absent → the whole blob.
+    #[serde(default)]
+    pub returns_fields: Option<Vec<String>>,
 }
 
 impl V2Tool {
@@ -151,6 +155,14 @@ pub fn transpile_task(
     // misleading `{"ok":true}` ack.
     let recognized_tools: Vec<String> = t.tools.iter().map(|tool| tool.name.clone()).collect();
 
+    // Field-scoped getters: a getter with authored `returns_fields` surfaces only that subset
+    // of the resolved entity blob (so a model can't read one fact from another endpoint's call).
+    let field_projections: BTreeMap<String, Vec<String>> = t
+        .tools
+        .iter()
+        .filter_map(|tool| tool.returns_fields.clone().map(|f| (tool.name.clone(), f)))
+        .collect();
+
     let mut checkpoints = Vec::with_capacity(t.expected_calls.len());
     for ec in t.expected_calls {
         match ec {
@@ -199,6 +211,7 @@ pub fn transpile_task(
         recognized_tools,
         safety,
         payload_noise,
+        field_projections,
     };
     // All v2 tasks run on the agentic engine; the end-state (RequireAll vs
     // ExpectAbstainingText) — not the authored label — encodes act-vs-abstain.

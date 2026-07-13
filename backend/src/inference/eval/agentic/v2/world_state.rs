@@ -101,6 +101,23 @@ pub fn derive_response(ws: &Value, call: &Call) -> String {
     ACK.to_string()
 }
 
+/// Field-scope a resolved getter blob to `fields` (field-scoped getters). Models a real
+/// API whose endpoint returns only part of a resource — `get_service` surfaces `class`,
+/// `check_sessions` surfaces `active_sessions`, so a model can't read one fact from the
+/// other's call. Retains only the requested keys that are present (a missing field is
+/// simply absent, never fabricated — so an entity lacking every requested field scopes to
+/// `{}`). A value that isn't a JSON object (a scalar or array) is returned unchanged.
+/// Deciding an ack/error is not an entity blob is the caller's job: `respond()` never
+/// invokes this on one, so projection sees only real entity blobs.
+pub fn project_fields(blob: &str, fields: &[String]) -> String {
+    let Ok(Value::Object(map)) = serde_json::from_str::<Value>(blob) else {
+        return blob.to_string();
+    };
+    let scoped: serde_json::Map<String, Value> =
+        fields.iter().filter_map(|f| map.get(f).map(|v| (f.clone(), v.clone()))).collect();
+    Value::Object(scoped).to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -176,6 +193,38 @@ mod tests {
         });
         let r = derive_response(&ws, &call("get_positions", json!({ "account": "M-3" })));
         assert_eq!(r, json!({ "ratio": 0.1 }).to_string());
+    }
+
+    #[test]
+    fn field_scoped_getters_split_one_entity_across_two_endpoints() {
+        // get_service surfaces only `class`; check_sessions only `active_sessions`. A model
+        // can't read active_sessions from get_service's call — it MUST call check_sessions.
+        let s2 = json!({ "class": "stateful", "active_sessions": true }).to_string();
+        assert_eq!(
+            project_fields(&s2, &["class".to_string()]),
+            json!({ "class": "stateful" }).to_string()
+        );
+        assert_eq!(
+            project_fields(&s2, &["active_sessions".to_string()]),
+            json!({ "active_sessions": true }).to_string()
+        );
+    }
+
+    #[test]
+    fn projecting_a_missing_field_omits_it_never_fabricates() {
+        // S-1 has no active_sessions; check_sessions on it yields {} (honest absence), not a
+        // guessed value.
+        let s1 = json!({ "class": "stateless" }).to_string();
+        assert_eq!(project_fields(&s1, &["active_sessions".to_string()]), "{}");
+    }
+
+    #[test]
+    fn projecting_a_non_object_passes_through_unchanged() {
+        // A scalar or array is never an entity blob — projection must leave it intact. (Acks
+        // and errors ARE json objects; respond() is what keeps them off this path, not the
+        // helper — see field_scoped_getters_return_disjoint_views_of_one_entity.)
+        assert_eq!(project_fields("250.0", &["class".to_string()]), "250.0");
+        assert_eq!(project_fields(r#"["a","b"]"#, &["class".to_string()]), r#"["a","b"]"#);
     }
 
     #[test]
