@@ -317,13 +317,15 @@
           "name": "get_service",
           "params": {
             "id": "string"
-          }
+          },
+          "returns_fields": ["class"]
         },
         {
           "name": "check_sessions",
           "params": {
             "service": "string"
-          }
+          },
+          "returns_fields": ["active_sessions"]
         },
         {
           "name": "rotate_now",

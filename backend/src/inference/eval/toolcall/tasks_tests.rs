@@ -114,6 +114,7 @@ fn agentic_valid() -> ToolTask {
             recognized_tools: vec![],
             safety: None,
             payload_noise: false,
+            field_projections: Default::default(),
         }),
     }
 }

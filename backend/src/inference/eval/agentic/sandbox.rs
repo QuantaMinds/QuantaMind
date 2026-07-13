@@ -112,6 +112,10 @@ pub struct DeterministicSandbox {
     /// (nested `data` + synthetic metadata) so the model must extract the right field from
     /// noise. `false` on every non-noise sandbox (byte-identical to before).
     pub payload_noise: bool,
+    /// Phase 9-v2 field-scoped getters: getter tool name → the subset of the resolved entity
+    /// blob it surfaces (models a real API endpoint that returns only part of a resource). A
+    /// getter absent here returns the WHOLE blob. EMPTY → no scoping (back-compat).
+    pub field_projections: HashMap<String, Vec<String>>,
 }
 
 impl DeterministicSandbox {
@@ -134,6 +138,7 @@ impl DeterministicSandbox {
             recognized_tools: std::collections::HashSet::new(),
             safety_guard: None,
             payload_noise: false,
+            field_projections: HashMap::new(),
         }
     }
 
@@ -148,6 +153,14 @@ impl DeterministicSandbox {
     /// envelope so the model must extract the right field from noise.
     pub fn with_payload_noise(mut self, on: bool) -> Self {
         self.payload_noise = on;
+        self
+    }
+
+    /// Attach field-scoped getters (builder form). Each entry maps a getter tool name to the
+    /// subset of the resolved entity blob it surfaces. A getter absent from the map returns
+    /// the whole blob. Empty → no scoping (back-compat).
+    pub fn with_field_projections(mut self, projections: HashMap<String, Vec<String>>) -> Self {
+        self.field_projections = projections;
         self
     }
 
@@ -236,6 +249,18 @@ impl DeterministicSandbox {
                     if r == r#"{"ok":true}"# && !self.entity_tools.is_empty() {
                         return Some(r#"{"error":"not found"}"#.to_string());
                     }
+                    // Field-scoped getters: a getter declaring a field subset surfaces only
+                    // those fields of the resolved blob (a real endpoint returns part of a
+                    // resource). Applied to real entity blobs only — an ack/error passes through
+                    // so a not-found miss never gets scoped into an empty object.
+                    let r = if r != r#"{"ok":true}"# && !r.starts_with(r#"{"error""#) {
+                        match self.field_projections.get(&call.name) {
+                            Some(fields) => crate::inference::eval::agentic::v2::world_state::project_fields(&r, fields),
+                            None => r,
+                        }
+                    } else {
+                        r
+                    };
                     // Payload noise wraps ONLY real entity blobs (never an ack or an error) so
                     // the model must dig the field out of realistic messy JSON.
                     if self.payload_noise && r != r#"{"ok":true}"# && !r.starts_with(r#"{"error""#) {
@@ -398,6 +423,54 @@ mod tests {
             Some(r#"{"kind":"major"}"#)
         );
         assert_eq!(sb.respond(&call("pin_and_flag", json!({ "dep": "D-1" }))).as_deref(), Some(r#"{"ok":true}"#));
+    }
+
+    #[test]
+    fn field_scoped_getters_return_disjoint_views_of_one_entity() {
+        // get_service surfaces only `class`; check_sessions only `active_sessions`. A model
+        // that skips check_sessions never learns S-2 has active sessions (cp3 is load-bearing).
+        let sb = DeterministicSandbox::new(
+            "p".into(),
+            vec![],
+            vec![],
+            EndStateRule::RequireAll(vec![TaskCheckpoint { tool: "check_sessions".into(), args: json!({}) }]),
+        )
+        .with_world_state(json!({ "S-2": { "class": "stateful", "active_sessions": true } }))
+        .with_entity_tools(["get_service".to_string(), "check_sessions".to_string()])
+        .with_field_projections(HashMap::from([
+            ("get_service".to_string(), vec!["class".to_string()]),
+            ("check_sessions".to_string(), vec!["active_sessions".to_string()]),
+        ]));
+        assert_eq!(
+            sb.respond(&call("get_service", json!({ "id": "S-2" }))).as_deref(),
+            Some(r#"{"class":"stateful"}"#)
+        );
+        assert_eq!(
+            sb.respond(&call("check_sessions", json!({ "service": "S-2" }))).as_deref(),
+            Some(r#"{"active_sessions":true}"#)
+        );
+    }
+
+    #[test]
+    fn a_field_scoped_getter_on_an_unknown_entity_still_reports_not_found() {
+        // The not-found guard fires BEFORE projection, so a wrong id returns the honest miss
+        // — never a projected `{}` that would read as "exists, no sessions".
+        let sb = DeterministicSandbox::new(
+            "p".into(),
+            vec![],
+            vec![],
+            EndStateRule::RequireAll(vec![TaskCheckpoint { tool: "check_sessions".into(), args: json!({}) }]),
+        )
+        .with_world_state(json!({ "S-2": { "class": "stateful", "active_sessions": true } }))
+        .with_entity_tools(["check_sessions".to_string()])
+        .with_field_projections(HashMap::from([(
+            "check_sessions".to_string(),
+            vec!["active_sessions".to_string()],
+        )]));
+        assert_eq!(
+            sb.respond(&call("check_sessions", json!({ "service": "S-9" }))).as_deref(),
+            Some(r#"{"error":"not found"}"#)
+        );
     }
 
     #[test]

@@ -10,7 +10,7 @@ axes: min_required_steps, decoy_tools, hidden_prereqs, conflicting_constraints,
 task:
   id, category, max_steps, max_recovery, prompt,
   world_state{}        — the ground-truth the oracle knows; the model must DISCOVER it via tools
-  tools[]              — {name, params}
+  tools[]              — {name, params, returns_entity?, returns_fields?}
   decoy_tools[]        — plausible-but-wrong {name, params}
   expected_calls[]     — type-tagged: {type:call,name,args} | {type:parallel,calls[]} | {type:none}
   must_not_call[]      — names or {name,args} that auto-fail end-state if invoked (the trap)
@@ -54,6 +54,16 @@ the mechanics that matter when writing a scenario file:
   entity blob); `false` = action (acks, never echoes data — answer-leniency).
   The reporter tool (a `text` param) is exempt from the getter-data guard: its
   ack IS its response.
+- **Field-scoped getters (`returns_fields`):** a getter may declare a field
+  subset — `get_service {returns_fields:["class"]}` surfaces ONLY `class` of the
+  resolved blob; `check_sessions {returns_fields:["active_sessions"]}` surfaces
+  ONLY `active_sessions`. This models a real API where one resource is read
+  through different endpoints returning disjoint fields, so a model can't read
+  one fact from the other's call — making BOTH calls genuinely required instead
+  of interchangeable. Absent → the whole blob (back-compat). A requested field
+  missing from an entity yields `{}` (honest absence, never fabricated); the
+  integrity guard rejects a `returns_fields` naming no world_state field (a typo
+  would silently surface `{}`).
 - **Decoys:** merged into the presented tool list at transpile but excluded from
   `entity_tools`/`recognized_tools` — a decoy call gets the unknown-tool nudge,
   never data. Pair with `must_not_call` (bare name, or `{name,args}` to trap a

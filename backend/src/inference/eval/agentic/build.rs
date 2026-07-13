@@ -112,6 +112,12 @@ pub fn sandbox_for(task: &ToolTask) -> AppResult<(DeterministicSandbox, AgenticC
     if spec.payload_noise {
         sandbox = sandbox.with_payload_noise(true);
     }
+    // Field-scoped getters: a getter with an authored field subset surfaces only those fields
+    // of the resolved entity blob (a real endpoint returns part of a resource). Empty → no-op.
+    if !spec.field_projections.is_empty() {
+        sandbox = sandbox
+            .with_field_projections(spec.field_projections.clone().into_iter().collect());
+    }
     // v2: name-keyed faults (on_call trips on any call to that tool).
     if !spec.name_faults.is_empty() {
         let nf: std::collections::HashMap<String, crate::inference::eval::agentic::spec::FaultInjection> =
@@ -179,6 +185,7 @@ mod tests {
                 recognized_tools: vec![],
                 safety: None,
                 payload_noise: false,
+                field_projections: Default::default(),
             }),
         }
     }

@@ -915,7 +915,12 @@ in CI, from one shared implementation.
    tag pure actions (`full_refund`, `route_ewaste`) with
    `"returns_entity": false` so they ack instead of echoing the data the model
    was supposed to reason to. The reporter tool (the one with a `text` param) is
-   the reply channel; its ack **is** its response.
+   the reply channel; its ack **is** its response. A getter may also declare
+   `"returns_fields": ["class"]` to surface only that subset of the resolved blob
+   — model a resource read through disjoint endpoints (`get_service` → `class`,
+   `check_sessions` → `active_sessions`) so a model must call the RIGHT endpoint
+   for each fact instead of reading everything from one. Absent → the whole blob;
+   a field missing from an entity yields `{}` (never a fabricated value).
 5. **Decoys are traps, not information.** `decoy_tools` are shown to the model
    alongside real tools but excluded from the getter set — calling one yields an
    unknown-tool nudge, never data. Pair each decoy with `must_not_call` (bare
