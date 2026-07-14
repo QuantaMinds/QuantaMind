@@ -35,7 +35,7 @@ commit. A green test never substitutes for inspecting real output.
 | 9 — Multi-turn execution + approval gate | [phase-9-agent-approval.md](phase-9-agent-approval.md) | ✅ done |
 | 10 — FS-state oracle + pass^k scoring (Track B) | [phase-10-fs-oracle-scoring.md](phase-10-fs-oracle-scoring.md) | ✅ done — **Track B verdict + fake-done detection** |
 | 11 — DB world (sqlite) | [phase-11-db-world.md](phase-11-db-world.md) | ✅ done |
-| 12 — Test-page MCP path (UI) | phase-12-ui.md | pending |
+| 12 — Test-page MCP path (UI) | [phase-12-ui.md](phase-12-ui.md) | 🔨 slice 1 (connect + two-track); builder/trace/verdict + mount remain |
 
 ## Key invariants carried through every phase
 
