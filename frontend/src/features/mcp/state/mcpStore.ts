@@ -33,6 +33,15 @@ export interface McpTaskDef {
   k: number;
 }
 
+/// Bring-Your-Own task: point the model at ONE of your connected servers with an
+/// instruction. There's no answer key, so a BYO run is DIAGNOSTIC only — a live
+/// trace + schema-valid rate + fault attribution, never a pass/fail verdict.
+export interface McpByoTaskDef {
+  name: string;
+  instruction: string;
+  serverId: string;
+}
+
 /// The connect/probe state per server — the "N tools discovered" doctor moment,
 /// with a LOUD error surfaced right here (not three minutes into a run).
 export interface ProbeState {
@@ -48,14 +57,22 @@ interface McpState {
   servers: McpServerConfig[];
   probes: Record<string, ProbeState>;
   loading: boolean;
-  /// Tasks built in the UI (they appear in the sidebar list).
+  /// Controlled-world tasks built in the UI (answer-key scored via Run Batch).
   tasks: McpTaskDef[];
+  /// Bring-Your-Own tasks (diagnostic-only; run one at a time against a real
+  /// server). Both kinds share the sidebar list.
+  byoTasks: McpByoTaskDef[];
+  /// The BYO task whose diagnostic is currently open in the center (null = none).
+  activeByo: string | null;
   /// Once a task is saved, the connect/build center collapses to a compact summary
-  /// (tasks live in the sidebar; Run Batch runs them).
+  /// (tasks live in the sidebar; Run Batch runs the world tasks).
   builderCollapsed: boolean;
   setActive: (active: boolean) => void;
   addTask: (task: McpTaskDef) => void;
   removeTask: (name: string) => void;
+  addByoTask: (task: McpByoTaskDef) => void;
+  removeByoTask: (name: string) => void;
+  setActiveByo: (name: string | null) => void;
   setBuilderCollapsed: (collapsed: boolean) => void;
   refresh: () => Promise<void>;
   addServer: (cfg: McpServerConfig) => Promise<void>;
@@ -70,12 +87,19 @@ export const useMcpStore = create<McpState>((set, get) => ({
   probes: {},
   loading: false,
   tasks: [],
+  byoTasks: [],
+  activeByo: null,
   builderCollapsed: false,
 
   setActive: (active) => set({ active }),
   addTask: (task) =>
     set((s) => ({ tasks: [...s.tasks.filter((t) => t.name !== task.name), task], builderCollapsed: true })),
   removeTask: (name) => set((s) => ({ tasks: s.tasks.filter((t) => t.name !== name) })),
+  addByoTask: (task) =>
+    set((s) => ({ byoTasks: [...s.byoTasks.filter((t) => t.name !== task.name), task], builderCollapsed: true })),
+  removeByoTask: (name) =>
+    set((s) => ({ byoTasks: s.byoTasks.filter((t) => t.name !== name), activeByo: get().activeByo === name ? null : get().activeByo })),
+  setActiveByo: (activeByo) => set({ activeByo }),
   setBuilderCollapsed: (builderCollapsed) => set({ builderCollapsed }),
 
   refresh: async () => {

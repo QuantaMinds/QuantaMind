@@ -63,29 +63,32 @@ slice is the tested UI foundation it plugs into.
 
 ## UX redesign (post-unification, supersedes the run-pipeline bits above) ✅
 Once MCP became a first-class eval **source** (unification: `build_mcp_tasks` →
-the shared agentic runner), the bespoke inline runners were retired and the screen
-was restructured so **running is identical to Built-In**:
-- **One track only.** Bring-Your-Own (schema/attribution, no answer key) is removed
-  from the UI — the two-track `TrackSelector`, `McpByoRunner`, `runMcpByo`/
-  `ByoRunResult`, and the store's `mode`/`TrackMode`/`setMode` are all deleted.
-  Every MCP task is now a controlled-world task scored through the pipeline.
-- **Connect → collapse.** `McpCenterPanel` collapses to a compact "✓ N MCP tasks
-  saved — they're in the sidebar" summary (`mcpStore.builderCollapsed`, set true by
-  `addTask`; "+ Add another" reopens). Model comes from the global header; the note
-  reads "iterations + decoy from Run Params".
-- **Sidebar = saved tasks** under the `◉ MCP` source, each labelled by world
-  (`Filesystem`/`Database`); no `pass^k` badge (iterations are global).
-- **Run Batch** (the same button as Built-In) converts `mcpStore.tasks` →
-  `ToolTask[]` via `buildMcpTasks` and runs them through `useBatchRun` — no saved
-  collection.
+the shared agentic runner), the bespoke inline `McpWorldRunner` was retired and the
+screen was restructured. **Two authoring doors** (`TrackSelector`, local `track`
+state in `McpCenterPanel`), Save→collapse on both, one combined sidebar:
+- **QuantaMind Test World** (`McpTaskBuilder`): seeded world + oracle → Save writes
+  an `McpTaskDef` (🌍) into the sidebar, scored via **Run Batch** through the shared
+  pipeline (answer-key pass^k) — identical to Built-In.
+- **Bring-Your-Own** (`McpByoBuilder`): name + instruction + which connected server
+  → Save writes an `McpByoTaskDef` (🔧). **Diagnostic only** — no answer key, so
+  running one (click it in the sidebar → `setActiveByo` → `McpByoDiagnostic` takes
+  over the center) shows a live per-call trace + schema-valid rate + model/config/
+  server attribution, and **NO pass/fail verdict** (honest: seeing ≠ scoring). Uses
+  `runMcpByo` (backend `run_mcp_byo`, still registered).
+- **Connect → collapse.** `McpCenterPanel` collapses to a "✓ N MCP tasks saved"
+  summary (`mcpStore.builderCollapsed`, set true by `addTask`/`addByoTask`;
+  "+ Add another" reopens). Model + iterations + decoy come from the main controls.
+- **Sidebar = one combined list** under `◉ MCP`: world tasks labelled
+  `Filesystem`/`Database`, BYO tasks labelled `Diagnostic · <server>`; no `pass^k`
+  badge (iterations are global). Run Batch scores only the world tasks.
 - **Iterations + decoy from the main Run Params.** The builder's per-task `pass^k`
-  selector is gone. Decoy is greyed out + forced off when MCP is active (MCP tasks
-  declare their own tools; `Enable Decoy Tools (N/A for MCP)`).
+  selector is gone. Decoy is greyed out + forced off when MCP is active
+  (`Enable Decoy Tools (N/A for MCP)`).
 - **Bring-your-own JSON** ✅ (the deferred "upload JSON" door): a "paste your own
-  task JSON" `<details>` in the builder accepts one `McpTaskDef` object or an array
-  — the exact format Save writes — validated (name/instruction/world/oracle) then
-  added to the sidebar.
+  task JSON" `<details>` in `McpTaskBuilder` accepts one `McpTaskDef` object or an
+  array — the exact format Save writes — validated then added to the sidebar.
 
-Frontend `tsc` clean; full vitest suite green (1254). The scoring path
+Frontend `tsc` clean; full vitest suite green (1256). The world scoring path
 (`build_mcp_tasks` → `run_agentic` → oracle) is unchanged and already live-proven
-(passes=2/2) in the unification work; this redesign is UI-only.
+(passes=2/2) in the unification work; the BYO path reuses the pre-existing
+`run_mcp_byo` command — this redesign is UI-only.

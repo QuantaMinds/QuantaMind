@@ -136,6 +136,10 @@ export function EvalManager({
   const setMcpActive = useMcpStore((s) => s.setActive);
   const mcpTasks = useMcpStore((s) => s.tasks);
   const removeMcpTask = useMcpStore((s) => s.removeTask);
+  const mcpByoTasks = useMcpStore((s) => s.byoTasks);
+  const removeMcpByoTask = useMcpStore((s) => s.removeByoTask);
+  const setActiveByo = useMcpStore((s) => s.setActiveByo);
+  const setBuilderCollapsed = useMcpStore((s) => s.setBuilderCollapsed);
   const setMcpTasks = useEvalRegistryStore((s) => s.setMcpTasks);
   // Determine dataSource: MCP overrides; otherwise derive from the active selection.
   const dataSource: "mcp" | "builtin" | "custom" = mcpActive
@@ -639,22 +643,44 @@ export function EvalManager({
               {/* Collection list (tasks nest under the selected one via collectionRow) */}
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {dataSource === "mcp" ? (
-                  // Sidebar under MCP: only the list of saved MCP tasks. The
-                  // connect/build flow lives in the center (EvalPage).
-                  mcpTasks.length === 0 ? (
+                  // Sidebar under MCP: one combined list of saved tasks. World tasks
+                  // (🌍) are scored via Run Batch; Bring-Your-Own tasks (🔧) open a
+                  // diagnostic in the center. The connect/build flow lives there too.
+                  mcpTasks.length === 0 && mcpByoTasks.length === 0 ? (
                     <div style={{ color: "#64748b", fontSize: 12, fontStyle: "italic", paddingLeft: 8 }}>
-                      No MCP tasks yet — connect a server and build one in the center.
+                      No MCP tasks yet — connect a server and author one in the center.
                     </div>
                   ) : (
-                    mcpTasks.map((t) => (
-                      <div key={t.name} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, paddingLeft: 8 }}>
-                        <span>🌍 {t.name}</span>
-                        <span style={{ color: "#64748b", fontSize: 11 }}>{t.world.type === "fs" ? "Filesystem" : "Database"}</span>
-                        <button type="button" style={{ marginLeft: "auto", fontSize: 11, color: "#94a3b8" }} onClick={() => removeMcpTask(t.name)}>
-                          remove
-                        </button>
-                      </div>
-                    ))
+                    <>
+                      {mcpTasks.map((t) => (
+                        <div key={`w:${t.name}`} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, paddingLeft: 8 }}>
+                          <span>🌍 {t.name}</span>
+                          <span style={{ color: "#64748b", fontSize: 11 }}>{t.world.type === "fs" ? "Filesystem" : "Database"}</span>
+                          <button type="button" style={{ marginLeft: "auto", fontSize: 11, color: "#94a3b8" }} onClick={() => removeMcpTask(t.name)}>
+                            remove
+                          </button>
+                        </div>
+                      ))}
+                      {mcpByoTasks.map((t) => (
+                        <div key={`b:${t.name}`} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, paddingLeft: 8 }}>
+                          <button
+                            type="button"
+                            title="Run diagnostic"
+                            style={{ display: "flex", alignItems: "center", gap: 8 }}
+                            onClick={() => {
+                              setBuilderCollapsed(true);
+                              setActiveByo(t.name);
+                            }}
+                          >
+                            <span>🔧 {t.name}</span>
+                            <span style={{ color: "#64748b", fontSize: 11 }}>Diagnostic · {t.serverId}</span>
+                          </button>
+                          <button type="button" style={{ marginLeft: "auto", fontSize: 11, color: "#94a3b8" }} onClick={() => removeMcpByoTask(t.name)}>
+                            remove
+                          </button>
+                        </div>
+                      ))}
+                    </>
                   )
                 ) : dataSource === "custom" ? (
                   collections.length === 0 ? (

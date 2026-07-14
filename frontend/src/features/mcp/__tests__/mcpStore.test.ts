@@ -26,7 +26,7 @@ const cfg: McpServerConfig = {
 };
 
 beforeEach(() => {
-  useMcpStore.setState({ servers: [], probes: {}, loading: false });
+  useMcpStore.setState({ servers: [], probes: {}, loading: false, tasks: [], byoTasks: [], activeByo: null, builderCollapsed: false });
   vi.clearAllMocks();
 });
 
@@ -67,10 +67,24 @@ describe("mcpStore", () => {
     expect(useMcpStore.getState().servers).toEqual([cfg]);
   });
 
-  it("addTask saves a task and collapses the builder", () => {
+  it("addTask saves a world task and collapses the builder", () => {
     const task = { name: "t1", instruction: "do it", world: { type: "fs" as const, files: [] }, oracle: {}, k: 10 };
     useMcpStore.getState().addTask(task);
     expect(useMcpStore.getState().tasks).toEqual([task]);
     expect(useMcpStore.getState().builderCollapsed).toBe(true);
+  });
+
+  it("addByoTask saves a diagnostic task alongside world tasks, and collapses", () => {
+    useMcpStore.getState().addByoTask({ name: "b1", instruction: "list files", serverId: "filesystem" });
+    expect(useMcpStore.getState().byoTasks).toEqual([{ name: "b1", instruction: "list files", serverId: "filesystem" }]);
+    expect(useMcpStore.getState().builderCollapsed).toBe(true);
+  });
+
+  it("removeByoTask drops the task and clears activeByo when it was open", () => {
+    useMcpStore.getState().addByoTask({ name: "b1", instruction: "x", serverId: "fs" });
+    useMcpStore.getState().setActiveByo("b1");
+    useMcpStore.getState().removeByoTask("b1");
+    expect(useMcpStore.getState().byoTasks).toEqual([]);
+    expect(useMcpStore.getState().activeByo).toBeNull();
   });
 });
