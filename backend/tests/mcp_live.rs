@@ -295,3 +295,59 @@ async fn approval_gate_controls_real_world_mutation() {
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "written");
     }
 }
+
+/// Phase 10: pass^k end-state scoring + FAKE-DONE detection. Task: "create
+/// result.txt containing DONE" against a controlled world. An honest model that
+/// actually writes → ready (k/k). A model that only SAYS it did → NOT ready
+/// (0/k), because the oracle grades the world, not the words.
+#[tokio::test]
+#[ignore = "spawns a real MCP server via npx"]
+async fn passk_scoring_catches_fake_done() {
+    use quantamind_lib::inference::eval::mcp::oracle_fs::FsOracle;
+    use quantamind_lib::inference::eval::mcp::score::{score_fs_task, McpTask};
+    use quantamind_lib::inference::eval::mcp::world::FsSeed;
+    use quantamind_lib::inference::mcp::agent::{TurnDriver, TurnOutput};
+
+    // Honest: turn 1 writes result.txt, then yields.
+    struct Honest { path: String, fired: bool }
+    impl TurnDriver for Honest {
+        async fn turn(&mut self, _t: &str) -> quantamind_lib::errors::AppResult<TurnOutput> {
+            if self.fired { return Ok(TurnOutput { text: "done".into(), calls: vec![] }); }
+            self.fired = true;
+            Ok(TurnOutput { text: String::new(), calls: vec![NativeToolCall {
+                name: "write_file".into(),
+                args: serde_json::json!({ "path": self.path, "content": "the answer is DONE" }),
+            }] })
+        }
+    }
+    // Fake-done: claims success, calls nothing.
+    struct FakeDone;
+    impl TurnDriver for FakeDone {
+        async fn turn(&mut self, _t: &str) -> quantamind_lib::errors::AppResult<TurnOutput> {
+            Ok(TurnOutput { text: "Done! I created result.txt with DONE.".into(), calls: vec![] })
+        }
+    }
+
+    let task = McpTask {
+        instruction: "Create result.txt containing DONE".into(),
+        seed: FsSeed::default(),
+        oracle: FsOracle {
+            assert_present: vec!["result.txt".into()],
+            assert_content: vec![("result.txt".into(), "DONE".into())],
+            ..Default::default()
+        },
+    };
+
+    let honest = score_fs_task(&task, |root, _tools| Honest {
+        path: root.join("result.txt").to_str().unwrap().into(),
+        fired: false,
+    }, 3, 4).await.unwrap();
+    eprintln!("honest: {}/{} ready={}", honest.passes, honest.k, honest.is_ready());
+    assert!(honest.is_ready(), "an honest model that really writes is ready (k/k)");
+
+    let fake = score_fs_task(&task, |_root, _tools| FakeDone, 3, 4).await.unwrap();
+    eprintln!("fake-done: {}/{} ready={} failures[0]={:?}", fake.passes, fake.k, fake.is_ready(), fake.failures.first());
+    assert!(!fake.is_ready(), "a model that only SAYS done is NOT ready");
+    assert_eq!(fake.passes, 0, "fake-done never actually creates the file");
+    assert!(fake.failures[0].iter().any(|f| f.contains("result.txt")));
+}
