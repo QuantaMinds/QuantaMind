@@ -399,3 +399,53 @@ async fn db_world_scores_insert_and_catches_fake_done() {
     assert!(!fake.is_ready(), "a model that only SAYS it inserted is NOT ready");
     assert_eq!(fake.passes, 0);
 }
+
+/// Phase 12 Run pipeline: the REAL multi-turn BackendDriver + score, end to end.
+/// A real Ollama model, driven multi-turn, must create result.txt in a fresh
+/// controlled world; graded pass^k on the world end-state. Env-gated.
+#[tokio::test]
+#[ignore = "requires a running Ollama model (set MCP_MODEL)"]
+async fn run_pipeline_real_model_scores_a_world_task() {
+    use quantamind_lib::inference::backend::backend_kind::BackendKind;
+    use quantamind_lib::inference::eval::mcp::oracle_fs::FsOracle;
+    use quantamind_lib::inference::eval::mcp::score::{score_fs_task, McpTask};
+    use quantamind_lib::inference::eval::mcp::world::FsSeed;
+    use quantamind_lib::inference::mcp::agent::BackendDriver;
+    use quantamind_lib::inference::mcp::bridge::mcp_tools_to_native;
+
+    let Ok(model) = std::env::var("MCP_MODEL") else {
+        eprintln!("SKIP: set MCP_MODEL (e.g. qwen3.5:9b)");
+        return;
+    };
+    let endpoint = std::env::var("MCP_ENDPOINT").unwrap_or_else(|_| "http://localhost:11434".into());
+
+    let task = McpTask {
+        instruction: "Create a file named result.txt whose contents are exactly: DONE".into(),
+        seed: FsSeed::default(),
+        oracle: FsOracle {
+            assert_present: vec!["result.txt".into()],
+            assert_content: vec![("result.txt".into(), "DONE".into())],
+            ..Default::default()
+        },
+    };
+    let score = score_fs_task(
+        &task,
+        |root, tools| BackendDriver {
+            backend: BackendKind::Ollama,
+            endpoint: endpoint.clone(),
+            model: model.clone(),
+            system: "You are a tool-using assistant. Use the tools to accomplish the task.".into(),
+            instruction: format!(
+                "Create a file named result.txt whose contents are exactly: DONE.\n\nWork ONLY inside {} using absolute paths.",
+                root.display()
+            ),
+            tools_json: mcp_tools_to_native(tools),
+        },
+        2,
+        4,
+    )
+    .await
+    .unwrap();
+    eprintln!("[run pipeline {model}] {}/{} ready={}", score.passes, score.k, score.is_ready());
+    assert!(score.passes >= 1, "a capable model should create the file at least once; got {}/{}", score.passes, score.k);
+}

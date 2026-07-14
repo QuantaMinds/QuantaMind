@@ -9,10 +9,12 @@
 //! tools) so the rails are unit-tested with fakes before any live model runs.
 
 use crate::errors::AppResult;
-use crate::inference::mcp::bridge::{execute_call, ToolExecution};
+use crate::inference::backend::backend_kind::BackendKind;
+use crate::inference::mcp::bridge::{chat, execute_call, select_calls, ToolExecution};
 use crate::inference::mcp::gate::Decision;
 use crate::inference::ollama::ollama_chat::NativeToolCall;
 use crate::mcp::client::McpClient;
+use serde_json::Value;
 
 /// One model turn: given the running transcript, the assistant's text + the tool
 /// calls it wants to make.
@@ -44,6 +46,33 @@ impl<'a> McpExecutor<'a> {
 impl ToolExecutor for McpExecutor<'_> {
     async fn execute(&self, call: &NativeToolCall) -> AppResult<ToolExecution> {
         execute_call(self.client, call).await
+    }
+}
+
+/// The real model driver: renders the running transcript into the next prompt and
+/// asks the backend for tool calls. `instruction` carries the task + any sandbox
+/// context (e.g. the world root the model must write inside).
+pub struct BackendDriver {
+    pub backend: BackendKind,
+    pub endpoint: String,
+    pub model: String,
+    pub system: String,
+    pub instruction: String,
+    pub tools_json: Value,
+}
+
+impl TurnDriver for BackendDriver {
+    async fn turn(&mut self, transcript: &str) -> AppResult<TurnOutput> {
+        let user = if transcript.is_empty() {
+            self.instruction.clone()
+        } else {
+            format!(
+                "{}\n\nProgress so far:\n{}\n\nContinue — call a tool, or state you are done.",
+                self.instruction, transcript
+            )
+        };
+        let result = chat(self.backend, &self.endpoint, &self.model, &self.system, &user, &self.tools_json, None).await?;
+        Ok(TurnOutput { text: result.content.clone(), calls: select_calls(&result.tool_calls, &result.content) })
     }
 }
 

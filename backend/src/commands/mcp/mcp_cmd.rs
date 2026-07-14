@@ -16,9 +16,25 @@ use tauri::Manager;
 const MCP_REGISTRY_FILE: &str = "mcp_servers.yaml";
 const PROBE_TIMEOUT: Duration = Duration::from_secs(30);
 
-fn registry_path(app: &tauri::AppHandle) -> AppResult<PathBuf> {
+pub(crate) fn registry_path(app: &tauri::AppHandle) -> AppResult<PathBuf> {
     let dir = app.path().app_config_dir().map_err(|e| AppError::Io(e.to_string()))?;
     Ok(dir.join(MCP_REGISTRY_FILE))
+}
+
+/// Connect to a configured server (env from keychain, roots as trailing args).
+/// Shared by `probe` and the Bring-Your-Own run.
+pub(crate) async fn connect_configured(cfg: &McpServerConfig) -> AppResult<McpClient> {
+    let envs = env_pairs(cfg);
+    let args = spawn_args(cfg)?;
+    McpClient::connect_with_env(
+        &cfg.command,
+        &args,
+        &envs,
+        "quantamind",
+        env!("CARGO_PKG_VERSION"),
+        PROBE_TIMEOUT,
+    )
+    .await
 }
 
 /// (name, value) env pairs for a server, values pulled from the keychain.
@@ -124,17 +140,7 @@ pub struct McpProbe {
 pub async fn probe_mcp_server(app: tauri::AppHandle, id: String) -> Result<McpProbe, AppError> {
     let reg = load(&registry_path(&app)?)?;
     let cfg = reg.get(&id).ok_or_else(|| AppError::NotFound(format!("mcp server '{id}'")))?.clone();
-    let envs = env_pairs(&cfg);
-    let args = spawn_args(&cfg)?;
-    let client = McpClient::connect_with_env(
-        &cfg.command,
-        &args,
-        &envs,
-        "quantamind",
-        env!("CARGO_PKG_VERSION"),
-        PROBE_TIMEOUT,
-    )
-    .await?;
+    let client = connect_configured(&cfg).await?;
     let result = client.list_tools().await.map(|tools| McpProbe {
         server_name: client.server_info().name.clone(),
         protocol_version: client.protocol_version().to_string(),

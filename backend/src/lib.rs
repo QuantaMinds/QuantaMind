@@ -227,6 +227,8 @@ pub fn run() {
             commands::mcp::mcp_cmd::set_mcp_server_enabled,
             commands::mcp::mcp_cmd::set_mcp_server_secret,
             commands::mcp::mcp_cmd::probe_mcp_server,
+            commands::mcp::run_cmd::run_mcp_world_task,
+            commands::mcp::run_cmd::run_mcp_byo,
             commands::system::onboarding::scaffold_onboarding_workspace,
             commands::system::os_info::os_platform,
         ])

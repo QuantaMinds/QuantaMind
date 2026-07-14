@@ -34,12 +34,28 @@ list area. tsc clean; EvalManager + mcp suites 45 tests green.
   Save writes one `McpTaskDef` (pure `toTaskDef`, unit-tested) into the store; it
   appears in the sidebar. BYO mode greys the builder out (attribution-only note).
 
-## Remaining slices (honest status)
-- **Run pipeline**: a Tauri command (`run_mcp_task`) + a real multi-turn
-  `BackendDriver` (chat_with_tools + transcript) so "Run" scores a built task —
-  the backend `score_fs_task`/`score_db_task` exist but aren't yet exposed to IPC.
-- **Live trace** (Screen 5) + **Verdict** (Screen 6): stream per-run steps
-  (call + schema check + oracle) and show pass^k + attribution + replay/export.
+## Run pipeline ✅ (both tracks, real model from the global header)
+- Backend: `inference/mcp/agent::BackendDriver` (real multi-turn driver —
+  `bridge::chat` + transcript), `inference/mcp/bridge::chat` (dispatch), and
+  `commands/mcp/run_cmd.rs`:
+  - `run_mcp_world_task(model, backend, task, max_steps)` → seeds a fresh world
+    per run, drives the model, grades the end-state → `{k, passes, ready,
+    pass_rate, failures}` (pass^k). Endpoint resolved from `backend`.
+  - `run_mcp_byo(model, backend, server_id, instruction)` → one model turn vs the
+    user's server → schema-valid rate + model|config|server attribution + per-call
+    trace.
+- Frontend: `shared/ipc/mcp/run.ts`; the center shows **Model: X · backend (from
+  the global header)** — no separate picker. `McpWorldRunner` (task list → Run →
+  READY/CONDITIONAL/NOT READY verdict + failures) and `McpByoRunner` (instruction
+  + server → schema-valid rate + attribution). Quick-add chips for the reference
+  filesystem/sqlite servers.
+- **Live-verified**: the real `BackendDriver` scored a world task end-to-end —
+  Ollama `qwen3.5:9b` created `result.txt` across fresh worlds → **2/2 ready**.
+
+## Remaining (honest status)
+- **Streaming live trace** (Screen 5): the verdict is returned at the end; a
+  per-turn stream (call + schema check + oracle, changing per-run path) would need
+  a progress-event channel like the eval batch emitter.
 - **Upload JSON / template** doors (same `McpTaskDef` format the builder emits).
 
 The backend for all of the above is complete and live-verified (P1–P11); this

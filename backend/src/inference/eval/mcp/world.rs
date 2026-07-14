@@ -88,6 +88,8 @@ pub struct McpWorld {
     /// this (not the raw scratch path) so they match the server's allowed dir —
     /// on macOS `/var/folders/…` canonicalizes to `/private/var/folders/…`.
     root: PathBuf,
+    /// RAII guard: kept solely so its `Drop` removes the temp dir on teardown.
+    #[allow(dead_code)]
     scratch: ScratchDir,
 }
 

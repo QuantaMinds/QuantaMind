@@ -1,17 +1,18 @@
 import { McpConnectPanel } from "./McpConnectPanel";
 import { McpTaskBuilder } from "./McpTaskBuilder";
+import { McpWorldRunner } from "./McpWorldRunner";
+import { McpByoRunner } from "./McpByoRunner";
 import { useMcpStore } from "../state/mcpStore";
+import { useSelectedModelStore } from "../../../shared/state/selectedModelStore";
 
-/// The CENTER of the Test page when the MCP source is active. Screen 2 —
-/// "Connect your MCP tools": before any task, the user points at real servers
-/// and sees "N tools discovered" (the doctor/preflight moment). The sidebar
-/// meanwhile shows only the list of saved MCP tasks.
-///
-/// Later slices add Screen 3 (the three doors: build / upload / template),
-/// Screen 4 (the guided world/oracle builder that writes the one task JSON),
-/// Screen 5 (the live trace), and Screen 6 (verdict + attribution).
+/// The CENTER of the Test page when MCP is the active source. Connect real
+/// servers, then either build+run a controlled-world task (full pass/fail
+/// scoring) or run against your own live tools (format + attribution only). The
+/// model/endpoint come from the global header — no separate picker.
 export function McpCenterPanel() {
   const mode = useMcpStore((s) => s.mode);
+  const model = useSelectedModelStore((s) => s.selectedModels[0]);
+
   return (
     <div className="flex flex-col gap-4 min-w-0">
       <div>
@@ -20,18 +21,30 @@ export function McpCenterPanel() {
           Point at real MCP servers, then build a task in a controlled world (full pass/fail scoring)
           or run against your own live tools (format + attribution only).
         </p>
+        <div className="mt-1 text-xs">
+          Model:{" "}
+          {model ? (
+            <b>{model.name}</b>
+          ) : (
+            <span className="text-amber-400">none selected</span>
+          )}
+          {model && <span className="opacity-60"> · {model.backend}</span>}
+          <span className="opacity-50"> (from the global header)</span>
+        </div>
       </div>
+
       <McpConnectPanel />
+
       {mode === "controlled" ? (
-        <div className="flex flex-col gap-2">
-          <h3 className="text-base font-semibold">Define the test</h3>
-          <McpTaskBuilder />
-        </div>
+        <>
+          <div className="flex flex-col gap-2">
+            <h3 className="text-base font-semibold">Define the test</h3>
+            <McpTaskBuilder />
+          </div>
+          <McpWorldRunner />
+        </>
       ) : (
-        <div className="rounded-lg border border-amber-600/40 bg-amber-500/5 p-3 text-sm">
-          Bring-Your-Own live: we check tool-call correctness + whose-fault attribution. For full
-          pass/fail task scoring, switch to a QuantaMind controlled world.
-        </div>
+        <McpByoRunner />
       )}
     </div>
   );

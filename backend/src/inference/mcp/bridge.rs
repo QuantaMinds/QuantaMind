@@ -131,6 +131,31 @@ pub async fn execute_call(client: &McpClient, call: &NativeToolCall) -> AppResul
     Ok(ToolExecution { tool: tool.to_string(), is_error: result.is_error(), text: flatten_content(&result) })
 }
 
+/// Call the model for ONE turn on the given backend, returning the shared
+/// `ChatResult`. The single dispatch point — Ollama `/api/chat`, llama.cpp `/v1`;
+/// MLX/remote have no native tool wire here.
+pub async fn chat(
+    backend: BackendKind,
+    endpoint: &str,
+    model: &str,
+    system: &str,
+    user: &str,
+    tools: &Value,
+    options: Option<GenerateOptions>,
+) -> AppResult<ChatResult> {
+    match backend {
+        BackendKind::Ollama => {
+            ollama_chat::chat_with_tools(endpoint, model, system, user, tools, options, Some(false)).await
+        }
+        BackendKind::LlamaCpp => {
+            llama_chat::chat_with_tools(endpoint, model, system, user, tools, options).await
+        }
+        other => Err(AppError::Inference(format!(
+            "{other:?} has no native tool-calling for MCP — select Ollama or llama.cpp"
+        ))),
+    }
+}
+
 /// The outcome of a single-turn bridge exchange.
 pub struct SingleTurn {
     pub content: String,
@@ -153,19 +178,7 @@ pub async fn single_turn(
     client: &McpClient,
 ) -> AppResult<SingleTurn> {
     let native = mcp_tools_to_native(tools);
-    let result: ChatResult = match backend {
-        // `Some(false)` disables a thinking-by-default model's scratchpad so it
-        // doesn't burn the turn before emitting a call.
-        BackendKind::Ollama => {
-            ollama_chat::chat_with_tools(endpoint, model, system, user, &native, options, Some(false)).await?
-        }
-        BackendKind::LlamaCpp => {
-            llama_chat::chat_with_tools(endpoint, model, system, user, &native, options).await?
-        }
-        other => {
-            return Err(AppError::Inference(format!("{other:?} has no native tool-calling API for MCP")))
-        }
-    };
+    let result = chat(backend, endpoint, model, system, user, &native, options).await?;
     let calls = select_calls(&result.tool_calls, &result.content);
     let mut executions = Vec::with_capacity(calls.len());
     for c in &calls {

@@ -93,10 +93,20 @@ function ServerList({
   );
 }
 
+const TEMPLATES: Record<string, { id: string; command: string; args: string }> = {
+  filesystem: { id: "filesystem", command: "npx", args: "-y @modelcontextprotocol/server-filesystem" },
+  sqlite: { id: "sqlite", command: "npx", args: "-y mcp-server-sqlite-npx" },
+};
+
 function AddServerForm({ onAdd }: { onAdd: (cfg: McpServerConfig) => void }) {
   const [id, setId] = useState("");
   const [command, setCommand] = useState("npx");
   const [args, setArgs] = useState("");
+  const fill = (t: keyof typeof TEMPLATES) => {
+    setId(TEMPLATES[t].id);
+    setCommand(TEMPLATES[t].command);
+    setArgs(TEMPLATES[t].args);
+  };
 
   const submit = () => {
     if (!id.trim() || !command.trim()) return;
@@ -114,6 +124,10 @@ function AddServerForm({ onAdd }: { onAdd: (cfg: McpServerConfig) => void }) {
 
   return (
     <div className="flex flex-wrap items-center gap-2">
+      <span className="text-xs opacity-60">quick add:</span>
+      <button type="button" className="rounded border border-neutral-600 px-2 py-0.5 text-xs" onClick={() => fill("filesystem")}>filesystem</button>
+      <button type="button" className="rounded border border-neutral-600 px-2 py-0.5 text-xs" onClick={() => fill("sqlite")}>sqlite</button>
+      <div className="w-full" />
       <input className="rounded border border-neutral-600 bg-transparent px-2 py-1 text-sm" placeholder="id" value={id} onChange={(e) => setId(e.target.value)} />
       <input className="rounded border border-neutral-600 bg-transparent px-2 py-1 text-sm" placeholder="command" value={command} onChange={(e) => setCommand(e.target.value)} />
       <input className="flex-1 rounded border border-neutral-600 bg-transparent px-2 py-1 text-sm" placeholder="args (space-separated)" value={args} onChange={(e) => setArgs(e.target.value)} />
