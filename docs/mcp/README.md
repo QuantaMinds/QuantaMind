@@ -9,6 +9,9 @@ results). One markdown file per phase; steps are `## Step N` sections inside.
 modeled from real captured bytes** in `fixtures/mcp/`, not from the spec —
 MCP servers routinely violate their own spec, so the wire is the source of truth.
 
+**Validation is two-track** (grade the world, not the words) — see
+[methodology.md](methodology.md) for the τ-bench / pass^k / attribution grounding.
+
 ## Method / discipline
 
 Every step follows the mandatory loop (`CLAUDE.md` rules 1, 2, 6): spec in this
