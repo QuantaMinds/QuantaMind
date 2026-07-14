@@ -35,7 +35,9 @@ pub fn sandbox_for(task: &ToolTask) -> AppResult<(DeterministicSandbox, AgenticC
     let known = |name: &str| task.tools.iter().any(|t| t.name == name);
     let checkpoints: &[_] = match &spec.end_state {
         EndStateRule::RequireSequence(cps) | EndStateRule::RequireAll(cps) => cps,
-        EndStateRule::ExpectAbstainingText | EndStateRule::RequireEndState(_) => &[],
+        EndStateRule::ExpectAbstainingText
+        | EndStateRule::RequireEndState(_)
+        | EndStateRule::RequireWorldOracle => &[],
     };
     for cp in checkpoints {
         if !known(&cp.tool) {
@@ -84,7 +86,13 @@ pub fn sandbox_for(task: &ToolTask) -> AppResult<(DeterministicSandbox, AgenticC
             EnvKind::WebCorpus => sandbox.with_web_corpus(CorpusState::from_world_state(ws)),
             EnvKind::WebUi => sandbox.with_web_ui(WebUiSpec::from_world_state(ws)),
             EnvKind::Entity => sandbox.with_world_state(ws.clone()).with_entity_tools(spec.entity_tools.clone()),
+            // Mcp carries its world in `spec.mcp`, not `world_state` — handled below.
+            EnvKind::Mcp => sandbox,
         };
+    }
+    // MCP: a real controlled world (seed + oracle). The runner spawns the server per run.
+    if let Some(mcp) = &spec.mcp {
+        sandbox = sandbox.with_mcp(mcp.clone());
     }
     // Recognized real-tool whitelist (getters + actions) so a decoy/hallucinated call in
     // WorldState mode gets the corrective nudge, not a misleading `{"ok":true}`. v1
@@ -162,6 +170,7 @@ mod tests {
             tools: vec![tool("get_balance"), tool("transfer")],
             expected: Default::default(),
             agentic: Some(AgenticSpec {
+                mcp: None,
                 mocks: vec![MockResponse {
                     call: Call { name: "get_balance".into(), args: json!({ "id": "A" }) },
                     response: "{}".into(),

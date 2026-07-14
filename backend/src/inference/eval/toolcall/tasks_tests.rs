@@ -91,6 +91,7 @@ fn agentic_valid() -> ToolTask {
         tools: vec![tool("get_balance"), tool("transfer")],
         expected: Default::default(), // unused by the agentic path
         agentic: Some(AgenticSpec {
+            mcp: None,
             mocks: vec![MockResponse {
                 call: Call { name: "get_balance".into(), args: json!({ "id": "A" }) },
                 response: "{}".into(),

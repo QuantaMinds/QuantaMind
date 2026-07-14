@@ -1,6 +1,8 @@
 use crate::errors::{AppError, AppResult};
 use crate::inference::eval::agentic::context::{tool_result_line, Conversation};
-use crate::inference::eval::agentic::env_view::{env_view, EnvView};
+use crate::inference::eval::agentic::env_view::{env_view, mcp_fsview, EnvView};
+use crate::inference::eval::mcp::world::McpWorld;
+use crate::inference::ollama::ollama_chat::NativeToolCall;
 use crate::inference::eval::agentic::scoring::endstate;
 use crate::inference::eval::agentic::model_turn::ModelTurn;
 use crate::inference::eval::agentic::scoring::report::{AgenticReport, FailureKind, RunOutcome, SafetyAttribution};
@@ -124,7 +126,9 @@ fn reported_in_prose(end_state: &EndStateRule, satisfied: &[bool], next_cp: usiz
     let unsatisfied: Vec<&TaskCheckpoint> = match end_state {
         EndStateRule::RequireAll(cps) => cps.iter().zip(satisfied).filter(|(_, &s)| !s).map(|(c, _)| c).collect(),
         EndStateRule::RequireSequence(cps) => cps.get(next_cp..).unwrap_or(&[]).iter().collect(),
-        EndStateRule::ExpectAbstainingText | EndStateRule::RequireEndState(_) => return false,
+        EndStateRule::ExpectAbstainingText
+        | EndStateRule::RequireEndState(_)
+        | EndStateRule::RequireWorldOracle => return false,
     };
     matches!(unsatisfied.as_slice(), [cp] if reporter_text(cp).is_some_and(|p| text_matches(p, raw)))
 }
@@ -399,9 +403,10 @@ async fn run_steps<M: ModelTurn>(
     // RequireAll task otherwise yields → HallucinatedCompletion).
     let terminal = match &sandbox.end_state {
         EndStateRule::ExpectAbstainingText => TerminalGuidance::PlainTextOk,
-        EndStateRule::RequireAll(_) | EndStateRule::RequireSequence(_) | EndStateRule::RequireEndState(_) => {
-            TerminalGuidance::MustUseTools
-        }
+        EndStateRule::RequireAll(_)
+        | EndStateRule::RequireSequence(_)
+        | EndStateRule::RequireEndState(_)
+        | EndStateRule::RequireWorldOracle => TerminalGuidance::MustUseTools,
     };
     let system = agentic_system(&sandbox.tools, terminal);
     let mut convo = Conversation::new(sandbox.initial_prompt.clone());
@@ -417,6 +422,13 @@ async fn run_steps<M: ModelTurn>(
     // holds only the immutable spec). Mirrors the per-run `SandboxState` lifecycle.
     let mut web_ui = match &sandbox.responder {
         ResponderKind::WebUi(spec) => Some(WebUiState::from_spec(spec)),
+        _ => None,
+    };
+    // Per-run REAL MCP world (mirrors `web_ui`): a fresh sandbox + live server, spawned async
+    // here (run_steps is async), executed against below, graded at end, torn down on drop. A
+    // spawn failure surfaces as a per-run infra error (skipped by the pass^k loop, not a fail).
+    let mcp_world = match &sandbox.responder {
+        ResponderKind::Mcp(spec) => Some(McpWorld::from_spec(spec).await?),
         _ => None,
     };
     let mut recoveries = 0u8; // schema corrections used this run (Driver D)
@@ -588,7 +600,10 @@ async fn run_steps<M: ModelTurn>(
                 }
                 // Yielded (no call) without completing the required checkpoints / reaching the
                 // target UI state.
-                EndStateRule::RequireSequence(_) | EndStateRule::RequireAll(_) | EndStateRule::RequireEndState(_) => {
+                EndStateRule::RequireSequence(_)
+                | EndStateRule::RequireAll(_)
+                | EndStateRule::RequireEndState(_)
+                | EndStateRule::RequireWorldOracle => {
                     // A length-cut turn with zero parseable calls (after the retry) — checked FIRST
                     // so it's never laundered into Malformed/Hallucinated/EmptyOutput. Classify WHICH
                     // limit fired, with usage numbers, so the UI distinguishes a SETTING
@@ -753,15 +768,24 @@ async fn run_steps<M: ModelTurn>(
             // completion check below reads the post-action state). For a stateless env nothing is
             // applied here — `respond` is deferred to 3f so a terminal checkpoint call is never
             // called (and so never mis-counted as an unknown tool).
-            let applied = match web_ui.as_mut() {
-                Some(st) => Some(match st.apply(call, &sandbox.recognized_tools) {
+            let applied = if let Some(st) = web_ui.as_mut() {
+                Some(match st.apply(call, &sandbox.recognized_tools) {
                     Some(r) => (StepKind::ToolCall, r),
                     None => {
                         unknown_tools += 1;
                         (StepKind::UnknownTool, UNKNOWN_TOOL.to_string())
                     }
-                }),
-                None => None,
+                })
+            } else if let Some(w) = mcp_world.as_ref() {
+                // Execute the call against the REAL MCP server (async — fine here). An in-band
+                // tool error or a protocol error is surfaced as text; the oracle grades the world.
+                let nc: NativeToolCall = call.clone().into();
+                Some(match w.execute(&nc).await {
+                    Ok(exec) => (StepKind::ToolCall, exec.text),
+                    Err(e) => (StepKind::ToolError, e.friendly()),
+                })
+            } else {
+                None
             };
             // 3d — end-state progress: ordered (RequireSequence) / unordered consume-once
             // (RequireAll, wildcard-aware) / exact final-state match (RequireEndState, read AFTER
@@ -783,14 +807,24 @@ async fn run_steps<M: ModelTurn>(
                     satisfied.iter().all(|&s| s)
                 }
                 EndStateRule::RequireEndState(target) => web_ui.as_ref().is_some_and(|st| st.matches(target)),
+                // MCP: grade the real world's end-state against the spec's oracle (the answer key
+                // we authored) — read AFTER the execute above, like RequireEndState reads web_ui.
+                EndStateRule::RequireWorldOracle => match (&mcp_world, &sandbox.responder) {
+                    (Some(w), ResponderKind::Mcp(spec)) => w.grade(spec),
+                    _ => false,
+                },
                 EndStateRule::ExpectAbstainingText => unreachable!("handled above"),
             };
             // The per-call replay snapshot: for the stateful web-UI it must reflect the
             // POST-action state, so rebuild it from the mutated `web_ui`; otherwise the
             // pre-computed `turn_env`.
-            let call_env = match web_ui.as_ref() {
-                Some(st) => EnvView::WebUi(st.view(&calls)),
-                None => turn_env.clone(),
+            let call_env = if let Some(st) = web_ui.as_ref() {
+                EnvView::WebUi(st.view(&calls))
+            } else if let Some(w) = mcp_world.as_ref() {
+                // Snapshot the REAL sandbox dir post-action so the trace replays the actual world.
+                EnvView::FileSystem(mcp_fsview(w.root(), &calls))
+            } else {
+                turn_env.clone()
             };
             // 3e — terminal success the instant the end-state is reached (race-free: the forbidden
             // pre-scan already cleared the turn, so a `must_not_call` can't be laundered here).

@@ -67,6 +67,8 @@ pub fn instantiate(base: &ToolTask, seed: u64) -> ToolTask {
             *target = remap_value(target, &map);
         }
         EndStateRule::ExpectAbstainingText => {}
+        // MCP world grading carries no in-spec checkpoints/targets to remap.
+        EndStateRule::RequireWorldOracle => {}
     }
     for m in &mut spec.must_not_call {
         if let MustNotCall::Pair { args, .. } = m {

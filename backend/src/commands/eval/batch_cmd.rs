@@ -632,6 +632,7 @@ mod override_tests {
             expected: Default::default(),
             agentic: Some(AgenticSpec {
                 mocks: vec![],
+                mcp: None,
                 end_state: EndStateRule::ExpectAbstainingText,
                 environment: Default::default(),
                 tier,

@@ -195,6 +195,7 @@ pub fn transpile_task(
 
     let spec = AgenticSpec {
         mocks: vec![],
+        mcp: None,
         end_state,
         environment,
         tier,

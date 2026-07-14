@@ -6,18 +6,41 @@
 //! approval gate (that's for the user's REAL tools — see P9).
 
 use crate::errors::{AppError, AppResult};
+use crate::inference::eval::mcp::oracle_db::DbOracle;
+use crate::inference::eval::mcp::oracle_fs::FsOracle;
 use crate::inference::mcp::bridge::{execute_call, ToolExecution};
 use crate::inference::ollama::ollama_chat::NativeToolCall;
 use crate::mcp::client::McpClient;
 use crate::persistence::fs_guard;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+/// The immutable spec for an MCP controlled world carried on an agentic task
+/// (`ResponderKind::Mcp`): the seed we author + the oracle answer key. Serde so it
+/// rides inside a `ToolTask`'s `AgenticSpec`. The server is spawned per-run in the
+/// runner (like `WebUiSpec`), never here.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum McpSpec {
+    Fs { seed: FsSeed, oracle: FsOracle },
+    Db { seed: DbSeed, oracle: DbOracle },
+}
+
+/// The agentic runner speaks `Call{name,args}`; the MCP client speaks
+/// `NativeToolCall{name,args}` — a field-for-field convert.
+impl From<crate::inference::eval::toolcall::tasks::Call> for NativeToolCall {
+    fn from(c: crate::inference::eval::toolcall::tasks::Call) -> Self {
+        NativeToolCall { name: c.name, args: c.args }
+    }
+}
+
 /// The starting files of a filesystem world (relative path → contents). We author
 /// this, so we know the correct end-state — that's the answer key.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct FsSeed {
+    #[serde(default)]
     pub files: BTreeMap<String, String>,
 }
 
@@ -29,8 +52,9 @@ impl FsSeed {
 
 /// A sqlite world seed: SQL run once (via the `sqlite3` CLI) to build the
 /// initial DB. We author it, so the correct end-state is knowable.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct DbSeed {
+    #[serde(default)]
     pub setup_sql: String,
 }
 
@@ -141,6 +165,24 @@ impl McpWorld {
     /// The sqlite DB path inside the sandbox (for a `sqlite` world).
     pub fn db_path(&self) -> PathBuf {
         self.root.join("data.db")
+    }
+
+    /// Build the world for an [`McpSpec`] (fs or db) — the per-run construction the
+    /// agentic runner calls (async, like `WebUiState::from_spec` but real).
+    pub async fn from_spec(spec: &McpSpec) -> AppResult<McpWorld> {
+        match spec {
+            McpSpec::Fs { seed, .. } => McpWorld::filesystem(seed).await,
+            McpSpec::Db { seed, .. } => McpWorld::sqlite(seed).await,
+        }
+    }
+
+    /// Grade the world's end-state against the spec's oracle (τ-bench: the world,
+    /// not the words). This is what `EndStateRule::RequireWorldOracle` reads.
+    pub fn grade(&self, spec: &McpSpec) -> bool {
+        match spec {
+            McpSpec::Fs { oracle, .. } => oracle.grade(self.root()).passed,
+            McpSpec::Db { oracle, .. } => oracle.grade(&self.db_path()).passed,
+        }
     }
 
     pub fn client(&self) -> &McpClient {
