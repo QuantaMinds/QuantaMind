@@ -24,15 +24,23 @@ JSON`** (MCP first). `dataSource` gains an `mcp` value via an `mcpMode` override
 (MCP has no collection selection); choosing MCP renders `McpConnectPanel` in the
 list area. tsc clean; EvalManager + mcp suites 45 tests green.
 
+## Layout + builder ✅
+- **Center = connect + build** (`McpCenterPanel`): "Connect your MCP tools" +
+  the guided builder; **Sidebar = the MCP task list** only. Shared via
+  `mcpStore.active`.
+- **Guided builder** (`McpTaskBuilder`, Screen 4): three sections that *are* the
+  task JSON — Task (instruction) · Set up the world (fs seed files / db setup SQL)
+  · Check the result (present/absent/content, or DB query assertions) · pass^k.
+  Save writes one `McpTaskDef` (pure `toTaskDef`, unit-tested) into the store; it
+  appears in the sidebar. BYO mode greys the builder out (attribution-only note).
+
 ## Remaining slices (honest status)
-- **Guided builder** (Screen 4): the Task / Set-up-the-world / Check-the-result
-  form that *writes the one task JSON* (`world` + `oracle`), with the world-builder
-  greyed out for BYO servers.
-- **Upload JSON / template** doors (the same format the builder emits).
-- **Live trace** (Screen 5): per-run changing temp path, each call + schema check
-  + oracle verdict.
-- **Verdict** (Screen 6): pass^k + three-way attribution + replay + export.
-- (Mount into the COLLECTIONS selector — **done**, see above.)
+- **Run pipeline**: a Tauri command (`run_mcp_task`) + a real multi-turn
+  `BackendDriver` (chat_with_tools + transcript) so "Run" scores a built task —
+  the backend `score_fs_task`/`score_db_task` exist but aren't yet exposed to IPC.
+- **Live trace** (Screen 5) + **Verdict** (Screen 6): stream per-run steps
+  (call + schema check + oracle) and show pass^k + attribution + replay/export.
+- **Upload JSON / template** doors (same `McpTaskDef` format the builder emits).
 
 The backend for all of the above is complete and live-verified (P1–P11); this
 slice is the tested UI foundation it plugs into.

@@ -15,6 +15,30 @@ import {
 /// offer a task-completion verdict there.
 export type TrackMode = "controlled" | "byo";
 
+/// The one task-file format the guided builder and the JSON-upload path both
+/// produce: an instruction + a `world` (seed) + an `oracle` (answer key). Mirrors
+/// the backend `McpTask` (inference/eval/mcp) — `mock_result` is gone; we grade
+/// the real world.
+export interface McpFsSeedFile {
+  path: string;
+  content: string;
+}
+export interface McpTaskDef {
+  name: string;
+  instruction: string;
+  world:
+    | { type: "fs"; files: McpFsSeedFile[] }
+    | { type: "db"; setupSql: string };
+  oracle: {
+    assert_present?: string[];
+    assert_absent?: string[];
+    assert_content?: [string, string][];
+    assert_eq?: [string, string][];
+    assert_contains?: [string, string][];
+  };
+  k: number;
+}
+
 /// The connect/probe state per server — the "N tools discovered" doctor moment,
 /// with a LOUD error surfaced right here (not three minutes into a run).
 export interface ProbeState {
@@ -31,7 +55,11 @@ interface McpState {
   probes: Record<string, ProbeState>;
   mode: TrackMode;
   loading: boolean;
+  /// Tasks built in the UI (they appear in the sidebar list).
+  tasks: McpTaskDef[];
   setActive: (active: boolean) => void;
+  addTask: (task: McpTaskDef) => void;
+  removeTask: (name: string) => void;
   refresh: () => Promise<void>;
   addServer: (cfg: McpServerConfig) => Promise<void>;
   removeServer: (id: string) => Promise<void>;
@@ -46,8 +74,11 @@ export const useMcpStore = create<McpState>((set, get) => ({
   probes: {},
   mode: "controlled",
   loading: false,
+  tasks: [],
 
   setActive: (active) => set({ active }),
+  addTask: (task) => set((s) => ({ tasks: [...s.tasks.filter((t) => t.name !== task.name), task] })),
+  removeTask: (name) => set((s) => ({ tasks: s.tasks.filter((t) => t.name !== name) })),
 
   refresh: async () => {
     set({ loading: true });

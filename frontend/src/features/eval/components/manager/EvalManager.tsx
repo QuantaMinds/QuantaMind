@@ -133,6 +133,8 @@ export function EvalManager({
   // while this sidebar shows only the MCP task list.
   const mcpActive = useMcpStore((s) => s.active);
   const setMcpActive = useMcpStore((s) => s.setActive);
+  const mcpTasks = useMcpStore((s) => s.tasks);
+  const removeMcpTask = useMcpStore((s) => s.removeTask);
   // Determine dataSource: MCP overrides; otherwise derive from the active selection.
   const dataSource: "mcp" | "builtin" | "custom" = mcpActive
     ? "mcp"
@@ -616,11 +618,23 @@ export function EvalManager({
               {/* Collection list (tasks nest under the selected one via collectionRow) */}
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {dataSource === "mcp" ? (
-                  // Sidebar under MCP: only the list of saved MCP.json tasks.
-                  // (The connect/build flow lives in the center — EvalPage.)
-                  <div style={{ color: "#64748b", fontSize: 12, fontStyle: "italic", paddingLeft: 8 }}>
-                    No MCP tasks yet — connect a server and build one in the center.
-                  </div>
+                  // Sidebar under MCP: only the list of saved MCP tasks. The
+                  // connect/build flow lives in the center (EvalPage).
+                  mcpTasks.length === 0 ? (
+                    <div style={{ color: "#64748b", fontSize: 12, fontStyle: "italic", paddingLeft: 8 }}>
+                      No MCP tasks yet — connect a server and build one in the center.
+                    </div>
+                  ) : (
+                    mcpTasks.map((t) => (
+                      <div key={t.name} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, paddingLeft: 8 }}>
+                        <span>🌍 {t.name}</span>
+                        <span style={{ color: "#64748b", fontSize: 11 }}>{t.world.type} · pass^{t.k}</span>
+                        <button type="button" style={{ marginLeft: "auto", fontSize: 11, color: "#94a3b8" }} onClick={() => removeMcpTask(t.name)}>
+                          remove
+                        </button>
+                      </div>
+                    ))
+                  )
                 ) : dataSource === "custom" ? (
                   collections.length === 0 ? (
                     <div style={{ color: "#64748b", fontSize: 12, fontStyle: "italic", paddingLeft: 8 }}>
