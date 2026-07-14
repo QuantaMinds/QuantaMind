@@ -1,6 +1,5 @@
 import { McpConnectPanel } from "./McpConnectPanel";
 import { McpTaskBuilder } from "./McpTaskBuilder";
-import { McpWorldRunner } from "./McpWorldRunner";
 import { McpByoRunner } from "./McpByoRunner";
 import { useMcpStore } from "../state/mcpStore";
 import { useSelectedModelStore } from "../../../shared/state/selectedModelStore";
@@ -40,8 +39,11 @@ export function McpCenterPanel() {
           <div className="flex flex-col gap-2">
             <h3 className="text-base font-semibold">Define the test</h3>
             <McpTaskBuilder />
+            <p className="text-xs opacity-60">
+              Saved tasks appear in the sidebar. Hit <b>Run Batch</b> to score them through the same
+              pipeline as Built-In — Simulator, Evaluator, Model Result, Audit, and Agent Report.
+            </p>
           </div>
-          <McpWorldRunner />
         </>
       ) : (
         <McpByoRunner />

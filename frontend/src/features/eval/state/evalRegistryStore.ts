@@ -71,6 +71,9 @@ interface EvalRegistryStore {
   /// The edit rides to `run_batch_eval` verbatim; editing a bundled collection makes its run
   /// content-differ from pristine → `collection_hash` = None → unpublishable (fork-on-edit).
   editWorldState: (taskId: string, worldState: unknown) => void;
+  /// Make MCP-converted `ToolTask`s the active set so the Simulator/Evaluator iterate them
+  /// and Run Batch runs them — under an `mcp:*` id (a report key, NOT a saved collection).
+  setMcpTasks: (id: string, tasks: ToolTask[]) => void;
 }
 
 /// Holds the available datasets (read-only built-in presets + user collections)
@@ -101,6 +104,7 @@ export const useEvalRegistryStore = create<EvalRegistryStore>((set, get) => ({
     if (get().selected === id) void get().select(DEFAULT_PRESET);
   },
   startNew: () => set({ selected: NEW_COLLECTION, tasks: [], edited: false }),
+  setMcpTasks: (id, tasks) => set({ selected: id, tasks, edited: false }),
   select: async (v) => {
     const tasks = get().isPreset(v) ? await getBuiltinCollection(v) : await loadCustomCollection(v);
     set({ selected: v, tasks, edited: false });

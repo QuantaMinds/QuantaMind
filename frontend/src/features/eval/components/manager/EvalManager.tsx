@@ -26,6 +26,7 @@ import { WorldStateEditor } from "../../env/WorldStateEditor";
 import { KebabMenu } from "./KebabMenu";
 import { Spinner } from "../../../../shared/ui/Spinner";
 import { useMcpStore } from "../../../mcp/state/mcpStore";
+import { buildMcpTasks } from "../../../../shared/ipc/mcp/run";
 
 interface EvalManagerProps {
   model: string;
@@ -135,6 +136,7 @@ export function EvalManager({
   const setMcpActive = useMcpStore((s) => s.setActive);
   const mcpTasks = useMcpStore((s) => s.tasks);
   const removeMcpTask = useMcpStore((s) => s.removeTask);
+  const setMcpTasks = useEvalRegistryStore((s) => s.setMcpTasks);
   // Determine dataSource: MCP overrides; otherwise derive from the active selection.
   const dataSource: "mcp" | "builtin" | "custom" = mcpActive
     ? "mcp"
@@ -297,7 +299,25 @@ export function EvalManager({
       await stop();
       return;
     }
-    if (tasks.length === 0) {
+    // MCP source: convert the built MCP tasks → ToolTask[] and run them through the SAME
+    // pipeline (Simulator/Evaluator/Result/Audit/Agent Report). No saved collection — the
+    // `mcp:*` id is only a report key.
+    let runId = selected;
+    let runTasks = tasks;
+    if (mcpActive) {
+      if (mcpTasks.length === 0) {
+        setError("Build at least one MCP task before running.");
+        return;
+      }
+      try {
+        runTasks = await buildMcpTasks(mcpTasks);
+      } catch (e) {
+        setError(formatIpcError(e));
+        return;
+      }
+      runId = "mcp:local";
+      setMcpTasks(runId, runTasks); // surface to the registry so the scoreboard iterates them
+    } else if (tasks.length === 0) {
       setError("Add at least one task to the collection before running.");
       return;
     }
@@ -320,9 +340,9 @@ export function EvalManager({
     // always sent — it wins over the tier-derived value in the backend. The tier still
     // flows (for spec.tier); decoys flow only when the checkbox is on.
     void run(
-      selected,
+      runId,
       [{ model: picked.name, backend: picked.backend }],
-      tasks,
+      runTasks,
       k,
       maxSteps,
       nativeFc,
@@ -333,7 +353,8 @@ export function EvalManager({
     );
   };
 
-  const runDisabled = !model || tasks.length === 0 || (!nativeFc && !promptBased);
+  const runDisabled =
+    !model || (mcpActive ? mcpTasks.length === 0 : tasks.length === 0) || (!nativeFc && !promptBased);
   // Explain WHY RUN BATCH is disabled instead of leaving a greyed-out dead button.
   const runDisabledReason =
     !model && tasks.length === 0

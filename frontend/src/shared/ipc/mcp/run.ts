@@ -1,14 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { BackendKind } from "../models/storage";
 import type { McpTaskDef } from "../../../features/mcp/state/mcpStore";
+import type { ToolTask } from "../eval/registry";
 
-/// Track B — controlled-world pass^k verdict.
-export interface McpRunResult {
-  k: number;
-  passes: number;
-  ready: boolean;
-  pass_rate: number;
-  failures: string[][];
+/// Convert built MCP tasks (world + oracle) into eval `ToolTask`s so they run
+/// through the SAME batch pipeline as Built-In collections (Stage 2/3).
+export async function buildMcpTasks(tasks: McpTaskDef[]): Promise<ToolTask[]> {
+  return (await invoke("build_mcp_tasks", { tasks })) as ToolTask[];
 }
 
 /// Track A — one call graded for schema + fault attribution.
@@ -28,17 +26,6 @@ export interface ByoRunResult {
   successes: number;
   calls: ByoCall[];
   assistant_text: string;
-}
-
-/// Score a controlled-world task k times against a real model (graded on the
-/// world end-state). The model + backend come from the global header selection.
-export async function runMcpWorldTask(
-  model: string,
-  backend: BackendKind,
-  task: McpTaskDef,
-  maxSteps?: number,
-): Promise<McpRunResult> {
-  return (await invoke("run_mcp_world_task", { model, backend, task, maxSteps })) as McpRunResult;
 }
 
 /// Run the model once against the user's OWN server: schema-valid rate + whose-
