@@ -34,6 +34,10 @@ const FALLBACK_MAX_TOKENS = 65536; // slider ceiling when the model context wind
 /// collection selection so it never depends on the EvalManager editor.
 export function ContextCliffPanel() {
   const { presets, collections, init } = useEvalRegistryStore();
+  // MCP tasks (converted to ToolTask[]) live in the registry under an `mcp:*` id after a Run
+  // Batch — the cliff panel can probe them directly (scored as agentic well-formedness at depth).
+  const registryTasks = useEvalRegistryStore((s) => s.tasks);
+  const registrySelected = useEvalRegistryStore((s) => s.selected);
   const [active, setActive] = useState(DEFAULT_PRESET);
   const [tasks, setTasks] = useState<ToolTask[]>([]);
   const [maxTokens, setMaxTokens] = useState(16384);
@@ -112,6 +116,11 @@ export function ContextCliffPanel() {
     let cancelled = false;
     (async () => {
       try {
+        // MCP: the tasks aren't a saved collection — use the registry's current set.
+        if (active.startsWith("mcp:")) {
+          if (!cancelled) setTasks(registryTasks);
+          return;
+        }
         const t = isPreset(active) ? await getBuiltinCollection(active) : await loadCustomCollection(active);
         if (!cancelled) setTasks(t);
       } catch {
@@ -120,7 +129,7 @@ export function ContextCliffPanel() {
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, presets]);
+  }, [active, presets, registryTasks]);
 
   // Cap the padding ladder at the model's real context window when known
   // (Ollama /api/show dims); fall back to a fixed ceiling otherwise.
@@ -267,6 +276,9 @@ export function ContextCliffPanel() {
           >
             <PresetOptGroups presets={presets} />
             {collections.map((c) => <option key={c} value={c}>{c}</option>)}
+            {registrySelected.startsWith("mcp:") && (
+              <option value={registrySelected}>MCP (current tasks)</option>
+            )}
           </select>
         </div>
         <div className="flex items-center gap-2">
