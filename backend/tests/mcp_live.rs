@@ -351,3 +351,51 @@ async fn passk_scoring_catches_fake_done() {
     assert_eq!(fake.passes, 0, "fake-done never actually creates the file");
     assert!(fake.failures[0].iter().any(|f| f.contains("result.txt")));
 }
+
+/// Phase 11: a second world type (sqlite) proves the world/oracle abstraction
+/// generalizes. Seed users(Bob); task "insert Alice"; grade the DB end-state via
+/// an independent SELECT. Honest → ready; fake-done → not ready.
+#[tokio::test]
+#[ignore = "spawns a real sqlite MCP server via npx"]
+async fn db_world_scores_insert_and_catches_fake_done() {
+    use quantamind_lib::inference::eval::mcp::oracle_db::DbOracle;
+    use quantamind_lib::inference::eval::mcp::score::{score_db_task, DbTask};
+    use quantamind_lib::inference::eval::mcp::world::DbSeed;
+    use quantamind_lib::inference::mcp::agent::{TurnDriver, TurnOutput};
+
+    struct InsertAlice { fired: bool }
+    impl TurnDriver for InsertAlice {
+        async fn turn(&mut self, _t: &str) -> quantamind_lib::errors::AppResult<TurnOutput> {
+            if self.fired { return Ok(TurnOutput { text: "done".into(), calls: vec![] }); }
+            self.fired = true;
+            Ok(TurnOutput { text: String::new(), calls: vec![NativeToolCall {
+                name: "write_query".into(),
+                args: serde_json::json!({ "query": "INSERT INTO users(name) VALUES('Alice')" }),
+            }] })
+        }
+    }
+    struct FakeDone;
+    impl TurnDriver for FakeDone {
+        async fn turn(&mut self, _t: &str) -> quantamind_lib::errors::AppResult<TurnOutput> {
+            Ok(TurnOutput { text: "Done! Added Alice.".into(), calls: vec![] })
+        }
+    }
+
+    let task = DbTask {
+        instruction: "Insert a row for Alice into users".into(),
+        seed: DbSeed::new("CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT); INSERT INTO users(name) VALUES('Bob');"),
+        oracle: DbOracle {
+            assert_eq: vec![("SELECT COUNT(*) FROM users WHERE name='Alice';".into(), "1".into())],
+            ..Default::default()
+        },
+    };
+
+    let honest = score_db_task(&task, |_db, _tools| InsertAlice { fired: false }, 3, 4).await.unwrap();
+    eprintln!("db honest: {}/{} ready={}", honest.passes, honest.k, honest.is_ready());
+    assert!(honest.is_ready(), "a model that really inserts Alice is ready (k/k)");
+
+    let fake = score_db_task(&task, |_db, _tools| FakeDone, 3, 4).await.unwrap();
+    eprintln!("db fake-done: {}/{} ready={} failures[0]={:?}", fake.passes, fake.k, fake.is_ready(), fake.failures.first());
+    assert!(!fake.is_ready(), "a model that only SAYS it inserted is NOT ready");
+    assert_eq!(fake.passes, 0);
+}

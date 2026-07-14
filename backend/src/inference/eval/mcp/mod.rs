@@ -4,6 +4,7 @@
 //! tear it down. Because we built the seed, the answer key is knowable even
 //! though the tool is real (the τ-bench discipline; see `docs/mcp/methodology.md`).
 
+pub mod oracle_db;
 pub mod oracle_fs;
 pub mod score;
 pub mod world;

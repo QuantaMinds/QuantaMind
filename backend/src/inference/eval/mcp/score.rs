@@ -4,8 +4,9 @@
 //! is not readiness). This is the τ-bench discipline on an MCP world.
 
 use crate::errors::AppResult;
+use crate::inference::eval::mcp::oracle_db::DbOracle;
 use crate::inference::eval::mcp::oracle_fs::FsOracle;
-use crate::inference::eval::mcp::world::{FsSeed, McpWorld};
+use crate::inference::eval::mcp::world::{DbSeed, FsSeed, McpWorld};
 use crate::inference::mcp::agent::{run_loop, McpExecutor, TurnDriver};
 use crate::inference::mcp::gate::Decision;
 use crate::mcp::wire::Tool;
@@ -69,6 +70,44 @@ where
         let _ = run_loop(&mut driver, &exec, |_| Decision::Approve, max_steps).await?;
         // Grade the WORLD, not the model's words.
         let verdict = task.oracle.grade(world.root());
+        if verdict.passed {
+            passes += 1;
+        } else {
+            failures.push(verdict.failures);
+        }
+    }
+    Ok(McpScore { k, passes, failures })
+}
+
+/// A Track B sqlite task: seed a DB, give an instruction, grade the DB end-state.
+pub struct DbTask {
+    pub instruction: String,
+    pub seed: DbSeed,
+    pub oracle: DbOracle,
+}
+
+/// pass^k over a sqlite world — same discipline as [`score_fs_task`], grading the
+/// DB end-state via the oracle's independent SELECTs.
+pub async fn score_db_task<D, MK>(
+    task: &DbTask,
+    mut make_driver: MK,
+    k: usize,
+    max_steps: usize,
+) -> AppResult<McpScore>
+where
+    D: TurnDriver,
+    MK: FnMut(&Path, &[Tool]) -> D,
+{
+    let mut passes = 0;
+    let mut failures = Vec::new();
+    for _ in 0..k {
+        let world = McpWorld::sqlite(&task.seed).await?;
+        let db = world.db_path();
+        let tools = world.client().list_tools().await?.tools;
+        let mut driver = make_driver(&db, &tools);
+        let exec = McpExecutor::new(world.client());
+        let _ = run_loop(&mut driver, &exec, |_| Decision::Approve, max_steps).await?;
+        let verdict = task.oracle.grade(&db);
         if verdict.passed {
             passes += 1;
         } else {

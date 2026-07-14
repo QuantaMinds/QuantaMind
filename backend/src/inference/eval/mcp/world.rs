@@ -27,6 +27,19 @@ impl FsSeed {
     }
 }
 
+/// A sqlite world seed: SQL run once (via the `sqlite3` CLI) to build the
+/// initial DB. We author it, so the correct end-state is knowable.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct DbSeed {
+    pub setup_sql: String,
+}
+
+impl DbSeed {
+    pub fn new(sql: &str) -> DbSeed {
+        DbSeed { setup_sql: sql.to_string() }
+    }
+}
+
 /// Write a seed into `root`, confining every path (rejects `..`/absolute, and
 /// `fs_guard` resolves symlinks) so a malformed seed can't escape the sandbox.
 pub fn write_seed(root: &Path, seed: &FsSeed) -> AppResult<()> {
@@ -96,10 +109,36 @@ impl McpWorld {
         Ok(McpWorld { client, root, scratch })
     }
 
+    /// Seed a fresh temp sqlite DB and start `mcp-server-sqlite-npx` pointed at
+    /// it — the second world type, proving the world/oracle abstraction
+    /// generalizes. A new call = a new world seeded from the same SQL.
+    pub async fn sqlite(seed: &DbSeed) -> AppResult<McpWorld> {
+        use crate::inference::eval::mcp::oracle_db::run_sqlite;
+        let scratch = ScratchDir::new()?;
+        let root = scratch.path.canonicalize().map_err(|e| AppError::Io(e.to_string()))?;
+        let db = root.join("data.db");
+        // Non-empty seed builds the schema+rows; empty still materializes the file.
+        let sql = if seed.setup_sql.trim().is_empty() { "SELECT 1;" } else { &seed.setup_sql };
+        run_sqlite(&db, sql)?;
+        let client = McpClient::connect(
+            "npx",
+            &["-y".into(), "mcp-server-sqlite-npx".into(), db.to_string_lossy().into_owned()],
+            "quantamind-world",
+            env!("CARGO_PKG_VERSION"),
+        )
+        .await?;
+        Ok(McpWorld { client, root, scratch })
+    }
+
     /// The canonical sandbox root (the per-run temp dir). Build tool-call paths
     /// from this so they match the server's allowed directory.
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// The sqlite DB path inside the sandbox (for a `sqlite` world).
+    pub fn db_path(&self) -> PathBuf {
+        self.root.join("data.db")
     }
 
     pub fn client(&self) -> &McpClient {
