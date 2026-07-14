@@ -29,6 +29,8 @@ const STDERR_TAIL_CAP: usize = 20;
 /// non-JSON blob into an error).
 const GARBAGE_QUOTE_CAP: usize = 200;
 pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+/// Grace window between a group SIGTERM and the hard SIGKILL on teardown.
+const GRACEFUL_WAIT: Duration = Duration::from_millis(1500);
 
 type Pending = Arc<Mutex<HashMap<RequestId, oneshot::Sender<Response>>>>;
 type Garbage = Arc<Mutex<Option<String>>>;
@@ -47,8 +49,21 @@ impl McpTransport {
     /// Spawn `program args…` as an MCP server over stdio.
     pub fn spawn(program: &str, args: &[String]) -> AppResult<McpTransport> {
         use crate::os::{EngineHost, Host};
-        let mut cmd = Host::command(program);
-        cmd.args(args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        let (prog, args) = resolve_spawn(program, args);
+        let mut cmd = Host::command(&prog);
+        cmd.args(&args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+
+        // Unix: make the child its OWN process-group leader (pgid == child pid)
+        // via the SAFE stdlib API — so teardown kills the whole group and never
+        // orphans a reparented `node` / forked worker. `apply_spawn_flags` is a
+        // no-op on Unix, so this is where Unix group isolation happens; on
+        // Windows the group comes from CREATE_NEW_PROCESS_GROUP in those flags.
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            cmd.process_group(0);
+        }
+
         let mut child = cmd.spawn().map_err(|e| AppError::Io(redact_path(&e.to_string())))?;
 
         let stdin = child.stdin.take().ok_or_else(|| AppError::Internal("mcp: no stdin".into()))?;
@@ -141,17 +156,32 @@ impl McpTransport {
         self.write_line(&serde_json::to_string(&note)?)
     }
 
-    /// Best-effort terminate. P3 replaces this with graceful group-stop +
-    /// readiness-aware reaping.
+    /// Terminate the server and its whole process group: graceful group-stop,
+    /// a grace window, then a hard group-kill, then reap the `Child`.
+    /// Idempotent — killing an already-exited child is a no-op.
     pub fn kill(&self) {
-        use crate::os::{EngineHost, Host};
         let mut child = self.child.lock_recover();
         if matches!(child.try_wait(), Ok(Some(_))) {
             return;
         }
-        let _ = Host::graceful_stop(child.id());
+        let pid = child.id();
+        graceful_stop_group(pid);
+        let start = std::time::Instant::now();
+        while start.elapsed() < GRACEFUL_WAIT {
+            if matches!(child.try_wait(), Ok(Some(_))) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        hard_stop_group(pid);
         let _ = child.kill();
         let _ = child.wait();
+    }
+
+    /// The server process id (== its process-group id on Unix). For diagnostics
+    /// and lifecycle tests.
+    pub fn pid(&self) -> u32 {
+        self.child.lock_recover().id()
     }
 
     /// Redacted last-N stderr lines (for diagnostics / tests).
@@ -195,6 +225,60 @@ impl Drop for McpTransport {
         // A std::process::Child detaches (does not kill) on drop; kill so a
         // dropped transport can't leak a live server.
         self.kill();
+    }
+}
+
+/// Resolve the program/args to actually spawn. On Windows a bare (extension-less,
+/// non-absolute) program like `npx`/`npm`/`node` is a `.cmd` shim that bare
+/// `CreateProcess` can't launch (`ENOENT`), so wrap it via `cmd /c …`. Elsewhere
+/// (and for absolute/extensioned programs) launch directly.
+fn resolve_spawn(program: &str, args: &[String]) -> (String, Vec<String>) {
+    #[cfg(windows)]
+    {
+        let p = std::path::Path::new(program);
+        if !p.is_absolute() && p.extension().is_none() {
+            let mut wrapped = vec!["/c".to_string(), program.to_string()];
+            wrapped.extend_from_slice(args);
+            return ("cmd".to_string(), wrapped);
+        }
+    }
+    (program.to_string(), args.to_vec())
+}
+
+/// Ask the child's whole process group to exit cleanly. Unix: `kill -TERM
+/// -<pgid>` (negative pid = the group). Windows: `CTRL_BREAK` to the group via
+/// `Host` (the child leads a group from `apply_spawn_flags`).
+fn graceful_stop_group(pid: u32) {
+    #[cfg(unix)]
+    {
+        let _ = std::process::Command::new("kill")
+            .arg("-TERM")
+            .arg(format!("-{pid}"))
+            .stderr(Stdio::null())
+            .status();
+    }
+    #[cfg(not(unix))]
+    {
+        use crate::os::{EngineHost, Host};
+        let _ = Host::graceful_stop(pid);
+    }
+}
+
+/// Hard-kill the child's whole process group. Unix: `kill -KILL -<pgid>`.
+/// Windows: no-op here — the direct-child `TerminateProcess` (`child.kill()`)
+/// after this call is the hard stop, matching the existing sidecar pattern.
+fn hard_stop_group(pid: u32) {
+    #[cfg(unix)]
+    {
+        let _ = std::process::Command::new("kill")
+            .arg("-KILL")
+            .arg(format!("-{pid}"))
+            .stderr(Stdio::null())
+            .status();
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
     }
 }
 

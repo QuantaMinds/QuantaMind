@@ -3,12 +3,13 @@
 //! prompts, and sampling are out of scope.
 
 use crate::errors::{AppError, AppResult};
-use crate::mcp::transport::McpTransport;
+use crate::mcp::transport::{McpTransport, DEFAULT_REQUEST_TIMEOUT};
 use crate::mcp::wire::{
     method, CallToolParams, CallToolResult, ClientCapabilities, Implementation, InitializeParams,
     InitializeResult, ServerCapabilities, ToolsListResult, LATEST_PROTOCOL_VERSION,
 };
 use serde_json::{json, Value};
+use std::time::Duration;
 
 /// A connected, initialized MCP session.
 pub struct McpClient {
@@ -19,21 +20,38 @@ pub struct McpClient {
 }
 
 impl McpClient {
-    /// Spawn `program args…` and complete `initialize → initialized`.
+    /// Spawn `program args…` and complete `initialize → initialized` with the
+    /// default init window.
     pub async fn connect(
         program: &str,
         args: &[String],
         client_name: &str,
         client_version: &str,
     ) -> AppResult<McpClient> {
+        Self::connect_with_timeout(program, args, client_name, client_version, DEFAULT_REQUEST_TIMEOUT)
+            .await
+    }
+
+    /// Like [`connect`], but the caller sets how long to wait for `initialize` —
+    /// MCP has no `/health`, so readiness IS the initialize response. A slow
+    /// server gets a generous window; a timeout fails loud (never silently drops
+    /// the server's tools).
+    pub async fn connect_with_timeout(
+        program: &str,
+        args: &[String],
+        client_name: &str,
+        client_version: &str,
+        init_timeout: Duration,
+    ) -> AppResult<McpClient> {
         let transport = McpTransport::spawn(program, args)?;
-        Self::handshake(transport, client_name, client_version).await
+        Self::handshake(transport, client_name, client_version, init_timeout).await
     }
 
     async fn handshake(
         transport: McpTransport,
         name: &str,
         version: &str,
+        init_timeout: Duration,
     ) -> AppResult<McpClient> {
         let params = InitializeParams {
             protocol_version: LATEST_PROTOCOL_VERSION.to_string(),
@@ -44,7 +62,9 @@ impl McpClient {
                 title: None,
             },
         };
-        let resp = transport.request(method::INITIALIZE, Some(serde_json::to_value(&params)?)).await?;
+        let resp = transport
+            .request_timeout(method::INITIALIZE, Some(serde_json::to_value(&params)?), init_timeout)
+            .await?;
         let result: InitializeResult = match resp.result() {
             Ok(v) => serde_json::from_value(v.clone())
                 .map_err(|e| AppError::Inference(format!("bad initialize result: {e}")))?,

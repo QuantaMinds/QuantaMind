@@ -73,3 +73,32 @@ fn a_response_with_an_unknown_id_is_dropped_without_panic() {
     route_line(r#"{"jsonrpc":"2.0","id":99,"result":{}}"#, &pending, &garbage);
     assert!(garbage.lock_recover().is_none());
 }
+
+/// True if any process is still in the given process group.
+#[cfg(unix)]
+fn group_has_members(pgid: u32) -> bool {
+    std::process::Command::new("pgrep")
+        .arg("-g")
+        .arg(pgid.to_string())
+        .output()
+        .map(|o| o.status.success() && !o.stdout.is_empty())
+        .unwrap_or(false)
+}
+
+/// The Phase 3 orphan proof: a server that forks a distinct grandchild must be
+/// killed as a WHOLE GROUP, not just the direct child. `sh -c 'sleep 300 & wait'`
+/// forces `sleep` into a separate pid inside the child's group — the exact shape
+/// `npx`→`node` creates. After `kill()`, nothing may remain in the group.
+#[cfg(unix)]
+#[test]
+fn kill_terminates_the_whole_process_group_leaving_no_orphan() {
+    let t = super::McpTransport::spawn("sh", &["-c".into(), "sleep 300 & wait".into()])
+        .expect("spawn sh");
+    let pgid = t.pid(); // process_group(0) → the child leads its own group
+    std::thread::sleep(std::time::Duration::from_millis(300)); // let `sleep` spawn
+
+    assert!(group_has_members(pgid), "group should be populated before kill");
+    t.kill();
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    assert!(!group_has_members(pgid), "no process may survive in the group after kill");
+}
