@@ -28,7 +28,7 @@ commit. A green test never substitutes for inspecting real output.
 | 2 — stdio transport + minimal client | [phase-2-transport.md](phase-2-transport.md) | ✅ done |
 | 3 — Lifecycle hardening | [phase-3-lifecycle.md](phase-3-lifecycle.md) | ✅ done |
 | 4 — Registry, secrets, security gate | [phase-4-registry-security.md](phase-4-registry-security.md) | ✅ done |
-| 5 — Bridge MCP tools → local model | phase-5-model-bridge.md | pending |
+| 5 — Bridge MCP tools → local model | [phase-5-model-bridge.md](phase-5-model-bridge.md) | ✅ done (Ollama + llama.cpp live) |
 | 6 — Production multi-turn agent loop | phase-6-agent-loop.md | pending |
 | 7 — UI | phase-7-ui.md | pending |
 

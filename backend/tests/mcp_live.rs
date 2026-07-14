@@ -6,9 +6,23 @@
 //! Asserts a real round-trip and BOTH error channels against
 //! @modelcontextprotocol/server-filesystem.
 
+use quantamind_lib::inference::backend::backend_kind::BackendKind;
+use quantamind_lib::inference::mcp::bridge::{execute_call, single_turn};
+use quantamind_lib::inference::ollama::ollama_chat::NativeToolCall;
 use quantamind_lib::mcp::client::McpClient;
 use quantamind_lib::mcp::wire::ContentBlock;
 use quantamind_lib::persistence::mcp::servers::McpServerConfig;
+
+async fn connect_fs(dir: &str) -> McpClient {
+    McpClient::connect(
+        "npx",
+        &["-y".into(), "@modelcontextprotocol/server-filesystem".into(), dir.into()],
+        "quantamind-live-test",
+        "0.0.0",
+    )
+    .await
+    .expect("connect fs server")
+}
 
 fn fs_server_args(dir: &str) -> [String; 3] {
     ["-y".into(), "@modelcontextprotocol/server-filesystem".into(), dir.into()]
@@ -86,5 +100,88 @@ async fn probe_flow_from_a_registry_config_lists_tools() {
             .expect("connect from config");
     let tools = client.list_tools().await.expect("tools/list");
     assert_eq!(tools.tools.len(), 14, "filesystem server exposes 14 tools");
+    client.kill();
+}
+
+/// Phase 5: the bridge executes a (stubbed) model call against a REAL server —
+/// proves execute+inject without needing an LLM. Both channels checked.
+#[tokio::test]
+#[ignore = "spawns a real MCP server via npx"]
+async fn bridge_executes_a_stubbed_call_against_the_real_server() {
+    let tmp = tempfile::tempdir().unwrap();
+    let notes = tmp.path().join("notes.txt");
+    std::fs::write(&notes, "hello from the live test\n").unwrap();
+    let client = connect_fs(tmp.path().to_str().unwrap()).await;
+
+    // A well-formed call → real content, not an error.
+    let call = NativeToolCall {
+        name: "read_text_file".into(),
+        args: serde_json::json!({ "path": notes.to_str().unwrap() }),
+    };
+    let exec = execute_call(&client, &call).await.unwrap();
+    assert!(!exec.is_error);
+    assert!(exec.text.contains("hello from the live test"), "got: {}", exec.text);
+
+    // A sandbox escape → in-band tool error surfaced on the execution.
+    let escape = NativeToolCall {
+        name: "read_text_file".into(),
+        args: serde_json::json!({ "path": "/etc/hosts" }),
+    };
+    let exec = execute_call(&client, &escape).await.unwrap();
+    assert!(exec.is_error, "outside-sandbox read is an error");
+    client.kill();
+}
+
+/// Phase 5: a REAL model drives a REAL tool. Gated on env so the default
+/// `--ignored` run doesn't require a model:
+///   MCP_MODEL=qwen2.5:1.5b [MCP_BACKEND=ollama|llama] [MCP_ENDPOINT=...] \
+///     cargo test --test mcp_live -- --ignored bridge_single_turn --nocapture
+#[tokio::test]
+#[ignore = "requires a running Ollama/llama-server model"]
+async fn bridge_single_turn_reads_a_file_via_a_real_model() {
+    let Ok(model) = std::env::var("MCP_MODEL") else {
+        eprintln!("SKIP: set MCP_MODEL to run the real-model bridge test");
+        return;
+    };
+    let backend = match std::env::var("MCP_BACKEND").as_deref() {
+        Ok("llama") => BackendKind::LlamaCpp,
+        _ => BackendKind::Ollama,
+    };
+    let endpoint = std::env::var("MCP_ENDPOINT")
+        .unwrap_or_else(|_| "http://localhost:11434".to_string());
+
+    let tmp = tempfile::tempdir().unwrap();
+    let notes = tmp.path().join("notes.txt");
+    std::fs::write(&notes, "the secret word is bluebird\n").unwrap();
+    let client = connect_fs(tmp.path().to_str().unwrap()).await;
+    let tools = client.list_tools().await.unwrap().tools;
+
+    let user = format!(
+        "Use the read_text_file tool to read the file at {} and report its contents.",
+        notes.to_str().unwrap()
+    );
+    let turn = single_turn(
+        backend,
+        &endpoint,
+        &model,
+        "You are a tool-using assistant. Call the provided tools to answer.",
+        &user,
+        &tools,
+        None,
+        &client,
+    )
+    .await
+    .expect("single_turn");
+
+    eprintln!(
+        "[{backend:?} {model}] calls={:?} warning={:?}",
+        turn.calls.iter().map(|c| &c.name).collect::<Vec<_>>(),
+        turn.warning
+    );
+    assert!(
+        turn.executions.iter().any(|e| e.text.contains("bluebird")),
+        "the model should have read the file via read_text_file; calls={:?}",
+        turn.calls
+    );
     client.kill();
 }
