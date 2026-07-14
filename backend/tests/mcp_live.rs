@@ -239,3 +239,59 @@ async fn each_world_run_gets_a_distinct_fresh_dir() {
     let w2 = McpWorld::filesystem(&seed).await.unwrap();
     assert_ne!(w1.root(), w2.root(), "each run is a fresh, distinct world");
 }
+
+/// Phase 9: the approval gate GOVERNS real side effects. A scripted "model"
+/// attempts one write against a real seeded world: DENY → world unchanged;
+/// APPROVE → world mutated for real. Deterministic (no model nondeterminism).
+#[tokio::test]
+#[ignore = "spawns a real MCP server via npx"]
+async fn approval_gate_controls_real_world_mutation() {
+    use quantamind_lib::inference::eval::mcp::world::{FsSeed, McpWorld};
+    use quantamind_lib::inference::mcp::agent::{run_loop, McpExecutor, TurnDriver, TurnOutput};
+    use quantamind_lib::inference::mcp::gate::Decision;
+
+    // A one-shot "model": turn 1 asks to write `path`, then yields.
+    struct OneShotWrite {
+        path: String,
+        fired: bool,
+    }
+    impl TurnDriver for OneShotWrite {
+        async fn turn(&mut self, _transcript: &str) -> quantamind_lib::errors::AppResult<TurnOutput> {
+            if self.fired {
+                return Ok(TurnOutput { text: "done".into(), calls: vec![] });
+            }
+            self.fired = true;
+            Ok(TurnOutput {
+                text: String::new(),
+                calls: vec![NativeToolCall {
+                    name: "write_file".into(),
+                    args: serde_json::json!({ "path": self.path, "content": "written" }),
+                }],
+            })
+        }
+    }
+
+    let seed = FsSeed::from([("keep.txt", "keep")]);
+
+    // DENY → the write never reaches the server; the world is unchanged.
+    {
+        let world = McpWorld::filesystem(&seed).await.unwrap();
+        let target = world.root().join("new.txt");
+        let mut driver = OneShotWrite { path: target.to_str().unwrap().into(), fired: false };
+        let exec = McpExecutor::new(world.client());
+        let out = run_loop(&mut driver, &exec, |_| Decision::Deny, 3).await.unwrap();
+        assert_eq!(out.denied, 1);
+        assert!(!target.exists(), "DENY → the real world is NOT mutated");
+    }
+
+    // APPROVE → the write executes; the file really exists.
+    {
+        let world = McpWorld::filesystem(&seed).await.unwrap();
+        let target = world.root().join("new.txt");
+        let mut driver = OneShotWrite { path: target.to_str().unwrap().into(), fired: false };
+        let exec = McpExecutor::new(world.client());
+        let _ = run_loop(&mut driver, &exec, |_| Decision::Approve, 3).await.unwrap();
+        assert!(target.exists(), "APPROVE → the real world IS mutated");
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "written");
+    }
+}

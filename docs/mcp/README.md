@@ -32,7 +32,7 @@ commit. A green test never substitutes for inspecting real output.
 | 6 — Schema oracle (Track A) | [phase-6-schema-oracle.md](phase-6-schema-oracle.md) | ✅ done |
 | 7 — Error + attribution oracle (Track A) | [phase-7-attribution.md](phase-7-attribution.md) | ✅ done — **Track A complete** |
 | 8 — World-manager (Track B) | [phase-8-world-manager.md](phase-8-world-manager.md) | ✅ done |
-| 9 — Multi-turn execution + approval gate | phase-9-agent-approval.md | pending |
+| 9 — Multi-turn execution + approval gate | [phase-9-agent-approval.md](phase-9-agent-approval.md) | ✅ done |
 | 10 — FS-state oracle + scoring integration (Track B) | phase-10-fs-oracle-scoring.md | pending |
 | 11 — DB world (sqlite) | phase-11-db-world.md | pending |
 | 12 — Test-page MCP path (UI) | phase-12-ui.md | pending |
