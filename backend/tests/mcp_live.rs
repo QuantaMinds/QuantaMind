@@ -8,6 +8,7 @@
 
 use quantamind_lib::mcp::client::McpClient;
 use quantamind_lib::mcp::wire::ContentBlock;
+use quantamind_lib::persistence::mcp::servers::McpServerConfig;
 
 fn fs_server_args(dir: &str) -> [String; 3] {
     ["-y".into(), "@modelcontextprotocol/server-filesystem".into(), dir.into()]
@@ -56,5 +57,34 @@ async fn filesystem_server_round_trip_and_both_error_channels() {
     let unknown = client.transport().request("this/does_not_exist", None).await.unwrap();
     assert_eq!(unknown.result().unwrap_err().code, -32601, "unknown method is -32601");
 
+    client.kill();
+}
+
+/// Phase 4: the `probe` flow — build spawn args from a registry config (args +
+/// canonical roots), connect with env, list tools. Exercises `canonical_roots`
+/// and `connect_with_env` against the real server.
+#[tokio::test]
+#[ignore = "spawns a real MCP server via npx"]
+async fn probe_flow_from_a_registry_config_lists_tools() {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::write(tmp.path().join("a.txt"), "x").unwrap();
+    let cfg = McpServerConfig {
+        id: "filesystem".into(),
+        command: "npx".into(),
+        args: vec!["-y".into(), "@modelcontextprotocol/server-filesystem".into()],
+        env_keys: vec![],
+        roots: vec![tmp.path().to_str().unwrap().into()],
+        enabled: true,
+    };
+    let mut args = cfg.args.clone();
+    for r in cfg.canonical_roots().unwrap() {
+        args.push(r.to_string_lossy().into_owned());
+    }
+    let client =
+        McpClient::connect_with_env(&cfg.command, &args, &[], "quantamind", "0.0.0", std::time::Duration::from_secs(30))
+            .await
+            .expect("connect from config");
+    let tools = client.list_tools().await.expect("tools/list");
+    assert_eq!(tools.tools.len(), 14, "filesystem server exposes 14 tools");
     client.kill();
 }

@@ -48,10 +48,23 @@ pub struct McpTransport {
 impl McpTransport {
     /// Spawn `program args…` as an MCP server over stdio.
     pub fn spawn(program: &str, args: &[String]) -> AppResult<McpTransport> {
+        Self::spawn_with_env(program, args, &[])
+    }
+
+    /// Like [`spawn`], but sets extra environment variables on the child (their
+    /// values come from the keychain, never from disk).
+    pub fn spawn_with_env(
+        program: &str,
+        args: &[String],
+        envs: &[(String, String)],
+    ) -> AppResult<McpTransport> {
         use crate::os::{EngineHost, Host};
         let (prog, args) = resolve_spawn(program, args);
         let mut cmd = Host::command(&prog);
         cmd.args(&args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        for (k, v) in envs {
+            cmd.env(k, v);
+        }
 
         // Unix: make the child its OWN process-group leader (pgid == child pid)
         // via the SAFE stdlib API — so teardown kills the whole group and never

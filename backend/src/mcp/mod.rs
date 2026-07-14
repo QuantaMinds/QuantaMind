@@ -10,5 +10,6 @@
 //! not the spec (see `docs/mcp/`).
 
 pub mod client;
+pub mod registry;
 pub mod transport;
 pub mod wire;

@@ -54,4 +54,20 @@ allowed base rejected; a mutated tool description trips the hash-pin.
   dirs / rejects nonexistent+file). Full lib suite **1161 green**. Placed in a
   `persistence/mcp/` subfolder so the pre-existing `persistence/` folder-taxonomy
   debt (already 15, unrelated to this work) is not worsened.
-- Steps 2–5: pending.
+- **Step 2 — DONE.** `secrets::mcp_env_key(id, var)` — keychain key for a server
+  env-var value; only the name is persisted. Transport gained `spawn_with_env` /
+  client `connect_with_env` to pass those values to the child.
+- **Step 3 — DONE.** `mcp/registry.rs`: `namespaced`/`split_namespaced` (anti
+  shadowing), `tool_fingerprint` + `PinnedTools::diff` → `ToolDiff::is_rug_pull`
+  (changed/removed = rug-pull, added ≠ alarm), `McpServerState` managed set +
+  Drop-kill. 3 tests.
+- **Step 4 — DONE.** `reap_managed` now kills `McpServerState` (+ noted the
+  `sweep_orphans` marker gap → P3 group-kill is the real defense).
+- **Step 5 — DONE.** `commands/mcp/mcp_cmd.rs`: `list/upsert/remove/
+  set_enabled/set_secret/probe`; registered in `lib.rs` + `.manage`. Frontend
+  `shared/ipc/mcp/servers.ts` wrappers (zod). `probe` = connect + list → "N tools
+  discovered".
+
+**Verified:** 28 MCP unit tests; full lib suite **1164 green**; frontend tsc
+clean; **live** — the probe flow (registry config → `canonical_roots` →
+`connect_with_env` → `tools/list`) lists all 14 real tools, no orphan.

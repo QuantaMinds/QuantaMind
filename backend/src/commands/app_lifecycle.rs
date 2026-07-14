@@ -34,6 +34,10 @@ pub(crate) fn reap_managed(app: &AppHandle) {
     if let Err(e) = app.state::<OllamaStartState>().stop_owned() {
         eprintln!("ollama reap failed: {e}");
     }
+    // Live MCP server connections. NOTE: MCP servers are npx/node without our
+    // `.quantamind` marker, so `sweep_orphans` can't match them — killing our
+    // tracked PIDs here (+ the P3 process-group kill) is their crash-safety.
+    app.state::<crate::mcp::registry::McpServerState>().kill_all();
 }
 
 /// Reap spawned servers when the app quits gracefully (Cmd+Q → `ExitRequested`).

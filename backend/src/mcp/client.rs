@@ -47,6 +47,20 @@ impl McpClient {
         Self::handshake(transport, client_name, client_version, init_timeout).await
     }
 
+    /// Like [`connect_with_timeout`], but with extra child env vars (server auth
+    /// tokens sourced from the keychain).
+    pub async fn connect_with_env(
+        program: &str,
+        args: &[String],
+        envs: &[(String, String)],
+        client_name: &str,
+        client_version: &str,
+        init_timeout: Duration,
+    ) -> AppResult<McpClient> {
+        let transport = McpTransport::spawn_with_env(program, args, envs)?;
+        Self::handshake(transport, client_name, client_version, init_timeout).await
+    }
+
     async fn handshake(
         transport: McpTransport,
         name: &str,
