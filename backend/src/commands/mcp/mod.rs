@@ -2,3 +2,4 @@
 
 pub mod mcp_cmd;
 pub mod run_cmd;
+pub mod task_cmd;

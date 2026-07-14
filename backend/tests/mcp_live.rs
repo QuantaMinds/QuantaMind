@@ -449,3 +449,76 @@ async fn run_pipeline_real_model_scores_a_world_task() {
     eprintln!("[run pipeline {model}] {}/{} ready={}", score.passes, score.k, score.is_ready());
     assert!(score.passes >= 1, "a capable model should create the file at least once; got {}/{}", score.passes, score.k);
 }
+
+/// Stages 1+2 END-TO-END: an MCP task converted to a ToolTask, run through the
+/// REAL agentic runner (run_agentic) with a real Ollama model, graded on the real
+/// world's end-state — producing a genuine AgenticReport (the same shape every
+/// eval page consumes). The model discovers its sandbox dir via
+/// list_allowed_directories, then writes the file. Gated on MCP_MODEL.
+#[tokio::test]
+#[ignore = "requires a running Ollama model (set MCP_MODEL)"]
+async fn unified_runner_scores_an_mcp_world_task_end_to_end() {
+    use quantamind_lib::commands::mcp::run_cmd::{McpTaskSpec, OracleSpec, WorldSpec};
+    use quantamind_lib::commands::mcp::task_cmd::to_tooltask;
+    use quantamind_lib::inference::backend::backend_kind::BackendKind;
+    use quantamind_lib::inference::eval::agentic::build::sandbox_for;
+    use quantamind_lib::inference::eval::agentic::model_turn::NativeToolTurn;
+    use quantamind_lib::inference::eval::agentic::runner::run_agentic;
+    use quantamind_lib::inference::eval::toolcall::prompt::TerminalGuidance;
+
+    let Ok(model) = std::env::var("MCP_MODEL") else {
+        eprintln!("SKIP: set MCP_MODEL (e.g. qwen3.5:9b)");
+        return;
+    };
+    let endpoint = std::env::var("MCP_ENDPOINT").unwrap_or_else(|_| "http://localhost:11434".into());
+
+    let spec = McpTaskSpec {
+        name: "create-result".into(),
+        instruction: "create a file named result.txt whose contents are exactly: DONE".into(),
+        world: WorldSpec::Fs { files: vec![] },
+        oracle: OracleSpec {
+            assert_present: vec!["result.txt".into()],
+            assert_content: vec![("result.txt".into(), "DONE".into())],
+            ..Default::default()
+        },
+        k: 2,
+    };
+    let task = to_tooltask(&spec, 0);
+    let (sandbox, mut config) = sandbox_for(&task).unwrap();
+    config.max_steps = 6;
+
+    let turn = NativeToolTurn {
+        backend: BackendKind::Ollama,
+        endpoint,
+        model: model.clone(),
+        tools: task.tools.clone(),
+        options: None,
+        terminal: TerminalGuidance::MustUseTools,
+        max_tokens: 512,
+        is_thinking: false,
+    };
+
+    use quantamind_lib::inference::eval::agentic::step::TrajectoryStep;
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<TrajectoryStep>();
+    let drain = tokio::spawn(async move {
+        let mut kinds = Vec::new();
+        while let Some(step) = rx.recv().await {
+            kinds.push(format!("{:?}", step.kind));
+        }
+        kinds
+    });
+    let report = run_agentic(&turn, &sandbox, config, &tx).await.unwrap();
+    drop(tx);
+    let step_kinds = drain.await.unwrap();
+
+    eprintln!(
+        "[unified {model}] passes={}/{} steps={:?}",
+        report.passes, report.total_runs, step_kinds
+    );
+    assert!(report.total_runs >= 1, "at least one run executed through the real runner");
+    assert!(
+        report.passes >= 1,
+        "the model should complete the world task at least once (discover dir + write); passes={}/{}",
+        report.passes, report.total_runs
+    );
+}
