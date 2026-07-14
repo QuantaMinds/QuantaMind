@@ -1,0 +1,37 @@
+{
+  "transport": "stdio",
+  "request": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+      "protocolVersion": "2025-06-18",
+      "capabilities": {
+        "roots": {
+          "listChanged": true
+        },
+        "sampling": {}
+      },
+      "clientInfo": {
+        "name": "quantamind-fixture-capture",
+        "version": "0.0.0"
+      }
+    }
+  },
+  "response": {
+    "result": {
+      "protocolVersion": "2025-06-18",
+      "capabilities": {
+        "tools": {
+          "listChanged": true
+        }
+      },
+      "serverInfo": {
+        "name": "secure-filesystem-server",
+        "version": "0.2.0"
+      }
+    },
+    "jsonrpc": "2.0",
+    "id": 1
+  }
+}

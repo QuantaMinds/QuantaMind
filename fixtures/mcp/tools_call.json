@@ -1,0 +1,29 @@
+{
+  "transport": "stdio",
+  "request": {
+    "jsonrpc": "2.0",
+    "id": 3,
+    "method": "tools/call",
+    "params": {
+      "name": "read_text_file",
+      "arguments": {
+        "path": "/tmp/mcp-sandbox/notes.txt"
+      }
+    }
+  },
+  "response": {
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello from QuantaMind MCP fixture capture.\nLine two.\n"
+        }
+      ],
+      "structuredContent": {
+        "content": "Hello from QuantaMind MCP fixture capture.\nLine two.\n"
+      }
+    },
+    "jsonrpc": "2.0",
+    "id": 3
+  }
+}

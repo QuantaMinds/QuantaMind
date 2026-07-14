@@ -1,0 +1,17 @@
+{
+  "transport": "stdio",
+  "request": {
+    "jsonrpc": "2.0",
+    "id": 3,
+    "method": "this/does_not_exist",
+    "params": {}
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 3,
+    "error": {
+      "code": -32601,
+      "message": "Method not found"
+    }
+  }
+}
