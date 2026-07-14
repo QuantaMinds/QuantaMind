@@ -29,8 +29,13 @@ commit. A green test never substitutes for inspecting real output.
 | 3 — Lifecycle hardening | [phase-3-lifecycle.md](phase-3-lifecycle.md) | ✅ done |
 | 4 — Registry, secrets, security gate | [phase-4-registry-security.md](phase-4-registry-security.md) | ✅ done |
 | 5 — Bridge MCP tools → local model | [phase-5-model-bridge.md](phase-5-model-bridge.md) | ✅ done (Ollama + llama.cpp live) |
-| 6 — Production multi-turn agent loop | phase-6-agent-loop.md | pending |
-| 7 — UI | phase-7-ui.md | pending |
+| 6 — Schema oracle (Track A) | [phase-6-schema-oracle.md](phase-6-schema-oracle.md) | ✅ done |
+| 7 — Error + attribution oracle (Track A) | [phase-7-attribution.md](phase-7-attribution.md) | ✅ done — **Track A complete** |
+| 8 — World-manager + ResponderKind::Mcp (Track B) | phase-8-world-manager.md | pending |
+| 9 — Multi-turn execution + approval gate | phase-9-agent-approval.md | pending |
+| 10 — FS-state oracle + scoring integration (Track B) | phase-10-fs-oracle-scoring.md | pending |
+| 11 — DB world (sqlite) | phase-11-db-world.md | pending |
+| 12 — Test-page MCP path (UI) | phase-12-ui.md | pending |
 
 ## Key invariants carried through every phase
 

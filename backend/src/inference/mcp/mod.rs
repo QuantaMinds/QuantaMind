@@ -3,3 +3,5 @@
 //! inference uses the client; the client stays free of inference).
 
 pub mod bridge;
+pub mod oracle_error;
+pub mod oracle_schema;
