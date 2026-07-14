@@ -31,7 +31,7 @@ commit. A green test never substitutes for inspecting real output.
 | 5 — Bridge MCP tools → local model | [phase-5-model-bridge.md](phase-5-model-bridge.md) | ✅ done (Ollama + llama.cpp live) |
 | 6 — Schema oracle (Track A) | [phase-6-schema-oracle.md](phase-6-schema-oracle.md) | ✅ done |
 | 7 — Error + attribution oracle (Track A) | [phase-7-attribution.md](phase-7-attribution.md) | ✅ done — **Track A complete** |
-| 8 — World-manager + ResponderKind::Mcp (Track B) | phase-8-world-manager.md | pending |
+| 8 — World-manager (Track B) | [phase-8-world-manager.md](phase-8-world-manager.md) | ✅ done |
 | 9 — Multi-turn execution + approval gate | phase-9-agent-approval.md | pending |
 | 10 — FS-state oracle + scoring integration (Track B) | phase-10-fs-oracle-scoring.md | pending |
 | 11 — DB world (sqlite) | phase-11-db-world.md | pending |

@@ -185,3 +185,57 @@ async fn bridge_single_turn_reads_a_file_via_a_real_model() {
     );
     client.kill();
 }
+
+/// Phase 8: the world-manager end to end — seed a world, drive REAL tools, grade
+/// the WORLD's end-state (not words), tear down. No LLM needed (stubbed calls).
+#[tokio::test]
+#[ignore = "spawns a real MCP server via npx"]
+async fn world_seed_execute_grade_endstate_and_teardown() {
+    use quantamind_lib::inference::eval::mcp::world::{FsSeed, McpWorld};
+
+    let seed = FsSeed::from([("old.log", "stale"), ("keep.txt", "keep me")]);
+    let root_path;
+    {
+        let world = McpWorld::filesystem(&seed).await.expect("seed + scoped server");
+        root_path = world.root().to_path_buf();
+        assert!(root_path.join("old.log").exists(), "seed written");
+
+        // Drive a REAL write via the server, then confirm the WORLD changed.
+        let new_file = root_path.join("added.txt");
+        let ex = world
+            .execute(&NativeToolCall {
+                name: "write_file".into(),
+                args: serde_json::json!({ "path": new_file.to_str().unwrap(), "content": "hello world" }),
+            })
+            .await
+            .expect("write_file");
+        assert!(!ex.is_error, "write should succeed inside the sandbox; got: {}", ex.text);
+        // The oracle grades the WORLD, not the model's claim:
+        assert!(new_file.exists(), "the file actually exists on disk");
+        assert_eq!(std::fs::read_to_string(&new_file).unwrap(), "hello world");
+
+        // Isolation: a write OUTSIDE the sandbox is refused by the scoped server.
+        let escape = world
+            .execute(&NativeToolCall {
+                name: "write_file".into(),
+                args: serde_json::json!({ "path": "/tmp/qm-escape-should-fail.txt", "content": "x" }),
+            })
+            .await
+            .expect("protocol ok");
+        assert!(escape.is_error, "outside-sandbox write is refused");
+    } // world dropped → server killed, dir removed
+
+    assert!(!root_path.exists(), "teardown removed the per-run world");
+}
+
+/// Phase 8: fresh-per-run — two worlds get distinct directories (pass^k needs a
+/// byte-identical reset, i.e. a brand-new world each run).
+#[tokio::test]
+#[ignore = "spawns a real MCP server via npx"]
+async fn each_world_run_gets_a_distinct_fresh_dir() {
+    use quantamind_lib::inference::eval::mcp::world::{FsSeed, McpWorld};
+    let seed = FsSeed::default();
+    let w1 = McpWorld::filesystem(&seed).await.unwrap();
+    let w2 = McpWorld::filesystem(&seed).await.unwrap();
+    assert_ne!(w1.root(), w2.root(), "each run is a fresh, distinct world");
+}
