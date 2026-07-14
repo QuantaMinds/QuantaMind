@@ -14,6 +14,7 @@ pub mod audit;
 pub mod commands;
 pub mod errors;
 pub mod inference;
+pub mod mcp;
 pub mod metrics;
 pub mod os;
 pub mod persistence;
