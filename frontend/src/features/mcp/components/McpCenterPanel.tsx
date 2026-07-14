@@ -53,6 +53,8 @@ export function McpCenterPanel() {
 
   return (
     <div className="flex flex-col gap-4 min-w-0">
+      <TrackSelector track={track} onSelect={setTrack} />
+
       <div>
         <h2 className="text-lg font-semibold">Connect your MCP tools</h2>
         <p className="text-sm opacity-70">Point at real MCP servers, then author a task to run.</p>
@@ -64,8 +66,6 @@ export function McpCenterPanel() {
       </div>
 
       <McpConnectPanel />
-
-      <TrackSelector track={track} onSelect={setTrack} />
 
       <div className="flex flex-col gap-2">
         {track === "controlled" ? (

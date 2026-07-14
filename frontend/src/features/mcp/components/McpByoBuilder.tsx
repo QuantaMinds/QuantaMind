@@ -15,11 +15,14 @@ export function McpByoBuilder() {
   const input = "rounded border border-neutral-600 bg-transparent px-2 py-1 text-sm";
   const sec = "rounded-lg border border-neutral-700 p-3 flex flex-col gap-2";
   const chosen = serverId || servers[0]?.id || "";
-  const canSave = name.trim() && instruction.trim() && chosen;
+  // Name is optional — a task only needs an instruction + a connected server. Fall
+  // back to the instruction text so the sidebar row is still readable.
+  const finalName = name.trim() || instruction.trim().slice(0, 32);
+  const canSave = Boolean(instruction.trim() && chosen);
 
   const save = () => {
     if (!canSave) return;
-    addByoTask({ name: name.trim(), instruction: instruction.trim(), serverId: chosen });
+    addByoTask({ name: finalName, instruction: instruction.trim(), serverId: chosen });
     setName("");
     setInstruction("");
   };
@@ -28,7 +31,7 @@ export function McpByoBuilder() {
     <div className="flex flex-col gap-3">
       <div className={sec}>
         <div className="text-xs font-semibold uppercase opacity-60">Bring your own server</div>
-        <input className={input} placeholder="task name" value={name} onChange={(e) => setName(e.target.value)} />
+        <input className={input} placeholder="task name (optional)" value={name} onChange={(e) => setName(e.target.value)} />
         <input
           className={input}
           placeholder="Instruction (e.g. list the files you can see, then read README.md)"
@@ -61,7 +64,13 @@ export function McpByoBuilder() {
         >
           Save task
         </button>
-        <span className="text-xs opacity-50">Saved tasks appear in the sidebar; run one for its diagnostic.</span>
+        {canSave ? (
+          <span className="text-xs opacity-50">Saved tasks appear in the sidebar; run one for its diagnostic.</span>
+        ) : (
+          <span className="text-xs text-amber-400">
+            {!chosen ? "Connect a server above first." : "Enter an instruction to enable Save."}
+          </span>
+        )}
       </div>
     </div>
   );
