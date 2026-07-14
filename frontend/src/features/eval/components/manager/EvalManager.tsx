@@ -25,7 +25,7 @@ import { CsvImportModal } from "./CsvImportModal";
 import { WorldStateEditor } from "../../env/WorldStateEditor";
 import { KebabMenu } from "./KebabMenu";
 import { Spinner } from "../../../../shared/ui/Spinner";
-import { McpConnectPanel } from "../../../mcp/components/McpConnectPanel";
+import { useMcpStore } from "../../../mcp/state/mcpStore";
 
 interface EvalManagerProps {
   model: string;
@@ -129,9 +129,12 @@ export function EvalManager({
   };
 
   // MCP is a third source (real tools), independent of any collection selection.
-  const [mcpMode, setMcpMode] = useState(false);
+  // Shared via the store so the CENTER (EvalPage) shows the connect/build flow
+  // while this sidebar shows only the MCP task list.
+  const mcpActive = useMcpStore((s) => s.active);
+  const setMcpActive = useMcpStore((s) => s.setActive);
   // Determine dataSource: MCP overrides; otherwise derive from the active selection.
-  const dataSource: "mcp" | "builtin" | "custom" = mcpMode
+  const dataSource: "mcp" | "builtin" | "custom" = mcpActive
     ? "mcp"
     : isPreset(selected)
       ? "builtin"
@@ -181,10 +184,10 @@ export function EvalManager({
   const handleDataSourceChange = async (source: "custom" | "builtin" | "mcp") => {
     setError(null);
     if (source === "mcp") {
-      setMcpMode(true);
+      setMcpActive(true);
       return;
     }
-    setMcpMode(false);
+    setMcpActive(false);
     try {
       if (source === "builtin") {
         if (presets.length > 0) {
@@ -613,7 +616,11 @@ export function EvalManager({
               {/* Collection list (tasks nest under the selected one via collectionRow) */}
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {dataSource === "mcp" ? (
-                  <McpConnectPanel />
+                  // Sidebar under MCP: only the list of saved MCP.json tasks.
+                  // (The connect/build flow lives in the center — EvalPage.)
+                  <div style={{ color: "#64748b", fontSize: 12, fontStyle: "italic", paddingLeft: 8 }}>
+                    No MCP tasks yet — connect a server and build one in the center.
+                  </div>
                 ) : dataSource === "custom" ? (
                   collections.length === 0 ? (
                     <div style={{ color: "#64748b", fontSize: 12, fontStyle: "italic", paddingLeft: 8 }}>

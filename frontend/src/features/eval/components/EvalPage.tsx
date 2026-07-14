@@ -8,6 +8,8 @@ import { stopBatchEval } from "../../../shared/ipc/eval/batch";
 import { getHardwareTier, type HardwareTier } from "../../../shared/ipc/compare/hardware";
 import { PASS_K_BY_TIER, MAX_STEPS_BY_TIER, type Tier } from "../../../shared/ipc/eval/readiness";
 import { EvalManager } from "./manager/EvalManager";
+import { McpCenterPanel } from "../../mcp/components/McpCenterPanel";
+import { useMcpStore } from "../../mcp/state/mcpStore";
 import { CollectionEditor } from "./manager/CollectionEditor";
 import { ConfirmDialog } from "./manager/ConfirmDialog";
 import { MatrixScoreboard } from "./scoreboard/MatrixScoreboard";
@@ -26,6 +28,7 @@ export function EvalPage() {
   const initRegistry = useEvalRegistryStore((s) => s.init);
   const startNew = useEvalRegistryStore((s) => s.startNew);
   const selectedCollection = useEvalRegistryStore((s) => s.selected);
+  const mcpActive = useMcpStore((s) => s.active);
   const presets = useEvalRegistryStore((s) => s.presets);
   const collections = useEvalRegistryStore((s) => s.collections);
   const tasks = useEvalRegistryStore((s) => s.tasks);
@@ -281,7 +284,9 @@ export function EvalPage() {
         onDeleteTask={setDeleteTaskId}
       />
       <div className="flex flex-col gap-4 min-w-0">
-        {editing ? (
+        {mcpActive ? (
+          <McpCenterPanel />
+        ) : editing ? (
           <CollectionEditor
             initialTaskId={editingTaskId}
             onClose={() => {

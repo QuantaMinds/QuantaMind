@@ -24,10 +24,14 @@ export interface ProbeState {
 }
 
 interface McpState {
+  /// Whether the MCP source is the active one in the Test page (shared so the
+  /// sidebar shows the task list while the center shows the connect/build flow).
+  active: boolean;
   servers: McpServerConfig[];
   probes: Record<string, ProbeState>;
   mode: TrackMode;
   loading: boolean;
+  setActive: (active: boolean) => void;
   refresh: () => Promise<void>;
   addServer: (cfg: McpServerConfig) => Promise<void>;
   removeServer: (id: string) => Promise<void>;
@@ -37,10 +41,13 @@ interface McpState {
 }
 
 export const useMcpStore = create<McpState>((set, get) => ({
+  active: false,
   servers: [],
   probes: {},
   mode: "controlled",
   loading: false,
+
+  setActive: (active) => set({ active }),
 
   refresh: async () => {
     set({ loading: true });
