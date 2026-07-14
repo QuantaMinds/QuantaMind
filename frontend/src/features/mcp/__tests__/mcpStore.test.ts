@@ -26,7 +26,7 @@ const cfg: McpServerConfig = {
 };
 
 beforeEach(() => {
-  useMcpStore.setState({ servers: [], probes: {}, mode: "controlled", loading: false });
+  useMcpStore.setState({ servers: [], probes: {}, loading: false });
   vi.clearAllMocks();
 });
 
@@ -67,9 +67,10 @@ describe("mcpStore", () => {
     expect(useMcpStore.getState().servers).toEqual([cfg]);
   });
 
-  it("setMode switches between the controlled and bring-your-own tracks", () => {
-    expect(useMcpStore.getState().mode).toBe("controlled");
-    useMcpStore.getState().setMode("byo");
-    expect(useMcpStore.getState().mode).toBe("byo");
+  it("addTask saves a task and collapses the builder", () => {
+    const task = { name: "t1", instruction: "do it", world: { type: "fs" as const, files: [] }, oracle: {}, k: 10 };
+    useMcpStore.getState().addTask(task);
+    expect(useMcpStore.getState().tasks).toEqual([task]);
+    expect(useMcpStore.getState().builderCollapsed).toBe(true);
   });
 });

@@ -63,6 +63,26 @@ export function McpTaskBuilder() {
     setF(EMPTY);
   };
 
+  // Bring-your-own: paste one task object or an array (same McpTaskDef format).
+  const [jsonText, setJsonText] = useState("");
+  const [jsonErr, setJsonErr] = useState<string | null>(null);
+  const addFromJson = () => {
+    setJsonErr(null);
+    try {
+      const parsed: unknown = JSON.parse(jsonText);
+      const list = (Array.isArray(parsed) ? parsed : [parsed]) as McpTaskDef[];
+      for (const t of list) {
+        if (!t || typeof t.name !== "string" || typeof t.instruction !== "string" || !t.world || !t.oracle) {
+          throw new Error("each task needs name, instruction, world, oracle");
+        }
+        addTask(t);
+      }
+      setJsonText("");
+    } catch (e) {
+      setJsonErr(String(e));
+    }
+  };
+
   const sec = "rounded-lg border border-neutral-700 p-3 flex flex-col gap-2";
   const input = "rounded border border-neutral-600 bg-transparent px-2 py-1 text-sm";
 
@@ -124,18 +144,35 @@ export function McpTaskBuilder() {
       </div>
 
       <div className="flex items-center gap-3">
-        <label className="text-sm">
-          Runs (pass^k):{" "}
-          <select className={input} value={f.k} onChange={(e) => up({ k: Number(e.target.value) })}>
-            {[1, 3, 5, 8, 10, 16].map((n) => (
-              <option key={n} value={n}>{n}</option>
-            ))}
-          </select>
-        </label>
         <button type="button" className="rounded bg-neutral-200 px-3 py-1 text-sm text-neutral-900" onClick={save}>
           Save task
         </button>
+        <span className="text-xs opacity-50">Iterations (pass^k) come from the main Run Params.</span>
       </div>
+
+      {/* ── Bring your own JSON ── */}
+      <details className="rounded-lg border border-neutral-700 p-3">
+        <summary className="cursor-pointer text-xs font-semibold uppercase opacity-60">Or paste your own task JSON</summary>
+        <div className="mt-2 flex flex-col gap-2">
+          <textarea
+            className={`${input} font-mono`}
+            rows={5}
+            placeholder={'{"name":"…","instruction":"…","world":{"type":"fs","files":[{"path":"a.txt","content":""}]},"oracle":{"assert_present":["a.txt"]},"k":10}'}
+            value={jsonText}
+            onChange={(e) => setJsonText(e.target.value)}
+          />
+          <div className="flex items-center gap-3">
+            <button type="button" className="rounded bg-neutral-200 px-3 py-1 text-sm text-neutral-900" onClick={addFromJson}>
+              Add from JSON
+            </button>
+            {jsonErr ? (
+              <span className="text-xs text-red-400">{jsonErr}</span>
+            ) : (
+              <span className="text-xs opacity-50">One task object or an array — same format Save writes.</span>
+            )}
+          </div>
+        </div>
+      </details>
     </div>
   );
 }

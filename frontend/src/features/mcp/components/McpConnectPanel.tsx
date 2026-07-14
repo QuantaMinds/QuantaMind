@@ -1,13 +1,11 @@
 import { useEffect, useState } from "react";
-import { useMcpStore, type TrackMode } from "../state/mcpStore";
+import { useMcpStore } from "../state/mcpStore";
 import type { McpServerConfig } from "../../../shared/ipc/mcp/servers";
 
-/// Screens 2–3 of the MCP test path: connect servers (with the loud "N tools
-/// discovered" preflight) and choose the track. The two tracks look DIFFERENT on
-/// purpose — Bring-Your-Own is greyed of any task-completion verdict, because we
-/// have no answer key for the user's own tools (seeing ≠ scoring).
+/// Connect servers (with the loud "N tools discovered" preflight) before defining
+/// a task to score in a controlled world.
 export function McpConnectPanel() {
-  const { servers, probes, mode, refresh, addServer, removeServer, probe, setMode } = useMcpStore();
+  const { servers, probes, refresh, addServer, removeServer, probe } = useMcpStore();
 
   useEffect(() => {
     void refresh();
@@ -15,36 +13,8 @@ export function McpConnectPanel() {
 
   return (
     <div className="flex flex-col gap-4">
-      <TrackSelector mode={mode} onSelect={setMode} />
       <ServerList servers={servers} probes={probes} onProbe={probe} onRemove={removeServer} />
       <AddServerForm onAdd={addServer} />
-    </div>
-  );
-}
-
-function TrackSelector({ mode, onSelect }: { mode: TrackMode; onSelect: (m: TrackMode) => void }) {
-  const base = "flex-1 rounded-lg border p-3 text-left transition";
-  return (
-    <div className="flex gap-3">
-      <button
-        type="button"
-        onClick={() => onSelect("controlled")}
-        className={`${base} ${mode === "controlled" ? "border-emerald-500 bg-emerald-500/10" : "border-neutral-700"}`}
-      >
-        <div className="font-medium">QuantaMind Test World</div>
-        <div className="text-xs opacity-70">We seed a controlled sandbox → ✅ full pass/fail task verdict (pass^k).</div>
-      </button>
-      <button
-        type="button"
-        onClick={() => onSelect("byo")}
-        className={`${base} ${mode === "byo" ? "border-amber-500 bg-amber-500/10" : "border-neutral-700"}`}
-      >
-        <div className="font-medium">Bring-Your-Own (live)</div>
-        <div className="text-xs opacity-70">
-          Point at your real tools → ⚠️ format-valid rate + model/config/server attribution only.
-          <span className="italic"> No task-completion verdict — we have no answer key.</span>
-        </div>
-      </button>
     </div>
   );
 }

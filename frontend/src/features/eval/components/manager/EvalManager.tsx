@@ -649,7 +649,7 @@ export function EvalManager({
                     mcpTasks.map((t) => (
                       <div key={t.name} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, paddingLeft: 8 }}>
                         <span>🌍 {t.name}</span>
-                        <span style={{ color: "#64748b", fontSize: 11 }}>{t.world.type} · pass^{t.k}</span>
+                        <span style={{ color: "#64748b", fontSize: 11 }}>{t.world.type === "fs" ? "Filesystem" : "Database"}</span>
                         <button type="button" style={{ marginLeft: "auto", fontSize: 11, color: "#94a3b8" }} onClick={() => removeMcpTask(t.name)}>
                           remove
                         </button>
@@ -806,19 +806,20 @@ export function EvalManager({
           </div>
 
           {/* ANTI-SATURATION (Phase 9) — decoy tools, with an ⓘ explaining the lever. */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }} data-testid="eval-anti-saturation">
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, opacity: mcpActive ? 0.4 : 1 }} data-testid="eval-anti-saturation">
             <div style={{ ...sectionHeaderStyle, display: "inline-flex", alignItems: "center", gap: 6 }}>
               ANTI-SATURATION
               <InfoButton {...TOOL_HELP.decoys} align="left" testId="decoy" />
             </div>
-            <label style={{ ...controlLabelStyle, display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+            <label style={{ ...controlLabelStyle, display: "flex", alignItems: "center", gap: 8, cursor: mcpActive ? "not-allowed" : "pointer" }}>
               <input
                 type="checkbox"
-                checked={decoyEnabled}
+                checked={decoyEnabled && !mcpActive}
+                disabled={mcpActive}
                 onChange={(e) => setDecoyEnabled(e.target.checked)}
                 data-testid="eval-decoy-enabled"
               />
-              Enable Decoy Tools
+              Enable Decoy Tools{mcpActive ? " (N/A for MCP)" : ""}
             </label>
             {decoyEnabled && (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>

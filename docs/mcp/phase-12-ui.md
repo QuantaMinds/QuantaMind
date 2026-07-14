@@ -60,3 +60,32 @@ list area. tsc clean; EvalManager + mcp suites 45 tests green.
 
 The backend for all of the above is complete and live-verified (P1–P11); this
 slice is the tested UI foundation it plugs into.
+
+## UX redesign (post-unification, supersedes the run-pipeline bits above) ✅
+Once MCP became a first-class eval **source** (unification: `build_mcp_tasks` →
+the shared agentic runner), the bespoke inline runners were retired and the screen
+was restructured so **running is identical to Built-In**:
+- **One track only.** Bring-Your-Own (schema/attribution, no answer key) is removed
+  from the UI — the two-track `TrackSelector`, `McpByoRunner`, `runMcpByo`/
+  `ByoRunResult`, and the store's `mode`/`TrackMode`/`setMode` are all deleted.
+  Every MCP task is now a controlled-world task scored through the pipeline.
+- **Connect → collapse.** `McpCenterPanel` collapses to a compact "✓ N MCP tasks
+  saved — they're in the sidebar" summary (`mcpStore.builderCollapsed`, set true by
+  `addTask`; "+ Add another" reopens). Model comes from the global header; the note
+  reads "iterations + decoy from Run Params".
+- **Sidebar = saved tasks** under the `◉ MCP` source, each labelled by world
+  (`Filesystem`/`Database`); no `pass^k` badge (iterations are global).
+- **Run Batch** (the same button as Built-In) converts `mcpStore.tasks` →
+  `ToolTask[]` via `buildMcpTasks` and runs them through `useBatchRun` — no saved
+  collection.
+- **Iterations + decoy from the main Run Params.** The builder's per-task `pass^k`
+  selector is gone. Decoy is greyed out + forced off when MCP is active (MCP tasks
+  declare their own tools; `Enable Decoy Tools (N/A for MCP)`).
+- **Bring-your-own JSON** ✅ (the deferred "upload JSON" door): a "paste your own
+  task JSON" `<details>` in the builder accepts one `McpTaskDef` object or an array
+  — the exact format Save writes — validated (name/instruction/world/oracle) then
+  added to the sidebar.
+
+Frontend `tsc` clean; full vitest suite green (1254). The scoring path
+(`build_mcp_tasks` → `run_agentic` → oracle) is unchanged and already live-proven
+(passes=2/2) in the unification work; this redesign is UI-only.

@@ -9,12 +9,6 @@ import {
   type McpProbe,
 } from "../../../shared/ipc/mcp/servers";
 
-/// The two-track choice, made explicit in the UI. `controlled` = QuantaMind
-/// seeds a world we own → full pass/fail task scoring. `byo` = the user's own
-/// live servers → only schema + attribution (no answer key), so the UI must NOT
-/// offer a task-completion verdict there.
-export type TrackMode = "controlled" | "byo";
-
 /// The one task-file format the guided builder and the JSON-upload path both
 /// produce: an instruction + a `world` (seed) + an `oracle` (answer key). Mirrors
 /// the backend `McpTask` (inference/eval/mcp) — `mock_result` is gone; we grade
@@ -53,32 +47,36 @@ interface McpState {
   active: boolean;
   servers: McpServerConfig[];
   probes: Record<string, ProbeState>;
-  mode: TrackMode;
   loading: boolean;
   /// Tasks built in the UI (they appear in the sidebar list).
   tasks: McpTaskDef[];
+  /// Once a task is saved, the connect/build center collapses to a compact summary
+  /// (tasks live in the sidebar; Run Batch runs them).
+  builderCollapsed: boolean;
   setActive: (active: boolean) => void;
   addTask: (task: McpTaskDef) => void;
   removeTask: (name: string) => void;
+  setBuilderCollapsed: (collapsed: boolean) => void;
   refresh: () => Promise<void>;
   addServer: (cfg: McpServerConfig) => Promise<void>;
   removeServer: (id: string) => Promise<void>;
   setEnabled: (id: string, enabled: boolean) => Promise<void>;
   probe: (id: string) => Promise<void>;
-  setMode: (m: TrackMode) => void;
 }
 
 export const useMcpStore = create<McpState>((set, get) => ({
   active: false,
   servers: [],
   probes: {},
-  mode: "controlled",
   loading: false,
   tasks: [],
+  builderCollapsed: false,
 
   setActive: (active) => set({ active }),
-  addTask: (task) => set((s) => ({ tasks: [...s.tasks.filter((t) => t.name !== task.name), task] })),
+  addTask: (task) =>
+    set((s) => ({ tasks: [...s.tasks.filter((t) => t.name !== task.name), task], builderCollapsed: true })),
   removeTask: (name) => set((s) => ({ tasks: s.tasks.filter((t) => t.name !== name) })),
+  setBuilderCollapsed: (builderCollapsed) => set({ builderCollapsed }),
 
   refresh: async () => {
     set({ loading: true });
@@ -119,6 +117,4 @@ export const useMcpStore = create<McpState>((set, get) => ({
       set((s) => ({ probes: { ...s.probes, [id]: { status: "error", error: String(e) } } }));
     }
   },
-
-  setMode: (mode) => set({ mode }),
 }));
