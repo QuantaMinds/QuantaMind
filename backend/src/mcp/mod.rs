@@ -9,4 +9,6 @@
 //! Types live in [`wire`], modeled from real captured bytes in `fixtures/mcp/`,
 //! not the spec (see `docs/mcp/`).
 
+pub mod client;
+pub mod transport;
 pub mod wire;

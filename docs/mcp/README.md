@@ -25,7 +25,7 @@ commit. A green test never substitutes for inspecting real output.
 |---|---|---|
 | 0 — Fixtures from a real server | `../../fixtures/mcp/README.md` | ✅ done |
 | 1 — Wire types from captured bytes | [phase-1-wire-types.md](phase-1-wire-types.md) | ✅ done |
-| 2 — stdio transport + minimal client | phase-2-transport.md | pending |
+| 2 — stdio transport + minimal client | [phase-2-transport.md](phase-2-transport.md) | ✅ done |
 | 3 — Lifecycle hardening | phase-3-lifecycle.md | pending |
 | 4 — Registry, secrets, security gate | phase-4-registry-security.md | pending |
 | 5 — Bridge MCP tools → local model | phase-5-model-bridge.md | pending |
