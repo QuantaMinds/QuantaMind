@@ -25,6 +25,7 @@ import { CsvImportModal } from "./CsvImportModal";
 import { WorldStateEditor } from "../../env/WorldStateEditor";
 import { KebabMenu } from "./KebabMenu";
 import { Spinner } from "../../../../shared/ui/Spinner";
+import { McpConnectPanel } from "../../../mcp/components/McpConnectPanel";
 
 interface EvalManagerProps {
   model: string;
@@ -127,8 +128,14 @@ export function EvalManager({
     showToast(`CSV imported: ${csvTasks.length} task${csvTasks.length > 1 ? "s" : ""} ✓`);
   };
 
-  // Determine dataSource based on the active selection
-  const dataSource = isPreset(selected) ? "builtin" : "custom";
+  // MCP is a third source (real tools), independent of any collection selection.
+  const [mcpMode, setMcpMode] = useState(false);
+  // Determine dataSource: MCP overrides; otherwise derive from the active selection.
+  const dataSource: "mcp" | "builtin" | "custom" = mcpMode
+    ? "mcp"
+    : isPreset(selected)
+      ? "builtin"
+      : "custom";
 
   const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
   const gbLabel = (bytes: number) => `${Math.round(bytes / 1024 ** 3)}GB RAM`;
@@ -171,8 +178,13 @@ export function EvalManager({
     };
   }, [running, selectedBackend, model]);
 
-  const handleDataSourceChange = async (source: "custom" | "builtin") => {
+  const handleDataSourceChange = async (source: "custom" | "builtin" | "mcp") => {
     setError(null);
+    if (source === "mcp") {
+      setMcpMode(true);
+      return;
+    }
+    setMcpMode(false);
     try {
       if (source === "builtin") {
         if (presets.length > 0) {
@@ -564,6 +576,18 @@ export function EvalManager({
                   <input
                     type="radio"
                     name="dataSource"
+                    checked={dataSource === "mcp"}
+                    onChange={() => void handleDataSourceChange("mcp")}
+                    style={radioInputStyle}
+                  />
+                  <span style={{ fontSize: 13, color: dataSource === "mcp" ? "#0f172a" : "#64748b" }}>
+                    {dataSource === "mcp" ? "◉" : "◯"} MCP
+                  </span>
+                </label>
+                <label style={radioLabelStyle}>
+                  <input
+                    type="radio"
+                    name="dataSource"
                     checked={dataSource === "builtin"}
                     onChange={() => void handleDataSourceChange("builtin")}
                     style={radioInputStyle}
@@ -588,7 +612,9 @@ export function EvalManager({
 
               {/* Collection list (tasks nest under the selected one via collectionRow) */}
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {dataSource === "custom" ? (
+                {dataSource === "mcp" ? (
+                  <McpConnectPanel />
+                ) : dataSource === "custom" ? (
                   collections.length === 0 ? (
                     <div style={{ color: "#64748b", fontSize: 12, fontStyle: "italic", paddingLeft: 8 }}>
                       No custom JSONs
