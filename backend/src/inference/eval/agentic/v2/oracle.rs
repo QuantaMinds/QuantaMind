@@ -11,7 +11,7 @@
 
 use crate::errors::AppResult;
 use crate::inference::eval::agentic::build::sandbox_for;
-use crate::inference::eval::agentic::model_turn::ModelTurn;
+use crate::inference::eval::agentic::model_turn::{ModelTurn, Progress};
 use crate::inference::eval::agentic::runner::run_once;
 use crate::inference::eval::agentic::sandbox::{EndStateRule, TaskCheckpoint};
 use crate::inference::eval::agentic::spec::{FaultInjection, SafetyArm};
@@ -33,7 +33,7 @@ struct Scripted {
 }
 
 impl ModelTurn for Scripted {
-    async fn run(&self, _s: &GenerateSpec) -> AppResult<(String, GenerateStats)> {
+    async fn run(&self, _s: &GenerateSpec, _progress: &Progress) -> AppResult<(String, GenerateStats)> {
         let i = self.next.fetch_add(1, Ordering::SeqCst);
         let body = self.calls.get(i).cloned().unwrap_or_else(|| "{}".into());
         Ok((body, GenerateStats { eval_count: Some(1), ..Default::default() }))

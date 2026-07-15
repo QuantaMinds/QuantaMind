@@ -4,7 +4,7 @@ use crate::inference::eval::agentic::env_view::{env_view, mcp_fsview, EnvView};
 use crate::inference::eval::mcp::world::McpWorld;
 use crate::inference::ollama::ollama_chat::NativeToolCall;
 use crate::inference::eval::agentic::scoring::endstate;
-use crate::inference::eval::agentic::model_turn::ModelTurn;
+use crate::inference::eval::agentic::model_turn::{ModelTurn, Progress};
 use crate::inference::eval::agentic::scoring::report::{AgenticReport, FailureKind, RunOutcome, SafetyAttribution};
 use crate::inference::eval::agentic::sandbox::{canonical, DeterministicSandbox, EndStateRule, ResponderKind, SandboxState, TaskCheckpoint};
 use crate::inference::eval::agentic::v2::env_webui::WebUiState;
@@ -17,6 +17,7 @@ use crate::inference::eval::toolcall::parse::{
 use crate::inference::eval::toolcall::prompt::{agentic_system, TerminalGuidance};
 use crate::inference::generate::generate_options::{GenerateOptions, EVAL_REPEAT_PENALTY};
 use crate::inference::generate::generate_spec::GenerateSpec;
+use crate::inference::generate::generate_stats::GenerateStats;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_util::sync::CancellationToken;
 
@@ -211,7 +212,8 @@ const PER_RUN_BUDGET: std::time::Duration = std::time::Duration::from_secs(300);
 /// 1536–4096 vs 256), so each turn is several times slower in wall-clock, and a run is many turns.
 /// Without this a thinking model on a deep task blows the per-run slice and gets truncated even
 /// though it's progressing normally. 3× (not the full token ratio) because not every turn maxes
-/// its budget and per-turn overhead is partly fixed; `STEP_TIMEOUT` still caps any single wedged turn.
+/// its budget and per-turn overhead is partly fixed; the stall watchdog (`TTFT_GRACE`/
+/// `INTER_TOKEN_STALL`) still caps any single wedged turn.
 const THINKING_BUDGET_MULTIPLIER: u32 = 3;
 
 /// The whole-batch wall-clock budget for a `k`-run Pass^k task: a per-run slice (larger for a
@@ -322,36 +324,87 @@ async fn run_once_cancellable<M: ModelTurn>(
     tx: &UnboundedSender<TrajectoryStep>,
     cancel: &CancellationToken,
 ) -> AppResult<RunOutcome> {
-    // A slow turn (reasoning model, or a model Ollama spilled onto the CPU) gets a much larger
-    // per-step cap so a genuinely-progressing generation isn't killed as a false `TurnTimeout`
-    // — the same "don't score a hardware limit as a capability failure" principle as the
-    // num_predict fix. A terse, fully-resident model keeps the tight default.
-    let step_timeout = if turn.slow_inference() { STEP_TIMEOUT.saturating_mul(SLOW_STEP_MULTIPLIER) } else { STEP_TIMEOUT };
-    run_once_inner(turn, sandbox, max_steps, max_recovery, step_timeout, run_index, tx, cancel).await
+    // Progress-keyed stall thresholds replace the old elapsed per-step cap, and they are the SAME
+    // for every turn — no `slow_inference` ×N fork. A slow-but-progressing turn keeps pulsing
+    // tokens, so it is never scored a false `TurnTimeout` regardless of hardware or `<think>`
+    // length; only a turn that stops making progress is terminated.
+    run_once_inner(turn, sandbox, max_steps, max_recovery, StallPolicy::defaults(), run_index, tx, cancel).await
 }
 
-/// Per-step wall-clock budget. The streaming HTTP client has no body deadline, so a
-/// stalled model would otherwise hang the loop forever; a turn over this budget ends
-/// the run as `TurnTimeout`. Generous vs. local tok/s so a legitimately slow turn
-/// (long generation, a fault-injected retry) isn't killed.
-const STEP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(180);
+/// Max time to the FIRST token of a turn. Prefill emits no tokens, so this grace absorbs a
+/// long-context prefill; a turn that never produces a first token within it is genuinely hung
+/// (the streaming HTTP client has no body deadline) → `TurnTimeout`. Replaces the old whole-turn
+/// `STEP_TIMEOUT`. Tunable.
+const TTFT_GRACE: std::time::Duration = std::time::Duration::from_secs(300);
 
-/// How much the per-step cap is multiplied for a `slow_inference` turn (a reasoning model, or
-/// a model spilled onto the CPU). CPU-offloaded generation runs several times slower than
-/// resident GPU inference, and a `<think>` scratchpad is a long generation on top; 180s×4 = 12
-/// minutes/turn keeps a legitimately-slow-but-progressing turn alive while `PER_RUN_BUDGET`
-/// (whole-run) and the loop's own stall guards still bound a truly wedged model.
-const SLOW_STEP_MULTIPLIER: u32 = 4;
+/// Max gap BETWEEN tokens once a turn is streaming — no healthy backend goes silent this long
+/// mid-generation, so exceeding it is a stall → `TurnTimeout`. Replaces `SLOW_STEP_MULTIPLIER`:
+/// a slow-but-progressing turn keeps pulsing under this gap and is never killed, so token
+/// progress (not a hardware guess) decides. Tunable.
+const INTER_TOKEN_STALL: std::time::Duration = std::time::Duration::from_secs(45);
 
-/// `run_once` with an injectable per-step timeout (so the timeout path is testable
-/// without waiting the full budget).
+/// The two token-progress stall thresholds for a turn, injected into [`run_once_inner`] so tests
+/// pass tiny ms-scale values; production uses [`StallPolicy::defaults`].
+#[derive(Clone, Copy)]
+pub struct StallPolicy {
+    pub ttft_grace: std::time::Duration,
+    pub inter_token: std::time::Duration,
+}
+
+impl StallPolicy {
+    pub const fn defaults() -> Self {
+        Self { ttft_grace: TTFT_GRACE, inter_token: INTER_TOKEN_STALL }
+    }
+}
+
+/// How often the watchdog samples [`Progress::count`]. Fine enough for the smallest tested
+/// threshold (tens of ms) while costing nothing at production scale (hundreds of seconds).
+const STALL_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(5);
+
+/// Race a turn against the two-threshold stall watchdog. `Ok` passes the turn's own result
+/// straight through (success or infra error alike); `Err(())` means the watchdog fired — the
+/// caller maps that into the `StepKind::TurnTimeout` / `FailureKind::TurnTimeout` terminal path.
+/// Polls [`Progress::count`] rather than requiring a wakeup from the pulse site, so any
+/// `ModelTurn` (a real streaming backend or a scripted mock) needs nothing but `Progress::pulse`.
+async fn run_with_stall_watchdog<M: ModelTurn>(
+    turn: &M,
+    spec: &GenerateSpec,
+    progress: &Progress,
+    policy: StallPolicy,
+) -> Result<AppResult<(String, GenerateStats)>, ()> {
+    let watchdog = async {
+        let mut last_count = progress.count();
+        let mut last_change = tokio::time::Instant::now();
+        let mut streaming = last_count > 0;
+        loop {
+            tokio::time::sleep(STALL_POLL_INTERVAL).await;
+            let count = progress.count();
+            if count != last_count {
+                last_count = count;
+                last_change = tokio::time::Instant::now();
+                streaming = true;
+            }
+            let threshold = if streaming { policy.inter_token } else { policy.ttft_grace };
+            if last_change.elapsed() >= threshold {
+                return;
+            }
+        }
+    };
+    tokio::select! {
+        r = turn.run(spec, progress) => Ok(r),
+        _ = watchdog => Err(()),
+    }
+}
+
+/// `run_once` with an injectable stall policy (so the timeout path is testable
+/// without waiting the full grace).
 #[allow(clippy::too_many_arguments)]
 async fn run_once_inner<M: ModelTurn>(
     turn: &M,
     sandbox: &DeterministicSandbox,
     max_steps: u32,
     max_recovery: u8,
-    step_timeout: std::time::Duration,
+    policy: StallPolicy,
     run_index: u32,
     tx: &UnboundedSender<TrajectoryStep>,
     cancel: &CancellationToken,
@@ -364,7 +417,7 @@ async fn run_once_inner<M: ModelTurn>(
     // prompt path, whose turns never report `native_tool_calls` at all.
     let mut channel = NativeChannel::default();
     let outcome =
-        run_steps(turn, sandbox, max_steps, max_recovery, step_timeout, run_index, tx, &mut dialect, &mut channel, cancel).await?;
+        run_steps(turn, sandbox, max_steps, max_recovery, policy, run_index, tx, &mut dialect, &mut channel, cancel).await?;
     Ok(outcome.with_dialect(dialect).with_native_channel(channel.structured, channel.salvaged))
 }
 
@@ -422,7 +475,7 @@ async fn run_steps<M: ModelTurn>(
     sandbox: &DeterministicSandbox,
     max_steps: u32,
     max_recovery: u8,
-    step_timeout: std::time::Duration,
+    policy: StallPolicy,
     run_index: u32,
     tx: &UnboundedSender<TrajectoryStep>,
     dialect: &mut ToolCallDialect,
@@ -521,11 +574,14 @@ async fn run_steps<M: ModelTurn>(
                 keep_alive: None,
                 think: None, // BackendTurn::run overrides this from `is_thinking` for Ollama
             };
-            let (raw, stats) = match tokio::time::timeout(step_timeout, turn.run(&spec)).await {
+            // Run the turn racing the token-progress stall watchdog (see `run_with_stall_watchdog`):
+            // fires only when the turn stops making forward progress (no first token within
+            // `policy.ttft_grace`, or no new token within `policy.inter_token` once streaming), never
+            // merely for taking a long time.
+            let progress = Progress::new();
+            let (raw, stats) = match run_with_stall_watchdog(turn, &spec, &progress, policy).await {
                 Ok(r) => r?, // backend returned; an Err propagates (infra fault → run skipped upstream)
-                Err(_elapsed) => {
-                    // The turn blew the wall-clock — a stalled model. Terminal: a hanging
-                    // agent isn't production-ready, so it counts as a failure (not a skip).
+                Err(()) => {
                     let _ = tx.send(TrajectoryStep {
                         run_index,
                         step_index,
@@ -533,7 +589,7 @@ async fn run_steps<M: ModelTurn>(
                         injection: None,
                         kind: StepKind::TurnTimeout,
                         env: EnvView::None,
-                        cache_n: None, // no model response on a timeout
+                        cache_n: None, // no model response on a stall
                         prefill_tokens: None,
                         prefill_ms: None,
                         reasoning_tokens: None,

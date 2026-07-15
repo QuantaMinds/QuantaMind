@@ -1,7 +1,7 @@
 use super::padding::{build_padding, inject_at_depth};
 use super::presets::CliffSource;
 use crate::errors::{AppError, AppResult};
-use crate::inference::eval::agentic::model_turn::ModelTurn;
+use crate::inference::eval::agentic::model_turn::{ModelTurn, Progress};
 use crate::inference::eval::readiness::types::CliffStatus;
 use crate::inference::eval::toolcall::eval::{aggregate, TaskResult};
 use crate::inference::eval::toolcall::parse::extract_calls;
@@ -310,7 +310,7 @@ async fn run_position<T: ModelTurn, F: Fn(&ToolTask) -> T>(
         // schemas. A native turn ignores the prompt-based `system` above and builds its own, so
         // scoring stays byte-identical across the two paths.
         let turn = make_turn(task);
-        let (raw, stats) = turn.run(&spec).await?;
+        let (raw, stats) = turn.run(&spec, &Progress::new()).await?;
         let verdict = score(&task.expected, extract_calls(&raw).as_deref());
         // Keep the padded input + raw completion for EVERY task (pass or fail), so the
         // rung's "View trace" shows exactly what the model saw and emitted at this step.
