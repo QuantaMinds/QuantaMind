@@ -138,6 +138,7 @@ export function EvalManager({
   const removeMcpTask = useMcpStore((s) => s.removeTask);
   const mcpByoTasks = useMcpStore((s) => s.byoTasks);
   const removeMcpByoTask = useMcpStore((s) => s.removeByoTask);
+  const setEditingByo = useMcpStore((s) => s.setEditingByo);
   const setBuilderCollapsed = useMcpStore((s) => s.setBuilderCollapsed);
   // Which sidebar MCP task is highlighted — Run Batch runs it (all tasks if none picked).
   const [selectedMcpTask, setSelectedMcpTask] = useState<string | null>(null);
@@ -666,9 +667,9 @@ export function EvalManager({
               {/* Collection list (tasks nest under the selected one via collectionRow) */}
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {dataSource === "mcp" ? (
-                  // Sidebar under MCP: one combined list of saved tasks. World tasks
-                  // (🌍) are scored via Run Batch; Bring-Your-Own tasks (🔧) open a
-                  // diagnostic in the center. The connect/build flow lives there too.
+                  // Sidebar under MCP: one combined list of saved tasks. World tasks are
+                  // scored via Run Batch; Bring-Your-Own tasks stream a diagnostic. Click a row
+                  // to select it (Run Batch runs the selection), the pencil to edit it.
                   mcpTasks.length === 0 && mcpByoTasks.length === 0 ? (
                     <div style={{ color: "#64748b", fontSize: 12, fontStyle: "italic", paddingLeft: 8 }}>
                       No MCP tasks yet — connect a server and author one in the center.
@@ -683,7 +684,7 @@ export function EvalManager({
                             onClick={() => setSelectedMcpTask(t.name)}
                             style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "2px 8px", cursor: "pointer", borderRadius: 4, background: sel ? "#e0e7ff" : "transparent", fontWeight: sel ? 600 : 400 }}
                           >
-                            <span>🌍 {t.name}</span>
+                            <span>{t.name}</span>
                             <span style={{ color: "#64748b", fontSize: 11 }}>{t.world.type === "fs" ? "Filesystem" : "Database"}</span>
                             <button type="button" style={{ marginLeft: "auto", fontSize: 11, color: "#94a3b8" }} onClick={(e) => { e.stopPropagation(); removeMcpTask(t.name); if (selectedMcpTask === t.name) setSelectedMcpTask(null); }}>
                               remove
@@ -699,9 +700,12 @@ export function EvalManager({
                             onClick={() => setSelectedMcpTask(t.name)}
                             style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "2px 8px", cursor: "pointer", borderRadius: 4, background: sel ? "#e0e7ff" : "transparent", fontWeight: sel ? 600 : 400 }}
                           >
-                            <span>🔧 {t.name}</span>
+                            <span>{t.name}</span>
                             <span style={{ color: "#64748b", fontSize: 11 }}>Diagnostic · {t.serverId}</span>
-                            <button type="button" style={{ marginLeft: "auto", fontSize: 11, color: "#94a3b8" }} onClick={(e) => { e.stopPropagation(); removeMcpByoTask(t.name); if (selectedMcpTask === t.name) setSelectedMcpTask(null); }}>
+                            <button type="button" title="Edit instruction" style={{ marginLeft: "auto", fontSize: 12, color: "#6366f1" }} onClick={(e) => { e.stopPropagation(); setEditingByo(t); }}>
+                              ✎
+                            </button>
+                            <button type="button" style={{ fontSize: 11, color: "#94a3b8" }} onClick={(e) => { e.stopPropagation(); removeMcpByoTask(t.name); if (selectedMcpTask === t.name) setSelectedMcpTask(null); }}>
                               remove
                             </button>
                           </div>

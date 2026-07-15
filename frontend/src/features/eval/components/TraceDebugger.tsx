@@ -104,7 +104,16 @@ export const isErrorKind = (kind: string): boolean =>
   kind === "truncated" ||
   kind === "reasoning_overrun";
 
-export const getStepTitle = (kind: string, isError: boolean) => {
+export const getStepTitle = (kind: string, isError: boolean, diag = false) => {
+  // Bring-Your-Own diagnostic: a tool error is REAL (the server returned it), not an injected
+  // fault, and there are no Driver B/D fault-injection stages — so drop that framing.
+  if (diag) {
+    if (kind === "tool_call") return "Model Outputs Tool Call";
+    if (kind === "tool_error") return "Tool Returned an Error";
+    if (kind === "schema_error") return "Malformed Tool Call (Schema Invalid)";
+    if (kind === "unknown_tool") return "Called a Tool That Doesn't Exist";
+    if (kind === "reported_in_prose") return "Answered in Prose (No Tool Call)";
+  }
   if (kind === "tool_call") return "Model Outputs Tool Call";
   if (kind === "tool_error") return "Injected Tool Fault (Driver B)";
   if (kind === "unknown_tool") return "Unknown Tool Triggered";
@@ -756,7 +765,7 @@ export function TraceDebugger({
                                 const isError = isErrorKind(s.kind);
 
                                 const icon = getStepIcon(s.kind, isError);
-                                const title = getStepTitle(s.kind, isError);
+                                const title = getStepTitle(s.kind, isError, isDiagRun);
                                 const desc = getStepDescription(s.kind, s.raw_output);
 
                                 return (
@@ -784,7 +793,7 @@ export function TraceDebugger({
                                         )}
                                         {s.kind === "tool_error" && (
                                           <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "#fef2f2", color: "#991b1b", border: "1px solid #fee2e2" }}>
-                                            FAULT INTERCEPTED
+                                            {isDiagRun ? "TOOL ERROR" : "FAULT INTERCEPTED"}
                                           </span>
                                         )}
                                         {/* llama.cpp-only per-turn prefix-cache readout (reused vs recomputed;

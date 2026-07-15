@@ -63,6 +63,9 @@ interface McpState {
   /// Bring-Your-Own tasks (diagnostic-only; run one at a time against a real
   /// server). Both kinds share the sidebar list.
   byoTasks: McpByoTaskDef[];
+  /// A BYO task the user is editing — the builder pre-fills from it (Save replaces the
+  /// same-named task). `null` when authoring a fresh one.
+  editingByo: McpByoTaskDef | null;
   /// Once a task is saved, the connect/build center collapses to a compact summary
   /// (tasks live in the sidebar; Run Batch runs the world tasks).
   builderCollapsed: boolean;
@@ -71,6 +74,7 @@ interface McpState {
   removeTask: (name: string) => void;
   addByoTask: (task: McpByoTaskDef) => void;
   removeByoTask: (name: string) => void;
+  setEditingByo: (task: McpByoTaskDef | null) => void;
   setBuilderCollapsed: (collapsed: boolean) => void;
   refresh: () => Promise<void>;
   addServer: (cfg: McpServerConfig) => Promise<void>;
@@ -86,6 +90,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
   loading: false,
   tasks: [],
   byoTasks: [],
+  editingByo: null,
   builderCollapsed: false,
 
   setActive: (active) => set({ active }),
@@ -93,8 +98,13 @@ export const useMcpStore = create<McpState>((set, get) => ({
     set((s) => ({ tasks: [...s.tasks.filter((t) => t.name !== task.name), task], builderCollapsed: true })),
   removeTask: (name) => set((s) => ({ tasks: s.tasks.filter((t) => t.name !== name) })),
   addByoTask: (task) =>
-    set((s) => ({ byoTasks: [...s.byoTasks.filter((t) => t.name !== task.name), task], builderCollapsed: true })),
+    set((s) => ({
+      byoTasks: [...s.byoTasks.filter((t) => t.name !== task.name), task],
+      builderCollapsed: true,
+      editingByo: null,
+    })),
   removeByoTask: (name) => set((s) => ({ byoTasks: s.byoTasks.filter((t) => t.name !== name) })),
+  setEditingByo: (editingByo) => set({ editingByo, builderCollapsed: editingByo ? false : get().builderCollapsed }),
   setBuilderCollapsed: (builderCollapsed) => set({ builderCollapsed }),
 
   refresh: async () => {

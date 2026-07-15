@@ -26,7 +26,7 @@ const cfg: McpServerConfig = {
 };
 
 beforeEach(() => {
-  useMcpStore.setState({ servers: [], probes: {}, loading: false, tasks: [], byoTasks: [], builderCollapsed: false });
+  useMcpStore.setState({ servers: [], probes: {}, loading: false, tasks: [], byoTasks: [], editingByo: null, builderCollapsed: false });
   vi.clearAllMocks();
 });
 

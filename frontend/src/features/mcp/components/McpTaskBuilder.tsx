@@ -116,7 +116,7 @@ export function McpTaskBuilder() {
               </div>
             ))}
             <button type="button" className="self-start text-xs opacity-70" onClick={() => up({ files: [...f.files, { path: "", content: "" }] })}>+ add file</button>
-            <div className="text-xs opacity-50">Scope server to: filesystem (auto-confined to this temp folder 🔒)</div>
+            <div className="text-xs opacity-50">Scope server to: filesystem (auto-confined to this temp folder)</div>
           </div>
         ) : (
           <textarea className={`${input} font-mono`} rows={3} placeholder="setup SQL (CREATE TABLE …; INSERT …)" value={f.setupSql} onChange={(e) => up({ setupSql: e.target.value })} />

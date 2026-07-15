@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMcpStore } from "../state/mcpStore";
 
 /// Bring-Your-Own authoring: name + instruction + which connected server. Save
@@ -8,9 +8,19 @@ import { useMcpStore } from "../state/mcpStore";
 export function McpByoBuilder() {
   const servers = useMcpStore((s) => s.servers);
   const addByoTask = useMcpStore((s) => s.addByoTask);
+  const editingByo = useMcpStore((s) => s.editingByo);
   const [name, setName] = useState("");
   const [instruction, setInstruction] = useState("");
   const [serverId, setServerId] = useState("");
+
+  // Editing an existing task (the sidebar pencil) → pre-fill from it; Save (same name) replaces it.
+  useEffect(() => {
+    if (editingByo) {
+      setName(editingByo.name);
+      setInstruction(editingByo.instruction);
+      setServerId(editingByo.serverId);
+    }
+  }, [editingByo]);
 
   const input = "rounded border border-neutral-600 bg-transparent px-2 py-1 text-sm";
   const sec = "rounded-lg border border-neutral-700 p-3 flex flex-col gap-2";
@@ -32,9 +42,12 @@ export function McpByoBuilder() {
       <div className={sec}>
         <div className="text-xs font-semibold uppercase opacity-60">Bring your own server</div>
         <input className={input} placeholder="task name (optional)" value={name} onChange={(e) => setName(e.target.value)} />
+        <label className="text-xs opacity-70">
+          Instruction <span className="text-red-500">*</span>
+        </label>
         <input
           className={input}
-          placeholder="Instruction (e.g. list the files you can see, then read README.md)"
+          placeholder="e.g. List all the tables in the database."
           value={instruction}
           onChange={(e) => setInstruction(e.target.value)}
         />
@@ -62,7 +75,7 @@ export function McpByoBuilder() {
           disabled={!canSave}
           onClick={save}
         >
-          Save task
+          {editingByo ? "Update task" : "Save task"}
         </button>
         {canSave ? (
           <span className="text-xs opacity-50">Saved tasks appear in the sidebar; run one for its diagnostic.</span>

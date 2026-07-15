@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { McpConnectPanel } from "./McpConnectPanel";
 import { McpTaskBuilder } from "./McpTaskBuilder";
 import { McpByoBuilder } from "./McpByoBuilder";
@@ -17,8 +17,15 @@ export function McpCenterPanel() {
   const setCollapsed = useMcpStore((s) => s.setBuilderCollapsed);
   const taskCount = useMcpStore((s) => s.tasks.length);
   const byoCount = useMcpStore((s) => s.byoTasks.length);
+  const editingByo = useMcpStore((s) => s.editingByo);
+  const setEditingByo = useMcpStore((s) => s.setEditingByo);
   const model = useSelectedModelStore((s) => s.selectedModels[0]);
   const [track, setTrack] = useState<Track>("controlled");
+
+  // Editing a BYO task (sidebar pencil) forces the Bring-Your-Own door open.
+  useEffect(() => {
+    if (editingByo) setTrack("byo");
+  }, [editingByo]);
 
   const total = taskCount + byoCount;
   if (collapsed && total > 0) {
@@ -46,7 +53,10 @@ export function McpCenterPanel() {
         <div className="flex justify-end">
           <button
             type="button"
-            onClick={() => setCollapsed(true)}
+            onClick={() => {
+              setEditingByo(null);
+              setCollapsed(true);
+            }}
             className="rounded border border-neutral-600 px-3 py-1 text-xs opacity-80"
           >
             Cancel — back to results
@@ -97,7 +107,7 @@ function TrackSelector({ track, onSelect }: { track: Track; onSelect: (t: Track)
         className={`${base} ${track === "controlled" ? "border-emerald-500 bg-emerald-500/10" : "border-neutral-700"}`}
       >
         <div className="font-medium">QuantaMind Test World</div>
-        <div className="text-xs opacity-70">We seed a controlled sandbox → ✅ full pass/fail task verdict (pass^k).</div>
+        <div className="text-xs opacity-70">We seed a controlled sandbox → full pass/fail task verdict (pass^k).</div>
       </button>
       <button
         type="button"
@@ -106,7 +116,7 @@ function TrackSelector({ track, onSelect }: { track: Track; onSelect: (t: Track)
       >
         <div className="font-medium">Bring-Your-Own</div>
         <div className="text-xs opacity-70">
-          Point at your real tools → ⚠️ diagnostic only: schema-valid rate + attribution + live trace.
+          Point at your real tools → diagnostic only: schema-valid rate + attribution + live trace.
           <span className="italic"> No pass/fail — no answer key.</span>
         </div>
       </button>
