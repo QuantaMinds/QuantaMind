@@ -10,6 +10,7 @@ use crate::inference::eval::toolcall::score::{score, verdict_passed, Verdict};
 use crate::inference::eval::toolcall::tasks::{is_agentic, ToolTask};
 use crate::inference::generate::generate_options::{GenerateOptions, EVAL_REPEAT_PENALTY};
 use crate::inference::generate::generate_spec::GenerateSpec;
+use crate::inference::generate::generate_stats::GenerateStats;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
@@ -30,6 +31,9 @@ const MAX_OUTPUT: u32 = 256;
 const BASELINE_PASS: f64 = 0.5;
 /// A deeper rung is a cliff when its composite falls this far below the baseline.
 const COLLAPSE_MARGIN: f64 = 0.2;
+/// "No context ceiling to check against" — for scripted/test turns, whose fake token counts
+/// have no real window behind them. A real run always passes the backend's effective window.
+pub const NO_CTX_LIMIT: u32 = u32::MAX;
 /// The needle is injected at these fractional depths — front / middle / back, never
 /// tail-only (the tail tests recency, the model's strongest position). Three
 /// positions keep the probe affordable; mid-document is where models actually fail.
@@ -229,6 +233,19 @@ fn cliff_score(tasks: &[ToolTask], results: &[TaskResult]) -> (Option<f64>, Opti
     (composite, prompt_tokens)
 }
 
+/// The TRUE prompt size for one turn. llama.cpp serves a reused prefix from its prompt
+/// cache and reports only the RECOMPUTED part in `prompt_eval_count`, so the cached prefix
+/// (`cache_n`) has to be added back — the same occupancy the agentic runner already trusts
+/// (see `attribute_guard`). The cliff sweeps near-identical prompts (same padding, needle
+/// moved), so it hits that cache constantly: measured live, a fully-cached 2457-token prompt
+/// reports `prompt_n = 1`. Reading that as the depth breaks the probe twice over — the
+/// charted/persisted depth collapses toward zero, AND the learned byte→token rate explodes
+/// (`bytes / 1`), sizing the next rung far past the window, which llama.cpp rejects outright
+/// (killing the whole run). Ollama sends no `cache_n`, so there this is a no-op.
+fn occupancy(stats: &GenerateStats) -> Option<u32> {
+    stats.prompt_eval_count.map(|p| p.saturating_add(stats.cache_n.unwrap_or(0)))
+}
+
 /// Run all tasks at one padding + one needle depth, returning each task's verdict
 /// and measured prompt tokens. Empty padding ⇒ the unpadded baseline.
 async fn run_position<T: ModelTurn, F: Fn(&ToolTask) -> T>(
@@ -282,7 +299,8 @@ async fn run_position<T: ModelTurn, F: Fn(&ToolTask) -> T>(
             id: task.id.clone(),
             category: task.category.clone(),
             verdict,
-            prompt_tokens: stats.prompt_eval_count,
+            // The depth is the context the model READ, not the prefill work the backend did.
+            prompt_tokens: occupancy(&stats),
         });
         // Report this task as done so the UI advances during the slow per-rung sweep.
         on_task(ti + 1, tasks.len());
@@ -334,6 +352,33 @@ async fn sweep<T: ModelTurn, F: Fn(&ToolTask) -> T>(
     Ok((per_depth, mean_tokens, worst, trace))
 }
 
+/// A rung is MEASURED only when the padded prompt plus its reply budget fit inside the
+/// context window the backend actually gave us. Past that bound a backend does not fail
+/// loudly — Ollama truncates the prompt to fit, which silently deletes the injected needle
+/// and pins `prompt_eval_count` at the window. Both halves of the rung are then artifacts:
+/// the score (the model never saw the task) and the depth (a saturated counter that reads
+/// the same no matter how much padding is sent). Such a rung must never be scored, plotted,
+/// or persisted as a cliff. The command layer already refuses an over-deep request up front
+/// (`cliff_window_gate`); this is the last line, for a model whose declared window is wrong.
+fn measurable(mean_tokens: u32, ctx_limit: u32) -> bool {
+    mean_tokens > 0 && mean_tokens.saturating_add(MAX_OUTPUT) <= ctx_limit
+}
+
+/// Clamp a padding byte-size to what the context window can actually hold, at the known
+/// bytes-per-token `rate`. The ladder targets are already inside the window, but the
+/// verify-and-adjust REBUILD scales by a measured count and can overshoot — and an oversized
+/// prompt is fatal, not approximate: llama.cpp rejects the request ("the prompt is larger
+/// than the context window") and the whole probe dies, while Ollama truncates in silence.
+/// `NO_CTX_LIMIT` leaves the size untouched. Pure, so the bound is unit-tested directly.
+fn cap_bytes(bytes: usize, rate: f64, ctx_limit: u32) -> usize {
+    if ctx_limit == NO_CTX_LIMIT || rate <= 0.0 {
+        return bytes;
+    }
+    // Leave room for the reply on top of the prompt, mirroring `measurable`.
+    let ceiling_tokens = ctx_limit.saturating_sub(MAX_OUTPUT) as f64;
+    bytes.min((ceiling_tokens * rate).round() as usize)
+}
+
 /// Probe one rung: build padding for `target` tokens, verify the measured depth is
 /// within ±5%, rebuilding proportionally up to `MAX_ADJUST_ATTEMPTS` times, then
 /// report the rung at its VERIFIED token count (never the requested one).
@@ -350,6 +395,7 @@ async fn probe_rung<T: ModelTurn, F: Fn(&ToolTask) -> T>(
     source_text: &str,
     target: u32,
     depths: &[f32],
+    ctx_limit: u32,
     rate: &mut Option<f64>,
     rung: usize,
     total_rungs: usize,
@@ -374,25 +420,32 @@ async fn probe_rung<T: ModelTurn, F: Fn(&ToolTask) -> T>(
             trace,
         });
     }
-    // Seed from the learned rate (accurate) or the 4:1 fallback on the first padded rung.
-    let mut bytes = match *rate {
-        Some(r) => ((target as f64) * r).round() as usize,
-        None => target as usize * BYTES_PER_TOKEN,
-    };
+    // Seed from the learned rate (accurate) or the 4:1 fallback on the first padded rung,
+    // never sizing past what the window can hold (`cap_bytes`).
+    let seed_rate = rate.unwrap_or(BYTES_PER_TOKEN as f64);
+    let mut bytes = cap_bytes(((target as f64) * seed_rate).round() as usize, seed_rate, ctx_limit);
     let mut last: Option<(Vec<DepthScore>, u32, Option<f64>, Vec<TaskTrace>)> = None;
     for attempt in 0..=MAX_ADJUST_ATTEMPTS {
         let padding = build_padding(source_text, bytes);
         let (per_depth, mean_tokens, worst, trace) = sweep(make_turn, model, tasks, &padding, depths, rung, total_rungs, target, on_step).await?;
-        if mean_tokens > 0 {
-            *rate = Some(bytes as f64 / mean_tokens as f64); // learn for the next rung
+        let measured_rate = (mean_tokens > 0).then(|| bytes as f64 / mean_tokens as f64);
+        if let Some(r) = measured_rate {
+            *rate = Some(r); // learn for the next rung
         }
         let off = if target > 0 { (mean_tokens as f64 - target as f64).abs() / target as f64 } else { 0.0 };
         last = Some((per_depth, mean_tokens, worst, trace));
         if mean_tokens == 0 || off <= ADJUST_TOLERANCE || attempt == MAX_ADJUST_ATTEMPTS {
             break;
         }
-        // Rebuild proportionally: scale the byte seed toward the target.
-        bytes = ((bytes as f64) * (target as f64) / (mean_tokens as f64)).round() as usize;
+        // Rebuild proportionally: scale the byte seed toward the target — but never past the
+        // window. An overshoot here is not a survivable miss: llama.cpp REJECTS an oversized
+        // prompt outright ("larger than the context window"), which aborts the whole probe,
+        // and Ollama truncates it silently. Better a rung slightly under target than no run.
+        bytes = cap_bytes(
+            ((bytes as f64) * (target as f64) / (mean_tokens as f64)).round() as usize,
+            measured_rate.unwrap_or(seed_rate),
+            ctx_limit,
+        );
     }
     let (per_depth, mean_tokens, worst, trace) = last.expect("loop runs at least once");
     Ok(CliffPoint { target_tokens: target, verified_tokens: mean_tokens, composite: worst, per_depth, trace })
@@ -439,6 +492,8 @@ pub fn build_ladder(max_tokens: u32, steps: u32) -> Vec<u32> {
 /// classify where accuracy collapses. Tauri-free — the command supplies the
 /// `ModelTurn` (with num_ctx large enough to fit the deepest rung) and persists the
 /// result.
+/// `ctx_limit` is [`NO_CTX_LIMIT`] here: the scripted models this wrapper serves have no
+/// real context window, so there is nothing to saturate against.
 pub async fn run_cliff<M: ModelTurn + Sync>(
     turn: &M,
     model: &str,
@@ -447,7 +502,7 @@ pub async fn run_cliff<M: ModelTurn + Sync>(
     ladder: &[u32],
     depths: &[f32],
 ) -> AppResult<CliffReport> {
-    run_cliff_with(turn, model, tasks, source, ladder, depths, &CancellationToken::new(), &mut |_, _, _| {}, &mut no_step).await
+    run_cliff_with(turn, model, tasks, source, ladder, depths, NO_CTX_LIMIT, &CancellationToken::new(), &mut |_, _, _| {}, &mut no_step).await
 }
 
 /// Same as [`run_cliff`] but invokes `on_rung(done, total, point)` after each rung
@@ -458,6 +513,7 @@ pub async fn run_cliff<M: ModelTurn + Sync>(
 /// look stuck. `cancel` lets the Stop button abort the sweep: it's checked before each
 /// (costly) rung and before classification, so a cancelled probe returns an error
 /// WITHOUT classifying or persisting a bogus outcome.
+#[allow(clippy::too_many_arguments)]
 pub async fn run_cliff_with<M: ModelTurn + Sync>(
     turn: &M,
     model: &str,
@@ -465,6 +521,7 @@ pub async fn run_cliff_with<M: ModelTurn + Sync>(
     source: &CliffSource,
     ladder: &[u32],
     depths: &[f32],
+    ctx_limit: u32,
     cancel: &CancellationToken,
     on_rung: &mut (dyn FnMut(usize, usize, &CliffPoint) + Send),
     on_step: StepSink<'_>,
@@ -472,7 +529,7 @@ pub async fn run_cliff_with<M: ModelTurn + Sync>(
     // One reused turn flows through the per-task factory seam via the blanket `&M` impl (the
     // factory ignores the task and hands back the shared reference). The native path calls
     // `run_cliff_with_factory` directly with a task-aware factory instead.
-    run_cliff_with_factory(&|_: &ToolTask| turn, model, tasks, source, ladder, depths, cancel, on_rung, on_step).await
+    run_cliff_with_factory(&|_: &ToolTask| turn, model, tasks, source, ladder, depths, ctx_limit, cancel, on_rung, on_step).await
 }
 
 /// The cliff engine over a per-task turn FACTORY: `make_turn(task)` yields the `ModelTurn` for
@@ -488,6 +545,7 @@ pub async fn run_cliff_with_factory<T: ModelTurn, F: Fn(&ToolTask) -> T>(
     source: &CliffSource,
     ladder: &[u32],
     depths: &[f32],
+    ctx_limit: u32,
     cancel: &CancellationToken,
     on_rung: &mut (dyn FnMut(usize, usize, &CliffPoint) + Send),
     on_step: StepSink<'_>,
@@ -505,12 +563,21 @@ pub async fn run_cliff_with_factory<T: ModelTurn, F: Fn(&ToolTask) -> T>(
         if cancel.is_cancelled() {
             return Err(AppError::Inference("context-cliff probe cancelled".into()));
         }
-        let point = probe_rung(make_turn, model, tasks, source_text, target, depths, &mut rate, i + 1, total, on_step).await?;
+        let point = probe_rung(make_turn, model, tasks, source_text, target, depths, ctx_limit, &mut rate, i + 1, total, on_step).await?;
         // A Stop that fired DURING this rung leaves it half-generated (cancelled turns
         // return empty/partial text). Abort before emitting it, so a stopped/superseded
         // run never pushes a garbage rung into the chart or the report.
         if cancel.is_cancelled() {
             return Err(AppError::Inference("context-cliff probe cancelled".into()));
+        }
+        // The prompt hit the context window: the backend truncated it rather than erroring, so
+        // this rung's score and depth are both artifacts (see `measurable`). DROP it — never
+        // emit, plot, or classify a rung we didn't actually measure — and stop, since every
+        // deeper rung saturates the same way. The ladder keeps the rungs that DID fit, so the
+        // verdict is computed only from real measurements (an honest "held to <last measured>"
+        // instead of a fabricated cliff at the window).
+        if i > 0 && !measurable(point.verified_tokens, ctx_limit) {
+            break;
         }
         on_rung(i + 1, total, &point);
         let comp = point.composite;

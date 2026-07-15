@@ -640,8 +640,14 @@ own collection selection (independent of the editor). All probe state lives in
 **How.** Consumes a Matrix pre-fill **reactively** (keyed on
 `cliffStore.request`, not on mount — the always-mounted Audit page would miss a
 mount-only effect) → sets model override + collection + tokens + steps, then
-`consumeRequest()`. Max-Tokens defaults to the model's real context window
-(`useVramFit` dims, `/api/show`) and clamps on model switch. The rung table shows
+`consumeRequest()`. Max-Tokens defaults to — and its slider caps at —
+`usableCliffTokens(context_length)` = the model's real context window (`useVramFit` dims,
+`/api/show`) **minus `CLIFF_CTX_HEADROOM`** (both from `shared/ipc/eval/cliff.ts`, mirroring
+the backend constant), and clamps on model switch. The headroom subtraction is load-bearing,
+not cosmetic: the backend runs the probe at `maxTokens + CLIFF_CTX_HEADROOM`, so offering the
+full window asked for more context than the model has — for every model — and Ollama answers
+that by silently clamping and truncating the needle away, yielding a fabricated cliff at the
+window. The rung table shows
 each step's tokens / accuracy / Pass·Failure / **View trace** (expands the system
 prompt + per-position model output, "needle at N%"). Read-out maps the verdict to
 `≈Nk context tokens` / `broken baseline` / `accuracy maintained up to ≈Nk` /

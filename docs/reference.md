@@ -254,14 +254,38 @@ whatever model happens to be loaded).
 - If the window won't go higher, this machine's memory caps it there — reduce the
   prompt / Context Stress Test length to fit the largest window it will launch.
 
+**Context Stress Test — the ladder always fits the window.** The probe runs at
+`Max Tokens + ~2K headroom` (the tool schemas, the injected task, and the reply all sit on
+top of the padding), so **Max Tokens is capped at the model's context window *minus* that
+headroom** — the deepest depth that can actually be *measured*. Asking for the full window
+is not a near miss, it is unmeasurable: **Ollama silently clamps** `num_ctx` down to the
+trained window and truncates the prompt (deleting the injected task, so the model fails a
+question it never saw) while `prompt_eval_count` **saturates** at the window — reading the
+same no matter how much padding is sent. That combination produced a *fabricated* cliff at
+exactly the window from a model that never degraded. Two guards behind the cap: the backend
+refuses an over-deep request up front naming the deepest usable Max Tokens, and the engine
+**drops** any rung measured at the window rather than scoring or persisting it (a rung that
+was truncated was never measured).
+
+**Context Stress Test — depth is measured as `prompt_eval_count + cache_n`.** llama.cpp
+serves a reused prefix from its prompt cache and reports only the **recomputed** part in
+`prompt_eval_count` (a fully-cached 2.4K-token prompt reports `prompt_n = 1`). The probe
+sweeps near-identical prompts, so it hits that cache constantly; the depth is therefore the
+context the model *read*, cached prefix included — the same occupancy the agentic runner
+uses. Counting only the recomputed part collapsed the charted depth toward zero **and**
+exploded the learned byte→token rate, sizing the next rung past the window — which
+llama.cpp rejects outright, aborting the whole probe. Ollama sends no `cache_n`, so there
+this is a no-op.
+
 **Ollama / MLX won't-fit pre-flight.** Ollama (and MLX) size `num_ctx` per request, so
 a too-deep Context Stress Test would silently spill to CPU or OOM mid-ladder rather than
 fail at launch. For **Ollama** the probe estimates the deepest rung's footprint (exact
 weights + real KV cache at that depth) against the device memory cap and refuses up front
 with a "reduce Max Tokens to about N" message when it won't fit; the panel also shows an
-advisory banner *before* you click Execute. This is separate from (and additive to) the
-llama.cpp model-identity guard above — the two backends fail differently, so they're
-guarded differently.
+advisory banner *before* you click Execute. This is separate from (and additive to) both
+the llama.cpp model-identity guard and the context-window cap above — a depth the model
+cannot hold is wrong even on a machine with memory to spare, so the window is checked
+first. The three fail differently, so they're guarded separately.
 
 **Context Stress Test — tool-calling method.** The panel has a **Native FC / Prompt-based**
 toggle (default Native FC), so the cliff is measured on the same path you'll deploy on.
