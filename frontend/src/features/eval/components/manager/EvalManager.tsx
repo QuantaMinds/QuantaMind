@@ -25,6 +25,8 @@ import { CsvImportModal } from "./CsvImportModal";
 import { WorldStateEditor } from "../../env/WorldStateEditor";
 import { KebabMenu } from "./KebabMenu";
 import { Spinner } from "../../../../shared/ui/Spinner";
+import { useMcpStore } from "../../../mcp/state/mcpStore";
+import { buildMcpTasks, buildMcpByoTasks } from "../../../../shared/ipc/mcp/run";
 
 interface EvalManagerProps {
   model: string;
@@ -86,7 +88,7 @@ export function EvalManager({
   // never a silent no-op — the store's only other reader (MatrixScoreboard) is a different panel
   // and is unmounted while editing. `startRun()` resets it, so it self-clears on the next run.
   const runError = useBatchStore((s) => s.error);
-  const { run, stop } = useBatchRun();
+  const { run, runByo, stop } = useBatchRun();
 
   const [collectionsExpanded, setCollectionsExpanded] = useState(true);
   const [hoverTaskId, setHoverTaskId] = useState<string | null>(null);
@@ -127,8 +129,26 @@ export function EvalManager({
     showToast(`CSV imported: ${csvTasks.length} task${csvTasks.length > 1 ? "s" : ""} ✓`);
   };
 
-  // Determine dataSource based on the active selection
-  const dataSource = isPreset(selected) ? "builtin" : "custom";
+  // MCP is a third source (real tools), independent of any collection selection.
+  // Shared via the store so the CENTER (EvalPage) shows the connect/build flow
+  // while this sidebar shows only the MCP task list.
+  const mcpActive = useMcpStore((s) => s.active);
+  const setMcpActive = useMcpStore((s) => s.setActive);
+  const mcpTasks = useMcpStore((s) => s.tasks);
+  const removeMcpTask = useMcpStore((s) => s.removeTask);
+  const mcpByoTasks = useMcpStore((s) => s.byoTasks);
+  const removeMcpByoTask = useMcpStore((s) => s.removeByoTask);
+  const setEditingByo = useMcpStore((s) => s.setEditingByo);
+  const setBuilderCollapsed = useMcpStore((s) => s.setBuilderCollapsed);
+  // Which sidebar MCP task is highlighted — Run Batch runs it (all tasks if none picked).
+  const [selectedMcpTask, setSelectedMcpTask] = useState<string | null>(null);
+  const setMcpTasks = useEvalRegistryStore((s) => s.setMcpTasks);
+  // Determine dataSource: MCP overrides; otherwise derive from the active selection.
+  const dataSource: "mcp" | "builtin" | "custom" = mcpActive
+    ? "mcp"
+    : isPreset(selected)
+      ? "builtin"
+      : "custom";
 
   const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
   const gbLabel = (bytes: number) => `${Math.round(bytes / 1024 ** 3)}GB RAM`;
@@ -171,8 +191,13 @@ export function EvalManager({
     };
   }, [running, selectedBackend, model]);
 
-  const handleDataSourceChange = async (source: "custom" | "builtin") => {
+  const handleDataSourceChange = async (source: "custom" | "builtin" | "mcp") => {
     setError(null);
+    if (source === "mcp") {
+      setMcpActive(true);
+      return;
+    }
+    setMcpActive(false);
     try {
       if (source === "builtin") {
         if (presets.length > 0) {
@@ -280,10 +305,6 @@ export function EvalManager({
       await stop();
       return;
     }
-    if (tasks.length === 0) {
-      setError("Add at least one task to the collection before running.");
-      return;
-    }
     // Resolve the header model within the selected set, tolerating an Ollama `:latest` tag
     // mismatch ("phi3.5" vs a "phi3.5:latest" entry, or vice versa) the same way the
     // loaded-model lookup does. An exact `===` would let a stale/mismatched selection (e.g.
@@ -299,13 +320,56 @@ export function EvalManager({
       );
       return;
     }
+
+    // MCP Bring-Your-Own: no world/oracle → the diagnostic adapter drives the live server and
+    // streams into the SAME Simulator/Evaluator/Model Results. Register row-only tasks (keyed by
+    // task name) so the scoreboard has rows, then run. Cancellable via the same Stop button.
+    if (mcpActive && mcpTasks.length === 0 && mcpByoTasks.length > 0) {
+      // Run the highlighted task, or all BYO tasks if none is selected.
+      const chosen = selectedMcpTask ? mcpByoTasks.filter((t) => t.name === selectedMcpTask) : [];
+      const toRun = chosen.length > 0 ? chosen : mcpByoTasks;
+      try {
+        setMcpTasks("mcp:byo", await buildMcpByoTasks(toRun));
+      } catch (e) {
+        setError(formatIpcError(e));
+        return;
+      }
+      setBuilderCollapsed(true);
+      await runByo(toRun, { model: picked.name, backend: picked.backend }, k);
+      return;
+    }
+
+    // MCP controlled-world OR Built-In/Custom → the standard scored pipeline. Convert the built
+    // MCP tasks → ToolTask[]; no saved collection — the `mcp:*` id is only a report key.
+    let runId = selected;
+    let runTasks = tasks;
+    if (mcpActive) {
+      if (mcpTasks.length === 0) {
+        setError("Build at least one MCP task before running.");
+        return;
+      }
+      // Run the highlighted world task, or the whole set if none is selected.
+      const chosen = selectedMcpTask ? mcpTasks.filter((t) => t.name === selectedMcpTask) : [];
+      const worldToRun = chosen.length > 0 ? chosen : mcpTasks;
+      try {
+        runTasks = await buildMcpTasks(worldToRun);
+      } catch (e) {
+        setError(formatIpcError(e));
+        return;
+      }
+      runId = "mcp:local";
+      setMcpTasks(runId, runTasks); // surface to the registry so the scoreboard iterates them
+    } else if (tasks.length === 0) {
+      setError("Add at least one task to the collection before running.");
+      return;
+    }
     // `k` is always user-set (read fresh from the prop here, not a stale closure) and
     // always sent — it wins over the tier-derived value in the backend. The tier still
     // flows (for spec.tier); decoys flow only when the checkbox is on.
     void run(
-      selected,
+      runId,
       [{ model: picked.name, backend: picked.backend }],
-      tasks,
+      runTasks,
       k,
       maxSteps,
       nativeFc,
@@ -316,7 +380,9 @@ export function EvalManager({
     );
   };
 
-  const runDisabled = !model || tasks.length === 0 || (!nativeFc && !promptBased);
+  const mcpHasTasks = mcpTasks.length > 0 || mcpByoTasks.length > 0;
+  const runDisabled =
+    !model || (mcpActive ? !mcpHasTasks : tasks.length === 0) || (!nativeFc && !promptBased);
   // Explain WHY RUN BATCH is disabled instead of leaving a greyed-out dead button.
   const runDisabledReason =
     !model && tasks.length === 0
@@ -564,6 +630,18 @@ export function EvalManager({
                   <input
                     type="radio"
                     name="dataSource"
+                    checked={dataSource === "mcp"}
+                    onChange={() => void handleDataSourceChange("mcp")}
+                    style={radioInputStyle}
+                  />
+                  <span style={{ fontSize: 13, color: dataSource === "mcp" ? "#0f172a" : "#64748b" }}>
+                    {dataSource === "mcp" ? "◉" : "◯"} MCP
+                  </span>
+                </label>
+                <label style={radioLabelStyle}>
+                  <input
+                    type="radio"
+                    name="dataSource"
                     checked={dataSource === "builtin"}
                     onChange={() => void handleDataSourceChange("builtin")}
                     style={radioInputStyle}
@@ -588,7 +666,61 @@ export function EvalManager({
 
               {/* Collection list (tasks nest under the selected one via collectionRow) */}
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {dataSource === "custom" ? (
+                {dataSource === "mcp" ? (
+                  // Sidebar under MCP: one combined list of saved tasks. World tasks are
+                  // scored via Run Batch; Bring-Your-Own tasks stream a diagnostic. Click a row
+                  // to select it (Run Batch runs the selection), the pencil to edit it.
+                  mcpTasks.length === 0 && mcpByoTasks.length === 0 ? (
+                    <div style={{ color: "#64748b", fontSize: 12, fontStyle: "italic", paddingLeft: 8 }}>
+                      No MCP tasks yet — connect a server and author one in the center.
+                    </div>
+                  ) : (
+                    <>
+                      {mcpTasks.map((t) => {
+                        const sel = selectedMcpTask === t.name;
+                        return (
+                          <div
+                            key={`w:${t.name}`}
+                            onClick={() => setSelectedMcpTask(t.name)}
+                            style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "2px 8px", cursor: "pointer", borderRadius: 4, background: sel ? "#e0e7ff" : "transparent", fontWeight: sel ? 600 : 400 }}
+                          >
+                            <span>{t.name}</span>
+                            <span style={{ color: "#64748b", fontSize: 11 }}>{t.world.type === "fs" ? "Filesystem" : "Database"}</span>
+                            <button type="button" style={{ marginLeft: "auto", fontSize: 11, color: "#94a3b8" }} onClick={(e) => { e.stopPropagation(); removeMcpTask(t.name); if (selectedMcpTask === t.name) setSelectedMcpTask(null); }}>
+                              remove
+                            </button>
+                          </div>
+                        );
+                      })}
+                      {mcpByoTasks.map((t) => {
+                        const sel = selectedMcpTask === t.name;
+                        return (
+                          <div
+                            key={`b:${t.name}`}
+                            onClick={() => setSelectedMcpTask(t.name)}
+                            style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "2px 8px", cursor: "pointer", borderRadius: 4, background: sel ? "#e0e7ff" : "transparent", fontWeight: sel ? 600 : 400 }}
+                          >
+                            <span>{t.name}</span>
+                            <span style={{ color: "#64748b", fontSize: 11 }}>Diagnostic · {t.serverId}</span>
+                            <button type="button" title="Edit instruction" style={{ marginLeft: "auto", fontSize: 12, color: "#6366f1" }} onClick={(e) => { e.stopPropagation(); setEditingByo(t); }}>
+                              ✎
+                            </button>
+                            <button type="button" style={{ fontSize: 11, color: "#94a3b8" }} onClick={(e) => { e.stopPropagation(); removeMcpByoTask(t.name); if (selectedMcpTask === t.name) setSelectedMcpTask(null); }}>
+                              remove
+                            </button>
+                          </div>
+                        );
+                      })}
+                      <button
+                        type="button"
+                        onClick={() => setBuilderCollapsed(false)}
+                        style={{ marginTop: 4, marginLeft: 8, fontSize: 12, color: "#6366f1", textAlign: "left", cursor: "pointer" }}
+                      >
+                        + Add MCP task
+                      </button>
+                    </>
+                  )
+                ) : dataSource === "custom" ? (
                   collections.length === 0 ? (
                     <div style={{ color: "#64748b", fontSize: 12, fontStyle: "italic", paddingLeft: 8 }}>
                       No custom JSONs
@@ -738,19 +870,20 @@ export function EvalManager({
           </div>
 
           {/* ANTI-SATURATION (Phase 9) — decoy tools, with an ⓘ explaining the lever. */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }} data-testid="eval-anti-saturation">
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, opacity: mcpActive ? 0.4 : 1 }} data-testid="eval-anti-saturation">
             <div style={{ ...sectionHeaderStyle, display: "inline-flex", alignItems: "center", gap: 6 }}>
               ANTI-SATURATION
               <InfoButton {...TOOL_HELP.decoys} align="left" testId="decoy" />
             </div>
-            <label style={{ ...controlLabelStyle, display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+            <label style={{ ...controlLabelStyle, display: "flex", alignItems: "center", gap: 8, cursor: mcpActive ? "not-allowed" : "pointer" }}>
               <input
                 type="checkbox"
-                checked={decoyEnabled}
+                checked={decoyEnabled && !mcpActive}
+                disabled={mcpActive}
                 onChange={(e) => setDecoyEnabled(e.target.checked)}
                 data-testid="eval-decoy-enabled"
               />
-              Enable Decoy Tools
+              Enable Decoy Tools{mcpActive ? " (N/A for MCP)" : ""}
             </label>
             {decoyEnabled && (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>

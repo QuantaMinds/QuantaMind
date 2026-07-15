@@ -1,0 +1,113 @@
+# Phase 12 — Test-page MCP path (UI)
+
+**Goal:** the front door to everything the backend now does — connect servers,
+choose the track, build/run a task, watch it live, read the verdict.
+
+**Code:** `frontend/src/features/mcp/` (`state/mcpStore.ts`,
+`components/McpConnectPanel.tsx`); IPC in `shared/ipc/mcp/servers.ts` (P4).
+
+## Delivered — slice 1 (connect + two-track foundation)
+- **`mcpStore`** (Zustand): server list CRUD + `probe` (the loud "N tools
+  discovered" preflight — a bad command / stdout-polluting server surfaces here,
+  not mid-run) + the `mode` (`controlled` | `byo`) two-track selector.
+- **`McpConnectPanel`**: the two-track selector rendered so **Bring-Your-Own is
+  visibly distinct** — it advertises *format + attribution only*, with
+  "No task-completion verdict — we have no answer key" (seeing ≠ scoring, the
+  honest rule made visual); a server list with Connect→"✓ N tools discovered" /
+  "✗ loud error"; an add-server form.
+- **5 vitest tests** (refresh, probe-ok records N tools, probe-error is loud,
+  addServer upsert+refresh, mode switch). `tsc` clean.
+
+## Mounted into the Test page ✅
+`EvalManager.tsx` COLLECTIONS selector now shows **`◉ MCP  ◯ Built-in  ◯ Custom
+JSON`** (MCP first). `dataSource` gains an `mcp` value via an `mcpMode` override
+(MCP has no collection selection); choosing MCP renders `McpConnectPanel` in the
+list area. tsc clean; EvalManager + mcp suites 45 tests green.
+
+## Layout + builder ✅
+- **Center = connect + build** (`McpCenterPanel`): "Connect your MCP tools" +
+  the guided builder; **Sidebar = the MCP task list** only. Shared via
+  `mcpStore.active`.
+- **Guided builder** (`McpTaskBuilder`, Screen 4): three sections that *are* the
+  task JSON — Task (instruction) · Set up the world (fs seed files / db setup SQL)
+  · Check the result (present/absent/content, or DB query assertions) · pass^k.
+  Save writes one `McpTaskDef` (pure `toTaskDef`, unit-tested) into the store; it
+  appears in the sidebar. BYO mode greys the builder out (attribution-only note).
+
+## Run pipeline ✅ (both tracks, real model from the global header)
+- Backend: `inference/mcp/agent::BackendDriver` (real multi-turn driver —
+  `bridge::chat` + transcript), `inference/mcp/bridge::chat` (dispatch), and
+  `commands/mcp/run_cmd.rs`:
+  - `run_mcp_world_task(model, backend, task, max_steps)` → seeds a fresh world
+    per run, drives the model, grades the end-state → `{k, passes, ready,
+    pass_rate, failures}` (pass^k). Endpoint resolved from `backend`.
+  - `run_mcp_byo(model, backend, server_id, instruction)` → one model turn vs the
+    user's server → schema-valid rate + model|config|server attribution + per-call
+    trace.
+- Frontend: `shared/ipc/mcp/run.ts`; the center shows **Model: X · backend (from
+  the global header)** — no separate picker. `McpWorldRunner` (task list → Run →
+  READY/CONDITIONAL/NOT READY verdict + failures) and `McpByoRunner` (instruction
+  + server → schema-valid rate + attribution). Quick-add chips for the reference
+  filesystem/sqlite servers.
+- **Live-verified**: the real `BackendDriver` scored a world task end-to-end —
+  Ollama `qwen3.5:9b` created `result.txt` across fresh worlds → **2/2 ready**.
+
+## Remaining (honest status)
+- **Streaming live trace** (Screen 5): the verdict is returned at the end; a
+  per-turn stream (call + schema check + oracle, changing per-run path) would need
+  a progress-event channel like the eval batch emitter.
+- **Upload JSON / template** doors (same `McpTaskDef` format the builder emits).
+
+The backend for all of the above is complete and live-verified (P1–P11); this
+slice is the tested UI foundation it plugs into.
+
+## UX redesign (post-unification, supersedes the run-pipeline bits above) ✅
+Once MCP became a first-class eval **source** (unification: `build_mcp_tasks` →
+the shared agentic runner), the bespoke inline `McpWorldRunner` was retired and the
+screen was restructured. **Two authoring doors** (`TrackSelector`, local `track`
+state in `McpCenterPanel`), Save→collapse on both, one combined sidebar:
+- **QuantaMind Test World** (`McpTaskBuilder`): seeded world + oracle → Save writes
+  an `McpTaskDef` (🌍) into the sidebar, scored via **Run Batch** through the shared
+  pipeline (answer-key pass^k) — identical to Built-In.
+- **Bring-Your-Own** (`McpByoBuilder`): name (optional) + instruction + which
+  connected server → Save writes an `McpByoTaskDef` (🔧). **Diagnostic only** — no
+  answer key. Runs via the **same Run Batch button** as everything else (not a sidebar
+  click): when only BYO tasks are present, `handleRunBatch` registers row-only
+  `ToolTask`s (`build_mcp_byo_tasks`, id = task name, so the Simulator has a row) then
+  calls `useBatchRun.runByo` → the `run_mcp_byo_batch` command (adapter over the
+  `run_mcp_byo` engine). It emits the batch events
+  (`batch-progress`/`agentic-step`/`batch-complete`) + persists a report keyed
+  `mcp:byo`, so the **Simulator, Evaluator (live trace) and Model Results light up like
+  a Built-In run**. Because there's no answer key, the report carries a distinct
+  `DiagnosticStats` (schema-valid rate + model/config/server attribution) and the score
+  cell shows **"schema-valid X/Y (Z%)"** (blue, not green/amber/red) — never a pass^k
+  or READY verdict. Kept OUT of the pass-rate aggregate + `pass_k()` (`tasks_total: 0`)
+  so metrics are never blended (no-fake-metrics). The adapter registers with
+  `BatchRunState` (shared `begin()`), so the **same Stop button cancels it mid-run**
+  (the model call is raced against the cancel token; dropping it kills the MCP client
+  via `McpTransport::Drop` — no orphan). It honours the **K from Run Params**: the
+  diagnostic repeats K times per task (a reliability-of-well-formedness sample), each
+  iteration grouped as `RUN n OF K` and aggregated into the schema-valid rate. The
+  Evaluator is diagnostic-aware — the per-run chip reads `DIAGNOSTIC` (not PASS/FAIL)
+  and the final verdict reads `DIAGNOSTIC · schema-valid X/Y` (+ attribution, + a "the
+  model answered in prose without calling a tool" note when there were 0 calls), never
+  `EVALUATION FAILED`.
+- **Connect → collapse.** `McpCenterPanel` collapses to a "✓ N MCP tasks saved"
+  summary (`mcpStore.builderCollapsed`, set true by `addTask`/`addByoTask`;
+  "+ Add another" reopens). Model + iterations + decoy come from the main controls.
+- **Sidebar = one combined list** under `◉ MCP`: world tasks labelled
+  `Filesystem`/`Database`, BYO tasks labelled `Diagnostic · <server>`; no `pass^k`
+  badge (iterations are global). Clicking a row **highlights** it (`selectedMcpTask`
+  local state) — Run Batch then runs the highlighted task, or the whole set if none is
+  picked. A **"+ Add MCP task"** button reopens the builder (`setBuilderCollapsed(false)`).
+- **Iterations + decoy from the main Run Params.** The builder's per-task `pass^k`
+  selector is gone. Decoy is greyed out + forced off when MCP is active
+  (`Enable Decoy Tools (N/A for MCP)`).
+- **Bring-your-own JSON** ✅ (the deferred "upload JSON" door): a "paste your own
+  task JSON" `<details>` in `McpTaskBuilder` accepts one `McpTaskDef` object or an
+  array — the exact format Save writes — validated then added to the sidebar.
+
+Frontend `tsc` clean; full vitest suite green (1256). The world scoring path
+(`build_mcp_tasks` → `run_agentic` → oracle) is unchanged and already live-proven
+(passes=2/2) in the unification work; the BYO path reuses the pre-existing
+`run_mcp_byo` command — this redesign is UI-only.

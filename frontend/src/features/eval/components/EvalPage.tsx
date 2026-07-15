@@ -8,6 +8,8 @@ import { stopBatchEval } from "../../../shared/ipc/eval/batch";
 import { getHardwareTier, type HardwareTier } from "../../../shared/ipc/compare/hardware";
 import { PASS_K_BY_TIER, MAX_STEPS_BY_TIER, type Tier } from "../../../shared/ipc/eval/readiness";
 import { EvalManager } from "./manager/EvalManager";
+import { McpCenterPanel } from "../../mcp/components/McpCenterPanel";
+import { useMcpStore } from "../../mcp/state/mcpStore";
 import { CollectionEditor } from "./manager/CollectionEditor";
 import { ConfirmDialog } from "./manager/ConfirmDialog";
 import { MatrixScoreboard } from "./scoreboard/MatrixScoreboard";
@@ -26,6 +28,12 @@ export function EvalPage() {
   const initRegistry = useEvalRegistryStore((s) => s.init);
   const startNew = useEvalRegistryStore((s) => s.startNew);
   const selectedCollection = useEvalRegistryStore((s) => s.selected);
+  const mcpActive = useMcpStore((s) => s.active);
+  // When MCP is the source, reveal the result panels (Simulator/Evaluator/Model Results)
+  // as soon as a run starts or a report lands — otherwise the center only shows the
+  // connect/build panel and a run has nowhere to display. (`batchRunning` is declared
+  // with the other batch-store reads below.)
+  const batchReport = useBatchStore((s) => s.report);
   const presets = useEvalRegistryStore((s) => s.presets);
   const collections = useEvalRegistryStore((s) => s.collections);
   const tasks = useEvalRegistryStore((s) => s.tasks);
@@ -281,40 +289,56 @@ export function EvalPage() {
         onDeleteTask={setDeleteTaskId}
       />
       <div className="flex flex-col gap-4 min-w-0">
-        {editing ? (
-          <CollectionEditor
-            initialTaskId={editingTaskId}
-            onClose={() => {
-              setEditing(false);
-              setEditingTaskId(null);
-            }}
-          />
-        ) : (
-          <>
-            <div ref={detailRef}>
-              <MatrixScoreboard
+        {(() => {
+          const resultPanels = (
+            <>
+              <div ref={detailRef}>
+                <MatrixScoreboard
+                  model={focusedModel}
+                  k={iterationsK}
+                  maxSteps={maxSteps}
+                  tierLabel={tierLabel}
+                  decoys={decoys}
+                  focusedTaskId={focusedTaskId}
+                  setFocusedTaskId={setFocusedTaskId}
+                  focusedPass={focusedPass}
+                  setFocusedPass={setFocusedPass}
+                />
+              </div>
+              <TraceDebugger
                 model={focusedModel}
-                k={iterationsK}
-                maxSteps={maxSteps}
-                tierLabel={tierLabel}
+                taskId={focusedTaskId}
+                setTaskId={setFocusedTaskId}
                 decoys={decoys}
-                focusedTaskId={focusedTaskId}
-                setFocusedTaskId={setFocusedTaskId}
-                focusedPass={focusedPass}
-                setFocusedPass={setFocusedPass}
+                tracePass={focusedPass}
+                k={iterationsK}
               />
-            </div>
-            <TraceDebugger
-              model={focusedModel}
-              taskId={focusedTaskId}
-              setTaskId={setFocusedTaskId}
-              decoys={decoys}
-              tracePass={focusedPass}
-              k={iterationsK}
-            />
-            <PerformanceMatrix focusedModel={focusedModel} onFocusModel={focusModel} />
-          </>
-        )}
+              <PerformanceMatrix focusedModel={focusedModel} onFocusModel={focusModel} />
+            </>
+          );
+          // MCP: show the connect/build panel, and once a run starts or a report lands,
+          // reveal the SAME result panels below it (so Run Batch has somewhere to display).
+          if (mcpActive) {
+            return (
+              <>
+                <McpCenterPanel />
+                {(batchRunning || batchReport != null) && resultPanels}
+              </>
+            );
+          }
+          if (editing) {
+            return (
+              <CollectionEditor
+                initialTaskId={editingTaskId}
+                onClose={() => {
+                  setEditing(false);
+                  setEditingTaskId(null);
+                }}
+              />
+            );
+          }
+          return resultPanels;
+        })()}
       </div>
       {deleteTaskId && (
         <ConfirmDialog

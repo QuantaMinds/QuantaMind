@@ -1,0 +1,27 @@
+{
+  "transport": "stdio",
+  "request": {
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "tools/call",
+    "params": {
+      "name": "read_text_file",
+      "arguments": {
+        "path": "/etc/hosts"
+      }
+    }
+  },
+  "response": {
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "Access denied - path outside allowed directories: /etc/hosts not in /tmp/mcp-sandbox"
+        }
+      ],
+      "isError": true
+    },
+    "jsonrpc": "2.0",
+    "id": 2
+  }
+}

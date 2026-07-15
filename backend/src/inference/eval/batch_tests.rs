@@ -102,6 +102,7 @@ fn agentic_task(id: &str, k: u32) -> ToolTask {
         expected: Default::default(),
         agentic: Some(AgenticSpec {
             mocks: vec![],
+            mcp: None,
             end_state: EndStateRule::RequireSequence(vec![TaskCheckpoint { tool: "ping".into(), args: json!({}) }]),
             environment: Default::default(),
             tier: Default::default(),
@@ -563,6 +564,7 @@ fn ollama_version_makes_a_native_garble_diagnosable_on_the_report() {
         native_error_class: Default::default(),
         boundary: None,
         tokens_per_completed: None,
+            diagnostic: None,
     };
     let report = BatchReport {
         collection_id: "c".into(),

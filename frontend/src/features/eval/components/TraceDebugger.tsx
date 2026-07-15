@@ -104,7 +104,16 @@ export const isErrorKind = (kind: string): boolean =>
   kind === "truncated" ||
   kind === "reasoning_overrun";
 
-export const getStepTitle = (kind: string, isError: boolean) => {
+export const getStepTitle = (kind: string, isError: boolean, diag = false) => {
+  // Bring-Your-Own diagnostic: a tool error is REAL (the server returned it), not an injected
+  // fault, and there are no Driver B/D fault-injection stages — so drop that framing.
+  if (diag) {
+    if (kind === "tool_call") return "Model Outputs Tool Call";
+    if (kind === "tool_error") return "Tool Returned an Error";
+    if (kind === "schema_error") return "Malformed Tool Call (Schema Invalid)";
+    if (kind === "unknown_tool") return "Called a Tool That Doesn't Exist";
+    if (kind === "reported_in_prose") return "Answered in Prose (No Tool Call)";
+  }
   if (kind === "tool_call") return "Model Outputs Tool Call";
   if (kind === "tool_error") return "Injected Tool Fault (Driver B)";
   if (kind === "unknown_tool") return "Unknown Tool Triggered";
@@ -416,6 +425,10 @@ export function TraceDebugger({
   k,
 }: TraceDebuggerProps) {
   const { tasks } = useEvalRegistryStore();
+  // Bring-Your-Own diagnostic run — true from the moment the run starts (the collection id
+  // is `mcp:byo`), unlike `diag` below which needs the task's terminal outcome to have landed.
+  // The per-run chips stream during the run, so they must NOT fall back to FAIL before then.
+  const isDiagRun = (useEvalRegistryStore((s) => s.selected) ?? "").startsWith("mcp:byo");
   const outcomeByKey = useBatchStore((s) => s.outcomeByKey);
   const nativeOutcomeByKey = useBatchStore((s) => s.nativeOutcomeByKey);
   const stepsByKey = useBatchStore((s) => s.stepsByKey);
@@ -469,6 +482,9 @@ export function TraceDebugger({
   const onNative = tracePass === "native" && hasNative;
   const steps = (onNative ? nativeSteps : stepsByKey[key]) || [];
   const outcome = onNative ? nativeOutcomeByKey[key] : outcomeByKey[key];
+  // Bring-Your-Own diagnostic: no answer key → the per-run chips + final verdict must read
+  // "diagnostic" (schema-valid), never PASS/FAIL / "EVALUATION FAILED".
+  const diag = outcome?.kind === "agentic" ? outcome.report.diagnostic : undefined;
   // A generated task re-randomizes its entity ids per Pass^k run, so the static `task.prompt`
   // template (used below as the reconstructed preview's fallback) is only right for the one
   // seed that happens to match. Step 0 of whichever run has streamed carries the REAL prompt.
@@ -721,7 +737,11 @@ export function TraceDebugger({
                               <span style={runTitleStyle}>
                                 RUN {gi + 1} OF {totalRuns}
                               </span>
-                              <span style={runChipStyle(status)}>{status.toUpperCase()}</span>
+                              {isDiagRun ? (
+                                <span style={runChipStyle("running")}>{complete ? "DIAGNOSTIC" : "RUNNING"}</span>
+                              ) : (
+                                <span style={runChipStyle(status)}>{status.toUpperCase()}</span>
+                              )}
                               {/* How much this run spent thinking — the measured reasoning-token sum
                                   across its turns (a reasoning model only; hidden when 0/absent, never
                                   a fabricated N/A). A subtle violet pill beside the status chip, not
@@ -745,7 +765,7 @@ export function TraceDebugger({
                                 const isError = isErrorKind(s.kind);
 
                                 const icon = getStepIcon(s.kind, isError);
-                                const title = getStepTitle(s.kind, isError);
+                                const title = getStepTitle(s.kind, isError, isDiagRun);
                                 const desc = getStepDescription(s.kind, s.raw_output);
 
                                 return (
@@ -773,7 +793,7 @@ export function TraceDebugger({
                                         )}
                                         {s.kind === "tool_error" && (
                                           <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "#fef2f2", color: "#991b1b", border: "1px solid #fee2e2" }}>
-                                            FAULT INTERCEPTED
+                                            {isDiagRun ? "TOOL ERROR" : "FAULT INTERCEPTED"}
                                           </span>
                                         )}
                                         {/* llama.cpp-only per-turn prefix-cache readout (reused vs recomputed;
@@ -825,7 +845,21 @@ export function TraceDebugger({
                 {/* Final Verdict — prompt pass only, and only once the outcome has LANDED (a
                     still-streaming prompt task has steps but no `outcome.report` yet). The native
                     trace shows its own per-run PASS/FAIL chips instead of this. */}
-                {tracePass === "prompt" && outcome?.kind === "agentic" && (
+                {tracePass === "prompt" && outcome?.kind === "agentic" && diag && (
+                  <div style={{ padding: "12px 14px", borderRadius: 8, background: "#dbeafe", border: "1px solid #93c5fd", display: "flex", alignItems: "center", gap: 12 }}>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 14, color: "#1e40af" }}>
+                        DIAGNOSTIC · schema-valid {diag.schema_valid}/{diag.total_calls}
+                      </div>
+                      <div style={{ fontSize: 12, opacity: 0.9, marginTop: 2, color: "#1e40af" }}>
+                        No answer key — this measures well-formed tool calls + fault attribution (model{" "}
+                        {diag.model_faults} · config {diag.config_faults} · server {diag.server_faults}), not pass/fail.
+                        {diag.total_calls === 0 && " The model answered in prose without calling a tool."}
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {tracePass === "prompt" && outcome?.kind === "agentic" && !diag && (
                   <div
                      style={verdictStyle(
                        isStrictPass(outcome.report)

@@ -176,6 +176,12 @@ fn validate_agentic(id: &str, tools: &[ToolSchema], spec: &AgenticSpec) -> AppRe
             }
         }
         EndStateRule::ExpectAbstainingText => {}
+        // MCP: no in-spec checkpoints; success is the real world's oracle. Require the mcp spec.
+        EndStateRule::RequireWorldOracle => {
+            if spec.mcp.is_none() {
+                return Err(bad(id, "agentic", "MCP end-state (require_world_oracle) needs an `mcp` spec"));
+            }
+        }
     }
     for m in &spec.mocks {
         if !known(&m.call.name) {

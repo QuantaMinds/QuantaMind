@@ -14,6 +14,7 @@ pub mod audit;
 pub mod commands;
 pub mod errors;
 pub mod inference;
+pub mod mcp;
 pub mod metrics;
 pub mod os;
 pub mod persistence;
@@ -39,6 +40,7 @@ pub fn run() {
         .manage(commands::llama::llama_server_types::LlamaServerState::default())
         .manage(commands::mlx::mlx_server_types::MlxServerState::default())
         .manage(commands::stt::stt_server_types::SttServerState::default())
+        .manage(mcp::registry::McpServerState::default())
         .manage(commands::stt::stt_download::SttInstallState::default())
         .manage(commands::audio::capture::CaptureState::default())
         .manage(commands::workspace::workspaces::WorkspaceState::default())
@@ -219,6 +221,18 @@ pub fn run() {
             commands::settings::user_settings::get_user_settings,
             commands::settings::user_settings::set_user_settings,
             commands::settings::user_settings::resolve_models_folder,
+            commands::mcp::mcp_cmd::list_mcp_servers,
+            commands::mcp::mcp_cmd::upsert_mcp_server,
+            commands::mcp::mcp_cmd::remove_mcp_server,
+            commands::mcp::mcp_cmd::set_mcp_server_enabled,
+            commands::mcp::mcp_cmd::set_mcp_server_secret,
+            commands::mcp::mcp_cmd::probe_mcp_server,
+            commands::mcp::run_cmd::run_mcp_world_task,
+            commands::mcp::run_cmd::run_mcp_byo,
+            commands::mcp::run_cmd::run_mcp_byo_batch,
+            commands::mcp::run_cmd::mcp_scratch_db_path,
+            commands::mcp::task_cmd::build_mcp_byo_tasks,
+            commands::mcp::task_cmd::build_mcp_tasks,
             commands::system::onboarding::scaffold_onboarding_workspace,
             commands::system::os_info::os_platform,
         ])

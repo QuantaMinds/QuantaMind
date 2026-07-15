@@ -339,6 +339,20 @@ pub enum TopError {
     ReasoningOverrun,
 }
 
+/// Bring-Your-Own diagnostic: a per-call well-formedness summary for a task run
+/// against the user's OWN server (no answer key). Carried DISTINCTLY from pass^k
+/// so the UI never renders a schema-valid rate as a task-completion verdict.
+/// `None` on every controlled-world / built-in task.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct DiagnosticStats {
+    pub total_calls: u32,
+    pub schema_valid: u32,
+    pub successes: u32,
+    pub model_faults: u32,
+    pub config_faults: u32,
+    pub server_faults: u32,
+}
+
 /// The Pass^k payload: how many of `total_runs` reached the end state, the
 /// failure breakdown, the relative effort metric (mean output tokens over
 /// successful runs only — `None` ⇒ the UI renders "N/A"), mean steps across all
@@ -389,6 +403,11 @@ pub struct AgenticReport {
     /// reports load as 0.
     #[serde(default)]
     pub output_tokens_total: u32,
+    /// Bring-Your-Own: present ONLY for a diagnostic run against a user's own server
+    /// (no oracle). When `Some`, the UI shows "schema-valid X/Y", never pass^k, and no
+    /// READY verdict. `#[serde(default)]` → every world/built-in report loads `None`.
+    #[serde(default)]
+    pub diagnostic: Option<DiagnosticStats>,
 }
 
 impl AgenticReport {
@@ -446,6 +465,7 @@ impl AgenticReport {
             safety_attribution: attribution,
             safety: None, // stamped by the batch layer via with_safety (it holds the ToolTask)
             output_tokens_total,
+            diagnostic: None, // set only by the BYO adapter; never from real run outcomes
         }
     }
 

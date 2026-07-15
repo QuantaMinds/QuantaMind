@@ -7,7 +7,7 @@ use crate::inference::eval::toolcall::eval::{aggregate, TaskResult};
 use crate::inference::eval::toolcall::parse::extract_calls;
 use crate::inference::eval::toolcall::prompt::{build_system_for, TerminalGuidance};
 use crate::inference::eval::toolcall::score::{score, verdict_passed, Verdict};
-use crate::inference::eval::toolcall::tasks::ToolTask;
+use crate::inference::eval::toolcall::tasks::{is_agentic, ToolTask};
 use crate::inference::generate::generate_options::{GenerateOptions, EVAL_REPEAT_PENALTY};
 use crate::inference::generate::generate_spec::GenerateSpec;
 use serde::{Deserialize, Serialize};
@@ -182,7 +182,10 @@ pub struct CliffReport {
 /// and fails it only when the model emitted **no well-formed tool call** (`!verdict.parsed`)
 /// — tool/arg correctness is the end-state's job, not the probe's.
 fn cliff_failed(task: &ToolTask, v: &Verdict) -> bool {
-    if task.category == "agentic" {
+    // Agentic tasks (incl. `agent_loop` / MCP) carry a placeholder `expected` the single-turn
+    // scorer would misread — the cliff signal for them is well-formedness (a parseable call
+    // survived this depth), not full task completion (too slow to run per rung/position).
+    if is_agentic(&task.category) {
         !v.parsed
     } else {
         !verdict_passed(v)
@@ -200,7 +203,7 @@ fn cliff_score(tasks: &[ToolTask], results: &[TaskResult]) -> (Option<f64>, Opti
     let mut single_results: Vec<TaskResult> = Vec::new();
     let (mut agentic_parsed, mut agentic_n) = (0usize, 0usize);
     for (t, r) in tasks.iter().zip(results) {
-        if t.category == "agentic" {
+        if is_agentic(&t.category) {
             agentic_n += 1;
             if r.verdict.parsed {
                 agentic_parsed += 1;

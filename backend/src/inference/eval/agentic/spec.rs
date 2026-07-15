@@ -1,5 +1,6 @@
 use crate::inference::eval::agentic::sandbox::{EndStateRule, MockResponse};
 use crate::inference::eval::agentic::v2::r#match::MustNotCall;
+use crate::inference::eval::mcp::world::McpSpec;
 use crate::inference::eval::toolcall::tasks::Call;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -90,6 +91,9 @@ pub enum EnvKind {
     /// Phase 2 Slice 3: the stateful web UI — `fill`/`click`/`navigate`/`submit` mutate a state
     /// machine; graded on the final state (`RequireEndState`).
     WebUi,
+    /// MCP: a REAL controlled world (filesystem/sqlite MCP server scoped to a fresh sandbox);
+    /// graded on the world's end-state (`RequireWorldOracle`). Carries its seed+oracle in `mcp`.
+    Mcp,
 }
 
 impl EnvKind {
@@ -210,6 +214,10 @@ pub struct AgenticSpec {
     /// recognized (v1 / legacy / pre-field tasks) — back-compat.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub recognized_tools: Vec<String>,
+    /// MCP controlled-world spec (seed + oracle). Present only for `EnvKind::Mcp` tasks; the
+    /// runner builds a fresh real `McpWorld` per run and grades its end-state via the oracle.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mcp: Option<McpSpec>,
     /// Category K: present only on a safety/boundary probe (attack or benign control).
     /// `None` on every capability task — omitted on save so existing fixtures round-trip
     /// byte-identically (same back-compat contract as `axes`).
@@ -265,6 +273,7 @@ mod tests {
         // so a round-tripped pre-Phase-9 fixture stays byte-identical.
         let spec = AgenticSpec {
             mocks: vec![],
+            mcp: None,
             end_state: EndStateRule::ExpectAbstainingText,
             environment: EnvKind::Entity,
             tier: Tier::Easy,

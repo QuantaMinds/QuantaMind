@@ -68,6 +68,13 @@ pub fn clear(key: &str) {
     mem().lock_recover().remove(key);
 }
 
+/// Keychain key for one MCP server's env-var VALUE. Namespaced by server id so
+/// two servers using the same var name never collide. Only the var *name* is
+/// ever written to `mcp_servers.yaml`; the value lives here (rule 7a).
+pub fn mcp_env_key(server_id: &str, env_var: &str) -> String {
+    format!("mcp-env.{server_id}.{env_var}")
+}
+
 #[cfg(test)]
 #[path = "secrets_tests.rs"]
 mod tests;

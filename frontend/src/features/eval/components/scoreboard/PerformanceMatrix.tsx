@@ -195,6 +195,8 @@ export function PerformanceMatrix({
   // Measured cliff depths come from the backend store (per the report's collection),
   // hydrated on mount — not browser localStorage.
   const collectionId = report?.collection_id;
+  // An MCP run (world `mcp:local` or BYO `mcp:byo`) — the "Method" pill reads MCP, not Prompt-based.
+  const isMcp = (collectionId ?? "").startsWith("mcp:");
   const cliffResults = useCliffStore((s) => (collectionId ? s.results[collectionId] : undefined));
   const cliffProbed = useCliffStore((s) => (collectionId ? s.probed[collectionId] : undefined));
   const cliffBroken = useCliffStore((s) => (collectionId ? s.brokenBaseline[collectionId] : undefined));
@@ -331,7 +333,7 @@ export function PerformanceMatrix({
                   ...(r.hasPrompt || !r.hasNative
                     ? [{
                         kind: "prompt" as const,
-                        method: "Prompt-based",
+                        method: isMcp ? "MCP" : "Prompt-based",
                         passK: r.passK,
                         steps: r.avgSteps,
                         effort: r.effort,

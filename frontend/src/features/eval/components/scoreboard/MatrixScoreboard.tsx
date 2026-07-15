@@ -98,6 +98,9 @@ export function MatrixScoreboard({
           totalTokens += outcome.trace.prompt_tokens;
           tokensCount += 1;
         }
+      } else if (outcome.kind === "agentic" && outcome.report.diagnostic) {
+        // Bring-Your-Own diagnostic: a schema-valid rate, not a pass^k — keep it OUT of the
+        // pass-rate aggregate so it's never averaged with (or read as) task completions.
       } else if (outcome.kind === "agentic") {
         totalPasses += outcome.report.passes;
         totalRuns += outcome.report.total_runs;
@@ -401,6 +404,19 @@ function resultBadge(outcome: TaskOutcome | undefined, testId: string): React.Re
   let badge: React.ReactNode = <span style={{ color: "#64748b" }}>—</span>;
   if (outcome.kind === "single") {
     badge = outcome.passed ? <span style={passBadgeStyle}>Pass</span> : <span style={failBadgeStyle}>Fail</span>;
+  } else if (outcome.kind === "agentic" && outcome.report.diagnostic) {
+    // Bring-Your-Own: no answer key → a well-formedness rate, NOT a pass^k verdict.
+    const d = outcome.report.diagnostic;
+    const pct = d.total_calls ? Math.round((d.schema_valid / d.total_calls) * 100) : 0;
+    badge = (
+      <span
+        style={diagnosticBadgeStyle}
+        data-testid={testId}
+        title={`Diagnostic — no answer key. ${d.schema_valid}/${d.total_calls} calls schema-valid; faults → model ${d.model_faults}, config ${d.config_faults}, server ${d.server_faults}.`}
+      >
+        schema-valid {d.schema_valid}/{d.total_calls} ({pct}%)
+      </span>
+    );
   } else if (outcome.kind === "agentic") {
     const { passes, total_runs, requested_runs } = outcome.report;
     const truncated = requested_runs != null;
@@ -552,6 +568,22 @@ const dialectChipStyle: React.CSSProperties = {
   borderRadius: 6,
   padding: "1px 6px",
   fontSize: 11,
+  fontWeight: 600,
+  fontFamily: "Inter, sans-serif",
+};
+
+/// Bring-Your-Own diagnostic score — deliberately NOT green/amber/red (which read as a
+/// pass/fail verdict). A neutral blue "schema-valid X/Y" says "measured, not judged".
+const diagnosticBadgeStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 5,
+  background: "#dbeafe",
+  border: "1px solid #93c5fd",
+  color: "#1e40af",
+  borderRadius: 6,
+  padding: "2px 8px",
+  fontSize: 12,
   fontWeight: 600,
   fontFamily: "Inter, sans-serif",
 };

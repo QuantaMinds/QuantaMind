@@ -18,6 +18,58 @@ pub fn env_view(responder: &ResponderKind, calls: &[Call], web_ui: Option<&WebUi
         ResponderKind::FileSystem(fs) => EnvView::FileSystem(fs.view(calls)),
         ResponderKind::WebCorpus(c) => EnvView::WebCorpus(c.view(calls)),
         ResponderKind::WebUi(_) => web_ui.map_or(EnvView::None, |st| EnvView::WebUi(st.view(calls))),
+        // MCP: the real post-action view is built in the runner from the live `McpWorld`'s disk
+        // (via `mcp_fsview`), like WebUi — this stateless path has no world, so None.
+        ResponderKind::Mcp(_) => EnvView::None,
+    }
+}
+
+/// Snapshot a REAL MCP world's sandbox dir into an `FsView` so the trace debugger renders it
+/// exactly like a simulated filesystem turn. Walks `root` (bounded), derives the turn's
+/// focus/op from the last path-bearing call.
+pub fn mcp_fsview(root: &std::path::Path, calls: &[Call]) -> FsView {
+    let mut tree = Vec::new();
+    walk_dir(root, root, &mut tree, 0);
+    tree.sort_by(|a, b| a.path.cmp(&b.path));
+    let focus_path = calls.iter().rev().find_map(|c| {
+        c.args.get("path").and_then(|v| v.as_str()).map(|p| {
+            std::path::Path::new(p)
+                .strip_prefix(root)
+                .map(|r| r.to_string_lossy().into_owned())
+                .unwrap_or_else(|_| p.to_string())
+        })
+    });
+    let op = calls.last().map(|c| fs_op_for(&c.name)).unwrap_or(FsOp::None);
+    FsView { tree, focus_path, op, content: None, matches: vec![] }
+}
+
+fn walk_dir(base: &std::path::Path, dir: &std::path::Path, out: &mut Vec<FsNode>, depth: usize) {
+    if depth > 8 || out.len() > 500 {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for e in entries.flatten() {
+        let path = e.path();
+        let is_dir = path.is_dir();
+        if let Ok(rel) = path.strip_prefix(base) {
+            out.push(FsNode { path: rel.to_string_lossy().into_owned(), is_dir });
+        }
+        if is_dir {
+            walk_dir(base, &path, out, depth + 1);
+        }
+    }
+}
+
+fn fs_op_for(name: &str) -> FsOp {
+    let n = name.rsplit("::").next().unwrap_or(name);
+    if n.starts_with("read") {
+        FsOp::Read
+    } else if n.starts_with("list") || n == "directory_tree" {
+        FsOp::List
+    } else if n.starts_with("search") {
+        FsOp::Search
+    } else {
+        FsOp::None
     }
 }
 

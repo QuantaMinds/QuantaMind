@@ -3,6 +3,7 @@ use crate::inference::eval::agentic::v2::env_corpus::CorpusState;
 use crate::inference::eval::agentic::v2::env_fs::FsState;
 use crate::inference::eval::agentic::v2::env_webui::WebUiSpec;
 use crate::inference::eval::agentic::v2::r#match::MustNotCall;
+use crate::inference::eval::mcp::world::McpSpec;
 use crate::inference::eval::toolcall::tasks::{Call, ToolSchema};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -45,6 +46,10 @@ pub enum EndStateRule {
     /// per-run `WebUiState` reaches the target — and only after the forbidden pre-scan, so a
     /// `must_not_call` violation still fails even if the target was reached.
     RequireEndState(Value),
+    /// MCP controlled world: success is the per-run `McpWorld`'s end-state satisfying the
+    /// `McpSpec` oracle (files/DB rows we authored) — τ-bench "grade the world, not the words".
+    /// Graded in the runner against the real disk/DB, like `RequireEndState` against `web_ui`.
+    RequireWorldOracle,
 }
 
 /// A strictly prompt-based simulated environment: the opening user prompt, the
@@ -69,6 +74,11 @@ pub enum ResponderKind {
     /// mutable `WebUiState` is per-run (in the runner), so `respond` here is a no-op fallback —
     /// real UI actions go through the runner's mutating apply branch, not `respond`.
     WebUi(WebUiSpec),
+    /// MCP: a REAL controlled world (filesystem/sqlite server scoped to a fresh sandbox). Holds
+    /// only the immutable seed+oracle spec; the live `McpWorld` is per-run (in the runner), which
+    /// executes calls against the real server — so `respond` here is a no-op fallback, exactly
+    /// like `WebUi`.
+    Mcp(McpSpec),
 }
 
 #[derive(Clone, Debug)]
@@ -228,6 +238,13 @@ impl DeterministicSandbox {
         self
     }
 
+    /// Switch to the MCP responder (builder form). Holds only the immutable seed+oracle; the
+    /// real per-run `McpWorld` is built + driven in the runner (like `with_web_ui`).
+    pub fn with_mcp(mut self, spec: McpSpec) -> Self {
+        self.responder = ResponderKind::Mcp(spec);
+        self
+    }
+
     /// The deterministic result for a parsed call. `StaticMocks`: `Some(mock)` or
     /// `None` for an unknown/hallucinated tool or wrong args (matched via `canonical`).
     /// `WorldState`: three-way — a GETTER surfaces the entity blob, a recognized ACTION
@@ -279,6 +296,9 @@ impl DeterministicSandbox {
             // WebUi mutations are applied in the runner against the per-run state; this fallback
             // is only hit if a WebUi sandbox is driven through the stateless path (it isn't).
             ResponderKind::WebUi(_) => Some(r#"{"ok":true}"#.to_string()),
+            // MCP calls are executed in the runner against the real per-run world; same no-op
+            // fallback as WebUi (never reached on the MCP path).
+            ResponderKind::Mcp(_) => Some(r#"{"ok":true}"#.to_string()),
         }
     }
 }
