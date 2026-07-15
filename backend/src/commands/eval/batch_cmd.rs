@@ -71,6 +71,21 @@ pub struct BatchRunState {
     cancel: Mutex<Option<CancellationToken>>,
 }
 
+impl BatchRunState {
+    /// Register a fresh cancellation token for a new run, cancelling any prior one, and
+    /// return it. Shared so other run commands (e.g. the MCP BYO adapter) are stopped by
+    /// the SAME `stop_batch_eval` button.
+    pub fn begin(&self) -> CancellationToken {
+        let cancel = CancellationToken::new();
+        let mut g = self.cancel.lock_recover();
+        if let Some(prev) = g.take() {
+            prev.cancel();
+        }
+        *g = Some(cancel.clone());
+        cancel
+    }
+}
+
 /// Bridges domain batch events onto Tauri events — the single place the batch
 /// payload shapes meet the IPC layer (see `docs/architecture.md#layering`).
 /// Also persists each agentic turn to the on-disk transcript

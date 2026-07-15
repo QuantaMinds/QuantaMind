@@ -4,6 +4,7 @@
 //! the endpoint is resolved server-side via `endpoint::resolve`.
 
 use crate::commands::emit::log_emit;
+use crate::commands::eval::batch_cmd::BatchRunState;
 use crate::commands::eval::batch_payloads::{
     AgenticStepPayload, BatchCompletePayload, BatchProgress, EVENT_AGENTIC_STEP, EVENT_BATCH_COMPLETE,
     EVENT_BATCH_PROGRESS,
@@ -296,63 +297,97 @@ fn step_kind_for(c: &ByoCall) -> StepKind {
     }
 }
 
-/// Bring-Your-Own, wired into the eval eco-system: run the diagnostic against the
+/// One BYO task: which connected server + what the model should do. Diagnostic only
+/// (no answer key). `camelCase` to match the frontend `McpByoTaskDef`.
+#[derive(Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ByoTaskSpec {
+    pub name: String,
+    pub instruction: String,
+    pub server_id: String,
+}
+
+fn add_diag(a: DiagnosticStats, b: &DiagnosticStats) -> DiagnosticStats {
+    DiagnosticStats {
+        total_calls: a.total_calls + b.total_calls,
+        schema_valid: a.schema_valid + b.schema_valid,
+        successes: a.successes + b.successes,
+        model_faults: a.model_faults + b.model_faults,
+        config_faults: a.config_faults + b.config_faults,
+        server_faults: a.server_faults + b.server_faults,
+    }
+}
+
+/// Bring-Your-Own, wired into the eval eco-system: run each diagnostic against the
 /// user's real server and emit the SAME batch events (`batch-progress` /
-/// `agentic-step` / `batch-complete`) + persist a `BatchReport` keyed `mcp:byo`, so
-/// the Simulator, Evaluator (live trace) and Model Results light up exactly like a
-/// Built-In run. There is NO answer key, so the report carries a `DiagnosticStats`
-/// (schema-valid rate + attribution) instead of a pass^k verdict.
+/// `agentic-step` / `batch-complete`) + persist a `BatchReport` keyed `mcp:byo`, so the
+/// Simulator, Evaluator (live trace) and Model Results light up exactly like a Built-In
+/// run. There is NO answer key, so the report carries `DiagnosticStats` (schema-valid
+/// rate + attribution), never a pass^k. Registers with `BatchRunState` so the SAME Stop
+/// button cancels it mid-run.
 #[tauri::command]
 pub async fn run_mcp_byo_batch(
     app: tauri::AppHandle,
+    state: tauri::State<'_, BatchRunState>,
     model: String,
     backend: BackendKind,
-    server_id: String,
-    task_name: String,
-    instruction: String,
+    tasks: Vec<ByoTaskSpec>,
 ) -> Result<(), AppError> {
-    // 1. A one-task batch begins — sizes the scoreboard + opens the (model, task) cell.
-    log_emit(&app, EVENT_BATCH_PROGRESS, BatchProgress::Started {
-        model: model.clone(), task_id: task_name.clone(), index: 0, total: 1, category: "mcp_byo".into(), is_native: false,
-    });
+    let cancel = state.begin();
+    let total = tasks.len();
+    let mut agg = DiagnosticStats::default();
 
-    let out = run_byo_inner(&app, &model, backend, &server_id, &instruction).await?;
-
-    // 2. Re-emit each graded call as a trajectory step (the Evaluator's live trace).
-    let emit_step = |step: TrajectoryStep| {
-        log_emit(&app, EVENT_AGENTIC_STEP, AgenticStepPayload {
-            model: model.clone(), task_id: task_name.clone(), is_native: false, step,
-        });
-    };
-    if out.calls.is_empty() {
-        // The model answered in prose without calling a tool — one honest step.
-        emit_step(byo_step(0, StepKind::ReportedInProse, &out.assistant_text, None, Some(&instruction)));
-    } else {
-        for (i, c) in out.calls.iter().enumerate() {
-            let raw = format!("{} — {}", c.tool, c.detail);
-            let initial = (i == 0).then_some(instruction.as_str());
-            emit_step(byo_step(i, step_kind_for(c), &raw, Some(&c.detail), initial));
+    for (i, task) in tasks.iter().enumerate() {
+        if cancel.is_cancelled() {
+            break;
         }
+        // A task begins — sizes the scoreboard bar + opens the (model, task) cell.
+        log_emit(&app, EVENT_BATCH_PROGRESS, BatchProgress::Started {
+            model: model.clone(), task_id: task.name.clone(), index: i, total, category: "mcp_byo".into(), is_native: false,
+        });
+
+        // Race the (slow) model + tool run against the Stop button. Dropping the future on
+        // cancel also drops the MCP client → its Drop kills the server (no orphan).
+        let out = tokio::select! {
+            r = run_byo_inner(&app, &model, backend, &task.server_id, &task.instruction) => r?,
+            _ = cancel.cancelled() => break,
+        };
+
+        // Re-emit each graded call as a trajectory step (the Evaluator's live trace).
+        let emit_step = |step: TrajectoryStep| {
+            log_emit(&app, EVENT_AGENTIC_STEP, AgenticStepPayload {
+                model: model.clone(), task_id: task.name.clone(), is_native: false, step,
+            });
+        };
+        if out.calls.is_empty() {
+            emit_step(byo_step(0, StepKind::ReportedInProse, &out.assistant_text, None, Some(&task.instruction)));
+        } else {
+            for (j, c) in out.calls.iter().enumerate() {
+                let raw = format!("{} — {}", c.tool, c.detail);
+                let initial = (j == 0).then_some(task.instruction.as_str());
+                emit_step(byo_step(j, step_kind_for(c), &raw, Some(&c.detail), initial));
+            }
+        }
+
+        // The task's terminal outcome — a diagnostic report (schema-valid, no pass^k).
+        let diag = DiagnosticStats {
+            total_calls: out.total_calls as u32,
+            schema_valid: out.schema_valid as u32,
+            successes: out.successes as u32,
+            model_faults: out.model_faults as u32,
+            config_faults: out.config_faults as u32,
+            server_faults: out.server_faults as u32,
+        };
+        agg = add_diag(agg, &diag);
+        log_emit(&app, EVENT_BATCH_PROGRESS, BatchProgress::Done {
+            model: model.clone(), task_id: task.name.clone(), outcome: TaskOutcome::Agentic { report: byo_report(&diag) }, is_native: false,
+        });
     }
 
-    // 3. The task's terminal outcome — a diagnostic report (schema-valid, no pass^k).
-    let diag = DiagnosticStats {
-        total_calls: out.total_calls as u32,
-        schema_valid: out.schema_valid as u32,
-        successes: out.successes as u32,
-        model_faults: out.model_faults as u32,
-        config_faults: out.config_faults as u32,
-        server_faults: out.server_faults as u32,
-    };
-    let report = byo_report(&diag);
-    log_emit(&app, EVENT_BATCH_PROGRESS, BatchProgress::Done {
-        model: model.clone(), task_id: task_name.clone(), outcome: TaskOutcome::Agentic { report }, is_native: false,
-    });
-
-    // 4. The final batch report (one column, one diagnostic aggregate) → Model Results + persistence.
+    // The final batch report (one column, the aggregate diagnostic) → Model Results + persistence.
     let full = BatchReport {
         collection_id: BYO_COLLECTION.to_string(),
-        columns: vec![byo_column(&model, backend, &diag, out.successes as u32, out.total_calls as u32)],
+        columns: vec![byo_column(&model, backend, &agg, agg.successes, agg.total_calls)],
         num_ctx: None,
         ollama_version: None,
         collection_hash: None, // never publishable — no answer key
@@ -360,7 +395,7 @@ pub async fn run_mcp_byo_batch(
     };
     log_emit(&app, EVENT_BATCH_COMPLETE, BatchCompletePayload { report: full.clone(), r#final: true });
 
-    // 5. Persist to history + the batch-report store (best-effort; a disk hiccup must not fail the run).
+    // Persist to history + the batch-report store (best-effort; a disk hiccup must not fail the run).
     if let Ok(dir) = app_subdir(&app, "history") {
         let entries = batch_summaries(&full, &crate::time_iso::now_utc());
         if !entries.is_empty() {

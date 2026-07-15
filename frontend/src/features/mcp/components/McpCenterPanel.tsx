@@ -26,13 +26,10 @@ export function McpCenterPanel() {
       <div className="flex flex-col gap-3 min-w-0">
         <div className="rounded-lg border border-neutral-700 p-3 text-sm">
           ✓ {total} MCP task{total === 1 ? "" : "s"} saved — they're in the sidebar.
-          {taskCount > 0 && (
-            <>
-              {" "}
-              Select a Test-World task and hit <b>Run Batch</b> to score it;
-            </>
-          )}
-          {byoCount > 0 && <> run a Bring-Your-Own task from the sidebar for its diagnostic.</>}
+          {" "}
+          Hit <b>Run Batch</b> to run them
+          {taskCount > 0 && byoCount === 0 && " — Test-World tasks are scored (pass^k)"}
+          {byoCount > 0 && taskCount === 0 && " — Bring-Your-Own tasks stream a diagnostic (schema-valid, no verdict)"}.
           <button type="button" className="ml-3 text-xs underline opacity-80" onClick={() => setCollapsed(false)}>
             + Add another
           </button>

@@ -159,15 +159,10 @@ export function useBatchRun() {
     [],
   );
 
-  // Bring-Your-Own diagnostic: same event stream + store gate as a Built-In run, but a
-  // single live-server task with no answer key (schema-valid + attribution, no pass^k).
+  // Bring-Your-Own diagnostics: same event stream + store gate as a Built-In run, but
+  // live-server tasks with no answer key (schema-valid + attribution, no pass^k).
   const runByo = useCallback(
-    async (
-      serverId: string,
-      taskName: string,
-      instruction: string,
-      target: ModelTarget,
-    ) => {
+    async (tasks: { name: string; instruction: string; serverId: string }[], target: ModelTarget) => {
       // Local-backend reachability probe (BYO is local-only — the server is a subprocess).
       let available = false;
       try {
@@ -186,7 +181,7 @@ export function useBatchRun() {
       useBatchStore.getState().startRun();
       try {
         const { runMcpByoBatch } = await import("../../../shared/ipc/mcp/run");
-        await runMcpByoBatch(target.model, target.backend, serverId, taskName, instruction);
+        await runMcpByoBatch(target.model, target.backend, tasks);
       } catch (e) {
         useBatchStore.getState().setError(formatIpcError(e));
       }

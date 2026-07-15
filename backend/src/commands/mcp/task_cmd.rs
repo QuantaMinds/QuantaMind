@@ -5,7 +5,7 @@
 //! and the prompt tells the model to DISCOVER its per-run sandbox first (the root
 //! is only known at run time).
 
-use crate::commands::mcp::run_cmd::{McpTaskSpec, OracleSpec, WorldSpec};
+use crate::commands::mcp::run_cmd::{ByoTaskSpec, McpTaskSpec, OracleSpec, WorldSpec};
 use crate::inference::eval::agentic::sandbox::EndStateRule;
 use crate::inference::eval::agentic::spec::{AgenticSpec, EnvKind};
 use crate::inference::eval::mcp::oracle_db::DbOracle;
@@ -141,6 +141,31 @@ pub fn build_mcp_tasks(tasks: Vec<McpTaskSpec>) -> Result<Vec<ToolTask>, crate::
     let out: Vec<ToolTask> = tasks.iter().enumerate().map(|(i, t)| to_tooltask(t, i)).collect();
     crate::inference::eval::toolcall::tasks::validate_tasks(&out)?;
     Ok(out)
+}
+
+/// Row-only `ToolTask`s for Bring-Your-Own tasks — they give the Simulator a row to
+/// render + key the outcome by (`id` == task name), matching the events the BYO adapter
+/// emits. They are NOT run through the agentic runner (the diagnostic engine drives the
+/// real server directly), so they carry no world/oracle — just a placeholder tool so the
+/// `ToolTask` shape is valid.
+pub fn to_byo_tooltask(spec: &ByoTaskSpec) -> ToolTask {
+    ToolTask {
+        id: spec.name.clone(),
+        category: "agent_loop".into(),
+        prompt: spec.instruction.clone(),
+        tools: vec![ToolSchema {
+            name: "mcp_tools".into(),
+            description: format!("Live tools from your '{}' server (diagnostic — no answer key).", spec.server_id),
+            parameters: json!({ "type": "object", "properties": {} }),
+        }],
+        expected: Default::default(),
+        agentic: None,
+    }
+}
+
+#[tauri::command]
+pub fn build_mcp_byo_tasks(tasks: Vec<ByoTaskSpec>) -> Result<Vec<ToolTask>, crate::errors::AppError> {
+    Ok(tasks.iter().map(to_byo_tooltask).collect())
 }
 
 #[cfg(test)]

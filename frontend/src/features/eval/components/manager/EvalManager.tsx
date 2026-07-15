@@ -26,7 +26,7 @@ import { WorldStateEditor } from "../../env/WorldStateEditor";
 import { KebabMenu } from "./KebabMenu";
 import { Spinner } from "../../../../shared/ui/Spinner";
 import { useMcpStore } from "../../../mcp/state/mcpStore";
-import { buildMcpTasks } from "../../../../shared/ipc/mcp/run";
+import { buildMcpTasks, buildMcpByoTasks } from "../../../../shared/ipc/mcp/run";
 
 interface EvalManagerProps {
   model: string;
@@ -302,9 +302,39 @@ export function EvalManager({
       await stop();
       return;
     }
-    // MCP source: convert the built MCP tasks → ToolTask[] and run them through the SAME
-    // pipeline (Simulator/Evaluator/Result/Audit/Agent Report). No saved collection — the
-    // `mcp:*` id is only a report key.
+    // Resolve the header model within the selected set, tolerating an Ollama `:latest` tag
+    // mismatch ("phi3.5" vs a "phi3.5:latest" entry, or vice versa) the same way the
+    // loaded-model lookup does. An exact `===` would let a stale/mismatched selection (e.g.
+    // just after switching backend) SILENTLY no-op the Run Batch button — a dead click with
+    // no feedback. If it still can't resolve, say so instead of doing nothing.
+    const base = model.replace(/:latest$/, "");
+    const picked = selectedModels.find(
+      (m) => m.name === model || m.name === base || m.name === `${base}:latest`,
+    );
+    if (!picked) {
+      setError(
+        `"${model || "No model"}" isn't among the selected models — pick a model from the Model dropdown, then run.`,
+      );
+      return;
+    }
+
+    // MCP Bring-Your-Own: no world/oracle → the diagnostic adapter drives the live server and
+    // streams into the SAME Simulator/Evaluator/Model Results. Register row-only tasks (keyed by
+    // task name) so the scoreboard has rows, then run. Cancellable via the same Stop button.
+    if (mcpActive && mcpTasks.length === 0 && mcpByoTasks.length > 0) {
+      try {
+        setMcpTasks("mcp:byo", await buildMcpByoTasks(mcpByoTasks));
+      } catch (e) {
+        setError(formatIpcError(e));
+        return;
+      }
+      setBuilderCollapsed(true);
+      await runByo(mcpByoTasks, { model: picked.name, backend: picked.backend });
+      return;
+    }
+
+    // MCP controlled-world OR Built-In/Custom → the standard scored pipeline. Convert the built
+    // MCP tasks → ToolTask[]; no saved collection — the `mcp:*` id is only a report key.
     let runId = selected;
     let runTasks = tasks;
     if (mcpActive) {
@@ -324,21 +354,6 @@ export function EvalManager({
       setError("Add at least one task to the collection before running.");
       return;
     }
-    // Resolve the header model within the selected set, tolerating an Ollama `:latest` tag
-    // mismatch ("phi3.5" vs a "phi3.5:latest" entry, or vice versa) the same way the
-    // loaded-model lookup does. An exact `===` would let a stale/mismatched selection (e.g.
-    // just after switching backend) SILENTLY no-op the Run Batch button — a dead click with
-    // no feedback. If it still can't resolve, say so instead of doing nothing.
-    const base = model.replace(/:latest$/, "");
-    const picked = selectedModels.find(
-      (m) => m.name === model || m.name === base || m.name === `${base}:latest`,
-    );
-    if (!picked) {
-      setError(
-        `"${model || "No model"}" isn't among the selected models — pick a model from the Model dropdown, then run.`,
-      );
-      return;
-    }
     // `k` is always user-set (read fresh from the prop here, not a stale closure) and
     // always sent — it wins over the tier-derived value in the backend. The tier still
     // flows (for spec.tier); decoys flow only when the checkbox is on.
@@ -356,26 +371,9 @@ export function EvalManager({
     );
   };
 
-  // Bring-Your-Own: run one diagnostic against the live server, resolving the header model
-  // the same way Run Batch does. It streams into the SAME Simulator/Evaluator/Model Results.
-  const handleRunByo = async (task: { name: string; instruction: string; serverId: string }) => {
-    setError(null);
-    const base = model.replace(/:latest$/, "");
-    const picked = selectedModels.find(
-      (m) => m.name === model || m.name === base || m.name === `${base}:latest`,
-    );
-    if (!picked) {
-      setError(
-        `"${model || "No model"}" isn't among the selected models — pick a model from the Model dropdown, then run.`,
-      );
-      return;
-    }
-    setBuilderCollapsed(true);
-    await runByo(task.serverId, task.name, task.instruction, { model: picked.name, backend: picked.backend });
-  };
-
+  const mcpHasTasks = mcpTasks.length > 0 || mcpByoTasks.length > 0;
   const runDisabled =
-    !model || (mcpActive ? mcpTasks.length === 0 : tasks.length === 0) || (!nativeFc && !promptBased);
+    !model || (mcpActive ? !mcpHasTasks : tasks.length === 0) || (!nativeFc && !promptBased);
   // Explain WHY RUN BATCH is disabled instead of leaving a greyed-out dead button.
   const runDisabledReason =
     !model && tasks.length === 0
@@ -680,15 +678,8 @@ export function EvalManager({
                       ))}
                       {mcpByoTasks.map((t) => (
                         <div key={`b:${t.name}`} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, paddingLeft: 8 }}>
-                          <button
-                            type="button"
-                            title="Run diagnostic"
-                            style={{ display: "flex", alignItems: "center", gap: 8 }}
-                            onClick={() => void handleRunByo(t)}
-                          >
-                            <span>🔧 {t.name}</span>
-                            <span style={{ color: "#64748b", fontSize: 11 }}>Diagnostic · {t.serverId}</span>
-                          </button>
+                          <span>🔧 {t.name}</span>
+                          <span style={{ color: "#64748b", fontSize: 11 }}>Diagnostic · {t.serverId}</span>
                           <button type="button" style={{ marginLeft: "auto", fontSize: 11, color: "#94a3b8" }} onClick={() => removeMcpByoTask(t.name)}>
                             remove
                           </button>

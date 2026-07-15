@@ -71,15 +71,21 @@ state in `McpCenterPanel`), Save→collapse on both, one combined sidebar:
   pipeline (answer-key pass^k) — identical to Built-In.
 - **Bring-Your-Own** (`McpByoBuilder`): name (optional) + instruction + which
   connected server → Save writes an `McpByoTaskDef` (🔧). **Diagnostic only** — no
-  answer key. Clicking it in the sidebar runs it through the SAME eval eco-system:
-  the `run_mcp_byo_batch` command (adapter over the `run_mcp_byo` engine) emits the
-  batch events (`batch-progress`/`agentic-step`/`batch-complete`) + persists a report
-  keyed `mcp:byo`, so the **Simulator, Evaluator (live trace) and Model Results light
-  up like a Built-In run**. Because there's no answer key, the report carries a
-  distinct `DiagnosticStats` (schema-valid rate + model/config/server attribution)
-  and the score cell shows **"schema-valid X/Y (Z%)"** (blue, not green/amber/red) —
-  never a pass^k or READY verdict. Kept OUT of the pass-rate aggregate + `pass_k()`
-  (`tasks_total: 0`) so the two metrics are never blended (no-fake-metrics).
+  answer key. Runs via the **same Run Batch button** as everything else (not a sidebar
+  click): when only BYO tasks are present, `handleRunBatch` registers row-only
+  `ToolTask`s (`build_mcp_byo_tasks`, id = task name, so the Simulator has a row) then
+  calls `useBatchRun.runByo` → the `run_mcp_byo_batch` command (adapter over the
+  `run_mcp_byo` engine). It emits the batch events
+  (`batch-progress`/`agentic-step`/`batch-complete`) + persists a report keyed
+  `mcp:byo`, so the **Simulator, Evaluator (live trace) and Model Results light up like
+  a Built-In run**. Because there's no answer key, the report carries a distinct
+  `DiagnosticStats` (schema-valid rate + model/config/server attribution) and the score
+  cell shows **"schema-valid X/Y (Z%)"** (blue, not green/amber/red) — never a pass^k
+  or READY verdict. Kept OUT of the pass-rate aggregate + `pass_k()` (`tasks_total: 0`)
+  so metrics are never blended (no-fake-metrics). The adapter registers with
+  `BatchRunState` (shared `begin()`), so the **same Stop button cancels it mid-run**
+  (the model call is raced against the cancel token; dropping it kills the MCP client
+  via `McpTransport::Drop` — no orphan).
 - **Connect → collapse.** `McpCenterPanel` collapses to a "✓ N MCP tasks saved"
   summary (`mcpStore.builderCollapsed`, set true by `addTask`/`addByoTask`;
   "+ Add another" reopens). Model + iterations + decoy come from the main controls.
