@@ -75,4 +75,4 @@ fn rename_to_existing_rejects() {
         other => panic!("expected Validation, got {:?}", other),
     }
 }
-// `ensure_within` moved to `persistence::fs_guard`; its tests live in `fs_guard_tests.rs`.
+// `ensure_within` moved to `crate::fs_guard`; its tests live in `fs_guard_tests.rs`.

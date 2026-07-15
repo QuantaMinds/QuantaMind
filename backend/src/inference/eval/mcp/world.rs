@@ -11,7 +11,7 @@ use crate::inference::eval::mcp::oracle_fs::FsOracle;
 use crate::inference::mcp::bridge::{execute_call, ToolExecution};
 use crate::inference::ollama::ollama_chat::NativeToolCall;
 use crate::mcp::client::McpClient;
-use crate::persistence::fs_guard;
+use crate::fs_guard;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

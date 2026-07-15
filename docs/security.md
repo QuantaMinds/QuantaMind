@@ -19,8 +19,10 @@ The rule-7 invariants from `CLAUDE.md`. Every change must uphold all of them:
 1. **Secrets via the port.** All secrets (cloud API keys, OAuth tokens) go through the
    `SecureSecrets` port backed by the OS keychain (`keyring`). Never plaintext on disk.
 2. **Paths via `fs_guard`.** Every command taking a frontend-supplied filesystem path routes
-   through `fs_guard`: canonicalize the FULL path (including the final component, so symlinks
-   can't escape), confine to an allowed root, size-cap reads.
+   through `fs_guard` (`crate::fs_guard`, a top-level primitive beside `secrets` — it confines
+   paths and stores nothing, so it is not a persistence leaf; living under `persistence/` made
+   the domain's use of it a layering violation): canonicalize the FULL path (including the final
+   component, so symlinks can't escape), confine to an allowed root, size-cap reads.
 3. **Restrictive CSP.** The webview CSP stays tight (`default-src 'self'`). No new webview
    plugin scope (`fs`/`http`/`shell`) is added without an explicit review note here.
 4. **HTTPS for credentials.** Any request carrying a credential is `https`-only; loopback
