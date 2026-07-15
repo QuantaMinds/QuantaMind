@@ -28,21 +28,10 @@ export function McpCenterPanel() {
   }, [editingByo]);
 
   const total = taskCount + byoCount;
+  // Collapsed with tasks saved: render nothing here so the result panels (and the sidebar's
+  // task list + "+ Add MCP task") own the screen. The old "N tasks saved" banner was redundant.
   if (collapsed && total > 0) {
-    return (
-      <div className="flex flex-col gap-3 min-w-0">
-        <div className="rounded-lg border border-neutral-700 p-3 text-sm">
-          ✓ {total} MCP task{total === 1 ? "" : "s"} saved — they're in the sidebar.
-          {" "}
-          Hit <b>Run Batch</b> to run them
-          {taskCount > 0 && byoCount === 0 && " — Test-World tasks are scored (pass^k)"}
-          {byoCount > 0 && taskCount === 0 && " — Bring-Your-Own tasks stream a diagnostic (schema-valid, no verdict)"}.
-          <button type="button" className="ml-3 text-xs underline opacity-80" onClick={() => setCollapsed(false)}>
-            + Add another
-          </button>
-        </div>
-      </div>
-    );
+    return null;
   }
 
   return (
