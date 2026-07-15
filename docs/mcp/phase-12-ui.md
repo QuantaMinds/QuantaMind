@@ -91,7 +91,9 @@ state in `McpCenterPanel`), Save→collapse on both, one combined sidebar:
   "+ Add another" reopens). Model + iterations + decoy come from the main controls.
 - **Sidebar = one combined list** under `◉ MCP`: world tasks labelled
   `Filesystem`/`Database`, BYO tasks labelled `Diagnostic · <server>`; no `pass^k`
-  badge (iterations are global). Run Batch scores only the world tasks.
+  badge (iterations are global). Clicking a row **highlights** it (`selectedMcpTask`
+  local state) — Run Batch then runs the highlighted task, or the whole set if none is
+  picked. A **"+ Add MCP task"** button reopens the builder (`setBuilderCollapsed(false)`).
 - **Iterations + decoy from the main Run Params.** The builder's per-task `pass^k`
   selector is gone. Decoy is greyed out + forced off when MCP is active
   (`Enable Decoy Tools (N/A for MCP)`).

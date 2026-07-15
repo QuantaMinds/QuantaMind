@@ -139,6 +139,8 @@ export function EvalManager({
   const mcpByoTasks = useMcpStore((s) => s.byoTasks);
   const removeMcpByoTask = useMcpStore((s) => s.removeByoTask);
   const setBuilderCollapsed = useMcpStore((s) => s.setBuilderCollapsed);
+  // Which sidebar MCP task is highlighted — Run Batch runs it (all tasks if none picked).
+  const [selectedMcpTask, setSelectedMcpTask] = useState<string | null>(null);
   const setMcpTasks = useEvalRegistryStore((s) => s.setMcpTasks);
   // Determine dataSource: MCP overrides; otherwise derive from the active selection.
   const dataSource: "mcp" | "builtin" | "custom" = mcpActive
@@ -322,14 +324,17 @@ export function EvalManager({
     // streams into the SAME Simulator/Evaluator/Model Results. Register row-only tasks (keyed by
     // task name) so the scoreboard has rows, then run. Cancellable via the same Stop button.
     if (mcpActive && mcpTasks.length === 0 && mcpByoTasks.length > 0) {
+      // Run the highlighted task, or all BYO tasks if none is selected.
+      const chosen = selectedMcpTask ? mcpByoTasks.filter((t) => t.name === selectedMcpTask) : [];
+      const toRun = chosen.length > 0 ? chosen : mcpByoTasks;
       try {
-        setMcpTasks("mcp:byo", await buildMcpByoTasks(mcpByoTasks));
+        setMcpTasks("mcp:byo", await buildMcpByoTasks(toRun));
       } catch (e) {
         setError(formatIpcError(e));
         return;
       }
       setBuilderCollapsed(true);
-      await runByo(mcpByoTasks, { model: picked.name, backend: picked.backend });
+      await runByo(toRun, { model: picked.name, backend: picked.backend });
       return;
     }
 
@@ -342,8 +347,11 @@ export function EvalManager({
         setError("Build at least one MCP task before running.");
         return;
       }
+      // Run the highlighted world task, or the whole set if none is selected.
+      const chosen = selectedMcpTask ? mcpTasks.filter((t) => t.name === selectedMcpTask) : [];
+      const worldToRun = chosen.length > 0 ? chosen : mcpTasks;
       try {
-        runTasks = await buildMcpTasks(mcpTasks);
+        runTasks = await buildMcpTasks(worldToRun);
       } catch (e) {
         setError(formatIpcError(e));
         return;
@@ -667,24 +675,45 @@ export function EvalManager({
                     </div>
                   ) : (
                     <>
-                      {mcpTasks.map((t) => (
-                        <div key={`w:${t.name}`} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, paddingLeft: 8 }}>
-                          <span>🌍 {t.name}</span>
-                          <span style={{ color: "#64748b", fontSize: 11 }}>{t.world.type === "fs" ? "Filesystem" : "Database"}</span>
-                          <button type="button" style={{ marginLeft: "auto", fontSize: 11, color: "#94a3b8" }} onClick={() => removeMcpTask(t.name)}>
-                            remove
-                          </button>
-                        </div>
-                      ))}
-                      {mcpByoTasks.map((t) => (
-                        <div key={`b:${t.name}`} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, paddingLeft: 8 }}>
-                          <span>🔧 {t.name}</span>
-                          <span style={{ color: "#64748b", fontSize: 11 }}>Diagnostic · {t.serverId}</span>
-                          <button type="button" style={{ marginLeft: "auto", fontSize: 11, color: "#94a3b8" }} onClick={() => removeMcpByoTask(t.name)}>
-                            remove
-                          </button>
-                        </div>
-                      ))}
+                      {mcpTasks.map((t) => {
+                        const sel = selectedMcpTask === t.name;
+                        return (
+                          <div
+                            key={`w:${t.name}`}
+                            onClick={() => setSelectedMcpTask(t.name)}
+                            style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "2px 8px", cursor: "pointer", borderRadius: 4, background: sel ? "#e0e7ff" : "transparent", fontWeight: sel ? 600 : 400 }}
+                          >
+                            <span>🌍 {t.name}</span>
+                            <span style={{ color: "#64748b", fontSize: 11 }}>{t.world.type === "fs" ? "Filesystem" : "Database"}</span>
+                            <button type="button" style={{ marginLeft: "auto", fontSize: 11, color: "#94a3b8" }} onClick={(e) => { e.stopPropagation(); removeMcpTask(t.name); if (selectedMcpTask === t.name) setSelectedMcpTask(null); }}>
+                              remove
+                            </button>
+                          </div>
+                        );
+                      })}
+                      {mcpByoTasks.map((t) => {
+                        const sel = selectedMcpTask === t.name;
+                        return (
+                          <div
+                            key={`b:${t.name}`}
+                            onClick={() => setSelectedMcpTask(t.name)}
+                            style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "2px 8px", cursor: "pointer", borderRadius: 4, background: sel ? "#e0e7ff" : "transparent", fontWeight: sel ? 600 : 400 }}
+                          >
+                            <span>🔧 {t.name}</span>
+                            <span style={{ color: "#64748b", fontSize: 11 }}>Diagnostic · {t.serverId}</span>
+                            <button type="button" style={{ marginLeft: "auto", fontSize: 11, color: "#94a3b8" }} onClick={(e) => { e.stopPropagation(); removeMcpByoTask(t.name); if (selectedMcpTask === t.name) setSelectedMcpTask(null); }}>
+                              remove
+                            </button>
+                          </div>
+                        );
+                      })}
+                      <button
+                        type="button"
+                        onClick={() => setBuilderCollapsed(false)}
+                        style={{ marginTop: 4, marginLeft: 8, fontSize: 12, color: "#6366f1", textAlign: "left", cursor: "pointer" }}
+                      >
+                        + Add MCP task
+                      </button>
                     </>
                   )
                 ) : dataSource === "custom" ? (
