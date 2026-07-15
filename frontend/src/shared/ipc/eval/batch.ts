@@ -221,6 +221,20 @@ export const BoundaryReportSchema = z.object({
 });
 export type BoundaryReport = z.infer<typeof BoundaryReportSchema>;
 
+/// Bring-Your-Own diagnostic: a per-call well-formedness summary for a run against
+/// the user's OWN server (no answer key). Present ONLY on a BYO report/aggregate;
+/// when set, the UI shows "schema-valid X/Y", never a pass^k verdict. Mirrors Rust
+/// `DiagnosticStats`.
+export const DiagnosticStatsSchema = z.object({
+  total_calls: z.number().int(),
+  schema_valid: z.number().int(),
+  successes: z.number().int(),
+  model_faults: z.number().int(),
+  config_faults: z.number().int(),
+  server_faults: z.number().int(),
+});
+export type DiagnosticStats = z.infer<typeof DiagnosticStatsSchema>;
+
 export const AgenticReportSchema = z.object({
   passes: z.number().int(),
   total_runs: z.number().int(),
@@ -245,6 +259,9 @@ export const AgenticReportSchema = z.object({
   // T* numerator: total generated tokens over ALL runs (pass + fail). Optional (serde
   // default) so older reports parse.
   output_tokens_total: z.number().int().optional(),
+  // Bring-Your-Own: present only for a diagnostic (no answer key). Drives the
+  // "schema-valid X/Y" score cell instead of pass^k. Nullish so every other report parses.
+  diagnostic: DiagnosticStatsSchema.nullish(),
 });
 export type AgenticReport = z.infer<typeof AgenticReportSchema>;
 
@@ -299,6 +316,9 @@ export const AggAgenticSchema = z.object({
   // T*: tokens-per-completed-task (total tokens / completions, run-weighted). Nullish →
   // null when nothing completed, absent on older reports.
   tokens_per_completed: z.number().nullish(),
+  // Bring-Your-Own: the per-model diagnostic (schema-valid + attribution) for a no-answer-key
+  // run. Present ONLY on a BYO column → Model Results shows "schema-valid X/Y". Nullish otherwise.
+  diagnostic: DiagnosticStatsSchema.nullish(),
 });
 export type AggAgentic = z.infer<typeof AggAgenticSchema>;
 

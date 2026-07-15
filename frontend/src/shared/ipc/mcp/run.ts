@@ -9,33 +9,17 @@ export async function buildMcpTasks(tasks: McpTaskDef[]): Promise<ToolTask[]> {
   return (await invoke("build_mcp_tasks", { tasks })) as ToolTask[];
 }
 
-/// Bring-Your-Own — one call graded for schema + fault attribution (no answer key).
-export interface ByoCall {
-  tool: string;
-  schema_valid: boolean;
-  attribution: "success" | "model" | "config" | "server";
-  detail: string;
-}
-export interface ByoRunResult {
-  total_calls: number;
-  schema_valid: number;
-  schema_valid_rate: number;
-  model_faults: number;
-  config_faults: number;
-  server_faults: number;
-  successes: number;
-  calls: ByoCall[];
-  assistant_text: string;
-}
-
-/// Run the model against the user's OWN server: a live trace + schema-valid rate +
-/// whose-fault attribution. DIAGNOSTIC only — no world, no answer key, no verdict.
-export async function runMcpByo(
+/// Run a Bring-Your-Own diagnostic against the user's OWN server, wired into the
+/// eval eco-system: the backend emits the SAME batch events + persists a report keyed
+/// `mcp:byo`, so the Simulator / Evaluator (live trace) / Model Results light up like a
+/// Built-In run. DIAGNOSTIC only — schema-valid rate + attribution, no pass/fail verdict.
+/// Resolves when the run completes (progress arrives via the batch event stream).
+export async function runMcpByoBatch(
   model: string,
   backend: BackendKind,
   serverId: string,
+  taskName: string,
   instruction: string,
-  maxSteps?: number,
-): Promise<ByoRunResult> {
-  return (await invoke("run_mcp_byo", { model, backend, serverId, instruction, maxSteps })) as ByoRunResult;
+): Promise<void> {
+  await invoke("run_mcp_byo_batch", { model, backend, serverId, taskName, instruction });
 }

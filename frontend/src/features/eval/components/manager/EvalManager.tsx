@@ -88,7 +88,7 @@ export function EvalManager({
   // never a silent no-op — the store's only other reader (MatrixScoreboard) is a different panel
   // and is unmounted while editing. `startRun()` resets it, so it self-clears on the next run.
   const runError = useBatchStore((s) => s.error);
-  const { run, stop } = useBatchRun();
+  const { run, runByo, stop } = useBatchRun();
 
   const [collectionsExpanded, setCollectionsExpanded] = useState(true);
   const [hoverTaskId, setHoverTaskId] = useState<string | null>(null);
@@ -138,7 +138,6 @@ export function EvalManager({
   const removeMcpTask = useMcpStore((s) => s.removeTask);
   const mcpByoTasks = useMcpStore((s) => s.byoTasks);
   const removeMcpByoTask = useMcpStore((s) => s.removeByoTask);
-  const setActiveByo = useMcpStore((s) => s.setActiveByo);
   const setBuilderCollapsed = useMcpStore((s) => s.setBuilderCollapsed);
   const setMcpTasks = useEvalRegistryStore((s) => s.setMcpTasks);
   // Determine dataSource: MCP overrides; otherwise derive from the active selection.
@@ -355,6 +354,24 @@ export function EvalManager({
       promptBased,
       thinkPreset,
     );
+  };
+
+  // Bring-Your-Own: run one diagnostic against the live server, resolving the header model
+  // the same way Run Batch does. It streams into the SAME Simulator/Evaluator/Model Results.
+  const handleRunByo = async (task: { name: string; instruction: string; serverId: string }) => {
+    setError(null);
+    const base = model.replace(/:latest$/, "");
+    const picked = selectedModels.find(
+      (m) => m.name === model || m.name === base || m.name === `${base}:latest`,
+    );
+    if (!picked) {
+      setError(
+        `"${model || "No model"}" isn't among the selected models — pick a model from the Model dropdown, then run.`,
+      );
+      return;
+    }
+    setBuilderCollapsed(true);
+    await runByo(task.serverId, task.name, task.instruction, { model: picked.name, backend: picked.backend });
   };
 
   const runDisabled =
@@ -667,10 +684,7 @@ export function EvalManager({
                             type="button"
                             title="Run diagnostic"
                             style={{ display: "flex", alignItems: "center", gap: 8 }}
-                            onClick={() => {
-                              setBuilderCollapsed(true);
-                              setActiveByo(t.name);
-                            }}
+                            onClick={() => void handleRunByo(t)}
                           >
                             <span>🔧 {t.name}</span>
                             <span style={{ color: "#64748b", fontSize: 11 }}>Diagnostic · {t.serverId}</span>

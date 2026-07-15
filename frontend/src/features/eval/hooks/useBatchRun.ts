@@ -159,6 +159,41 @@ export function useBatchRun() {
     [],
   );
 
+  // Bring-Your-Own diagnostic: same event stream + store gate as a Built-In run, but a
+  // single live-server task with no answer key (schema-valid + attribution, no pass^k).
+  const runByo = useCallback(
+    async (
+      serverId: string,
+      taskName: string,
+      instruction: string,
+      target: ModelTarget,
+    ) => {
+      // Local-backend reachability probe (BYO is local-only — the server is a subprocess).
+      let available = false;
+      try {
+        available = (await healthFor(target.backend)).available;
+      } catch {
+        available = false;
+      }
+      if (!available) {
+        const label =
+          target.backend === "llama_cpp" ? "llama.cpp" : target.backend === "mlx" ? "MLX" : "Ollama";
+        useBatchStore
+          .getState()
+          .setError(`${label} server isn't reachable — start it from the Workspace status bar, then re-run.`);
+        return;
+      }
+      useBatchStore.getState().startRun();
+      try {
+        const { runMcpByoBatch } = await import("../../../shared/ipc/mcp/run");
+        await runMcpByoBatch(target.model, target.backend, serverId, taskName, instruction);
+      } catch (e) {
+        useBatchStore.getState().setError(formatIpcError(e));
+      }
+    },
+    [],
+  );
+
   const stop = useCallback(async () => {
     // Flip BEFORE the await so the button shows "Stopping…" the instant it's clicked,
     // not after the IPC round-trip (and the in-flight turn/run behind it) resolves.
@@ -166,5 +201,5 @@ export function useBatchRun() {
     await stopBatchEval();
   }, []);
 
-  return { run, stop };
+  return { run, runByo, stop };
 }

@@ -3,10 +3,22 @@
 //! Both take the model + backend from the caller (the global header selection);
 //! the endpoint is resolved server-side via `endpoint::resolve`.
 
+use crate::commands::emit::log_emit;
+use crate::commands::eval::batch_payloads::{
+    AgenticStepPayload, BatchCompletePayload, BatchProgress, EVENT_AGENTIC_STEP, EVENT_BATCH_COMPLETE,
+    EVENT_BATCH_PROGRESS,
+};
 use crate::commands::mcp::mcp_cmd::{connect_configured, registry_path};
 use crate::errors::{AppError, AppResult};
 use crate::inference::backend::backend_kind::BackendKind;
 use crate::inference::backend::endpoint;
+use crate::inference::eval::agentic::env_view::EnvView;
+use crate::inference::eval::agentic::scoring::report::{AgenticReport, DiagnosticStats, FailureTracker, TopError};
+use crate::inference::eval::agentic::spec::Tier;
+use crate::inference::eval::agentic::step::{StepKind, TrajectoryStep};
+use crate::inference::eval::batch::{
+    batch_summaries, AggAgentic, BatchColumn, BatchReport, NativeErrorClass, TaskOutcome,
+};
 use crate::inference::eval::mcp::oracle_db::DbOracle;
 use crate::inference::eval::mcp::oracle_fs::FsOracle;
 use crate::inference::eval::mcp::score::{score_db_task, score_fs_task, DbTask, McpTask};
@@ -17,8 +29,17 @@ use crate::inference::mcp::oracle_error::Attribution;
 use crate::inference::mcp::oracle_schema::{check_call, CallCheck};
 use crate::mcp::registry::split_namespaced;
 use crate::persistence::mcp::servers::load;
+use crate::persistence::readiness::reports;
+use crate::persistence::eval_history;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::path::PathBuf;
+use tauri::Manager;
+
+/// The report/history KEY for a Bring-Your-Own diagnostic run. Not a saved
+/// collection — the `mcp:*` id is only how the Simulator/Model-Results/Audit pages
+/// address this run's report.
+const BYO_COLLECTION: &str = "mcp:byo";
 
 const SYSTEM: &str = "You are a tool-using assistant. Use the provided MCP tools to accomplish the \
 task. Call tools with correct arguments and absolute paths where required. When the task is done, \
@@ -193,28 +214,27 @@ pub struct ByoRunResult {
     pub assistant_text: String,
 }
 
-/// Run the model once against the user's OWN server, then grade each call for
-/// schema-validity + whose-fault attribution — no world, no answer key.
-#[tauri::command]
-pub async fn run_mcp_byo(
-    app: tauri::AppHandle,
-    model: String,
+/// The engine behind both BYO commands: run the model once against the user's OWN
+/// server and grade each call for schema-validity + whose-fault attribution — no
+/// world, no answer key. Kept separate from the `#[tauri::command]` wrappers so the
+/// batch adapter can drive it and re-emit the calls as a trace.
+async fn run_byo_inner(
+    app: &tauri::AppHandle,
+    model: &str,
     backend: BackendKind,
-    server_id: String,
-    instruction: String,
-    max_steps: Option<u32>,
-) -> Result<ByoRunResult, AppError> {
-    let _ = max_steps; // single-turn grading for now
+    server_id: &str,
+    instruction: &str,
+) -> AppResult<ByoRunResult> {
     let endpoint = resolve_backend(backend)?;
-    let cfg = load(&registry_path(&app)?)?
-        .get(&server_id)
+    let cfg = load(&registry_path(app)?)?
+        .get(server_id)
         .ok_or_else(|| AppError::NotFound(format!("mcp server '{server_id}'")))?
         .clone();
     let client = connect_configured(&cfg).await?;
     let tools = client.list_tools().await?.tools;
 
     let native = mcp_tools_to_native(&tools);
-    let result = bridge::chat(backend, &endpoint, &model, SYSTEM, &instruction, &native, None).await?;
+    let result = bridge::chat(backend, &endpoint, model, SYSTEM, instruction, &native, None).await?;
     let calls = bridge::select_calls(&result.tool_calls, &result.content);
 
     let mut out = ByoRunResult { assistant_text: result.content.clone(), ..Default::default() };
@@ -247,4 +267,212 @@ pub async fn run_mcp_byo(
     out.schema_valid_rate = if out.total_calls == 0 { 0.0 } else { out.schema_valid as f64 / out.total_calls as f64 };
     client.kill();
     Ok(out)
+}
+
+/// Run the model once against the user's OWN server, then grade each call for
+/// schema-validity + whose-fault attribution — no world, no answer key.
+#[tauri::command]
+pub async fn run_mcp_byo(
+    app: tauri::AppHandle,
+    model: String,
+    backend: BackendKind,
+    server_id: String,
+    instruction: String,
+    max_steps: Option<u32>,
+) -> Result<ByoRunResult, AppError> {
+    let _ = max_steps; // single-turn grading for now
+    Ok(run_byo_inner(&app, &model, backend, &server_id, &instruction).await?)
+}
+
+/// The StepKind that honestly describes a graded call, so the Evaluator's trace
+/// colours it like any other turn (a Model fault reads as a schema/hallucination
+/// turn, a Server/Config fault as a tool error, a Success as a clean tool call).
+fn step_kind_for(c: &ByoCall) -> StepKind {
+    match c.attribution {
+        Attribution::Success => StepKind::ToolCall,
+        Attribution::Model if c.detail.contains("hallucinated") => StepKind::UnknownTool,
+        Attribution::Model => StepKind::SchemaError,
+        Attribution::Server | Attribution::Config => StepKind::ToolError,
+    }
+}
+
+/// Bring-Your-Own, wired into the eval eco-system: run the diagnostic against the
+/// user's real server and emit the SAME batch events (`batch-progress` /
+/// `agentic-step` / `batch-complete`) + persist a `BatchReport` keyed `mcp:byo`, so
+/// the Simulator, Evaluator (live trace) and Model Results light up exactly like a
+/// Built-In run. There is NO answer key, so the report carries a `DiagnosticStats`
+/// (schema-valid rate + attribution) instead of a pass^k verdict.
+#[tauri::command]
+pub async fn run_mcp_byo_batch(
+    app: tauri::AppHandle,
+    model: String,
+    backend: BackendKind,
+    server_id: String,
+    task_name: String,
+    instruction: String,
+) -> Result<(), AppError> {
+    // 1. A one-task batch begins — sizes the scoreboard + opens the (model, task) cell.
+    log_emit(&app, EVENT_BATCH_PROGRESS, BatchProgress::Started {
+        model: model.clone(), task_id: task_name.clone(), index: 0, total: 1, category: "mcp_byo".into(), is_native: false,
+    });
+
+    let out = run_byo_inner(&app, &model, backend, &server_id, &instruction).await?;
+
+    // 2. Re-emit each graded call as a trajectory step (the Evaluator's live trace).
+    let emit_step = |step: TrajectoryStep| {
+        log_emit(&app, EVENT_AGENTIC_STEP, AgenticStepPayload {
+            model: model.clone(), task_id: task_name.clone(), is_native: false, step,
+        });
+    };
+    if out.calls.is_empty() {
+        // The model answered in prose without calling a tool — one honest step.
+        emit_step(byo_step(0, StepKind::ReportedInProse, &out.assistant_text, None, Some(&instruction)));
+    } else {
+        for (i, c) in out.calls.iter().enumerate() {
+            let raw = format!("{} — {}", c.tool, c.detail);
+            let initial = (i == 0).then_some(instruction.as_str());
+            emit_step(byo_step(i, step_kind_for(c), &raw, Some(&c.detail), initial));
+        }
+    }
+
+    // 3. The task's terminal outcome — a diagnostic report (schema-valid, no pass^k).
+    let diag = DiagnosticStats {
+        total_calls: out.total_calls as u32,
+        schema_valid: out.schema_valid as u32,
+        successes: out.successes as u32,
+        model_faults: out.model_faults as u32,
+        config_faults: out.config_faults as u32,
+        server_faults: out.server_faults as u32,
+    };
+    let report = byo_report(&diag);
+    log_emit(&app, EVENT_BATCH_PROGRESS, BatchProgress::Done {
+        model: model.clone(), task_id: task_name.clone(), outcome: TaskOutcome::Agentic { report }, is_native: false,
+    });
+
+    // 4. The final batch report (one column, one diagnostic aggregate) → Model Results + persistence.
+    let full = BatchReport {
+        collection_id: BYO_COLLECTION.to_string(),
+        columns: vec![byo_column(&model, backend, &diag, out.successes as u32, out.total_calls as u32)],
+        num_ctx: None,
+        ollama_version: None,
+        collection_hash: None, // never publishable — no answer key
+        think_preset: None,
+    };
+    log_emit(&app, EVENT_BATCH_COMPLETE, BatchCompletePayload { report: full.clone(), r#final: true });
+
+    // 5. Persist to history + the batch-report store (best-effort; a disk hiccup must not fail the run).
+    if let Ok(dir) = app_subdir(&app, "history") {
+        let entries = batch_summaries(&full, &crate::time_iso::now_utc());
+        if !entries.is_empty() {
+            let _ = eval_history::append(&dir, BYO_COLLECTION, &entries);
+        }
+    }
+    if let Ok(dir) = app_subdir(&app, "batch_reports") {
+        let _ = reports::save(&dir, &full);
+    }
+    Ok(())
+}
+
+fn app_subdir(app: &tauri::AppHandle, name: &str) -> AppResult<PathBuf> {
+    let dir = app.path().app_config_dir().map_err(|e| AppError::Io(e.to_string()))?;
+    Ok(dir.join(name))
+}
+
+/// One diagnostic trajectory step (single run, no env replay).
+fn byo_step(i: usize, kind: StepKind, raw: &str, injection: Option<&str>, initial: Option<&str>) -> TrajectoryStep {
+    TrajectoryStep {
+        run_index: 0,
+        step_index: i as u32,
+        raw_output: raw.to_string(),
+        injection: injection.map(str::to_string),
+        kind,
+        env: EnvView::None,
+        cache_n: None,
+        prefill_tokens: None,
+        prefill_ms: None,
+        reasoning_tokens: None,
+        context_used: None,
+        context_window: None,
+        initial_prompt: initial.map(str::to_string),
+    }
+}
+
+/// The per-task diagnostic report (schema-valid carried distinctly; `passes`/`total_runs`
+/// are set but never rendered for a diagnostic — the UI branches on `diagnostic`).
+fn byo_report(diag: &DiagnosticStats) -> AgenticReport {
+    AgenticReport {
+        passes: diag.schema_valid,
+        total_runs: diag.total_calls,
+        failures: FailureTracker::default(),
+        avg_output_tokens_success: None,
+        avg_steps: None,
+        top_error: TopError::None,
+        schema_resilience: None,
+        tier: Tier::default(),
+        requested_runs: None,
+        dialect: Default::default(),
+        safety_attribution: Default::default(),
+        safety: None,
+        output_tokens_total: 0,
+        diagnostic: Some(diag.clone()),
+    }
+}
+
+#[cfg(test)]
+mod byo_report_tests {
+    use super::*;
+
+    /// The honesty invariant: a BYO run carries a DIAGNOSTIC, never a pass^k verdict.
+    #[test]
+    fn byo_report_and_column_are_diagnostic_never_passk() {
+        let diag = DiagnosticStats {
+            total_calls: 6,
+            schema_valid: 5,
+            successes: 4,
+            model_faults: 1,
+            config_faults: 0,
+            server_faults: 1,
+        };
+        let report = byo_report(&diag);
+        assert_eq!(report.diagnostic.as_ref().unwrap().schema_valid, 5);
+        // 5 valid of 6 calls ≠ a clean pass — and there's no answer key anyway.
+        assert!(!report.is_strict_pass(), "a diagnostic must never read as a strict pass");
+
+        let col = byo_column("m", BackendKind::Ollama, &diag, 4, 6);
+        let ag = col.agentic.expect("BYO column has an agentic aggregate");
+        assert!(ag.diagnostic.is_some(), "the aggregate carries the diagnostic");
+        assert_eq!(ag.pass_k(), None, "tasks_total=0 → Model Results shows no pass^k for BYO");
+    }
+}
+
+/// The per-model column: `tasks_total: 0` so `pass_k()` is `None` (Model Results shows
+/// no pass^k), and the diagnostic aggregate drives the "schema-valid X/Y" cell.
+fn byo_column(model: &str, backend: BackendKind, diag: &DiagnosticStats, successes: u32, total: u32) -> BatchColumn {
+    BatchColumn {
+        model: model.to_string(),
+        backend,
+        toolcall: None,
+        agentic: Some(AggAgentic {
+            tasks_passed: 0,
+            tasks_total: 0,
+            passes: successes,
+            total_runs: total,
+            avg_steps: None,
+            avg_output_tokens_success: None,
+            schema_resilience: None,
+            top_error: TopError::None,
+            failures: FailureTracker::default(),
+            by_tier: vec![],
+            tasks_errored: 0,
+            native_error_class: NativeErrorClass::None,
+            boundary: None,
+            tokens_per_completed: None,
+            diagnostic: Some(diag.clone()),
+        }),
+        agentic_native_fc: None,
+        error: None,
+        is_thinking: false,
+        cpu_offloaded: false,
+        ctx_ceiling: None,
+    }
 }

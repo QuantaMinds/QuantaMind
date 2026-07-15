@@ -62,8 +62,6 @@ interface McpState {
   /// Bring-Your-Own tasks (diagnostic-only; run one at a time against a real
   /// server). Both kinds share the sidebar list.
   byoTasks: McpByoTaskDef[];
-  /// The BYO task whose diagnostic is currently open in the center (null = none).
-  activeByo: string | null;
   /// Once a task is saved, the connect/build center collapses to a compact summary
   /// (tasks live in the sidebar; Run Batch runs the world tasks).
   builderCollapsed: boolean;
@@ -72,7 +70,6 @@ interface McpState {
   removeTask: (name: string) => void;
   addByoTask: (task: McpByoTaskDef) => void;
   removeByoTask: (name: string) => void;
-  setActiveByo: (name: string | null) => void;
   setBuilderCollapsed: (collapsed: boolean) => void;
   refresh: () => Promise<void>;
   addServer: (cfg: McpServerConfig) => Promise<void>;
@@ -88,7 +85,6 @@ export const useMcpStore = create<McpState>((set, get) => ({
   loading: false,
   tasks: [],
   byoTasks: [],
-  activeByo: null,
   builderCollapsed: false,
 
   setActive: (active) => set({ active }),
@@ -97,9 +93,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
   removeTask: (name) => set((s) => ({ tasks: s.tasks.filter((t) => t.name !== name) })),
   addByoTask: (task) =>
     set((s) => ({ byoTasks: [...s.byoTasks.filter((t) => t.name !== task.name), task], builderCollapsed: true })),
-  removeByoTask: (name) =>
-    set((s) => ({ byoTasks: s.byoTasks.filter((t) => t.name !== name), activeByo: get().activeByo === name ? null : get().activeByo })),
-  setActiveByo: (activeByo) => set({ activeByo }),
+  removeByoTask: (name) => set((s) => ({ byoTasks: s.byoTasks.filter((t) => t.name !== name) })),
   setBuilderCollapsed: (builderCollapsed) => set({ builderCollapsed }),
 
   refresh: async () => {

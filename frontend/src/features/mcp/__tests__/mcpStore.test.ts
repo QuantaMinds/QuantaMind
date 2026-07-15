@@ -26,7 +26,7 @@ const cfg: McpServerConfig = {
 };
 
 beforeEach(() => {
-  useMcpStore.setState({ servers: [], probes: {}, loading: false, tasks: [], byoTasks: [], activeByo: null, builderCollapsed: false });
+  useMcpStore.setState({ servers: [], probes: {}, loading: false, tasks: [], byoTasks: [], builderCollapsed: false });
   vi.clearAllMocks();
 });
 
@@ -80,11 +80,9 @@ describe("mcpStore", () => {
     expect(useMcpStore.getState().builderCollapsed).toBe(true);
   });
 
-  it("removeByoTask drops the task and clears activeByo when it was open", () => {
+  it("removeByoTask drops the task", () => {
     useMcpStore.getState().addByoTask({ name: "b1", instruction: "x", serverId: "fs" });
-    useMcpStore.getState().setActiveByo("b1");
     useMcpStore.getState().removeByoTask("b1");
     expect(useMcpStore.getState().byoTasks).toEqual([]);
-    expect(useMcpStore.getState().activeByo).toBeNull();
   });
 });

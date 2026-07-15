@@ -5,7 +5,7 @@ use crate::inference::eval::agentic::build::sandbox_for;
 use crate::inference::eval::agentic::model_turn::ModelTurn;
 use crate::inference::eval::agentic::sandbox::DeterministicSandbox;
 use crate::inference::eval::agentic::scoring::boundary::BoundaryReport;
-use crate::inference::eval::agentic::scoring::report::{AgenticReport, FailureTracker, TopError};
+use crate::inference::eval::agentic::scoring::report::{AgenticReport, DiagnosticStats, FailureTracker, TopError};
 use crate::inference::eval::agentic::runner::{run_agentic_with, AgenticConfig};
 use crate::inference::eval::agentic::difficulty::passk::ThinkPreset;
 use crate::inference::eval::agentic::spec::{AttackVector, SafetyArm, Tier};
@@ -195,6 +195,12 @@ pub struct AggAgentic {
     /// reports load.
     #[serde(default)]
     pub tokens_per_completed: Option<f64>,
+    /// Bring-Your-Own: the per-model diagnostic summary (schema-valid rate + fault
+    /// attribution) for a no-answer-key run against the user's own server. `Some` ONLY
+    /// on a BYO column; the Model-Results row then shows "schema-valid X/Y", never a
+    /// pass^k. Kept OUT of `pass_k` so the two are never blended. `#[serde(default)]`.
+    #[serde(default)]
+    pub diagnostic: Option<DiagnosticStats>,
 }
 
 /// Why a native-FC task produced no scored result (every run errored). Kept distinct from
@@ -403,6 +409,7 @@ fn agg_agentic(reports: &[AgenticReport], native_fc: bool) -> AggAgentic {
         // prompt and native aggregates un-blendable downstream.
         boundary: BoundaryReport::from_reports(reports, native_fc),
         tokens_per_completed,
+        diagnostic: None, // world/built-in aggregate; the BYO adapter builds its own column
     }
 }
 

@@ -2,7 +2,6 @@ import { useState } from "react";
 import { McpConnectPanel } from "./McpConnectPanel";
 import { McpTaskBuilder } from "./McpTaskBuilder";
 import { McpByoBuilder } from "./McpByoBuilder";
-import { McpByoDiagnostic } from "./McpByoDiagnostic";
 import { useMcpStore } from "../state/mcpStore";
 import { useSelectedModelStore } from "../../../shared/state/selectedModelStore";
 
@@ -18,17 +17,8 @@ export function McpCenterPanel() {
   const setCollapsed = useMcpStore((s) => s.setBuilderCollapsed);
   const taskCount = useMcpStore((s) => s.tasks.length);
   const byoCount = useMcpStore((s) => s.byoTasks.length);
-  const activeByo = useMcpStore((s) => s.activeByo);
-  const byoTasks = useMcpStore((s) => s.byoTasks);
-  const setActiveByo = useMcpStore((s) => s.setActiveByo);
   const model = useSelectedModelStore((s) => s.selectedModels[0]);
   const [track, setTrack] = useState<Track>("controlled");
-
-  // Running a BYO task takes over the center with its diagnostic.
-  const activeTask = byoTasks.find((t) => t.name === activeByo);
-  if (activeTask) {
-    return <McpByoDiagnostic task={activeTask} onBack={() => setActiveByo(null)} />;
-  }
 
   const total = taskCount + byoCount;
   if (collapsed && total > 0) {

@@ -80,11 +80,15 @@ export function toScoreRows(report: BatchReport | null, models: InstalledModelIn
     // passed / total tasks, spec §3.3); single-turn → the composite score as a
     // percent; an errored column → "Error". So the matrix is meaningful for any
     // collection, not just agentic ones.
+    // Bring-Your-Own diagnostic: no answer key → a schema-valid rate, never a pass^k.
+    const diag = ag?.diagnostic;
     const pass = c.error
       ? "Error"
-      : ag
-        ? `${ag.tasks_passed}/${ag.tasks_total}`
-        : fmtPct(c.toolcall?.composite);
+      : diag
+        ? `schema-valid ${diag.schema_valid}/${diag.total_calls}`
+        : ag
+          ? `${ag.tasks_passed}/${ag.tasks_total}`
+          : fmtPct(c.toolcall?.composite);
     // Native FC pass^k is the parallel measurement; "N/A" when not run for this
     // model (unsupported backend / no `tools` capability) — never a fabricated 0.
     const nat = c.agentic_native_fc;
