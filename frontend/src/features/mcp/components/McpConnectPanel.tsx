@@ -78,6 +78,19 @@ const TEMPLATES: Record<string, { id: string; command: string; args: string; hin
   },
 };
 
+/// Split an args string into tokens, RESPECTING double/single quotes so a path with spaces
+/// (e.g. macOS "Application Support") stays one argument. Also strips placeholder angle-brackets
+/// a user may copy literally (`<path>` → `path`). Plain `split(/\s+/)` tore quoted paths apart.
+export function tokenizeArgs(s: string): string[] {
+  const out: string[] = [];
+  const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(s)) !== null) {
+    out.push((m[1] ?? m[2] ?? m[3]).replace(/^<+|>+$/g, ""));
+  }
+  return out;
+}
+
 function AddServerForm({ onAdd }: { onAdd: (cfg: McpServerConfig) => void }) {
   const [id, setId] = useState("");
   const [command, setCommand] = useState("npx");
@@ -91,7 +104,9 @@ function AddServerForm({ onAdd }: { onAdd: (cfg: McpServerConfig) => void }) {
     // the quick-add works with zero typing. Fall back to the bare template if the path lookup fails.
     if (t === "sqlite") {
       try {
-        setArgs(`${TEMPLATES.sqlite.args} ${await mcpScratchDbPath()}`);
+        // Quote the path — the app-config dir contains a space ("Application Support") that
+        // would otherwise split into two args.
+        setArgs(`${TEMPLATES.sqlite.args} "${await mcpScratchDbPath()}"`);
         return;
       } catch {
         /* fall through to the bare template */
@@ -105,9 +120,8 @@ function AddServerForm({ onAdd }: { onAdd: (cfg: McpServerConfig) => void }) {
     onAdd({
       id: id.trim(),
       command: command.trim(),
-      // Strip placeholder angle-brackets a user may copy literally (`<path>` → `path`) — they
-      // are never valid in these servers' args and cause a cryptic CANTOPEN/ENOENT.
-      args: args.split(/\s+/).filter(Boolean).map((a) => a.replace(/^<+|>+$/g, "")),
+      // Quote-aware split so a path with spaces stays one arg (+ strips `<path>` brackets).
+      args: tokenizeArgs(args),
       env_keys: [],
       roots: [],
       enabled: true,
