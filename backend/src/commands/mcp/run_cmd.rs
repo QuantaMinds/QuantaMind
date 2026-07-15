@@ -199,7 +199,36 @@ pub struct ByoCall {
     pub tool: String,
     pub schema_valid: bool,
     pub attribution: Attribution,
+    /// On success, the tool's actual result text (what the server returned); on a fault,
+    /// the reason. This is what the Evaluator shows as the sandbox response, so a plain
+    /// "ok" is never enough — the real output goes here (truncated).
     pub detail: String,
+    /// A short preview of the arguments the model passed, so the trace shows the CALL, not
+    /// just the tool name.
+    pub args: String,
+}
+
+/// Join a tool result's text blocks into a trace-friendly (truncated) string.
+fn result_text(res: &crate::mcp::wire::CallToolResult) -> String {
+    let joined: String = res
+        .content
+        .iter()
+        .filter_map(|b| match b {
+            crate::mcp::wire::ContentBlock::Text { text } => Some(text.trim()),
+            _ => None,
+        })
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+    if joined.is_empty() {
+        return "ok (no text content)".to_string();
+    }
+    let truncated: String = joined.chars().take(600).collect();
+    if truncated.len() < joined.len() {
+        format!("{truncated}…")
+    } else {
+        truncated
+    }
 }
 
 #[derive(Serialize, Default)]
@@ -265,8 +294,8 @@ async fn run_byo_inner(
             CallCheck::Valid => {
                 let bare = split_namespaced(&call.name).map(|(_, t)| t).unwrap_or(call.name.as_str());
                 match client.call_tool(bare, call.args.clone()).await {
-                    Ok(res) if res.is_error() => (Attribution::Server, "tool reported isError".to_string()),
-                    Ok(_) => (Attribution::Success, "ok".to_string()),
+                    Ok(res) if res.is_error() => (Attribution::Server, format!("tool reported an error: {}", result_text(&res))),
+                    Ok(res) => (Attribution::Success, result_text(&res)),
                     Err(e) => (Attribution::Config, e.friendly()),
                 }
             }
@@ -280,7 +309,8 @@ async fn run_byo_inner(
             Attribution::Server => out.server_faults += 1,
             Attribution::Success => out.successes += 1,
         }
-        out.calls.push(ByoCall { tool: call.name.clone(), schema_valid: check.is_valid(), attribution, detail });
+        let args = call.args.to_string().chars().take(200).collect::<String>();
+        out.calls.push(ByoCall { tool: call.name.clone(), schema_valid: check.is_valid(), attribution, detail, args });
     }
     out.schema_valid_rate = if out.total_calls == 0 { 0.0 } else { out.schema_valid as f64 / out.total_calls as f64 };
     client.kill();
@@ -399,7 +429,8 @@ pub async fn run_mcp_byo_batch(
                 emit_step(byo_step(run, 0, StepKind::ReportedInProse, &out.assistant_text, None, (run == 0).then_some(task.instruction.as_str())));
             } else {
                 for (j, c) in out.calls.iter().enumerate() {
-                    let raw = format!("{} — {}", c.tool, c.detail);
+                    // raw_output = the CALL (tool + args); injection = the server's actual response.
+                    let raw = if c.args.is_empty() || c.args == "{}" { c.tool.clone() } else { format!("{}({})", c.tool, c.args) };
                     let initial = (run == 0 && j == 0).then_some(task.instruction.as_str());
                     emit_step(byo_step(run, j, step_kind_for(c), &raw, Some(&c.detail), initial));
                 }

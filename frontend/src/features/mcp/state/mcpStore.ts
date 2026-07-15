@@ -8,6 +8,7 @@ import {
   type McpServerConfig,
   type McpProbe,
 } from "../../../shared/ipc/mcp/servers";
+import { formatIpcError } from "../../../shared/ipc/core/error";
 
 /// The one task-file format the guided builder and the JSON-upload path both
 /// produce: an instruction + a `world` (seed) + an `oracle` (answer key). Mirrors
@@ -132,7 +133,9 @@ export const useMcpStore = create<McpState>((set, get) => ({
       set((s) => ({ probes: { ...s.probes, [id]: { status: "ok", probe } } }));
     } catch (e) {
       // Fail-fast + loud: a bad command / stdout-polluting server surfaces here.
-      set((s) => ({ probes: { ...s.probes, [id]: { status: "error", error: String(e) } } }));
+      // formatIpcError, not String(e): a Tauri error is an object, so String(e) renders the
+      // useless "[object Object]" — surface the real message the backend sent instead.
+      set((s) => ({ probes: { ...s.probes, [id]: { status: "error", error: formatIpcError(e) } } }));
     }
   },
 }));

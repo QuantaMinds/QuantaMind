@@ -40,6 +40,19 @@ export function McpCenterPanel() {
 
   return (
     <div className="flex flex-col gap-4 min-w-0">
+      {/* Once tasks exist, the builder can be dismissed back to the collapsed summary so it
+          doesn't sit on top of the result panels (Simulator/Evaluator/Model Results). */}
+      {total > 0 && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => setCollapsed(true)}
+            className="rounded border border-neutral-600 px-3 py-1 text-xs opacity-80"
+          >
+            Cancel — back to results
+          </button>
+        </div>
+      )}
       <TrackSelector track={track} onSelect={setTrack} />
 
       <div>
