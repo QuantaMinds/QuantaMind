@@ -474,6 +474,16 @@ fn app_subdir(app: &tauri::AppHandle, name: &str) -> AppResult<PathBuf> {
     Ok(dir.join(name))
 }
 
+/// A default, app-managed SQLite path for the sqlite quick-add, so the user doesn't have to
+/// type an absolute path (the #1 sqlite-connect failure). `mcp-server-sqlite-npx` creates the
+/// file on first run; we just ensure the parent dir exists.
+#[tauri::command]
+pub fn mcp_scratch_db_path(app: tauri::AppHandle) -> Result<String, AppError> {
+    let dir = app_subdir(&app, "mcp")?;
+    std::fs::create_dir_all(&dir).map_err(|e| AppError::Io(e.to_string()))?;
+    Ok(dir.join("scratch.db").to_string_lossy().into_owned())
+}
+
 /// One diagnostic trajectory step (no env replay). `run` groups it under "RUN n" in the
 /// Evaluator when the diagnostic is repeated over the K iterations from Run Params.
 fn byo_step(run: usize, i: usize, kind: StepKind, raw: &str, injection: Option<&str>, initial: Option<&str>) -> TrajectoryStep {

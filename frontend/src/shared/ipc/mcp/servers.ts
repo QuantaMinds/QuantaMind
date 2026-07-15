@@ -39,6 +39,12 @@ export async function setMcpServerEnabled(id: string, enabled: boolean): Promise
   await invoke("set_mcp_server_enabled", { id, enabled });
 }
 
+/// An app-managed scratch SQLite path for the sqlite quick-add, so the user needn't type an
+/// absolute path (the server creates the file on first run).
+export async function mcpScratchDbPath(): Promise<string> {
+  return (await invoke("mcp_scratch_db_path")) as string;
+}
+
 /// Store a server env-var value in the OS keychain (never on disk).
 export async function setMcpServerSecret(id: string, envVar: string, value: string): Promise<void> {
   await invoke("set_mcp_server_secret", { id, envVar, value });

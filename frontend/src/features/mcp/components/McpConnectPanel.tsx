@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMcpStore } from "../state/mcpStore";
-import type { McpServerConfig } from "../../../shared/ipc/mcp/servers";
+import { mcpScratchDbPath, type McpServerConfig } from "../../../shared/ipc/mcp/servers";
 
 /// Connect servers (with the loud "N tools discovered" preflight) before defining
 /// a task to score in a controlled world.
@@ -73,8 +73,8 @@ const TEMPLATES: Record<string, { id: string; command: string; args: string; hin
   sqlite: {
     id: "sqlite",
     command: "npx",
-    args: "-y mcp-server-sqlite-npx /absolute/path/to/your.db",
-    hint: "Replace /absolute/path/to/your.db with a real SQLite file path — the server needs one (it won't start without it).",
+    args: "-y mcp-server-sqlite-npx", // a real scratch db path is appended on quick-add
+    hint: "Points at an app-managed scratch database. To use your own, replace the path at the end of the args (keep the `-y mcp-server-sqlite-npx` prefix).",
   },
 };
 
@@ -83,11 +83,21 @@ function AddServerForm({ onAdd }: { onAdd: (cfg: McpServerConfig) => void }) {
   const [command, setCommand] = useState("npx");
   const [args, setArgs] = useState("");
   const [hint, setHint] = useState<string | null>(null);
-  const fill = (t: keyof typeof TEMPLATES) => {
+  const fill = async (t: keyof typeof TEMPLATES) => {
     setId(TEMPLATES[t].id);
     setCommand(TEMPLATES[t].command);
-    setArgs(TEMPLATES[t].args);
     setHint(TEMPLATES[t].hint ?? null);
+    // sqlite needs a real db path or it exits at once — append an app-managed scratch path so
+    // the quick-add works with zero typing. Fall back to the bare template if the path lookup fails.
+    if (t === "sqlite") {
+      try {
+        setArgs(`${TEMPLATES.sqlite.args} ${await mcpScratchDbPath()}`);
+        return;
+      } catch {
+        /* fall through to the bare template */
+      }
+    }
+    setArgs(TEMPLATES[t].args);
   };
 
   const submit = () => {
@@ -107,8 +117,8 @@ function AddServerForm({ onAdd }: { onAdd: (cfg: McpServerConfig) => void }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
       <span className="text-xs opacity-60">quick add:</span>
-      <button type="button" className="rounded border border-neutral-600 px-2 py-0.5 text-xs" onClick={() => fill("filesystem")}>filesystem</button>
-      <button type="button" className="rounded border border-neutral-600 px-2 py-0.5 text-xs" onClick={() => fill("sqlite")}>sqlite</button>
+      <button type="button" className="rounded border border-neutral-600 px-2 py-0.5 text-xs" onClick={() => void fill("filesystem")}>filesystem</button>
+      <button type="button" className="rounded border border-neutral-600 px-2 py-0.5 text-xs" onClick={() => void fill("sqlite")}>sqlite</button>
       <div className="w-full" />
       <input className="rounded border border-neutral-600 bg-transparent px-2 py-1 text-sm" placeholder="id" value={id} onChange={(e) => setId(e.target.value)} />
       <input className="rounded border border-neutral-600 bg-transparent px-2 py-1 text-sm" placeholder="command" value={command} onChange={(e) => setCommand(e.target.value)} />
