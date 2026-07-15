@@ -105,7 +105,9 @@ function AddServerForm({ onAdd }: { onAdd: (cfg: McpServerConfig) => void }) {
     onAdd({
       id: id.trim(),
       command: command.trim(),
-      args: args.split(/\s+/).filter(Boolean),
+      // Strip placeholder angle-brackets a user may copy literally (`<path>` → `path`) — they
+      // are never valid in these servers' args and cause a cryptic CANTOPEN/ENOENT.
+      args: args.split(/\s+/).filter(Boolean).map((a) => a.replace(/^<+|>+$/g, "")),
       env_keys: [],
       roots: [],
       enabled: true,
