@@ -63,19 +63,31 @@ function ServerList({
   );
 }
 
-const TEMPLATES: Record<string, { id: string; command: string; args: string }> = {
-  filesystem: { id: "filesystem", command: "npx", args: "-y @modelcontextprotocol/server-filesystem" },
-  sqlite: { id: "sqlite", command: "npx", args: "-y mcp-server-sqlite-npx" },
+const TEMPLATES: Record<string, { id: string; command: string; args: string; hint?: string }> = {
+  filesystem: {
+    id: "filesystem",
+    command: "npx",
+    args: "-y @modelcontextprotocol/server-filesystem",
+    hint: "Append a directory the server may access, e.g. …/server-filesystem /Users/you/Documents",
+  },
+  sqlite: {
+    id: "sqlite",
+    command: "npx",
+    args: "-y mcp-server-sqlite-npx /absolute/path/to/your.db",
+    hint: "Replace /absolute/path/to/your.db with a real SQLite file path — the server needs one (it won't start without it).",
+  },
 };
 
 function AddServerForm({ onAdd }: { onAdd: (cfg: McpServerConfig) => void }) {
   const [id, setId] = useState("");
   const [command, setCommand] = useState("npx");
   const [args, setArgs] = useState("");
+  const [hint, setHint] = useState<string | null>(null);
   const fill = (t: keyof typeof TEMPLATES) => {
     setId(TEMPLATES[t].id);
     setCommand(TEMPLATES[t].command);
     setArgs(TEMPLATES[t].args);
+    setHint(TEMPLATES[t].hint ?? null);
   };
 
   const submit = () => {
@@ -104,6 +116,7 @@ function AddServerForm({ onAdd }: { onAdd: (cfg: McpServerConfig) => void }) {
       <button type="button" className="rounded bg-neutral-200 px-3 py-1 text-sm text-neutral-900" onClick={submit}>
         Add
       </button>
+      {hint && <div className="w-full text-xs text-amber-400">{hint}</div>}
     </div>
   );
 }
