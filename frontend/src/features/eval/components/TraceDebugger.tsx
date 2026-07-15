@@ -416,6 +416,10 @@ export function TraceDebugger({
   k,
 }: TraceDebuggerProps) {
   const { tasks } = useEvalRegistryStore();
+  // Bring-Your-Own diagnostic run — true from the moment the run starts (the collection id
+  // is `mcp:byo`), unlike `diag` below which needs the task's terminal outcome to have landed.
+  // The per-run chips stream during the run, so they must NOT fall back to FAIL before then.
+  const isDiagRun = (useEvalRegistryStore((s) => s.selected) ?? "").startsWith("mcp:byo");
   const outcomeByKey = useBatchStore((s) => s.outcomeByKey);
   const nativeOutcomeByKey = useBatchStore((s) => s.nativeOutcomeByKey);
   const stepsByKey = useBatchStore((s) => s.stepsByKey);
@@ -724,7 +728,7 @@ export function TraceDebugger({
                               <span style={runTitleStyle}>
                                 RUN {gi + 1} OF {totalRuns}
                               </span>
-                              {diag ? (
+                              {isDiagRun ? (
                                 <span style={runChipStyle("running")}>{complete ? "DIAGNOSTIC" : "RUNNING"}</span>
                               ) : (
                                 <span style={runChipStyle(status)}>{status.toUpperCase()}</span>

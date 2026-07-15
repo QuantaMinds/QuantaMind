@@ -235,7 +235,24 @@ async fn run_byo_inner(
     let tools = client.list_tools().await?.tools;
 
     let native = mcp_tools_to_native(&tools);
-    let result = bridge::chat(backend, &endpoint, model, SYSTEM, instruction, &native, None).await?;
+    // Nudge the model to USE the tools instead of asking for clarification. A filesystem server
+    // hides its sandbox root behind `list_allowed_directories`, so tell the model to discover it
+    // first when that tool exists (mirrors the controlled-world prompt).
+    let has_discover = tools.iter().any(|t| t.name.contains("list_allowed_directories"));
+    let prompt = if has_discover {
+        format!(
+            "You have filesystem tools scoped to a sandbox directory. FIRST call \
+             `list_allowed_directories` to find your working directory, then use the tools to \
+             accomplish the task, using absolute paths under it. Act with the tools — do NOT ask \
+             for clarification.\n\nTask: {instruction}"
+        )
+    } else {
+        format!(
+            "You have MCP tools available. Use them to accomplish the task; act with the tools \
+             rather than asking for clarification.\n\nTask: {instruction}"
+        )
+    };
+    let result = bridge::chat(backend, &endpoint, model, SYSTEM, &prompt, &native, None).await?;
     let calls = bridge::select_calls(&result.tool_calls, &result.content);
 
     let mut out = ByoRunResult { assistant_text: result.content.clone(), ..Default::default() };
