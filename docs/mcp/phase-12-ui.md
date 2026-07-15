@@ -85,7 +85,13 @@ state in `McpCenterPanel`), Save→collapse on both, one combined sidebar:
   so metrics are never blended (no-fake-metrics). The adapter registers with
   `BatchRunState` (shared `begin()`), so the **same Stop button cancels it mid-run**
   (the model call is raced against the cancel token; dropping it kills the MCP client
-  via `McpTransport::Drop` — no orphan).
+  via `McpTransport::Drop` — no orphan). It honours the **K from Run Params**: the
+  diagnostic repeats K times per task (a reliability-of-well-formedness sample), each
+  iteration grouped as `RUN n OF K` and aggregated into the schema-valid rate. The
+  Evaluator is diagnostic-aware — the per-run chip reads `DIAGNOSTIC` (not PASS/FAIL)
+  and the final verdict reads `DIAGNOSTIC · schema-valid X/Y` (+ attribution, + a "the
+  model answered in prose without calling a tool" note when there were 0 calls), never
+  `EVALUATION FAILED`.
 - **Connect → collapse.** `McpCenterPanel` collapses to a "✓ N MCP tasks saved"
   summary (`mcpStore.builderCollapsed`, set true by `addTask`/`addByoTask`;
   "+ Add another" reopens). Model + iterations + decoy come from the main controls.

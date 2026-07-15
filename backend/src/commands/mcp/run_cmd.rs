@@ -318,6 +318,17 @@ fn add_diag(a: DiagnosticStats, b: &DiagnosticStats) -> DiagnosticStats {
     }
 }
 
+fn diag_of(out: &ByoRunResult) -> DiagnosticStats {
+    DiagnosticStats {
+        total_calls: out.total_calls as u32,
+        schema_valid: out.schema_valid as u32,
+        successes: out.successes as u32,
+        model_faults: out.model_faults as u32,
+        config_faults: out.config_faults as u32,
+        server_faults: out.server_faults as u32,
+    }
+}
+
 /// Bring-Your-Own, wired into the eval eco-system: run each diagnostic against the
 /// user's real server and emit the SAME batch events (`batch-progress` /
 /// `agentic-step` / `batch-complete`) + persist a `BatchReport` keyed `mcp:byo`, so the
@@ -332,12 +343,14 @@ pub async fn run_mcp_byo_batch(
     model: String,
     backend: BackendKind,
     tasks: Vec<ByoTaskSpec>,
+    k: Option<u32>,
 ) -> Result<(), AppError> {
     let cancel = state.begin();
     let total = tasks.len();
+    let runs = k.unwrap_or(1).max(1);
     let mut agg = DiagnosticStats::default();
 
-    for (i, task) in tasks.iter().enumerate() {
+    'tasks: for (i, task) in tasks.iter().enumerate() {
         if cancel.is_cancelled() {
             break;
         }
@@ -346,41 +359,41 @@ pub async fn run_mcp_byo_batch(
             model: model.clone(), task_id: task.name.clone(), index: i, total, category: "mcp_byo".into(), is_native: false,
         });
 
-        // Race the (slow) model + tool run against the Stop button. Dropping the future on
-        // cancel also drops the MCP client → its Drop kills the server (no orphan).
-        let out = tokio::select! {
-            r = run_byo_inner(&app, &model, backend, &task.server_id, &task.instruction) => r?,
-            _ = cancel.cancelled() => break,
-        };
-
-        // Re-emit each graded call as a trajectory step (the Evaluator's live trace).
         let emit_step = |step: TrajectoryStep| {
             log_emit(&app, EVENT_AGENTIC_STEP, AgenticStepPayload {
                 model: model.clone(), task_id: task.name.clone(), is_native: false, step,
             });
         };
-        if out.calls.is_empty() {
-            emit_step(byo_step(0, StepKind::ReportedInProse, &out.assistant_text, None, Some(&task.instruction)));
-        } else {
-            for (j, c) in out.calls.iter().enumerate() {
-                let raw = format!("{} — {}", c.tool, c.detail);
-                let initial = (j == 0).then_some(task.instruction.as_str());
-                emit_step(byo_step(j, step_kind_for(c), &raw, Some(&c.detail), initial));
+
+        // Repeat the diagnostic over the K iterations from Run Params — a reliability-of-
+        // well-formedness sample (does the model consistently make valid calls?). No answer
+        // key, so it aggregates schema-valid/attribution across runs, never a pass^k.
+        let mut task_diag = DiagnosticStats::default();
+        for run in 0..runs as usize {
+            // Race the (slow) model + tool run against the Stop button. Dropping the future on
+            // cancel also drops the MCP client → its Drop kills the server (no orphan).
+            let out = tokio::select! {
+                r = run_byo_inner(&app, &model, backend, &task.server_id, &task.instruction) => r?,
+                _ = cancel.cancelled() => break 'tasks,
+            };
+
+            // Re-emit each graded call as a trajectory step (the Evaluator's live trace).
+            if out.calls.is_empty() {
+                emit_step(byo_step(run, 0, StepKind::ReportedInProse, &out.assistant_text, None, (run == 0).then_some(task.instruction.as_str())));
+            } else {
+                for (j, c) in out.calls.iter().enumerate() {
+                    let raw = format!("{} — {}", c.tool, c.detail);
+                    let initial = (run == 0 && j == 0).then_some(task.instruction.as_str());
+                    emit_step(byo_step(run, j, step_kind_for(c), &raw, Some(&c.detail), initial));
+                }
             }
+            task_diag = add_diag(task_diag, &diag_of(&out));
         }
 
         // The task's terminal outcome — a diagnostic report (schema-valid, no pass^k).
-        let diag = DiagnosticStats {
-            total_calls: out.total_calls as u32,
-            schema_valid: out.schema_valid as u32,
-            successes: out.successes as u32,
-            model_faults: out.model_faults as u32,
-            config_faults: out.config_faults as u32,
-            server_faults: out.server_faults as u32,
-        };
-        agg = add_diag(agg, &diag);
+        agg = add_diag(agg, &task_diag);
         log_emit(&app, EVENT_BATCH_PROGRESS, BatchProgress::Done {
-            model: model.clone(), task_id: task.name.clone(), outcome: TaskOutcome::Agentic { report: byo_report(&diag) }, is_native: false,
+            model: model.clone(), task_id: task.name.clone(), outcome: TaskOutcome::Agentic { report: byo_report(&task_diag) }, is_native: false,
         });
     }
 
@@ -413,10 +426,11 @@ fn app_subdir(app: &tauri::AppHandle, name: &str) -> AppResult<PathBuf> {
     Ok(dir.join(name))
 }
 
-/// One diagnostic trajectory step (single run, no env replay).
-fn byo_step(i: usize, kind: StepKind, raw: &str, injection: Option<&str>, initial: Option<&str>) -> TrajectoryStep {
+/// One diagnostic trajectory step (no env replay). `run` groups it under "RUN n" in the
+/// Evaluator when the diagnostic is repeated over the K iterations from Run Params.
+fn byo_step(run: usize, i: usize, kind: StepKind, raw: &str, injection: Option<&str>, initial: Option<&str>) -> TrajectoryStep {
     TrajectoryStep {
-        run_index: 0,
+        run_index: run as u32,
         step_index: i as u32,
         raw_output: raw.to_string(),
         injection: injection.map(str::to_string),

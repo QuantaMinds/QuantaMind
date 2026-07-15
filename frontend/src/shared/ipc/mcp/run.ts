@@ -24,6 +24,7 @@ export async function runMcpByoBatch(
   model: string,
   backend: BackendKind,
   tasks: McpByoTaskDef[],
+  k?: number,
 ): Promise<void> {
-  await invoke("run_mcp_byo_batch", { model, backend, tasks });
+  await invoke("run_mcp_byo_batch", { model, backend, tasks, k });
 }

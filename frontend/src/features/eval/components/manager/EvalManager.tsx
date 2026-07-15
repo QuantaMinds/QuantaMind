@@ -334,7 +334,7 @@ export function EvalManager({
         return;
       }
       setBuilderCollapsed(true);
-      await runByo(toRun, { model: picked.name, backend: picked.backend });
+      await runByo(toRun, { model: picked.name, backend: picked.backend }, k);
       return;
     }
 
