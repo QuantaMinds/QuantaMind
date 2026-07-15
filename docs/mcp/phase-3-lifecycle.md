@@ -15,10 +15,22 @@ leaves the grandchild orphaned (the real "1,300 zombie MCP processes" failure).
 At spawn, make the child a **group leader** with the *safe* stdlib
 `std::os::unix::process::CommandExt::process_group(0)` (no `unsafe`, so it clears
 `#![deny(unsafe_code)]`) → its pgid equals its pid. `kill` then signals the whole
-group (`kill -TERM -<pgid>`, grace, then `kill -KILL -<pgid>`) and reaps the
+group (`kill -TERM -- -<pgid>`, grace, then `kill -KILL -- -<pgid>`) and reaps the
 `Child`. Windows keeps the existing path (`apply_spawn_flags` sets
 `CREATE_NEW_PROCESS_GROUP`; `Host::graceful_stop` sends `CTRL_BREAK` to the
 group). Add `pid()` for diagnostics/tests.
+
+> **The `--` is load-bearing** (`group_signal_argv`). Without it, procps `kill`
+> (every Linux distro) reads the leading-dash pgid as *bundled short options*
+> rather than a negative pid, and signals **the caller's own process group**.
+> Measured on ubuntu-22.04, child correctly leading group 4192, caller in 4191:
+> `kill -TERM -4192` killed the **caller** (SIGTERM, exit 143) and left the group
+> **alive** — the exact inverse of this step's goal: it orphaned the server and
+> killed the app. `kill -TERM -- -4192` exits 0, kills the group, caller lives.
+> BSD `kill` (macOS) parses the bare form correctly, which is why this hid until
+> CI's Linux job started dying mid-suite. `--` is accepted by both, so one argv
+> is right everywhere. `pgid == 0` is refused outright: `kill -- -0` is
+> `kill(0, sig)` = "signal my own group", which can only ever be a bug.
 
 ## Step 2 — Readiness = the initialize response
 MCP has no `/health`; readiness *is* a successful `initialize`. `connect` already
