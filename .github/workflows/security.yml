@@ -64,7 +64,11 @@ jobs:
           version: 11
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # 22, not the 20 the other jobs use: pnpm 11 declares `engines.node >= 22.13` and
+          # dies on 20 with ERR_UNKNOWN_BUILTIN_MODULE. Scoped to this job, which only
+          # installs and audits — it builds and tests nothing, so the toolchain the app is
+          # actually built and tested against (Node 20, in ci.yml/release.yml) is unchanged.
+          node-version: 22
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
       - name: pnpm install
