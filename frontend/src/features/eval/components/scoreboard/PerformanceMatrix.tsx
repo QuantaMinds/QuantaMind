@@ -200,6 +200,7 @@ export function PerformanceMatrix({
   const cliffResults = useCliffStore((s) => (collectionId ? s.results[collectionId] : undefined));
   const cliffProbed = useCliffStore((s) => (collectionId ? s.probed[collectionId] : undefined));
   const cliffBroken = useCliffStore((s) => (collectionId ? s.brokenBaseline[collectionId] : undefined));
+  const cliffInconclusive = useCliffStore((s) => (collectionId ? s.inconclusive[collectionId] : undefined));
   const cliffRunning = useCliffStore((s) => s.running);
   const cliffRunningModel = useCliffStore((s) => s.runningModel);
   const setCliffRequest = useCliffStore((s) => s.setRequest);
@@ -420,6 +421,23 @@ export function PerformanceMatrix({
                           </span>
                           <ReprobeBtn model={r.model} />
                         </>
+                      ) : cliffInconclusive?.[r.model] != null ? (
+                        // Checked BEFORE the `probed` fallthrough below: the probe RAN, so it
+                        // sets `probed`, and would otherwise land on "✓ no cliff — accuracy
+                        // held the whole range". It didn't. Its sample can't resolve the
+                        // collapse margin (one flipped trial is worth a whole margin), so
+                        // "cliff" and "no cliff" are the same measurement. Neutral, never
+                        // green: this is an absence of a finding, not a good finding.
+                        <>
+                          <span
+                            style={{ ...badgeStyle, background: "#f1f5f9", border: "1px solid #e2e8f0", color: "#475569", textTransform: "none" }}
+                            data-testid={`cliff-inconclusive-${r.model}`}
+                            title={`Inconclusive — ${cliffInconclusive[r.model]} samples/rung can't resolve the collapse margin, so a cliff and no cliff are indistinguishable here. Probe a larger collection.`}
+                          >
+                            inconclusive
+                          </span>
+                          <ReprobeBtn model={r.model} />
+                        </>
                       ) : cliffProbed?.[r.model] ? (
                         // Probed this session, accuracy held across the range from a HEALTHY
                         // baseline — a genuinely GOOD result, not just "no drop from zero".
@@ -486,6 +504,7 @@ export function PerformanceMatrix({
           tool-call accuracy starts to collapse. Click <strong style={{ color: "#2563eb" }}>Run probe ↗</strong> to
           measure it (runs in the Audit tab); the result feeds the model's Agent-Readiness verdict.{" "}
           <span style={{ color: "#166534", fontWeight: 600 }}>✓ no cliff</span> = probed, accuracy held the whole range from a healthy baseline.{" "}
+          <span style={{ color: "#475569", fontWeight: 600 }}>inconclusive</span> = probed, but the collection is too small to tell a cliff from noise — not a clean bill.{" "}
           <span style={{ color: "#991b1b", fontWeight: 600 }}>fails from start</span> = already failing at the smallest context (a tool-call failure, not a context limit).
         </div>
       )}

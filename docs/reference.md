@@ -278,9 +278,10 @@ made the score move in steps of `1/tasks`: on the default 5-task collection that
 cliff. Pooling makes the step `1/(tasks × positions)` at no extra cost, and a *systematic*
 failure at any single position still always clears the margin, so a real positional weakness
 is still caught (the per-position breakdown still shows which one). A collection too small
-to resolve the margin at all (a 1-task collection) now reads **"inconclusive"** instead of
-"no cliff" — the probe found nothing, which is not the same as finding nothing wrong. An
-inconclusive result is a caveat, never a red verdict.
+to resolve the margin at all (a 1-task collection) reads **"inconclusive"** instead of
+"no cliff" — the probe found nothing, which is not the same as finding nothing wrong. It
+renders neutral (never green, never red) in the Model Results matrix, the read-out, and the
+Agent Report alike: an inconclusive result is a caveat, never a red verdict — and never a ✓.
 
 **Context Stress Test — the ladder always fits the window.** The probe runs at
 `Max Tokens + ~2K headroom` (the tool schemas, the injected task, and the reply all sit on

@@ -12,7 +12,7 @@ import { formatBytes } from "../../../shared/format/bytes";
 import { useCliffStore } from "../state/cliffStore";
 import { InfoButton } from "../../../shared/ui/InfoButton";
 import { TOOL_HELP, METRIC_HELP } from "../help";
-import { classifyCliff, CLIFF_BASELINE_PASS } from "../cliff";
+import { classifyCliff, CLIFF_BASELINE_PASS, CLIFF_COLLAPSE_MARGIN } from "../cliff";
 import { ContextCliffChart } from "./ContextCliffChart";
 import type { BackendKind } from "../../../shared/ipc/models/storage";
 import type { AgentPath } from "../../../shared/ipc/eval/readiness";
@@ -79,6 +79,11 @@ export function ContextCliffPanel() {
   const frac = useCliffStore((s) => s.frac);
   const step = useCliffStore((s) => s.step);
   const startedAt = useCliffStore((s) => s.startedAt);
+  // The BACKEND's verdict for this run. `classifyCliff` only sees composites, so an
+  // inconclusive probe is indistinguishable from a healthy one and would read "Accuracy
+  // maintained up to ≈N tokens" — a finding its sample can't support, and the exact opposite
+  // of what the Matrix and the Agent Report say about the same run.
+  const lastInconclusive = useCliffStore((s) => s.lastInconclusive);
   const runningModel = useCliffStore((s) => s.runningModel);
   const runProbe = useCliffStore((s) => s.runProbe);
   const stopProbe = useCliffStore((s) => s.stop);
@@ -556,6 +561,8 @@ export function ContextCliffPanel() {
           >
             {running
               ? "Running…"
+              : lastInconclusive != null
+                ? `Inconclusive — ${lastInconclusive} samples/rung can't resolve a ${Math.round(CLIFF_COLLAPSE_MARGIN * 100)}pp collapse; one flipped sample would be worth the whole margin. Probe a larger collection.`
               : verdict.kind === "cliff"
                 ? // A detected cliff ALWAYS reads as a cliff — when the collapse rung had no
                   // measured token count we say so, never falling through to a non-cliff message
