@@ -845,3 +845,124 @@ async fn noisy_extraction_live() {
         assert!(tstar >= eff - 1e-9, "T* ({tstar}) must be >= Effort ({eff}) — the waste tax");
     }
 }
+
+// ── LIVE verification of "Schema Resilience = —" (the user's Tool-Calling row) ─────────
+//
+// Claim under test: the "—" in SCHEMA RESIL. for a model that passes cleanly is the honest
+// "no schema errors occurred, nothing to recover from" — NOT a lost value. Proven by the
+// causal link, observed live, not asserted from code: a `StepKind::SchemaError` is the ONLY
+// thing that can move `schema_resilience` off `None` (a recovered error → Some(1.0), an
+// unrecovered one → Some(<1)). So `schema_error_steps == 0  <=>  schema_resilience == None`.
+//
+// This sink watches the runner's real trajectory and counts SchemaError steps per arm, so
+// the verification reads the LOGS (the emitted steps), not just the final number.
+//
+// Run: QM_LIVE_MODEL=qwen3.5:9b cargo test --lib schema_resil_live -- --ignored --nocapture
+
+#[derive(Default)]
+struct SchemaWatchSink {
+    prompt_schema_errors: Mutex<u32>,
+    native_schema_errors: Mutex<u32>,
+    prompt_turns: Mutex<u32>,
+    native_turns: Mutex<u32>,
+}
+
+impl BatchSink for SchemaWatchSink {
+    fn task_started(&self, _m: &str, _t: &str, _i: usize, _total: usize, _cat: &str, _is_native: bool) {}
+    fn agentic_turn(&self, _m: &str, _t: &str, step: &TrajectoryStep, is_native: bool) {
+        let (turns, errs) = if is_native {
+            (&self.native_turns, &self.native_schema_errors)
+        } else {
+            (&self.prompt_turns, &self.prompt_schema_errors)
+        };
+        *turns.lock().unwrap() += 1;
+        if step.kind == crate::inference::eval::agentic::step::StepKind::SchemaError {
+            *errs.lock().unwrap() += 1;
+        }
+    }
+    fn task_done(&self, _m: &str, _t: &str, _o: &TaskOutcome, _is_native: bool) {}
+}
+
+#[tokio::test]
+#[ignore = "live: requires a running Ollama server with the model pulled"]
+async fn schema_resil_live_none_iff_zero_schema_errors() {
+    use crate::inference::eval::agentic::v2::collection::load_v2_collection;
+    use crate::inference::eval::agentic::v2::scenarios::v2_json;
+    use crate::inference::eval::agentic::model_turn::NativeToolTurn;
+    use crate::inference::eval::toolcall::prompt::TerminalGuidance;
+    use crate::inference::generate::generate_options::GenerateOptions;
+
+    let model = std::env::var("QM_LIVE_MODEL").unwrap_or_else(|_| "qwen3.5:9b".into());
+    let collection = std::env::var("QM_LIVE_COLLECTION").unwrap_or_else(|_| "easy-coding".into());
+    let tasks = load_v2_collection(v2_json(&collection).unwrap()).unwrap();
+    let endpoint = "http://127.0.0.1:11434".to_string();
+
+    let targets = vec![ModelTarget { model: model.clone(), backend: BackendKind::Ollama, is_thinking: false }];
+    let sink = Arc::new(SchemaWatchSink::default());
+
+    // Prompt pass (populates `.agentic`, method "Prompt-based").
+    let ep = endpoint.clone();
+    let make = move |t: &ModelTarget| BackendTurn {
+        backend: BackendKind::Ollama,
+        endpoint: ep.clone(),
+        model: t.model.clone(),
+        cancel: CancellationToken::new(),
+        options: None,
+        keep_alive: None,
+        is_thinking: false,
+        max_tokens: 512,
+        cpu_offloaded: false,
+        ctx_ceiling: crate::inference::eval::agentic::runner::NUM_CTX_CEILING,
+        stop_cache: Default::default(),
+    };
+    let mut report = run_batch(&collection, &targets, &tasks, CancellationToken::new(), sink.clone(), make)
+        .await
+        .unwrap();
+
+    // Native FC pass (populates `.agentic_native_fc`, method "Tool-Calling" — the USER's row).
+    let supported: std::collections::HashSet<String> = [model.clone()].into_iter().collect();
+    let ep2 = endpoint.clone();
+    let make_native = move |m: &str, task: &ToolTask| NativeToolTurn {
+        backend: BackendKind::Ollama,
+        endpoint: ep2.clone(),
+        model: m.to_string(),
+        tools: task.tools.clone(),
+        options: Some(GenerateOptions { temperature: Some(0.0), num_predict: Some(512), ..Default::default() }),
+        terminal: TerminalGuidance::PlainTextOk,
+        max_tokens: 512,
+        is_thinking: false,
+    };
+    run_native_fc_pass(
+        &mut report, &tasks, &supported, CancellationToken::new(),
+        make_native, &[], &|_| {}, &NoVramGate, sink.clone(),
+    )
+    .await
+    .unwrap();
+
+    let col = &report.columns[0];
+    let prompt = col.agentic.as_ref().expect("prompt aggregate");
+    let native = col.agentic_native_fc.as_ref().expect("native aggregate (the Tool-Calling row)");
+    let p_err = *sink.prompt_schema_errors.lock().unwrap();
+    let n_err = *sink.native_schema_errors.lock().unwrap();
+
+    println!("\n=== SCHEMA RESILIENCE, live: {model} on {collection} ===");
+    println!("  PROMPT  pass_k={:?}  passes={}/{}  schema_resilience={:?}  SchemaError steps observed={}",
+        prompt.pass_k(), prompt.passes, prompt.total_runs, prompt.schema_resilience, p_err);
+    println!("  NATIVE  pass_k={:?}  passes={}/{}  schema_resilience={:?}  SchemaError steps observed={}   <- the user's Tool-Calling row",
+        native.pass_k(), native.passes, native.total_runs, native.schema_resilience, n_err);
+    println!("  → schema_resilience renders as '—' exactly when SchemaError steps == 0.");
+
+    // THE CAUSAL LINK, verified live on both arms: the metric is None if and ONLY if the
+    // runner emitted zero schema-error steps. A "—" is therefore proof the model never
+    // emitted a malformed call — never a swallowed value.
+    assert_eq!(
+        native.schema_resilience.is_none(), n_err == 0,
+        "native: schema_resilience None must mean exactly zero schema errors (got resil={:?}, errors={})",
+        native.schema_resilience, n_err,
+    );
+    assert_eq!(
+        prompt.schema_resilience.is_none(), p_err == 0,
+        "prompt: schema_resilience None must mean exactly zero schema errors (got resil={:?}, errors={})",
+        prompt.schema_resilience, p_err,
+    );
+}

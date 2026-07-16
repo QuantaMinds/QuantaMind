@@ -287,4 +287,37 @@ describe("PerformanceMatrix", () => {
     expect(screen.getByTestId("native-fc-empty-hint")).toHaveTextContent(/Measure native tool-calling/i);
     expect(screen.queryByTestId("matrix-native-row-qwen")).toBeNull();
   });
+
+  it("Schema-Resil. '—' explains itself when the run was CLEAN (ran, zero schema errors)", () => {
+    // qwen has an agentic aggregate with schema_resilience: null — the honest "no malformed
+    // calls, nothing to recover from" case. Its dash must carry the explanatory tooltip so it
+    // reads as a good result, not a blank/broken cell.
+    useBatchStore.setState({ report });
+    render(<PerformanceMatrix focusedModel="qwen" onFocusModel={() => {}} />);
+    const clean = screen.getAllByTestId("schema-resil-clean");
+    expect(clean.length).toBeGreaterThan(0);
+    expect(clean[0]).toHaveAttribute("title", expect.stringMatching(/No schema errors/i));
+  });
+
+  it("Schema-Resil. '—' is NOT annotated when the metric was simply not measured", () => {
+    // A single-turn (toolcall-only) column: no agentic aggregate at all, so its "—" means
+    // "not measured", NOT "zero errors". It must stay an unadorned dash — annotating it would
+    // recreate the exact ambiguity this tooltip exists to remove.
+    const singleTurn: BatchReport = {
+      ...report,
+      columns: [
+        {
+          model: "st",
+          backend: "ollama",
+          toolcall: { composite: 0.9, n: 4, parse_rate: 1, tool_selection_acc: 1, arg_acc: 0.9, abstain_acc: null, prompt_tokens: null, per_task: [] },
+          agentic: null,
+          error: null,
+        },
+      ],
+    };
+    useBatchStore.setState({ report: singleTurn });
+    render(<PerformanceMatrix focusedModel="st" onFocusModel={() => {}} />);
+    // The dash is present (single-turn has no schema-resilience) but WITHOUT the clean note.
+    expect(screen.queryByTestId("schema-resil-clean")).toBeNull();
+  });
 });

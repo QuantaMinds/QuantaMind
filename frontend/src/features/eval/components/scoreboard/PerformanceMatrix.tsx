@@ -80,9 +80,20 @@ function getPassKBadge(val: string) {
   return <span style={{ ...badgeStyle, background: "#fffbeb", border: "1px solid #fef3c7", color: "#b45309" }}>{val}</span>;
 }
 
-function getSchemaResilBadge(val: string) {
+function getSchemaResilBadge(val: string, note?: string) {
   if (val === "—") {
-    return <span style={{ color: "#94a3b8", fontStyle: "italic" }}>—</span>;
+    // A dash reads as "blank/broken" without help text. `note` is set ONLY when the run
+    // actually happened and hit zero schema errors — so hovering explains it's a good result,
+    // while a dash that just means "not measured" stays an unadorned, un-explained dash.
+    return (
+      <span
+        style={{ color: "#94a3b8", fontStyle: "italic", cursor: note ? "help" : "default" }}
+        title={note}
+        data-testid={note ? "schema-resil-clean" : undefined}
+      >
+        —
+      </span>
+    );
   }
   if (val === "N/A") {
     return <span style={{ color: "#94a3b8" }}>N/A</span>;
@@ -325,6 +336,7 @@ export function PerformanceMatrix({
                         effort: r.effortNative,
                         tokensPerTask: r.tokensPerTaskNative,
                         schemaResil: r.schemaResilNative,
+                        schemaResilNote: r.schemaResilNoteNative,
                         topError: r.topErrorNative,
                         failures: r.failuresNative,
                       }]
@@ -340,6 +352,7 @@ export function PerformanceMatrix({
                         effort: r.effort,
                         tokensPerTask: r.tokensPerTask,
                         schemaResil: r.schemaResil,
+                        schemaResilNote: r.schemaResilNote,
                         topError: r.topError,
                         failures: r.failures,
                       }]
@@ -392,7 +405,7 @@ export function PerformanceMatrix({
                     </td>
                     <td style={{ ...td, color: p.effort === "—" || p.effort === "N/A" ? "#94a3b8" : "#334155", fontFamily: p.effort !== "—" && p.effort !== "N/A" ? "'JetBrains Mono', monospace" : "inherit", fontSize: 12 }}>{p.effort}</td>
                     <td style={{ ...td, color: p.tokensPerTask === "—" || p.tokensPerTask === "N/A" ? "#94a3b8" : "#334155", fontFamily: p.tokensPerTask !== "—" && p.tokensPerTask !== "N/A" ? "'JetBrains Mono', monospace" : "inherit", fontSize: 12 }}>{p.tokensPerTask}</td>
-                    <td style={td}>{getSchemaResilBadge(p.schemaResil)}</td>
+                    <td style={td}>{getSchemaResilBadge(p.schemaResil, p.schemaResilNote)}</td>
                     {first && (
                     <td rowSpan={span} style={td}>
                       {cliffRunning && cliffRunningModel === r.model ? (
