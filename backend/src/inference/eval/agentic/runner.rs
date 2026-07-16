@@ -334,8 +334,15 @@ async fn run_once_cancellable<M: ModelTurn>(
 /// Max time to the FIRST token of a turn. Prefill emits no tokens, so this grace absorbs a
 /// long-context prefill; a turn that never produces a first token within it is genuinely hung
 /// (the streaming HTTP client has no body deadline) → `TurnTimeout`. Replaces the old whole-turn
-/// `STEP_TIMEOUT`. Tunable.
-const TTFT_GRACE: std::time::Duration = std::time::Duration::from_secs(300);
+/// `STEP_TIMEOUT`.
+///
+/// 720s is deliberately ≥ the old `slow_inference` whole-turn ceiling (`STEP_TIMEOUT` 180s × 4),
+/// which had to cover prefill + all decode. Prefill-to-first-token is a fraction of that, so any
+/// cold prefill that passed under the old cap is guaranteed to clear this one — the change cannot
+/// *newly* fabricate a `TurnTimeout` on a slow (e.g. CPU-offloaded 27B) cold-prefill step, which
+/// is the exact failure this whole change removes. After the first token, `INTER_TOKEN_STALL`
+/// (not this) governs, so a long generation is never bounded by it. Tunable.
+const TTFT_GRACE: std::time::Duration = std::time::Duration::from_secs(720);
 
 /// Max gap BETWEEN tokens once a turn is streaming — no healthy backend goes silent this long
 /// mid-generation, so exceeding it is a stall → `TurnTimeout`. Replaces `SLOW_STEP_MULTIPLIER`:

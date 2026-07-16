@@ -413,6 +413,11 @@ fn native_turn_text(calls: &[NativeToolCall], content: String) -> String {
 }
 
 impl ModelTurn for NativeToolTurn {
+    // `_progress` is intentionally not pulsed: the native path is a single-shot, non-streaming
+    // `chat_with_tools` call, so there is no per-token funnel to hook. The stall watchdog therefore
+    // degrades to a flat `TTFT_GRACE` cap on the native pass (no `INTER_TOKEN_STALL` phase) — the
+    // "a progressing turn is never timed out" guarantee is the streaming (prompt) path only. Not a
+    // regression: native turns are `slow_inference() == false`, so their cap widened 180s → 720s.
     async fn run(&self, spec: &GenerateSpec, _progress: &Progress) -> AppResult<(String, GenerateStats)> {
         let tools = build_tools_value(&self.tools);
         let system = native_system(&self.tools, self.terminal);

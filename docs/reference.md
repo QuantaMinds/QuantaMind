@@ -791,10 +791,13 @@ Error), with a click-through Trace Debugger. See [the workspace](#eval-runner).
     wall-clock cap — the streaming client has no body deadline, so a genuinely hung model
     would otherwise hang forever, but a slow-but-*progressing* turn (a large reasoning
     model on modest hardware) must not be scored as a capability failure just for taking
-    a long time. Two thresholds: `TTFT_GRACE` (300s, max time to the first streamed
-    token — absorbs prefill) and `INTER_TOKEN_STALL` (45s, max gap between tokens once
-    streaming). Either firing ends the run as a terminal `TurnTimeout`; a turn that keeps
-    pulsing tokens never does, no matter how long it runs. Cancellation is checked
+    a long time. Two thresholds: `TTFT_GRACE` (720s, max time to the first streamed
+    token — absorbs even a cold CPU-offloaded prefill) and `INTER_TOKEN_STALL` (45s, max
+    gap between tokens once streaming). Either firing ends the run as a terminal
+    `TurnTimeout`; a turn that keeps pulsing tokens never does, no matter how long it runs.
+    This progress guarantee is the **streaming (prompt) path** only: the native
+    tool-calling pass is a single-shot non-streaming call, so it has no per-token pulse and
+    the watchdog degrades to a flat `TTFT_GRACE` cap there. Cancellation is checked
     between Pass^k runs (`run_agentic_with`), so interrupting a big-k task halts within
     ≤1 run, not after all k. The Matrix panel shows a worst-case **cost estimate**
     ("~N model calls (~H h)") before a run.
