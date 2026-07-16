@@ -47,6 +47,11 @@ export interface ScoreRow {
   /// "—" when nothing completed. Distinct from `effort` (successes-only average).
   tokensPerTask: string;
   schemaResil: string;
+  /// Hover text for the Schema-Resil. cell. Only set to the "clean" explanation when the
+  /// aggregate actually RAN and hit zero schema errors — never when the metric was simply
+  /// absent (a single-turn or errored column). Conflating those two "—" cases is the
+  /// ambiguity this whole affordance exists to remove.
+  schemaResilNote?: string;
   topError: string;
   /// `true` when the NATIVE (Tool-Calling) pass was measured for this model — the matrix renders
   /// a Tool-Calling row only then.
@@ -58,6 +63,7 @@ export interface ScoreRow {
   effortNative: string;
   tokensPerTaskNative: string;
   schemaResilNative: string;
+  schemaResilNoteNative?: string;
   topErrorNative: string;
   failuresNative: FailureTracker | null;
   /// The full agentic failure breakdown (all 4 counts) behind `topError`, so the UI
@@ -70,6 +76,15 @@ export interface ScoreRow {
 const fmtNum = (n: number | null) => (n == null ? "N/A" : (Math.round(n * 10) / 10).toString());
 const fmtTokens = (n: number | null) => (n == null ? "N/A" : `${Math.round(n)} tok`);
 const fmtPct = (n: number | null | undefined) => (n == null ? "—" : `${Math.round(n * 100)}%`);
+
+/// Why Schema Resilience is "—" for a run that DID happen: the metric is a recovery rate
+/// (`recovered / hit`), so it only exists once a call has failed schema validation. Zero such
+/// failures ⇒ no ratio to report — which is a GOOD result (every call was well-formed), not a
+/// missing value. This note is attached ONLY when the aggregate ran and hit zero errors, so a
+/// dash that means "not measured" never wears it.
+const SCHEMA_RESIL_CLEAN_NOTE =
+  "No schema errors — the model emitted only well-formed tool calls, so there was nothing to recover from.";
+const cleanNote = (resil: number | null | undefined) => (resil == null ? SCHEMA_RESIL_CLEAN_NOTE : undefined);
 
 export function toScoreRows(report: BatchReport | null, models: InstalledModelInfo[]): ScoreRow[] {
   if (!report) return [];
@@ -115,6 +130,7 @@ export function toScoreRows(report: BatchReport | null, models: InstalledModelIn
       tokensPerTask: ag ? fmtTokens(ag.tokens_per_completed ?? null) : "—",
       // Schema resilience is agentic-only; null (no run hit a schema error) → "—".
       schemaResil: ag ? fmtPct(ag.schema_resilience) : "—",
+      schemaResilNote: ag ? cleanNote(ag.schema_resilience) : undefined,
       topError: c.error ? "Error" : ag ? TOP_ERROR_LABEL[ag.top_error] : "—",
       failures: ag?.failures ?? null,
       hasNative: nat != null,
@@ -122,6 +138,7 @@ export function toScoreRows(report: BatchReport | null, models: InstalledModelIn
       effortNative: nat ? fmtTokens(nat.avg_output_tokens_success) : "N/A",
       tokensPerTaskNative: nat ? fmtTokens(nat.tokens_per_completed ?? null) : "N/A",
       schemaResilNative: nat ? fmtPct(nat.schema_resilience) : "—",
+      schemaResilNoteNative: nat ? cleanNote(nat.schema_resilience) : undefined,
       topErrorNative: c.error ? "Error" : nativeAllErrored ? NATIVE_ERROR_LABEL[nat!.native_error_class ?? "none"] : nat ? TOP_ERROR_LABEL[nat.top_error] : "—",
       failuresNative: nat?.failures ?? null,
       composite: fmtPct(c.toolcall?.composite),

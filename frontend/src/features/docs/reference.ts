@@ -297,7 +297,7 @@ export const REFERENCE_SECTIONS: ReferenceSection[] = [
         heading: "Metric — Schema Resilience",
         what: "Of the runs that hit a schema error, the share that recovered with a valid call.",
         why: "Models will sometimes emit a call with a missing or mistyped argument; what matters for an agent is whether it can recover after the correction is injected.",
-        how: "Counts runs that hit a schema-invalid call, and of those, how many later produced a valid one. If no run ever hit a schema error the metric didn’t apply and shows “—” (never 0).",
+        how: "Counts runs that hit a schema-invalid call, and of those, how many later produced a valid one. If no run ever hit a schema error the metric didn’t apply and shows “—” (never 0) — hover the dash and it says so (“no schema errors — nothing to recover from”), so a clean run’s dash isn’t mistaken for a missing value.",
         formula: "schema_resilience = recovered_runs ÷ runs_that_hit_a_schema_error   (None ⇒ “—”)",
         source: "backend/src/inference/eval/agentic/report.rs (from_outcomes)",
       },
