@@ -3,7 +3,11 @@ import { render, screen, fireEvent, waitFor, act } from "@testing-library/react"
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn().mockResolvedValue(() => {}) }));
-vi.mock("../../../shared/ipc/eval/cliff", () => ({
+vi.mock("../../../shared/ipc/eval/cliff", async (importActual) => ({
+  // Only the IPC calls are stubbed. `CLIFF_CTX_HEADROOM` / `usableCliffTokens` are pure
+  // values the panel sizes its slider with — stubbing them would let the ladder-fits-the-
+  // window assertions below pass against a fake headroom, testing the mock, not the cap.
+  ...(await importActual<typeof import("../../../shared/ipc/eval/cliff")>()),
   runContextCliff: vi.fn(),
   stopContextCliff: vi.fn().mockResolvedValue(undefined),
   getCliffResults: vi.fn().mockResolvedValue({}),
@@ -28,6 +32,7 @@ import { getBuiltinCollection } from "../../../shared/ipc/eval/registry";
 import { inspectModel, estimateKvCacheBytes } from "../../../shared/ipc/system/inspect";
 import { getHardwareSnapshot } from "../../../shared/ipc/compare/hardware";
 import { loadedModels } from "../../../shared/ipc/system/vram";
+import { CLIFF_CTX_HEADROOM } from "../../../shared/ipc/eval/cliff";
 import { ContextCliffPanel } from "../components/ContextCliffPanel";
 import { useInstalledModelsStore } from "../../models/state/installedModelsStore";
 import { useSelectedModelStore } from "../../../shared/state/selectedModelStore";
@@ -234,19 +239,31 @@ describe("ContextCliffPanel", () => {
     expect(vi.mocked(runContextCliff).mock.calls[0][0]).toBe("m2");
   });
 
-  it("caps the Max Tokens slider at the model's context window", async () => {
+  // The regression these two guard: the slider used to offer the model's FULL context
+  // window, but the backend runs the probe at `maxTokens + CLIFF_CTX_HEADROOM` — so the
+  // deepest rung asked for MORE context than the model has, for every model. Ollama
+  // answers that by silently clamping and truncating the prompt (deleting the needle,
+  // saturating `prompt_eval_count` → a fabricated cliff depth); llama.cpp refuses with
+  // "raise the context window", which is impossible. The ladder must fit the window.
+  it("caps the Max Tokens slider so the probe's request still fits the context window", async () => {
     vi.mocked(inspectModel).mockResolvedValue(dims(8192) as never);
     render(<ContextCliffPanel />);
     await waitFor(() => expect(getBuiltinCollection).toHaveBeenCalled());
-    await waitFor(() => expect(screen.getByTestId("cliff-max-tokens")).toHaveAttribute("max", "8192"));
+    await waitFor(() =>
+      expect(screen.getByTestId("cliff-max-tokens")).toHaveAttribute("max", String(8192 - CLIFF_CTX_HEADROOM)),
+    );
   });
 
-  it("defaults Max Tokens to the model's FULL context window once known", async () => {
+  it("defaults Max Tokens to the deepest MEASURABLE depth, not the full window", async () => {
     vi.mocked(inspectModel).mockResolvedValue(dims(32768) as never);
     render(<ContextCliffPanel />);
     await waitFor(() => expect(getBuiltinCollection).toHaveBeenCalled());
-    // The probe should sweep the whole window by default, not a fixed 16384.
-    await waitFor(() => expect((screen.getByTestId("cliff-max-tokens") as HTMLInputElement).value).toBe("32768"));
+    // Sweep as deep as the model can actually hold — the whole window minus the headroom,
+    // not a fixed 16384, and never the full window (that overflows).
+    const slider = () => screen.getByTestId("cliff-max-tokens") as HTMLInputElement;
+    await waitFor(() => expect(slider().value).toBe(String(32768 - CLIFF_CTX_HEADROOM)));
+    // The invariant, stated directly: what the backend will request fits the window.
+    expect(Number(slider().value) + CLIFF_CTX_HEADROOM).toBeLessThanOrEqual(32768);
   });
 
   it("pre-fills model + collection + max tokens + steps from a Matrix request and does NOT auto-run", async () => {

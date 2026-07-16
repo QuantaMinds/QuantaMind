@@ -16,7 +16,7 @@ import { classifyCliff } from "../cliff";
 import { ContextCliffChart } from "./ContextCliffChart";
 import type { BackendKind } from "../../../shared/ipc/models/storage";
 import type { AgentPath } from "../../../shared/ipc/eval/readiness";
-import type { CliffPreset } from "../../../shared/ipc/eval/cliff";
+import { CLIFF_CTX_HEADROOM, usableCliffTokens, type CliffPreset } from "../../../shared/ipc/eval/cliff";
 
 interface ProbeModel {
   name: string;
@@ -132,12 +132,17 @@ export function ContextCliffPanel() {
   }, [active, presets, registryTasks]);
 
   // Cap the padding ladder at the model's real context window when known
-  // (Ollama /api/show dims); fall back to a fixed ceiling otherwise.
+  // (Ollama /api/show dims); fall back to a fixed ceiling otherwise. The cap is the
+  // window MINUS the backend's headroom (`usableCliffTokens`): the backend runs at
+  // `maxTokens + CLIFF_CTX_HEADROOM`, so offering the full window would make the deepest
+  // rung overflow it — Ollama silently clamps and truncates (deleting the needle) while
+  // `prompt_eval_count` saturates at the window, so the rung fails and reports a
+  // fabricated cliff depth. The ladder must stay inside what the model can actually hold.
   const { dims, kvBytes } = useVramFit(selected?.name, selected?.backend, maxTokens);
-  const sliderMax = dims?.context_length ? Math.max(4096, dims.context_length) : FALLBACK_MAX_TOKENS;
-  // Default Max Tokens to the model's FULL context window once it's known — a model's
-  // cliff can sit anywhere up to its real window, so the probe should sweep the whole
-  // thing by default (Run probe ↗ lands here pre-filled). Done once per model so a
+  const sliderMax = dims?.context_length ? usableCliffTokens(dims.context_length) : FALLBACK_MAX_TOKENS;
+  // Default Max Tokens to the deepest MEASURABLE depth once the window is known — a model's
+  // cliff can sit anywhere up to its real window, so the probe should sweep as much as it
+  // can actually measure (Run probe ↗ lands here pre-filled). Done once per model so a
   // manual slider change is never clobbered; you can still dial it down for speed.
   const defaultedFor = useRef<string | null>(null);
   useEffect(() => {
@@ -208,7 +213,7 @@ export function ContextCliffPanel() {
     ? snapshot.total_memory_bytes
     : snapshot?.gpu?.vram_total_bytes ?? null;
   const weightsBytes = loaded.find((m) => m.name === selected?.name)?.size_bytes ?? null;
-  const neededCtxK = Math.round((maxTokens + 2048) / 1000); // mirrors the backend CLIFF_CTX_HEADROOM
+  const neededCtxK = Math.round((maxTokens + CLIFF_CTX_HEADROOM) / 1000); // what the backend will request
   const footprint = kvBytes != null ? (weightsBytes ?? 0) + kvBytes : null;
   const fitWarning: string | null =
     selected?.backend === "ollama" && deviceCap != null && footprint != null && footprint > deviceCap * 0.85
@@ -646,7 +651,11 @@ export function ContextCliffPanel() {
             value={maxTokens}
             onChange={(e) => setMaxTokens(Number(e.target.value))}
             data-testid="cliff-max-tokens"
-            title={dims?.context_length ? `Capped at model context window (${dims.context_length})` : "Model context window unknown — fixed ceiling"}
+            title={
+              dims?.context_length
+                ? `Capped at ${sliderMax} — the model's ${dims.context_length}-token context window minus ${CLIFF_CTX_HEADROOM} tokens of headroom for the tool schemas, the injected task, and the reply. Beyond this the prompt is truncated and the depth can't be measured.`
+                : "Model context window unknown — fixed ceiling"
+            }
             style={sliderStyle}
           />
           <span

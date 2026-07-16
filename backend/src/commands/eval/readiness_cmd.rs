@@ -139,6 +139,32 @@ fn llama_cliff_gate(path: &str, readiness: LlamaProbeReadiness, model: &str, nee
     }
 }
 
+/// The requested depth doesn't fit the model's own context window. Names the deepest
+/// Max Tokens that CAN be measured, so the fix is a concrete number, not a direction.
+fn cliff_window_msg(model: &str, context_length: u32, needed_ctx: u32) -> String {
+    let usable = context_length.saturating_sub(CLIFF_CTX_HEADROOM);
+    format!(
+        "This probe needs about {needed_ctx} tokens of context, but \"{model}\" only has a \
+         {context_length}-token window. The tool schemas, the injected task, and the reply all \
+         sit on top of the padding, so Max Tokens must stay about {CLIFF_CTX_HEADROOM} below the \
+         window. Reduce the Context Stress Test Max Tokens to {usable} or less."
+    )
+}
+
+/// The model's own context window is a HARD ceiling on a measurable depth, and exceeding it
+/// fails SILENTLY rather than loudly: Ollama clamps `num_ctx` down to the trained window and
+/// truncates the prompt — which deletes the injected needle and pins `prompt_eval_count` at
+/// the window, so the rung fails for a reason the model never caused and its "verified" depth
+/// is a saturated counter (a fabricated number). Refuse up front instead. Pure over the
+/// probed window so it unit-tests without a server; `None` window ⇒ unmeasurable ⇒ never a
+/// guessed block (same rule as the VRAM gate).
+fn cliff_window_gate(context_length: Option<u32>, model: &str, needed_ctx: u32) -> Option<AppError> {
+    match context_length {
+        Some(ctx) if needed_ctx > ctx => Some(AppError::Inference(cliff_window_msg(model, ctx, needed_ctx))),
+        _ => None,
+    }
+}
+
 /// Look up an installed model's metadata, tolerant of the `:latest` tag mismatch
 /// between an eval target and the `/api/tags` listing. Used for both the real
 /// weight size and the real quantization.
@@ -335,13 +361,24 @@ pub async fn run_context_cliff(
     // MEASURABLE (weights + dims + a device cap all present) — a missing input is never a
     // guessed block.
     if backend == BackendKind::Ollama {
+        // One `/api/show` for BOTH Ollama gates below (the window ceiling and the memory fit).
+        let probed = fetch_dims(&model).await;
+
+        // Gate 1 — the model's context window. Must run before the memory gate: a depth the
+        // model physically cannot hold is wrong even on a machine with memory to spare, and
+        // Ollama accepts the oversized `num_ctx` silently, so nothing downstream would catch it.
+        if let Some(err) = cliff_window_gate(probed.as_ref().map(|d| d.context_length as u32), &model, needed_ctx) {
+            return Err(err);
+        }
+
+        // Gate 2 — this machine's memory at that depth (Ollama sizes num_ctx per request).
         let hw = snapshot();
         if let Some(cap) = device_cap_bytes(hw.gpu.unified, hw.total_memory_bytes, hw.gpu.vram_total_bytes) {
             let installed = fetch_installed_with_stats(endpoint::OLLAMA).await.unwrap_or_default();
             let weights: HashMap<String, u64> = installed.iter().map(|m| (m.name.clone(), m.size_bytes)).collect();
             let w = registry_get(&weights, &model).copied();
             let dims = match w {
-                Some(_) => fetch_dims(&model).await.map(|d| Dims {
+                Some(_) => probed.as_ref().map(|d| Dims {
                     layers: d.layers,
                     head_count: d.head_count,
                     head_count_kv: d.head_count_kv,
@@ -422,7 +459,9 @@ pub async fn run_context_cliff(
             max_tokens: answer_tokens_for(Tier::Easy),
             is_thinking: false,
         };
-        run_cliff_with_factory(&make_native, &model, &tasks, &source, &ladder, &DEFAULT_DEPTHS, &cancel, &mut on_rung, &mut on_step).await?
+        // `needed_ctx` is the window the run asked for and — the gates above having passed —
+        // believes it got. A rung whose measured prompt reaches it was truncated, not measured.
+        run_cliff_with_factory(&make_native, &model, &tasks, &source, &ladder, &DEFAULT_DEPTHS, needed_ctx, &cancel, &mut on_rung, &mut on_step).await?
     } else {
         let turn = BackendTurn {
             backend,
@@ -439,7 +478,7 @@ pub async fn run_context_cliff(
             ctx_ceiling: crate::inference::eval::agentic::runner::NUM_CTX_CEILING, // probe: fixed fallback window
             stop_cache: Default::default(),
         };
-        run_cliff_with(&turn, &model, &tasks, &source, &ladder, &DEFAULT_DEPTHS, &cancel, &mut on_rung, &mut on_step).await?
+        run_cliff_with(&turn, &model, &tasks, &source, &ladder, &DEFAULT_DEPTHS, needed_ctx, &cancel, &mut on_rung, &mut on_step).await?
     };
 
     // Persist the classified outcome (NotProbed is the absence of a record). A NATIVE cliff is
@@ -711,6 +750,40 @@ mod cliff_preflight_tests {
         assert!(m.contains("18432"), "names the needed window: {m}");
         assert!(m.contains("Context window"), "names the raise lever: {m}");
         assert!(m.contains("6144"), "a safe depth of 8192 - 2048 headroom: {m}");
+    }
+
+    /// THE REGRESSION. The panel defaulted Max Tokens to the model's FULL context window,
+    /// and the probe runs at `max_tokens + CLIFF_CTX_HEADROOM` — so the deepest rung asked
+    /// for more context than the model has, for EVERY model. Ollama does not reject that: it
+    /// silently clamps `num_ctx` to the trained window and truncates the prompt, deleting the
+    /// injected needle and pinning `prompt_eval_count` at the window. The rung then fails for
+    /// a reason the model never caused, and reports a saturated (fabricated) depth as
+    /// "verified". Nothing downstream can detect it, so the gate must refuse up front.
+    #[test]
+    fn cliff_window_gate_refuses_a_depth_the_model_cannot_hold() {
+        // Max Tokens = the full 32768 window → needed_ctx = 34816 > 32768. Verified live:
+        // Ollama answers this request with n_ctx = 32768 and a truncated prompt.
+        let err = cliff_window_gate(Some(32_768), "qwen2.5:3b", 34_816).expect("must refuse");
+        let m = err.to_string();
+        assert!(m.contains("32768"), "names the model's real window: {m}");
+        assert!(m.contains("30720"), "names the deepest Max Tokens that fits (32768 - 2048): {m}");
+        assert!(m.contains("qwen2.5:3b"), "names the model: {m}");
+    }
+
+    /// The fixed default (window - headroom) must be allowed through — the cap has to
+    /// preserve the deepest MEASURABLE depth, not cost the user usable range.
+    #[test]
+    fn cliff_window_gate_allows_the_deepest_depth_that_fits() {
+        // What the capped slider now produces: 30720 + 2048 headroom == the 32768 window.
+        assert!(cliff_window_gate(Some(32_768), "m", 30_720 + CLIFF_CTX_HEADROOM).is_none());
+        assert!(cliff_window_gate(Some(32_768), "m", 8_192).is_none());
+    }
+
+    /// An unknown window is UNMEASURABLE, never a guessed block — same rule as the VRAM
+    /// gate (a missing input must not invent an alarm).
+    #[test]
+    fn cliff_window_gate_never_blocks_on_an_unknown_window() {
+        assert!(cliff_window_gate(None, "m", 999_999).is_none());
     }
 
     fn nineb_meta() -> crate::inference::gguf::gguf::GgufMetadata {

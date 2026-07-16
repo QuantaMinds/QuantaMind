@@ -21,6 +21,29 @@ impl ModelTurn for CliffModel {
     }
 }
 
+/// A model behind a REAL context window, scripted from the live Ollama behaviour this
+/// guards against: a prompt past `window` is not rejected — it is silently TRUNCATED to fit
+/// (so the injected needle is dropped and the task can no longer be answered) and
+/// `prompt_eval_count` saturates at `window` no matter how much padding was sent. Verified
+/// live: requesting num_ctx 34816 on a 32768-window model returned n_ctx 32768, and 177 KB
+/// vs 200 KB of padding both reported prompt_eval_count = 32768 with the needle gone.
+struct TruncatingModel {
+    window: u32,
+    good: String,
+}
+
+impl ModelTurn for TruncatingModel {
+    async fn run(&self, spec: &GenerateSpec) -> AppResult<(String, GenerateStats)> {
+        let chars = spec.system.as_deref().map_or(0, |s| s.len()) + spec.prompt.len();
+        let wanted = (chars / 4) as u32;
+        // The window is a ceiling, not an error: the count saturates instead of growing.
+        let toks = wanted.min(self.window);
+        // Truncated ⇒ the needle was cut away ⇒ the model cannot produce the call.
+        let text = if wanted > self.window { "I cannot help with that.".to_string() } else { self.good.clone() };
+        Ok((text, GenerateStats { prompt_eval_count: Some(toks), ..Default::default() }))
+    }
+}
+
 fn task() -> ToolTask {
     ToolTask {
         id: "t1".into(),
@@ -40,6 +63,75 @@ const GOOD: &str = r#"{"name":"get_balance","args":{"id":"A-1"}}"#;
 
 fn source() -> CliffSource {
     CliffSource::Preset { preset: super::super::presets::CliffPreset::CorporatePolicy }
+}
+
+/// THE REGRESSION. A ladder that runs past the context window used to report a CLIFF at the
+/// window — the model "failing" only because the harness truncated the needle out of its own
+/// prompt, at a depth that was a saturated counter rather than a measurement. Both halves of
+/// that rung are fabrications, so the engine must drop it and classify from the rungs it
+/// really measured, never persisting a cliff the model never had.
+#[tokio::test]
+async fn a_rung_truncated_at_the_context_window_is_dropped_not_reported_as_a_cliff() {
+    let window = 8_000u32;
+    // The model itself never degrades — it answers correctly at every depth that FITS.
+    let model = TruncatingModel { window, good: GOOD.into() };
+    // The ladder walks past the window; the deep rungs can only saturate.
+    let ladder = [0u32, 4_000, 12_000, 20_000];
+    let mut emitted: Vec<u32> = Vec::new();
+    let report = run_cliff_with(
+        &model,
+        "m",
+        &[task()],
+        &source(),
+        &ladder,
+        &DEFAULT_DEPTHS,
+        window,
+        &CancellationToken::new(),
+        &mut |_, _, p: &CliffPoint| emitted.push(p.verified_tokens),
+        &mut |_| {},
+    )
+    .await
+    .unwrap();
+
+    // No fabricated cliff: the model was healthy everywhere it could actually be measured.
+    assert_eq!(report.status, CliffStatus::NoCliff { tested: report.points.last().unwrap().verified_tokens });
+    // Every rung that survived is a real measurement — none sits at or past the window.
+    for p in &report.points {
+        assert!(
+            measurable(p.verified_tokens, window),
+            "an unmeasurable rung reached the report: {} tokens vs a {window} window",
+            p.verified_tokens,
+        );
+        assert!(p.verified_tokens < window, "a saturated depth was reported as verified");
+    }
+    // And it was never emitted to the live chart either.
+    for t in &emitted {
+        assert!(*t < window, "a saturated rung was streamed to the UI: {t}");
+    }
+}
+
+/// The cap must not cost real coverage: a rung that FITS is measured and classified as
+/// before. Without this, "drop the unmeasurable rung" could silently degrade into
+/// "drop every padded rung" and the probe would measure nothing while still looking green.
+#[tokio::test]
+async fn rungs_that_fit_the_window_are_still_measured_and_can_still_find_a_real_cliff() {
+    // Genuine collapse at 5000 tokens, well inside a 32k window — a real cliff, not an artifact.
+    let model = CliffModel { threshold: 5_000, good: GOOD.into() };
+    let report = run_cliff_with(
+        &model,
+        "m",
+        &[task()],
+        &source(),
+        &[0u32, 4_000, 8_000],
+        &DEFAULT_DEPTHS,
+        32_768,
+        &CancellationToken::new(),
+        &mut |_, _, _| {},
+        &mut |_| {},
+    )
+    .await
+    .unwrap();
+    assert!(matches!(report.status, CliffStatus::Collapsed { .. }), "a real cliff still reports: {:?}", report.status);
 }
 
 #[tokio::test]
@@ -226,6 +318,7 @@ async fn a_cancel_during_a_rung_aborts_before_emitting_that_rung() {
         &source(),
         &[0u32, 4000],
         &DEFAULT_DEPTHS,
+        NO_CTX_LIMIT,
         &cancel,
         &mut |_, _, _| {
             emitted += 1;
@@ -256,6 +349,7 @@ async fn a_per_task_turn_factory_scores_identically_to_a_shared_turn() {
         &source(),
         &ladder,
         &DEFAULT_DEPTHS,
+        NO_CTX_LIMIT,
         &CancellationToken::new(),
         &mut |_, _, _| {},
         &mut |_| {},
@@ -289,6 +383,7 @@ async fn progress_callback_fires_once_per_rung() {
         &source(),
         &ladder,
         &DEFAULT_DEPTHS,
+        NO_CTX_LIMIT,
         &CancellationToken::new(),
         &mut |done, total, _| {
             seen.push((done, total));
@@ -317,6 +412,7 @@ async fn step_callback_fires_per_task_with_rung_and_position_context() {
         &source(),
         &ladder,
         &DEFAULT_DEPTHS,
+        NO_CTX_LIMIT,
         &CancellationToken::new(),
         &mut |_, _, _| {},
         &mut |s| steps.push((s.rung, s.total_rungs, s.target_tokens, s.position, s.total_positions, s.task, s.total_tasks)),
@@ -349,6 +445,7 @@ async fn a_cancelled_token_aborts_the_sweep_with_an_error_and_no_classification(
         &source(),
         &ladder,
         &DEFAULT_DEPTHS,
+        NO_CTX_LIMIT,
         &cancel,
         &mut |_, _, _| {
             rungs += 1;
@@ -369,4 +466,187 @@ async fn the_needle_is_swept_across_all_default_depths() {
     assert_eq!(rung.per_depth.len(), DEFAULT_DEPTHS.len());
     let depths: Vec<f32> = rung.per_depth.iter().map(|d| d.depth).collect();
     assert_eq!(depths, DEFAULT_DEPTHS.to_vec());
+}
+
+// ── LIVE (ignored): the real engine, a real backend, a real model ────────────────────
+//
+// Rule 6: green unit tests only prove the path we scripted. This bug was invisible to
+// them precisely because the scripted models had no context window to overflow — the
+// harness truncating its own needle away is something only a real backend does.
+//
+// Run (Ollama):    cargo test --lib live_cliff_ollama -- --ignored --nocapture
+// Run (llama.cpp): cargo test --lib live_cliff_llama  -- --ignored --nocapture
+// Override with QM_LIVE_MODEL / QM_LIVE_CTX (llama.cpp: the server's launch `-c`).
+
+/// The two facts a live run must establish, shared by both backends:
+///   1. no rung is reported at/past the window (that rung was truncated, not measured);
+///   2. no fabricated cliff — a cliff, if any, sits strictly inside the window.
+fn assert_live_report_is_honest(report: &CliffReport, ctx_limit: u32, label: &str) {
+    println!("\n=== LIVE cliff: {label} (window {ctx_limit}) ===");
+    println!("status: {:?}  cliff_tokens: {:?}", report.status, report.cliff_tokens);
+    for (i, p) in report.points.iter().enumerate() {
+        println!(
+            "  rung {i}: target={:>6} verified={:>6} composite={:?}",
+            p.target_tokens, p.verified_tokens, p.composite
+        );
+    }
+    for p in &report.points {
+        assert!(
+            measurable(p.verified_tokens, ctx_limit),
+            "{label}: an unmeasurable rung reached the report — verified={} vs window {ctx_limit}. \
+             A prompt at the window was TRUNCATED by the backend, so its score and its depth are \
+             both artifacts.",
+            p.verified_tokens,
+        );
+    }
+    if let CliffStatus::Collapsed { depth } = report.status {
+        assert!(
+            depth < ctx_limit,
+            "{label}: reported a cliff AT the context window ({depth} vs {ctx_limit}) — that is the \
+             harness truncating its own needle, not a property of the model",
+        );
+    }
+}
+
+#[tokio::test]
+#[ignore = "live: requires a running Ollama server and a pulled model"]
+async fn live_cliff_ollama_reports_no_fabricated_cliff_at_the_window() {
+    use crate::inference::backend::backend_kind::BackendKind;
+    use crate::inference::eval::agentic::model_turn::BackendTurn;
+
+    let model = std::env::var("QM_LIVE_MODEL").unwrap_or_else(|_| "qwen2.5:3b".into());
+    // The panel's fixed default: the window MINUS the headroom the backend adds.
+    let window: u32 = std::env::var("QM_LIVE_CTX").ok().and_then(|s| s.parse().ok()).unwrap_or(8192);
+    let max_tokens = window - 2048;
+
+    let turn = BackendTurn {
+        backend: BackendKind::Ollama,
+        endpoint: "http://127.0.0.1:11434".into(),
+        model: model.clone(),
+        cancel: CancellationToken::new(),
+        options: Some(GenerateOptions { num_ctx: Some(window), ..Default::default() }),
+        keep_alive: None,
+        is_thinking: false,
+        max_tokens: 256,
+        cpu_offloaded: false,
+        ctx_ceiling: crate::inference::eval::agentic::runner::NUM_CTX_CEILING,
+        stop_cache: Default::default(),
+    };
+    let ladder = build_ladder(max_tokens, 3);
+    let report = run_cliff_with(
+        &turn, &model, &[task()], &source(), &ladder, &DEFAULT_DEPTHS, window,
+        &CancellationToken::new(), &mut |_, _, _| {}, &mut |_| {},
+    )
+    .await
+    .expect("live Ollama probe");
+    assert_live_report_is_honest(&report, window, &format!("ollama/{model}"));
+}
+
+#[tokio::test]
+#[ignore = "live: requires llama-server on :8080 (--jinja) with the model loaded"]
+async fn live_cliff_llama_reports_no_fabricated_cliff_at_the_window() {
+    use crate::inference::backend::backend_kind::BackendKind;
+    use crate::inference::eval::agentic::model_turn::BackendTurn;
+
+    let model = std::env::var("QM_LIVE_MODEL").unwrap_or_else(|_| "qwen2.5-coder".into());
+    // llama.cpp pins its window at launch, so this must match the server's `-c`.
+    let window: u32 = std::env::var("QM_LIVE_CTX").ok().and_then(|s| s.parse().ok()).unwrap_or(16384);
+    let max_tokens = window - 2048;
+
+    let turn = BackendTurn {
+        backend: BackendKind::LlamaCpp,
+        endpoint: "http://127.0.0.1:8080".into(),
+        model: model.clone(),
+        cancel: CancellationToken::new(),
+        options: Some(GenerateOptions { num_ctx: Some(window), ..Default::default() }),
+        keep_alive: None,
+        is_thinking: false,
+        max_tokens: 256,
+        cpu_offloaded: false,
+        ctx_ceiling: crate::inference::eval::agentic::runner::NUM_CTX_CEILING,
+        stop_cache: Default::default(),
+    };
+    let ladder = build_ladder(max_tokens, 3);
+    let report = run_cliff_with(
+        &turn, &model, &[task()], &source(), &ladder, &DEFAULT_DEPTHS, window,
+        &CancellationToken::new(), &mut |_, _, _| {}, &mut |_| {},
+    )
+    .await
+    .expect("live llama.cpp probe");
+    assert_live_report_is_honest(&report, window, &format!("llama.cpp/{model}"));
+}
+
+// ── llama.cpp prompt-cache accounting ────────────────────────────────────────────────
+
+/// A backend with a PROMPT CACHE, scripted from live llama-server behaviour: it reports
+/// only the RECOMPUTED tokens in `prompt_eval_count` and the reused prefix in `cache_n`.
+/// Measured live: the same 2457-token prompt reports prompt_n=2457 cold, then prompt_n=1
+/// with cache_n=2456 warm. The cliff sweeps near-identical prompts, so it hits this on
+/// nearly every turn after the first.
+struct CachingModel {
+    good: String,
+}
+
+impl ModelTurn for CachingModel {
+    async fn run(&self, spec: &GenerateSpec) -> AppResult<(String, GenerateStats)> {
+        let chars = spec.system.as_deref().map_or(0, |s| s.len()) + spec.prompt.len();
+        let real = (chars / 4) as u32;
+        // Warm cache: all but one token served from the reused prefix.
+        Ok((
+            self.good.clone(),
+            GenerateStats { prompt_eval_count: Some(1), cache_n: Some(real.saturating_sub(1)), ..Default::default() },
+        ))
+    }
+}
+
+/// THE llama.cpp REGRESSION. Reading `prompt_eval_count` alone made a cache-served rung
+/// look like a ~1-token prompt. That corrupted the depth (charted and persisted) AND the
+/// learned byte→token rate — `bytes / 1` — which then sized the next rung far past the
+/// window, at which point llama.cpp rejects the request outright and the whole probe dies
+/// with "the prompt is larger than the context window". The depth must be the context the
+/// model READ: `prompt_eval_count + cache_n`.
+#[tokio::test]
+async fn a_cache_served_prompt_is_measured_at_its_true_size_not_the_recomputed_part() {
+    let model = CachingModel { good: GOOD.into() };
+    let report = run_cliff_with(
+        &model,
+        "m",
+        &[task()],
+        &source(),
+        &[0u32, 4_000],
+        &DEFAULT_DEPTHS,
+        32_768,
+        &CancellationToken::new(),
+        &mut |_, _, _| {},
+        &mut |_| {},
+    )
+    .await
+    .unwrap();
+    let padded = &report.points[1];
+    // Not ~1: the cached prefix counts, so the rung lands near its 4000-token target.
+    assert!(
+        padded.verified_tokens > 3_000,
+        "a cache-served rung must report its TRUE prompt size, got {} tokens",
+        padded.verified_tokens,
+    );
+}
+
+/// The rebuild must never size a prompt past the window. Live, an overshoot was fatal:
+/// llama.cpp answered a 9810-token prompt in an 8192 window with a hard error that aborted
+/// the entire probe. A rung slightly under target beats no run at all.
+#[test]
+fn cap_bytes_never_sizes_a_prompt_past_the_window() {
+    let rate = 5.0; // bytes per token
+    let window = 8_192u32;
+    // An overshooting rebuild (10k tokens' worth) is clamped to what the window holds.
+    let capped = cap_bytes(50_000, rate, window);
+    let projected_tokens = (capped as f64 / rate).round() as u32;
+    assert!(
+        projected_tokens.saturating_add(MAX_OUTPUT) <= window,
+        "{projected_tokens} tokens + reply must fit the {window} window",
+    );
+    // A size that already fits is left exactly alone — the cap must not cost real depth.
+    assert_eq!(cap_bytes(10_000, rate, window), 10_000);
+    // Scripted turns have no real window to clamp against.
+    assert_eq!(cap_bytes(usize::MAX, rate, NO_CTX_LIMIT), usize::MAX);
 }

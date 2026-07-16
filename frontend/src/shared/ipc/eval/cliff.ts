@@ -12,6 +12,23 @@ export const EVENT_CLIFF_PROGRESS = "cliff-progress";
 /// position p/3 · task t/M" line and the ETA so a slow deep rung never looks frozen.
 export const EVENT_CLIFF_STEP = "cliff-step";
 
+/// Context headroom the backend adds on top of the requested depth — mirrors
+/// `CLIFF_CTX_HEADROOM` in `commands/eval/readiness_cmd.rs`. The system prompt (tool
+/// schemas), the injected needle, and the output budget all sit ON TOP of the padding,
+/// so the backend runs at `maxTokens + CLIFF_CTX_HEADROOM`. Max Tokens must therefore
+/// stay this far BELOW the model's context window: asking for the full window makes the
+/// deepest rung overflow it, and Ollama then silently clamps and truncates the prompt
+/// (dropping the needle) while `prompt_eval_count` saturates — a fabricated depth.
+/// `usableCliffTokens` is the single place that subtraction happens.
+export const CLIFF_CTX_HEADROOM = 2048;
+
+/// The deepest Max Tokens that still fits `contextLength` once the backend's headroom is
+/// added — i.e. the largest depth the probe can actually MEASURE on this model. Floored at
+/// the slider's 4096 minimum so a tiny/misreported window can't produce an inverted range.
+export function usableCliffTokens(contextLength: number): number {
+  return Math.max(4096, contextLength - CLIFF_CTX_HEADROOM);
+}
+
 /// Which embedded synthetic preset pads the probe (or the user's own text).
 export const CliffPresetSchema = z.enum(["corporate_policy", "system_logs", "financial_ledger"]);
 export type CliffPreset = z.infer<typeof CliffPresetSchema>;

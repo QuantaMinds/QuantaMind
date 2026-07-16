@@ -866,12 +866,28 @@ validator.)
 
 A **stoppable probe** that pads a tool-call task's context with synthetic filler
 across an ascending token ladder and finds the largest verified depth before
-accuracy collapses. All depths are MEASURED `prompt_eval_count`, never a 4:1
-estimate (the seed rate is learned per rung).
+accuracy collapses. All depths are MEASURED, never a 4:1 estimate (the seed rate is
+learned per rung).
+
+**The measurement invariant — a rung is only real if it fit.** Every ladder depth must
+sit inside the context window the backend actually gave us, because both backends fail
+*dishonestly* past it: Ollama silently clamps `num_ctx` and truncates the prompt (deleting
+the needle, and pinning `prompt_eval_count` at the window so it reads identically no matter
+how much padding is sent), and llama.cpp rejects the request outright, aborting the run. So
+`ctx_limit` threads through the engine and bounds three things: `cap_bytes` (never *build* a
+prompt past the window), `measurable` (never *score* a rung at the window — drop it and
+stop), and the caller's `cliff_window_gate` (never *accept* an over-deep request). Depth
+itself is `occupancy` = `prompt_eval_count + cache_n`, not `prompt_eval_count` alone —
+llama.cpp serves a cached prefix and reports only the recomputed part (see `run_position`).
+Regression tests: `a_rung_truncated_at_the_context_window_is_dropped_not_reported_as_a_cliff`,
+`a_cache_served_prompt_is_measured_at_its_true_size_not_the_recomputed_part`, plus the
+`#[ignore]`d `live_cliff_ollama_*` / `live_cliff_llama_*` (rule 6 — scripted models have no
+window to overflow, so only a live backend exercises any of this).
 
 ### File: `mod.rs`
-- Re-exports `build_ladder, run_cliff, run_cliff_with, CliffPoint, CliffReport,
-  DepthScore, TaskTrace, TraceOutput, DEFAULT_DEPTHS` and `CliffPreset, CliffSource`.
+- Re-exports `build_ladder, run_cliff, run_cliff_with, run_cliff_with_factory, NO_CTX_LIMIT,
+  CliffPoint, CliffReport, DepthScore, StepProgress, TaskTrace, TraceOutput, DEFAULT_DEPTHS`
+  and `CliffPreset, CliffSource`.
 
 ### File: `presets.rs`
 - **Responsibility:** The padding source — three embedded synthetic fillers or
