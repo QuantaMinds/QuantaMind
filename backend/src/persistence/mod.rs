@@ -2,7 +2,6 @@ pub mod at_rest;
 pub mod eval_history;
 pub mod eval_trace_store;
 pub mod evals;
-pub mod fs_guard;
 pub mod jobs;
 pub mod mcp;
 pub mod model_settings;

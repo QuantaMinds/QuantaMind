@@ -52,12 +52,23 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+      # pnpm 11 ONLY in this job (the rest of CI stays on 9): npm retired the audit
+      # endpoints pnpm 9 and 10 call — both now answer `410 Gone` ("use the bulk advisory
+      # endpoint"), so `pnpm audit` fails outright on any input and the gate reports a
+      # registry outage as a vulnerability. pnpm 11 uses the bulk endpoint. It reads this
+      # repo's `lockfileVersion: 9.0` unchanged (verified: `--frozen-lockfile` installs
+      # clean and does not rewrite the lock), so pinning it here fixes the gate without
+      # touching the build/release path.
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 11
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # 22, not the 20 the other jobs use: pnpm 11 declares `engines.node >= 22.13` and
+          # dies on 20 with ERR_UNKNOWN_BUILTIN_MODULE. Scoped to this job, which only
+          # installs and audits — it builds and tests nothing, so the toolchain the app is
+          # actually built and tested against (Node 20, in ci.yml/release.yml) is unchanged.
+          node-version: 22
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
       - name: pnpm install

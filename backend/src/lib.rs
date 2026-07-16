@@ -13,6 +13,13 @@
 pub mod audit;
 pub mod commands;
 pub mod errors;
+/// Rule 7(b)'s chokepoint: confine a frontend-supplied path to an allowed root. A
+/// cross-cutting SECURITY primitive over `std::path` + `crate::errors` — it stores nothing,
+/// so it is not persistence. It sits here beside `secrets` (rule 7(a)'s chokepoint) because
+/// every layer that touches an untrusted path must reach it: `commands/` (workspace I/O) and
+/// `inference/` (the MCP sandbox root). Under `persistence/` the latter was a layering
+/// violation — the domain importing a leaf adapter (see `docs/architecture.md#layering`).
+pub mod fs_guard;
 pub mod inference;
 pub mod mcp;
 pub mod metrics;

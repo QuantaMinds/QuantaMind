@@ -183,6 +183,11 @@ HTTP to a local Ollama server.
   server is running (`features/sttWorkspace/`); upload is path-based
   (WAV→hound, MP3→symphonia).
 - `metrics/` — measurements: TTFT, tokens/sec, VRAM.
+- `fs_guard/` — rule 7(b)'s path-confinement chokepoint (`ensure_within`). A top-level
+  primitive over `std::path` + `errors`, beside `secrets` (rule 7(a)'s): it confines a path
+  and stores nothing, so it is not a persistence leaf. Both the IPC layer (workspace I/O) and
+  the domain (the MCP sandbox root) must reach it — and the domain may not import
+  `persistence/` ([Layering](#layering)), which is exactly what filing it there violated.
 - `persistence/` — YAML/JSON read+write of prompts and history, plus `evals.rs`
   (custom tool-call eval collections: one `.json` per collection, name-sanitised,
   size-capped, validated on every read/write). The shared GGUF weights folder

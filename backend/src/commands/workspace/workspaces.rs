@@ -1,5 +1,5 @@
 use crate::errors::{AppError, AppResult};
-use crate::persistence::fs_guard;
+use crate::fs_guard;
 use crate::persistence::prompts::{tree, tree::TreeNode};
 use crate::persistence::workspaces::{
     load as load_recents, record as record_recent, save as save_recents, RecentEntry, RecentList,
