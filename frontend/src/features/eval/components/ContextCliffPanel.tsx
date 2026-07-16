@@ -12,7 +12,7 @@ import { formatBytes } from "../../../shared/format/bytes";
 import { useCliffStore } from "../state/cliffStore";
 import { InfoButton } from "../../../shared/ui/InfoButton";
 import { TOOL_HELP, METRIC_HELP } from "../help";
-import { classifyCliff } from "../cliff";
+import { classifyCliff, CLIFF_BASELINE_PASS } from "../cliff";
 import { ContextCliffChart } from "./ContextCliffChart";
 import type { BackendKind } from "../../../shared/ipc/models/storage";
 import type { AgentPath } from "../../../shared/ipc/eval/readiness";
@@ -395,8 +395,13 @@ export function ContextCliffPanel() {
             <tbody>
               {points.map((p, i) => {
                 const pct = p.composite != null ? `${(p.composite * 100).toFixed(1)}%` : "—";
-                const passed = p.composite != null && p.composite >= 0.5;
-                const failed = p.composite != null && p.composite < 0.5;
+                // The threshold is CLIFF_BASELINE_PASS, not a re-typed 0.5 — the two drifting
+                // apart is how a chip and a verdict start disagreeing about the same rung.
+                const passed = p.composite != null && p.composite >= CLIFF_BASELINE_PASS;
+                const failed = p.composite != null && p.composite < CLIFF_BASELINE_PASS;
+                // A5: show the sample the percentage came from. "80.0%" from 4/5 and from
+                // 12/15 are different claims, and they used to render identically.
+                const tally = p.passed != null && p.trials != null ? `${p.passed} / ${p.trials}` : null;
                 const isEven = i % 2 === 0;
                 const traceCount = p.trace?.length ?? 0;
                 const open = openTrace === i;
@@ -408,7 +413,12 @@ export function ContextCliffPanel() {
                       <td style={tdStyle}>
                         {p.promptTokens != null ? Math.round(p.promptTokens).toLocaleString() : "Not available"}
                       </td>
-                      <td style={{ ...tdStyle, fontWeight: 600, color: "#1e293b" }}>{pct}</td>
+                      <td style={{ ...tdStyle, fontWeight: 600, color: "#1e293b" }}>
+                        {pct}
+                        {tally && (
+                          <span style={{ fontWeight: 400, color: "#94a3b8", marginLeft: 6, fontSize: 12 }}>{tally}</span>
+                        )}
+                      </td>
                       <td style={tdStyle}>
                         {passed && (
                           <span style={passChipStyle}>

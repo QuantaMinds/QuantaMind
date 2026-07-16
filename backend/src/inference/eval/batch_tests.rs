@@ -565,6 +565,8 @@ fn ollama_version_makes_a_native_garble_diagnosable_on_the_report() {
         boundary: None,
         tokens_per_completed: None,
             diagnostic: None,
+            native_structured_calls: None,
+            native_salvaged_calls: None,
     };
     let report = BatchReport {
         collection_id: "c".into(),

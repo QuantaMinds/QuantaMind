@@ -16,6 +16,9 @@ pub fn from_usage(usage: Option<Usage>) -> GenerateStats {
         total_ms: None,
         cache_n: None,
         finish_reason: None, // set by the caller from the chunk's choice.finish_reason
+        // `native_tool_calls` stays defaulted (None): this decodes a plain generate/usage
+        // payload, which never asked the native tool API — a zero here would be a claim.
+        ..Default::default()
     }
 }
 

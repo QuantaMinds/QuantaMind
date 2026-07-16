@@ -140,6 +140,18 @@ pub struct RunOutcome {
     /// the instructed JSON; a non-standard dialect (e.g. `Harmony`) means the model spoke
     /// its own grammar and we normalized it — surfaced so the score isn't laundered.
     pub dialect: ToolCallDialect,
+    /// Turns in this run where the native tool API returned STRUCTURED `tool_calls`, and
+    /// turns where it returned none but the runner still scored calls salvaged out of the
+    /// `content` text. `None` on the prompt path — it has no native channel, so a zero there
+    /// would be a claim, not a measurement (and would relabel every pre-existing record).
+    ///
+    /// The pair exists because the salvage is otherwise invisible: `extract_standard` strips a
+    /// markdown fence and parses the call, the dialect stays `Standard`, and the run publishes
+    /// as `native_fc` having produced zero structured calls. `structured == Some(0)` with
+    /// `salvaged > 0` IS the "this model can't do native tool-calling on this runtime" finding
+    /// — a result worth showing, not hiding.
+    pub native_structured_calls: Option<u32>,
+    pub native_salvaged_calls: Option<u32>,
     /// Category K: set ONLY on an Attack-arm safety probe that terminated in a forbidden
     /// action — WHY it fired (model followed the injection vs the config truncated the
     /// guard). `None` on every non-safety run and on a safety run that didn't violate.
@@ -158,6 +170,10 @@ impl RunOutcome {
             unknown_tool_calls: 0,
             dialect: ToolCallDialect::Standard,
             safety_attribution: None,
+            // Stamped by the runner via `with_native_channel` only when a native turn ran;
+            // `None` here so the prompt path never claims a measured zero.
+            native_structured_calls: None,
+            native_salvaged_calls: None,
         }
     }
 
@@ -172,6 +188,10 @@ impl RunOutcome {
             unknown_tool_calls: 0,
             dialect: ToolCallDialect::Standard,
             safety_attribution: None,
+            // Stamped by the runner via `with_native_channel` only when a native turn ran;
+            // `None` here so the prompt path never claims a measured zero.
+            native_structured_calls: None,
+            native_salvaged_calls: None,
         }
     }
 
@@ -194,6 +214,15 @@ impl RunOutcome {
     /// once on the way out).
     pub fn with_dialect(mut self, dialect: ToolCallDialect) -> Self {
         self.dialect = dialect;
+        self
+    }
+
+    /// Stamp which channel actually produced this run's calls (builder form, same rationale
+    /// as `with_dialect`: the many terminal `RunOutcome::{success,failure}` sites stay
+    /// untouched and the runner stamps once on the way out). `None` = no native channel.
+    pub fn with_native_channel(mut self, structured: Option<u32>, salvaged: Option<u32>) -> Self {
+        self.native_structured_calls = structured;
+        self.native_salvaged_calls = salvaged;
         self
     }
 
@@ -408,6 +437,17 @@ pub struct AgenticReport {
     /// READY verdict. `#[serde(default)]` → every world/built-in report loads `None`.
     #[serde(default)]
     pub diagnostic: Option<DiagnosticStats>,
+    /// Summed over this task's runs: turns whose native tool API returned STRUCTURED
+    /// `tool_calls`, and turns where it returned none but calls were still salvaged out of
+    /// the `content` text. `None` = the prompt path (no native channel), **or a report
+    /// written before this was measured** — `Some(0)` is the only thing that means "we asked
+    /// and got none". That distinction is why these are `Option` and not `#[serde(default)]`
+    /// u32: a defaulted zero would be indistinguishable from a measured one, and would
+    /// silently relabel every historical record — inventing a measurement never taken.
+    #[serde(default)]
+    pub native_structured_calls: Option<u32>,
+    #[serde(default)]
+    pub native_salvaged_calls: Option<u32>,
 }
 
 impl AgenticReport {
@@ -419,7 +459,16 @@ impl AgenticReport {
         let mut schema_hits = 0u32;
         let mut schema_recovered = 0u32;
         let mut attribution = SafetyAttributionCounts::default();
+        // `None` unless at least one run reported a native channel — summing `None` with
+        // `Some(0)` must stay `Some(0)`, but all-`None` must stay `None`.
+        let (mut structured, mut salvaged): (Option<u32>, Option<u32>) = (None, None);
         for o in outcomes {
+            if let Some(n) = o.native_structured_calls {
+                *structured.get_or_insert(0) += n;
+            }
+            if let Some(n) = o.native_salvaged_calls {
+                *salvaged.get_or_insert(0) += n;
+            }
             // Diagnostic, counted for every run regardless of pass/fail.
             failures.unknown_tool_calls += o.unknown_tool_calls;
             if o.reached_end {
@@ -461,6 +510,8 @@ impl AgenticReport {
             schema_resilience: (schema_hits > 0).then(|| schema_recovered as f64 / schema_hits as f64),
             tier: Tier::default(), // stamped by the runner via with_tier (the task carries the tier)
             requested_runs: None,  // stamped via with_truncation only when the budget cut the batch short
+            native_structured_calls: structured,
+            native_salvaged_calls: salvaged,
             dialect,
             safety_attribution: attribution,
             safety: None, // stamped by the batch layer via with_safety (it holds the ToolTask)

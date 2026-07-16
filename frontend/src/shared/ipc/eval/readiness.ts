@@ -101,6 +101,11 @@ export const CliffStatusSchema = z.discriminatedUnion("status", [
   z.object({ status: z.literal("NoCliff"), tested: z.number() }),
   z.object({ status: z.literal("Collapsed"), depth: z.number() }),
   z.object({ status: z.literal("Broken"), tested: z.number() }),
+  /// The probe ran, but the collection is too small to resolve the collapse margin: with
+  /// `trials` samples per rung the score moves in steps of 1/trials, so one sample flipping
+  /// is worth a whole margin and "collapsed" is indistinguishable from noise. Neither a cliff
+  /// nor a clean bill — unmeasured, so it renders as a caveat and never a red verdict.
+  z.object({ status: z.literal("Inconclusive"), trials: z.number() }),
 ]);
 export type CliffStatus = z.infer<typeof CliffStatusSchema>;
 

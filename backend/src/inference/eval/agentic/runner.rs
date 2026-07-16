@@ -359,9 +359,40 @@ async fn run_once_inner<M: ModelTurn>(
     // Track the tool-call dialect across the run and stamp it onto the outcome ONCE here,
     // so the many terminal returns inside `run_steps` stay untouched (builder seam).
     let mut dialect = ToolCallDialect::Standard;
+    // Same seam for the CHANNEL: which turns produced structured native `tool_calls`, and
+    // which produced none but had calls salvaged out of `content` text. Stays `None` on the
+    // prompt path, whose turns never report `native_tool_calls` at all.
+    let mut channel = NativeChannel::default();
     let outcome =
-        run_steps(turn, sandbox, max_steps, max_recovery, step_timeout, run_index, tx, &mut dialect, cancel).await?;
-    Ok(outcome.with_dialect(dialect))
+        run_steps(turn, sandbox, max_steps, max_recovery, step_timeout, run_index, tx, &mut dialect, &mut channel, cancel).await?;
+    Ok(outcome.with_dialect(dialect).with_native_channel(channel.structured, channel.salvaged))
+}
+
+/// Which channel produced this run's calls, tallied across its turns. `None` = the turn
+/// never reported `native_tool_calls`, i.e. no native tool API was involved (the prompt
+/// path) — distinct from `Some(0)`, "we asked and it returned none". Only the native path
+/// can move these off `None`, so the prompt path never claims a measured zero.
+#[derive(Default)]
+struct NativeChannel {
+    structured: Option<u32>,
+    salvaged: Option<u32>,
+}
+
+impl NativeChannel {
+    /// Record one turn. `native` is `stats.native_tool_calls`: `None` → not a native turn,
+    /// nothing to say. `Some(n>0)` → the native API produced real structured calls.
+    /// `Some(0)` + calls parsed anyway → those calls came out of the `content` TEXT, which is
+    /// the event that made "Native FC" a claim the run hadn't earned.
+    fn record(&mut self, native: Option<u32>, calls_parsed: bool) {
+        let Some(n) = native else { return };
+        let structured = self.structured.get_or_insert(0);
+        let salvaged = self.salvaged.get_or_insert(0);
+        if n > 0 {
+            *structured += n;
+        } else if calls_parsed {
+            *salvaged += 1;
+        }
+    }
 }
 
 /// The stateful step loop. `dialect` is an out-param the extract site updates the first
@@ -395,6 +426,7 @@ async fn run_steps<M: ModelTurn>(
     run_index: u32,
     tx: &UnboundedSender<TrajectoryStep>,
     dialect: &mut ToolCallDialect,
+    channel: &mut NativeChannel,
     cancel: &CancellationToken,
 ) -> AppResult<RunOutcome> {
     // Act-tasks must route every result — including the final report — through a tool;
@@ -591,6 +623,12 @@ async fn run_steps<M: ModelTurn>(
         // first silently half-executes a correct batched agent. `extract_calls` is lenient:
         // it returns the parseable calls and ignores unparseable slices, so `malformed_json`
         // stays a whole-output property (zero calls parsed → the no-call arm below).
+        // Record WHICH channel produced this turn's calls, before scoring them. `stats` says
+        // whether the native tool API returned structured calls; `extract_calls_dialect` says
+        // whether we ended up with any. Native `Some(0)` + calls parsed = the calls came out
+        // of the `content` TEXT, and the run must not later be published as native FC.
+        channel.record(stats.native_tool_calls, extract_calls_dialect(&clean).is_some());
+
         let calls = match extract_calls_dialect(&clean) {
             None => match &sandbox.end_state {
                 // Declined to call any tool, exactly as the task demanded.

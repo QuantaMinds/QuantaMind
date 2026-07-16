@@ -81,6 +81,16 @@ pub fn assess(i: &ReadinessInputs, p: &ReadinessProfile) -> ReadinessVerdict {
                 // Unmeasured ≠ failure: a caveat to run the probe, not a red block.
                 conditions.push(format!("context headroom not measured — run the cliff probe to certify {} tok", min_tok));
             }
+            CliffStatus::Inconclusive { trials } => {
+                // The probe RAN but its collection is too small to resolve the collapse
+                // margin, so its verdict carries no information. Same rule as NotProbed —
+                // unmeasured ≠ failure — but it must be stated explicitly: the `_` arm below
+                // would silently read it as a PASS, certifying headroom nothing measured.
+                conditions.push(format!(
+                    "context headroom inconclusive — {} samples/rung can't resolve the collapse margin; probe a larger collection to certify {} tok",
+                    trials, min_tok
+                ));
+            }
             _ => {} // Collapsed{depth >= min} or NoCliff{tested >= min} → pass
         }
     }

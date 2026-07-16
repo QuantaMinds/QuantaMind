@@ -414,11 +414,24 @@ impl ModelTurn for NativeToolTurn {
         // the backend can't parse into `tool_calls` but leaves in `content`; dropping it made
         // every such turn a silent empty → `Hallucinated`, hiding the real cause. Returning
         // `content` lets the runner name the honest verdict (`ForeignDialect` / prose /
-        // hallucination). Parity-safe: the backend already yielded zero calls, and the forms
-        // that land here (paren / `<|"|>`-wrapped soup, or plain prose) are exactly the ones the
-        // text salvager (`harmony_calls`) also drops — so this never credits a call the backend
-        // missed, it only makes the FAILURE honest.
-        Ok((native_turn_text(&result.tool_calls, result.content), result.stats))
+        // hallucination).
+        //
+        // The old parity argument here was WRONG, and #159 is what it cost. It reasoned only
+        // about `harmony_calls` — "the forms that land here are exactly the ones the text
+        // salvager also drops, so this never credits a call the backend missed". But
+        // `extract_calls_dialect` tries `extract_standard` FIRST, and that strips markdown
+        // fences and parses `{"name":…,"arguments":…}` — precisely what llama.cpp leaves in
+        // `content` when its native parser doesn't match. So this DID credit calls the backend
+        // missed, silently: the dialect stays `Standard`, nothing flags it, and the run
+        // publishes as `eval_method: native_fc` having produced zero structured calls.
+        //
+        // The salvage itself stays — the run is real and the model did the task; only the
+        // CLAIM about which channel produced it was false. So record the channel instead:
+        // `native_tool_calls` is what lets everything downstream tell a native pass from a
+        // text-salvaged one, rather than assuming.
+        let mut stats = result.stats;
+        stats.native_tool_calls = Some(result.tool_calls.len() as u32);
+        Ok((native_turn_text(&result.tool_calls, result.content), stats))
     }
 
     fn is_thinking(&self) -> bool {
@@ -775,5 +788,84 @@ mod tests {
         let parsed = extract_calls(&synthesize_calls(&calls)).unwrap();
         assert_eq!(parsed.len(), 3);
         assert_eq!(parsed.into_iter().next().unwrap().name, "a");
+    }
+}
+
+#[cfg(test)]
+mod live_native_channel_tests {
+    use super::*;
+    use crate::inference::eval::toolcall::parse::extract_calls;
+    use crate::inference::eval::toolcall::tasks::ToolSchema;
+    use serde_json::json;
+
+    fn tools() -> Vec<ToolSchema> {
+        vec![ToolSchema {
+            name: "run_tests".into(),
+            description: "Run the test suite for a module".into(),
+            parameters: json!({ "type": "object", "properties": { "module": { "type": "string" } } }),
+        }]
+    }
+
+    fn turn(backend: BackendKind, endpoint: &str, model: &str) -> NativeToolTurn {
+        NativeToolTurn {
+            backend,
+            endpoint: endpoint.into(),
+            model: model.into(),
+            tools: tools(),
+            options: Some(GenerateOptions { temperature: Some(0.0), num_predict: Some(256), ..Default::default() }),
+            terminal: TerminalGuidance::PlainTextOk,
+            max_tokens: 256,
+            is_thinking: false,
+        }
+    }
+
+    /// The measurement #159 turns on, driven through the APP's own `NativeToolTurn` rather
+    /// than a hand-rolled request: did the native tool API return a STRUCTURED call, and if
+    /// not, did the text salvager quietly rescue one?
+    ///
+    /// `native_tool_calls` is the whole point: `Some(n>0)` = real native FC; `Some(0)` +
+    /// parseable text = the score came from the salvager and must NOT publish as native_fc.
+    async fn probe(backend: BackendKind, endpoint: &str, model: &str, label: &str) {
+        let t = turn(backend, endpoint, model);
+        let spec = GenerateSpec {
+            model: model.into(),
+            prompt: "Run the test suite for module 'cart'.".into(),
+            system: None,
+            options: t.options.clone(),
+            keep_alive: None,
+            think: None,
+        };
+        let (raw, stats) = t.run(&spec).await.expect("live native turn");
+        let salvaged = extract_calls(&raw);
+        println!("\n=== LIVE native channel: {label} ===");
+        println!("  native_tool_calls (structured) : {:?}", stats.native_tool_calls);
+        println!("  raw text the runner scores     : {:?}", raw.chars().take(90).collect::<String>());
+        println!("  calls the salvager recovered   : {:?}", salvaged.as_ref().map(|c| c.len()));
+        match stats.native_tool_calls {
+            Some(0) if salvaged.is_some() => println!(
+                "  VERDICT: 0 structured calls, but text parsed → SALVAGED. This path must not\n           publish as native_fc — which is exactly what `measured_native` now refuses."
+            ),
+            Some(n) if n > 0 => println!("  VERDICT: {n} real structured call(s) → genuine native FC."),
+            other => println!("  VERDICT: native_tool_calls={other:?}, salvaged={:?}", salvaged.is_some()),
+        }
+        // The invariant that must hold on EVERY backend: the field is populated, so the
+        // harness can always tell which channel produced the score.
+        assert!(stats.native_tool_calls.is_some(), "{label}: a native turn must record its channel");
+    }
+
+    /// Run: cargo test --lib live_native_channel_ollama -- --ignored --nocapture
+    #[tokio::test]
+    #[ignore = "live: requires Ollama on :11434 with a tool-capable model"]
+    async fn live_native_channel_ollama() {
+        let model = std::env::var("QM_LIVE_MODEL").unwrap_or_else(|_| "qwen2.5-coder-7b-instruct:q4_k_m".into());
+        probe(BackendKind::Ollama, "http://127.0.0.1:11434", &model, &format!("ollama/{model}")).await;
+    }
+
+    /// Run: cargo test --lib live_native_channel_llama -- --ignored --nocapture
+    #[tokio::test]
+    #[ignore = "live: requires llama-server on :8080 (--jinja) with the model loaded"]
+    async fn live_native_channel_llama() {
+        let model = std::env::var("QM_LIVE_MODEL").unwrap_or_else(|_| "qwen2.5-coder".into());
+        probe(BackendKind::LlamaCpp, "http://127.0.0.1:8080", &model, &format!("llama.cpp/{model}")).await;
     }
 }

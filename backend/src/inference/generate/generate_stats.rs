@@ -25,6 +25,25 @@ pub struct GenerateStats {
     /// don't surface it. The agentic runner reads this to distinguish a real capability
     /// failure from a harness-truncation it can retry with a larger budget.
     pub finish_reason: Option<String>,
+    /// How many STRUCTURED `tool_calls` the backend's native tool API returned for this turn.
+    ///
+    /// `None` = no native tool channel was used at all (the prompt path, MLX, a plain
+    /// generate) — **or an older record that never measured it**. `Some(0)` = the native API
+    /// WAS asked and returned none, so any calls scored afterwards were salvaged out of the
+    /// `content` text by `extract_calls`, and are NOT native function-calling.
+    ///
+    /// The distinction exists because that salvage is otherwise invisible: llama.cpp leaves a
+    /// fenced `{"name":…,"arguments":…}` in `content` with `tool_calls: []`, `extract_standard`
+    /// strips the fence and parses it, and the dialect stays `Standard` — so the run scores,
+    /// aggregates into `agentic_native_fc`, and publishes as `eval_method: native_fc` without
+    /// a single structured call ever having been returned. Measured live on
+    /// qwen2.5-coder-7b + llama-server --jinja: 0 structured calls out of 9, at every needle
+    /// depth, with `tool_choice: "required"` making no difference.
+    ///
+    /// `Option` is load-bearing: a `#[serde(default)]` zero would make every pre-existing
+    /// record indistinguishable from a measured zero, and relabelling those would be
+    /// fabricating a measurement we never took.
+    pub native_tool_calls: Option<u32>,
 }
 
 /// Nanoseconds → whole milliseconds (Ollama reports ns durations).

@@ -508,6 +508,9 @@ fn byo_step(run: usize, i: usize, kind: StepKind, raw: &str, injection: Option<&
 /// are set but never rendered for a diagnostic — the UI branches on `diagnostic`).
 fn byo_report(diag: &DiagnosticStats) -> AgenticReport {
     AgenticReport {
+        // BYO/MCP diagnostic: no native tool pass ran, so the channel is unmeasured (not zero).
+        native_structured_calls: None,
+        native_salvaged_calls: None,
         passes: diag.schema_valid,
         total_runs: diag.total_calls,
         failures: FailureTracker::default(),
@@ -560,6 +563,9 @@ fn byo_column(model: &str, backend: BackendKind, diag: &DiagnosticStats, success
         backend,
         toolcall: None,
         agentic: Some(AggAgentic {
+            // BYO/MCP diagnostic: no native tool pass ran → unmeasured, not zero.
+            native_structured_calls: None,
+            native_salvaged_calls: None,
             tasks_passed: 0,
             tasks_total: 0,
             passes: successes,
