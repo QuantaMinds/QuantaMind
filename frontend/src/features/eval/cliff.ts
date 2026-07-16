@@ -8,6 +8,11 @@ import type { TaskTrace } from "../../shared/ipc/eval/cliff";
 export interface CliffPoint {
   promptTokens: number | null;
   composite: number | null;
+  /// The rung's raw tally behind `composite`, pooled across the swept needle positions.
+  /// Null for a mixed/single-turn rung (no summable denominator). Carried so the panel can
+  /// show the sample size — "80%" from 4/5 and from 12/15 are different claims.
+  passed?: number | null;
+  trials?: number | null;
   /// Per-task trace (system prompt + per-position outputs) for this rung, pass or fail —
   /// surfaced per step via "View trace" so the user sees what the model saw and emitted.
   trace?: TaskTrace[];

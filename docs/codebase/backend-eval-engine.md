@@ -869,6 +869,28 @@ across an ascending token ladder and finds the largest verified depth before
 accuracy collapses. All depths are MEASURED, never a 4:1 estimate (the seed rate is
 learned per rung).
 
+**The resolution invariant — a verdict is only real if the sample can support it.** A rung's
+score is POOLED across the swept needle positions (`passed / trials`), not the worst of them.
+Worst-of-positions did two things wrong at once: it re-quantized the score at `1/tasks` — on
+the default 5-task collection that is 0.2, **exactly `COLLAPSE_MARGIN`**, so a single task
+fumbling once cleared the bar and was reported as a cliff — and it compared a *min of three*
+against a *single-position* baseline, tilting the verdict toward "cliff" independent of the
+quantum. Pooling costs **zero extra model calls** (`min()` was discarding samples already
+taken) and keeps the weakest-position signal: a model failing every task at one position pools
+to 0.667, a 0.333 drop, always ≥ the margin for any n. `per_depth` still carries each position,
+so the UI shows *which* one broke. Only a purely-agentic rung is poolable — the single-turn
+`aggregate()` cascade has no summable denominator and keeps worst-of-positions.
+Where even pooling can't resolve the margin (`1/trials >= COLLAPSE_MARGIN`, i.e. a 1-task
+collection → 3 trials → 0.333), `classify` returns **`CliffStatus::Inconclusive { trials }`**
+rather than guessing: "no cliff" would be an affirmative claim the sample can't support, and
+"collapsed" would be a coin flip. `Broken` is decided *before* that gate — it tests the
+baseline against `BASELINE_PASS`, not the margin, and even one task resolves that cleanly.
+`is_collapse` is the single source for the collapse rule, shared by `classify` and the
+early-stop (they had drifted into separate copies; a third lives nowhere else now).
+Regression tests: `a_single_task_flip_at_one_position_is_not_a_cliff`,
+`a_systematic_failure_at_one_position_is_still_a_cliff` (over-correction guard),
+`a_single_task_collection_cannot_resolve_the_margin`, `a_rung_carries_its_measured_tally`.
+
 **The measurement invariant — a rung is only real if it fit.** Every ladder depth must
 sit inside the context window the backend actually gave us, because both backends fail
 *dishonestly* past it: Ollama silently clamps `num_ctx` and truncates the prompt (deleting

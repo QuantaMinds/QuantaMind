@@ -47,11 +47,17 @@ function cliffLabel(c: ModelVerdict["cliff"]): string {
   if (!c || c.status === "NotProbed") return "N/A";
   if (c.status === "NoCliff") return `✓ No cliff (≥${c.tested.toLocaleString()} tok)`;
   if (c.status === "Broken") return "fails from start";
+  // The probe ran but its sample can't resolve the collapse margin — so it found nothing,
+  // which is NOT the same as finding nothing wrong. Say which.
+  if (c.status === "Inconclusive") return `inconclusive (${c.trials} samples/rung)`;
   return `Collapsed at ${c.depth.toLocaleString()} tok`;
 }
 
 function cliffColor(c: ModelVerdict["cliff"]): string {
   if (!c || c.status === "NotProbed") return "text-slate-800";
+  // Inconclusive is UNMEASURED, not failed — it must never render red beside a real collapse.
+  // Same neutral treatment as NotProbed; the default below is the failure colour.
+  if (c.status === "Inconclusive") return "text-slate-800";
   return c.status === "NoCliff" ? "text-emerald-600" : "text-rose-600";
 }
 

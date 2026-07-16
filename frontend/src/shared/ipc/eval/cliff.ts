@@ -68,6 +68,13 @@ export const CliffRungSchema = z.object({
   target_tokens: z.number().int(),
   verified_tokens: z.number().int(),
   composite: z.number().nullable(),
+  /// The rung's raw tally, POOLED across the swept needle positions (`passed / trials`).
+  /// Null for a mixed/single-turn rung, whose graded `aggregate()` cascade has no summable
+  /// denominator. Surfaced so the sample size is visible — "12 / 15" and "1 / 3" must not
+  /// render identically — and so a verdict is never claimed from a sample too coarse to
+  /// support it (see `CliffStatus::Inconclusive`).
+  passed: z.number().int().nullable(),
+  trials: z.number().int().nullable(),
   per_depth: z.array(DepthScoreSchema),
   /// Per-task trace (system prompt + per-position outputs) for this rung, pass or fail.
   trace: z.array(TaskTraceSchema).default([]),

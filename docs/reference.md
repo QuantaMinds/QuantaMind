@@ -254,6 +254,18 @@ whatever model happens to be loaded).
 - If the window won't go higher, this machine's memory caps it there — reduce the
   prompt / Context Stress Test length to fit the largest window it will launch.
 
+**Context Stress Test — a cliff needs more evidence than one bad sample.** Each rung's
+accuracy is pooled across the three needle positions (`passed / trials`, shown beside the
+percentage — "12 / 15"), rather than taken from the *worst* position. Worst-of-positions
+made the score move in steps of `1/tasks`: on the default 5-task collection that step is
+**0.2 — exactly the collapse margin** — so one task fumbling once was reported as a context
+cliff. Pooling makes the step `1/(tasks × positions)` at no extra cost, and a *systematic*
+failure at any single position still always clears the margin, so a real positional weakness
+is still caught (the per-position breakdown still shows which one). A collection too small
+to resolve the margin at all (a 1-task collection) now reads **"inconclusive"** instead of
+"no cliff" — the probe found nothing, which is not the same as finding nothing wrong. An
+inconclusive result is a caveat, never a red verdict.
+
 **Context Stress Test — the ladder always fits the window.** The probe runs at
 `Max Tokens + ~2K headroom` (the tool schemas, the injected task, and the reply all sit on
 top of the padding), so **Max Tokens is capped at the model's context window *minus* that

@@ -28,6 +28,13 @@ pub enum CliffStatus {
     /// through. `tested` = the deepest rung reached. Renders red "fails from start" and
     /// blocks any context-headroom gate.
     Broken { tested: u32 },
+    /// The collection is too small to resolve `COLLAPSE_MARGIN`: with `trials` samples per
+    /// rung the score moves in steps of `1/trials`, and when one sample flipping is itself
+    /// worth a whole margin, "cliff" and "no cliff" are indistinguishable from noise. We
+    /// know nothing either way, so we say nothing — reporting `NoCliff` here would be an
+    /// affirmative claim the data can't support, and `Collapsed` would be a coin flip.
+    /// Unmeasured, never a guessed failure: a caveat, never a red block.
+    Inconclusive { trials: u32 },
 }
 
 /// Which measurement path produced the verdict — stated explicitly so a "Ready"

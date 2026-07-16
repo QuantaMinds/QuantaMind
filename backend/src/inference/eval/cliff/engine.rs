@@ -146,6 +146,15 @@ type StepSink<'a> = &'a mut (dyn FnMut(StepProgress) + Send);
 /// A no-op step sink — used by [`run_cliff`] and tests that don't observe sub-rung steps.
 fn no_step(_: StepProgress) {}
 
+/// One needle position's Bernoulli tally, so a rung can POOL its positions instead of taking
+/// their minimum. `passed`/`trials` are raw counts precisely so they can be summed — a mean of
+/// per-position ratios would silently re-quantize at 1/positions.
+#[derive(Clone, Copy, Debug)]
+struct PosTally {
+    passed: u32,
+    trials: u32,
+}
+
 /// One needle position within a rung: the composite there and the verified depth.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct DepthScore {
@@ -161,9 +170,20 @@ pub struct DepthScore {
 pub struct CliffPoint {
     pub target_tokens: u32,
     pub verified_tokens: u32,
-    /// Worst composite across the swept positions — "passes across positions" means
-    /// robust everywhere, so the cliff is found at the weakest spot, not the average.
+    /// The rung's score, POOLED across the swept positions (`passed / trials`) — not the
+    /// worst of them. Worst-of-positions re-quantized the score at 1/tasks (0.2 on the
+    /// default 5-task collection = exactly `COLLAPSE_MARGIN`, so one flip read as a cliff)
+    /// and compared a min-of-3 against a single-position baseline. `per_depth` still carries
+    /// each position, so the weakest spot stays visible even though the verdict pools.
+    /// Falls back to the worst position for a mixed/single-turn rung, whose `aggregate()`
+    /// cascade has no summable denominator.
     pub composite: Option<f64>,
+    /// The rung's raw tally — `Some` only for a purely-agentic rung (see `PosTally`).
+    /// Carried so the UI can show the sample size ("12 / 15") and so `classify` can refuse a
+    /// verdict the sample can't support, rather than inferring either from `DEFAULT_DEPTHS`:
+    /// "never report a number you didn't measure" applies to the sample size itself.
+    pub passed: Option<u32>,
+    pub trials: Option<u32>,
     pub per_depth: Vec<DepthScore>,
     /// Per-task trace (system prompt + per-position outputs) for THIS rung — every task,
     /// pass or fail (capped). Powers the per-step "View trace" in the UI.
@@ -202,7 +222,7 @@ fn cliff_failed(task: &ToolTask, v: &Verdict) -> bool {
 /// JSON **well-formedness** alone: the fraction that emitted a parseable tool call at this
 /// depth. The position composite blends the two groups by task count (both in [0,1]);
 /// prompt tokens average over EVERY task, since the x-axis depth is category-blind.
-fn cliff_score(tasks: &[ToolTask], results: &[TaskResult]) -> (Option<f64>, Option<f64>) {
+fn cliff_score(tasks: &[ToolTask], results: &[TaskResult]) -> (Option<f64>, Option<f64>, Option<PosTally>) {
     let mut single_tasks: Vec<ToolTask> = Vec::new();
     let mut single_results: Vec<TaskResult> = Vec::new();
     let (mut agentic_parsed, mut agentic_n) = (0usize, 0usize);
@@ -217,6 +237,13 @@ fn cliff_score(tasks: &[ToolTask], results: &[TaskResult]) -> (Option<f64>, Opti
             single_results.push(r.clone());
         }
     }
+    // The poolable tally — `Some` ONLY for a purely-agentic rung, where the score is a real
+    // Bernoulli count (`parsed / n`) and positions can therefore be summed. A single-turn task
+    // scores through `aggregate()`, a graded cascade of conditional sub-rates whose resolution
+    // is NOT a simple k/n; pooling those by counting would invent a denominator. Mixed and
+    // single-turn rungs keep the documented worst-of-positions instead (see `sweep`).
+    let tally = (agentic_n > 0 && single_tasks.is_empty())
+        .then(|| PosTally { passed: agentic_parsed as u32, trials: agentic_n as u32 });
     let single_comp = (!single_tasks.is_empty()).then(|| aggregate(&single_tasks, single_results).composite).flatten();
     let agentic_comp = (agentic_n > 0).then(|| agentic_parsed as f64 / agentic_n as f64);
     let composite = match (single_comp, agentic_comp) {
@@ -230,7 +257,7 @@ fn cliff_score(tasks: &[ToolTask], results: &[TaskResult]) -> (Option<f64>, Opti
     };
     let toks: Vec<u32> = results.iter().filter_map(|r| r.prompt_tokens).collect();
     let prompt_tokens = (!toks.is_empty()).then(|| toks.iter().map(|&t| t as f64).sum::<f64>() / toks.len() as f64);
-    (composite, prompt_tokens)
+    (composite, prompt_tokens, tally)
 }
 
 /// The TRUE prompt size for one turn. llama.cpp serves a reused prefix from its prompt
@@ -321,11 +348,13 @@ async fn sweep<T: ModelTurn, F: Fn(&ToolTask) -> T>(
     total_rungs: usize,
     target: u32,
     on_step: StepSink<'_>,
-) -> AppResult<(Vec<DepthScore>, u32, Option<f64>, Vec<TaskTrace>)> {
+) -> AppResult<(Vec<DepthScore>, u32, Option<f64>, Option<PosTally>, Vec<TaskTrace>)> {
     let mut per_depth = Vec::with_capacity(depths.len());
     let mut tok_sum: u64 = 0;
     let mut tok_n: u64 = 0;
     let mut worst: Option<f64> = None;
+    let mut pooled = PosTally { passed: 0, trials: 0 };
+    let mut poolable = true;
     let mut trace: Vec<TaskTrace> = Vec::new();
     for (pi, &depth) in depths.iter().enumerate() {
         // Wrap the per-task tick with this position's context so the panel can render
@@ -335,7 +364,7 @@ async fn sweep<T: ModelTurn, F: Fn(&ToolTask) -> T>(
             on_step(StepProgress { rung, total_rungs, target_tokens: target, position: pi + 1, total_positions, task, total_tasks });
         };
         let (results, pos_traces) = run_position(make_turn, model, tasks, padding, depth, &mut on_task).await?;
-        let (composite, prompt_tokens) = cliff_score(tasks, &results);
+        let (composite, prompt_tokens, tally) = cliff_score(tasks, &results);
         let vt = prompt_tokens.map(|t| t.round() as u32).unwrap_or(0);
         if let Some(t) = prompt_tokens {
             tok_sum += t.round() as u64;
@@ -344,12 +373,43 @@ async fn sweep<T: ModelTurn, F: Fn(&ToolTask) -> T>(
         if let Some(c) = composite {
             worst = Some(worst.map_or(c, |w: f64| w.min(c)));
         }
+        match tally {
+            Some(t) => {
+                pooled.passed += t.passed;
+                pooled.trials += t.trials;
+            }
+            // One un-poolable position makes the whole rung un-poolable: a mixed/single-turn
+            // rung has no common denominator to sum.
+            None => poolable = false,
+        }
         per_depth.push(DepthScore { depth, composite, verified_tokens: vt });
         merge_pos_into_trace(&mut trace, depth, pos_traces);
     }
     trace.truncate(MAX_TRACE_TASKS);
     let mean_tokens = if tok_n > 0 { (tok_sum / tok_n) as u32 } else { 0 };
-    Ok((per_depth, mean_tokens, worst, trace))
+    // POOL the positions rather than taking their worst. Two defects die here:
+    //
+    // 1. Resolution. Per position the score is `parsed/n` — for the default 5-task
+    //    collection that quantum is 0.2, EXACTLY `COLLAPSE_MARGIN`, so one task flipping
+    //    cleared the bar and was reported as a cliff. Pooling makes the denominator
+    //    `tasks × positions` (5 → 15, quantum 0.067), and the samples are already being
+    //    taken — `min()` was throwing them away. Zero extra model calls.
+    // 2. Bias. The baseline rung is measured at ONE position (see `probe_rung`), while a
+    //    padded rung was the MIN of three. `E[min of 3] < E[single]`, so comparing them
+    //    tilted the verdict toward "cliff" independent of the quantum.
+    //
+    // The weakest-position semantics survive: a model failing EVERY task at one position
+    // pools to 10/15 = 0.667, a 0.333 drop — always ≥ the 0.2 margin, for any n. So a
+    // systematic positional failure is still caught; only the sporadic single flip is not.
+    // `per_depth` still carries each position, so the UI shows WHICH position broke.
+    let tally = (poolable && pooled.trials > 0).then_some(pooled);
+    let composite = match tally {
+        Some(t) => Some(t.passed as f64 / t.trials as f64),
+        // Mixed / single-turn: `aggregate()` is a graded cascade, not a k/n count, so its
+        // positions cannot be summed. Keep the documented worst-of-positions there.
+        None => worst,
+    };
+    Ok((per_depth, mean_tokens, composite, tally, trace))
 }
 
 /// A rung is MEASURED only when the padded prompt plus its reply budget fit inside the
@@ -407,7 +467,7 @@ async fn probe_rung<T: ModelTurn, F: Fn(&ToolTask) -> T>(
             on_step(StepProgress { rung, total_rungs, target_tokens: 0, position: 1, total_positions: 1, task, total_tasks });
         };
         let (results, pos_traces) = run_position(make_turn, model, tasks, "", 0.0, &mut on_task).await?;
-        let (composite, prompt_tokens) = cliff_score(tasks, &results);
+        let (composite, prompt_tokens, tally) = cliff_score(tasks, &results);
         let vt = prompt_tokens.map(|t| t.round() as u32).unwrap_or(0);
         let mut trace: Vec<TaskTrace> = Vec::new();
         merge_pos_into_trace(&mut trace, 0.0, pos_traces);
@@ -416,6 +476,8 @@ async fn probe_rung<T: ModelTurn, F: Fn(&ToolTask) -> T>(
             target_tokens: 0,
             verified_tokens: vt,
             composite,
+            passed: tally.map(|t| t.passed),
+            trials: tally.map(|t| t.trials),
             per_depth: vec![DepthScore { depth: 0.0, composite, verified_tokens: vt }],
             trace,
         });
@@ -424,16 +486,16 @@ async fn probe_rung<T: ModelTurn, F: Fn(&ToolTask) -> T>(
     // never sizing past what the window can hold (`cap_bytes`).
     let seed_rate = rate.unwrap_or(BYTES_PER_TOKEN as f64);
     let mut bytes = cap_bytes(((target as f64) * seed_rate).round() as usize, seed_rate, ctx_limit);
-    let mut last: Option<(Vec<DepthScore>, u32, Option<f64>, Vec<TaskTrace>)> = None;
+    let mut last: Option<(Vec<DepthScore>, u32, Option<f64>, Option<PosTally>, Vec<TaskTrace>)> = None;
     for attempt in 0..=MAX_ADJUST_ATTEMPTS {
         let padding = build_padding(source_text, bytes);
-        let (per_depth, mean_tokens, worst, trace) = sweep(make_turn, model, tasks, &padding, depths, rung, total_rungs, target, on_step).await?;
+        let (per_depth, mean_tokens, worst, tally, trace) = sweep(make_turn, model, tasks, &padding, depths, rung, total_rungs, target, on_step).await?;
         let measured_rate = (mean_tokens > 0).then(|| bytes as f64 / mean_tokens as f64);
         if let Some(r) = measured_rate {
             *rate = Some(r); // learn for the next rung
         }
         let off = if target > 0 { (mean_tokens as f64 - target as f64).abs() / target as f64 } else { 0.0 };
-        last = Some((per_depth, mean_tokens, worst, trace));
+        last = Some((per_depth, mean_tokens, worst, tally, trace));
         if mean_tokens == 0 || off <= ADJUST_TOLERANCE || attempt == MAX_ADJUST_ATTEMPTS {
             break;
         }
@@ -447,14 +509,54 @@ async fn probe_rung<T: ModelTurn, F: Fn(&ToolTask) -> T>(
             ctx_limit,
         );
     }
-    let (per_depth, mean_tokens, worst, trace) = last.expect("loop runs at least once");
-    Ok(CliffPoint { target_tokens: target, verified_tokens: mean_tokens, composite: worst, per_depth, trace })
+    let (per_depth, mean_tokens, worst, tally, trace) = last.expect("loop runs at least once");
+    Ok(CliffPoint {
+        target_tokens: target,
+        verified_tokens: mean_tokens,
+        composite: worst,
+        passed: tally.map(|t| t.passed),
+        trials: tally.map(|t| t.trials),
+        per_depth,
+        trace,
+    })
 }
 
 /// Classify the ladder into a `CliffStatus` plus `cliff_tokens` (largest verified
-/// context that still passed across positions). Mirrors the frontend
-/// `classifyCliff` contract: no baseline ⇒ Broken; first rung that drops
-/// `COLLAPSE_MARGIN` below the baseline ⇒ Collapsed at that depth; otherwise NoCliff.
+/// Did this rung collapse relative to the baseline? THE one source for that question.
+///
+/// It exists because the rule had drifted into three copies — `classify`, the early-stop
+/// in `run_cliff_with_factory`, and a frontend mirror — and a change to any one of them
+/// silently desynchronised the others: an early-stop that breaks on a rung `classify` no
+/// longer calls a cliff just truncates the ladder, with nothing to show for it.
+fn is_collapse(base: f64, c: f64) -> bool {
+    c <= base - COLLAPSE_MARGIN
+}
+
+/// Can this rung's sample resolve `COLLAPSE_MARGIN` at all? The score moves in steps of
+/// `1/trials`, so when a single sample flipping is worth a whole margin, "collapsed" and
+/// "held" are the same measurement — the instrument's resolution IS the detection threshold.
+/// That is exactly what shipped: the default 5-task collection scored `parsed/5` per position,
+/// quantum 0.2 == `COLLAPSE_MARGIN`, so one task flip was reported as a cliff.
+///
+/// Pooling the positions (see `sweep`) fixes this for every real collection — 5 tasks × 3
+/// positions = 15 trials, quantum 0.067 — leaving only the genuinely unresolvable case
+/// (`tasks == 1`, i.e. 3 trials → 0.333 > 0.2), where we refuse rather than guess.
+/// `None` trials = a mixed/single-turn rung whose quantum isn't derived: don't gate on what
+/// we haven't established.
+/// STRICTLY less-than is load-bearing: at `1/trials == COLLAPSE_MARGIN` a single flip is
+/// worth exactly one margin and `is_collapse`'s `<=` fires on it. That equality IS the
+/// shipped bug (5 tasks → 0.2 == 0.2), so it must fall on the "cannot resolve" side.
+fn can_resolve_margin(trials: Option<u32>) -> bool {
+    match trials {
+        Some(0) | None => true, // nothing measured, or not a countable sample — other arms decide
+        Some(t) => (1.0 / t as f64) < COLLAPSE_MARGIN,
+    }
+}
+
+/// Classify the ladder into a `CliffStatus` plus `cliff_tokens` (largest verified
+/// context that still passed across positions). No baseline ⇒ Broken; first rung that
+/// drops `COLLAPSE_MARGIN` below the baseline (`is_collapse`) ⇒ Collapsed at that depth;
+/// otherwise NoCliff.
 fn classify(points: &[CliffPoint]) -> (CliffStatus, Option<u32>) {
     let Some(base) = points.first() else {
         return (CliffStatus::NotProbed, None);
@@ -462,15 +564,30 @@ fn classify(points: &[CliffPoint]) -> (CliffStatus, Option<u32>) {
     match base.composite {
         // Can't establish a baseline (no signal, or below the floor) — a cliff number
         // here would be a fabrication, so report Broken and no cliff token.
+        //
+        // Deliberately decided BEFORE the resolution gate below: `Broken` tests the baseline
+        // against `BASELINE_PASS`, not against `COLLAPSE_MARGIN`. Even a 1-task probe resolves
+        // that cleanly (its score is 0 or 1; both sit unambiguously off the 0.5 floor), so a
+        // coarse sample is no reason to withhold it. Only the collapse comparison needs
+        // margin-sized resolution.
         None => return (CliffStatus::Broken { tested: base.verified_tokens }, None),
         Some(c) if c < BASELINE_PASS => return (CliffStatus::Broken { tested: base.verified_tokens }, None),
         Some(_) => {}
+    }
+    // The baseline is healthy, so the remaining question is "did it collapse?" — and THAT is
+    // measured against `COLLAPSE_MARGIN`. If one flipped sample is worth a whole margin,
+    // "collapsed" and "held" are the same measurement, so neither may be claimed. Read the
+    // count off the MEASURED rung (the deepest one carries the pooled `tasks × positions`
+    // sample); never infer it from `DEFAULT_DEPTHS`.
+    let deepest_trials = points.iter().rev().find_map(|p| p.trials);
+    if !can_resolve_margin(deepest_trials) {
+        return (CliffStatus::Inconclusive { trials: deepest_trials.unwrap_or(0) }, None);
     }
     let base_comp = base.composite.expect("checked Some above");
     let mut largest_pass = base.verified_tokens;
     for p in &points[1..] {
         if let Some(c) = p.composite {
-            if c <= base_comp - COLLAPSE_MARGIN {
+            if is_collapse(base_comp, c) {
                 return (CliffStatus::Collapsed { depth: p.verified_tokens }, Some(largest_pass));
             }
             largest_pass = p.verified_tokens;
@@ -593,8 +710,10 @@ pub async fn run_cliff_with_factory<T: ModelTurn, F: Fn(&ToolTask) -> T>(
             }
         } else if let (Some(b), Some(c)) = (baseline_comp, comp) {
             // First collapse IS the cliff (classify takes the first drop); deeper
-            // rungs would only re-confirm failure at the highest context cost.
-            if c <= b - COLLAPSE_MARGIN {
+            // rungs would only re-confirm failure at the highest context cost. Shares
+            // `is_collapse` with `classify` so the two can never disagree about which
+            // rung ended the run.
+            if is_collapse(b, c) {
                 break;
             }
         }

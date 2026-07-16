@@ -270,7 +270,16 @@ async fn agentic_tasks_score_on_json_wellformedness_not_abstention() {
     let model = CliffModel { threshold: u32::MAX, good: GOOD.into() };
     let report = run_cliff(&model, "m", &[agentic_task("multi-step")], &source(), &[0u32, 4000], &DEFAULT_DEPTHS).await.unwrap();
     assert_eq!(report.points[0].composite, Some(1.0), "a well-formed JSON call passes the structural check");
-    assert!(matches!(report.status, CliffStatus::NoCliff { .. }));
+    // The guard is "no FAKE Broken" — that a valid call is never mis-read as a bad abstention.
+    // It deliberately does NOT assert `NoCliff`: this fixture is a ONE-task collection, whose
+    // 3 pooled trials can't resolve the 0.2 collapse margin, so "no cliff" is a claim the
+    // sample can't support and the engine now says `Inconclusive` instead. Asserting NoCliff
+    // here would be re-asserting the very over-claim #158 is about.
+    assert!(
+        !matches!(report.status, CliffStatus::Broken { .. }),
+        "a well-formed call must never read as a broken baseline: {:?}",
+        report.status,
+    );
     assert!(
         report.points[0].trace.iter().flat_map(|t| &t.outputs).all(|o| o.passed),
         "a structural pass is traced as passed",
@@ -649,4 +658,141 @@ fn cap_bytes_never_sizes_a_prompt_past_the_window() {
     assert_eq!(cap_bytes(10_000, rate, window), 10_000);
     // Scripted turns have no real window to clamp against.
     assert_eq!(cap_bytes(usize::MAX, rate, NO_CTX_LIMIT), usize::MAX);
+}
+
+// ── sample resolution: the composite must be able to support its own verdict ──────────
+
+/// An agentic task (the shape every built-in v2 collection uses — `cliff_score` scores
+/// these on well-formedness, `parsed / n`, which is what quantizes the composite).
+fn agentic_tasks(n: usize) -> Vec<ToolTask> {
+    (0..n)
+        .map(|i| ToolTask {
+            id: format!("t{i}"),
+            category: "agent_loop".into(),
+            prompt: format!("Do step {i}."),
+            tools: vec![ToolSchema {
+                name: "act".into(),
+                description: "act".into(),
+                parameters: json!({ "type": "object", "properties": { "x": { "type": "string" } } }),
+            }],
+            expected: Expected::Call(Call { name: "act".into(), args: json!({}) }),
+            agentic: None,
+        })
+        .collect()
+}
+
+/// Fails exactly ONE task at exactly ONE needle position — the sporadic single flip a real
+/// model produces (one fumbled quote, one bad sample). The position is recovered from WHERE
+/// the injected task text sits in the padded prompt: `inject_at_depth` places the needle at
+/// `len * depth`, so `find(task) / len` recovers the depth it was injected at.
+struct OneFlipModel {
+    flip_task: String,
+    at_depth: f32,
+    good: String,
+}
+
+impl ModelTurn for OneFlipModel {
+    async fn run(&self, spec: &GenerateSpec) -> AppResult<(String, GenerateStats)> {
+        let toks = ((spec.system.as_deref().map_or(0, |s| s.len()) + spec.prompt.len()) / 4) as u32;
+        let where_injected = spec
+            .prompt
+            .find(&self.flip_task)
+            .map(|i| i as f32 / spec.prompt.len().max(1) as f32);
+        // Flip only this task, only at this needle depth. The unpadded baseline puts the task
+        // at offset 0, so it never matches a mid/late depth → the baseline stays clean.
+        let is_flip = where_injected.is_some_and(|p| (p - self.at_depth).abs() < 0.15);
+        let text = if is_flip { "sorry, I cannot.".to_string() } else { self.good.clone() };
+        Ok((text, GenerateStats { prompt_eval_count: Some(toks), ..Default::default() }))
+    }
+}
+
+/// THE REGRESSION (#158). The default collection has 5 tasks, so a per-position score is
+/// `parsed/5` — quantum 0.2, EXACTLY `COLLAPSE_MARGIN`. Taking the WORST of three positions
+/// then meant a single task flipping at a single position produced `min(1.0, 0.8, 1.0) = 0.8`
+/// against a 1.0 baseline: `0.8 <= 1.0 - 0.2` → `Collapsed`. One flake = a reported cliff, on
+/// the shipped default. Pooling the positions (15 trials, quantum 0.067) is what makes a
+/// single flip a 0.067 dent instead of a verdict.
+#[tokio::test]
+async fn a_single_task_flip_at_one_position_is_not_a_cliff() {
+    let tasks = agentic_tasks(5);
+    // ONE task fumbles at ONE position (the middle). Everything else is perfect.
+    let model = OneFlipModel { flip_task: "Do step 3.".into(), at_depth: 0.5, good: GOOD.into() };
+    let report = run_cliff_with(
+        &model, "m", &tasks, &source(), &[0u32, 4_000], &DEFAULT_DEPTHS, NO_CTX_LIMIT,
+        &CancellationToken::new(), &mut |_, _, _| {}, &mut |_| {},
+    )
+    .await
+    .unwrap();
+    // Pooled: 14/15 = 0.933 vs a 1.0 baseline → a 0.067 dent, far under the 0.2 margin.
+    // Worst-of-positions was min(1.0, 0.8, 1.0) = 0.8 → 0.8 <= 1.0 - 0.2 → a reported cliff.
+    assert!(
+        !matches!(report.status, CliffStatus::Collapsed { .. }),
+        "one task fumbling at one position is noise, not a context cliff: {:?}",
+        report.status,
+    );
+    let padded = &report.points[1];
+    assert_eq!(padded.passed, Some(14), "14 of 15 trials passed");
+    assert_eq!(padded.trials, Some(15));
+}
+
+/// The over-correction guard (passes before AND after — labelled as such, not dressed up as
+/// a regression test). Pooling must not blunt a REAL positional collapse: a model that fails
+/// every task at one position pools to 10/15 = 0.667, a 0.333 drop — always ≥ the 0.2 margin
+/// for any n. The weakest-position signal survives; only the sporadic flip is filtered.
+#[tokio::test]
+async fn a_systematic_failure_at_one_position_is_still_a_cliff() {
+    let tasks = agentic_tasks(5);
+    // Fails EVERY task once padding exists (a real depth collapse).
+    let model = CliffModel { threshold: 500, good: GOOD.into() };
+    let report = run_cliff_with(
+        &model, "m", &tasks, &source(), &[0u32, 4_000], &DEFAULT_DEPTHS, NO_CTX_LIMIT,
+        &CancellationToken::new(), &mut |_, _, _| {}, &mut |_| {},
+    )
+    .await
+    .unwrap();
+    assert!(
+        matches!(report.status, CliffStatus::Collapsed { .. }),
+        "a systematic collapse must still be caught: {:?}",
+        report.status,
+    );
+}
+
+/// A 1-task collection pools to 3 trials → quantum 0.333 > the 0.2 margin, so one flip and a
+/// real collapse are the same measurement. Refuse. Reporting `NoCliff` would be an
+/// affirmative claim the sample can't support; `Collapsed` would be a coin flip.
+#[tokio::test]
+async fn a_single_task_collection_cannot_resolve_the_margin() {
+    let tasks = agentic_tasks(1);
+    let model = CliffModel { threshold: 500, good: GOOD.into() }; // collapses when padded
+    let report = run_cliff_with(
+        &model, "m", &tasks, &source(), &[0u32, 4_000], &DEFAULT_DEPTHS, NO_CTX_LIMIT,
+        &CancellationToken::new(), &mut |_, _, _| {}, &mut |_| {},
+    )
+    .await
+    .unwrap();
+    assert!(
+        matches!(report.status, CliffStatus::Inconclusive { .. }),
+        "3 trials can't resolve a 0.2 margin — say so: {:?}",
+        report.status,
+    );
+    assert_eq!(report.cliff_tokens, None, "an inconclusive probe reports no cliff depth");
+}
+
+/// The sample size must be MEASURED and carried, not inferred from `DEFAULT_DEPTHS` — the
+/// rule "never report a number you didn't measure" applies to the denominator too.
+#[tokio::test]
+async fn a_rung_carries_its_measured_tally() {
+    let tasks = agentic_tasks(5);
+    let model = CliffModel { threshold: u32::MAX, good: GOOD.into() };
+    let report = run_cliff_with(
+        &model, "m", &tasks, &source(), &[0u32, 4_000], &DEFAULT_DEPTHS, NO_CTX_LIMIT,
+        &CancellationToken::new(), &mut |_, _, _| {}, &mut |_| {},
+    )
+    .await
+    .unwrap();
+    let padded = &report.points[1];
+    assert_eq!(padded.trials, Some(15), "5 tasks × 3 positions, pooled");
+    assert_eq!(padded.passed, Some(15), "a perfect model passes all of them");
+    // The baseline is one position by construction, so its tally is smaller — carried honestly.
+    assert_eq!(report.points[0].trials, Some(5));
 }
