@@ -49,8 +49,14 @@ describe("PublishDialog", () => {
     render(<PublishDialog verdicts={VERDICTS} collectionId="easy-coding" collectionHash="abc" onClose={noop} onPublish={noop} />);
     const confirm = await screen.findByTestId("publish-confirm");
     expect(confirm).toBeDisabled();
-    expect((screen.getByTestId("publish-optin") as HTMLInputElement).checked).toBe(false);
-    fireEvent.click(screen.getByTestId("publish-optin"));
+    // `findBy` the opt-in too, don't `getBy` it: both elements appear only after
+    // `previewPublishPayload()` resolves, and awaiting ONE of them doesn't guarantee the
+    // other has rendered. A fast runner flushes both in the same pass; the slow Windows CI
+    // runner does not, so this threw "Unable to find [data-testid=publish-optin]" — the same
+    // Windows-only timing flake #120 fixed in ModelsFolderSection.
+    const optin = (await screen.findByTestId("publish-optin")) as HTMLInputElement;
+    expect(optin.checked).toBe(false);
+    fireEvent.click(optin);
     expect(confirm).toBeEnabled();
   });
 
