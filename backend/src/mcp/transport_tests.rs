@@ -102,3 +102,50 @@ fn kill_terminates_the_whole_process_group_leaving_no_orphan() {
     std::thread::sleep(std::time::Duration::from_millis(200));
     assert!(!group_has_members(pgid), "no process may survive in the group after kill");
 }
+
+// ── group-signal argv (the Linux `kill -TERM -<pgid>` self-kill) ──────────────────────
+
+/// THE REGRESSION. `kill -TERM -<pgid>` without `--` makes procps `kill` (Linux) read the
+/// leading-dash pgid as bundled short options and signal the CALLER'S OWN process group —
+/// so `McpTransport::kill()` killed QuantaMind and ORPHANED the server it meant to reap,
+/// the exact inverse of its purpose. Measured on ubuntu-22.04: `/bin/kill -TERM -4192`
+/// (child correctly leading group 4192, caller in 4191) killed the caller with SIGTERM
+/// (exit 143) and left the group alive; `/bin/kill -TERM -- -4192` exited 0, killed the
+/// group, and the caller lived. macOS's BSD kill parses the bare form fine, which is why
+/// this only ever bit Linux — and why CI's ubuntu job died mid-suite rather than failing.
+#[test]
+fn a_group_signal_separates_options_so_the_pgid_is_never_read_as_flags() {
+    let argv = super::group_signal_argv("-TERM", 4192);
+    assert_eq!(argv, vec!["-TERM", "--", "-4192"], "the `--` separator is load-bearing");
+    // Stated as the invariant: the negative pid must come AFTER an end-of-options marker,
+    // or `kill` is free to read it as flags and signal us instead.
+    let sep = argv.iter().position(|a| a == "--").expect("an end-of-options separator is required");
+    let target = argv.iter().position(|a| a == "-4192").expect("the pgid is the target");
+    assert!(sep < target, "`--` must precede the negative pid: {argv:?}");
+}
+
+/// `kill -- -0` is `kill(0, sig)` — POSIX for "signal MY OWN process group". A real child
+/// always has a non-zero pid, so a 0 here is only ever a bug; it must signal nothing rather
+/// than kill the app. Guarded because this is the same class of mistake as the one above.
+#[cfg(unix)]
+#[test]
+fn signalling_group_zero_is_refused_because_it_would_target_our_own_group() {
+    // Must not panic, must not signal: we are still alive to make this assertion.
+    super::signal_group("-TERM", 0);
+    super::signal_group("-KILL", 0);
+}
+
+/// The live proof, and the one that actually caught this: reaping a child's group must not
+/// take the CALLER down with it. Runs the real `kill()` path against a real child and then
+/// asserts the test process is still running — on Linux this whole binary used to die here.
+#[cfg(unix)]
+#[test]
+fn killing_a_childs_group_leaves_the_caller_alive() {
+    let t = super::McpTransport::spawn("sh", &["-c".into(), "sleep 300 & wait".into()])
+        .expect("spawn sh");
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    t.kill();
+    // Reaching this line at all is the assertion: pre-fix, `kill()` SIGTERM'd our own
+    // process group and the harness never got here.
+    assert!(std::process::id() > 0, "the caller survived reaping the child's group");
+}
