@@ -49,3 +49,34 @@ fn empty_choices_is_a_clean_empty_result() {
     assert!(r.tool_calls.is_empty());
     assert_eq!(r.content, "");
 }
+
+/// THE SAME REGRESSION AS #161, on the shared OpenAI tool wire (vLLM + SGLang). `Choice`
+/// carried only `message`, so `parse_chat` read `.map(|c| c.message)` and dropped the stop
+/// reason on the floor — leaving `stats.finish_reason` permanently `None` and making the
+/// runner's truncation retry + Truncated/ReasoningOverrun split dead code on those backends
+/// too. The pattern was exact: every STREAMING path stamped the reason, every TOOL path
+/// silently didn't.
+#[test]
+fn a_truncated_tool_turn_reports_length_not_a_silent_none() {
+    let body = serde_json::json!({
+        "choices": [{
+            "message": { "content": "{\"name\":\"run_tests\"", "tool_calls": [] },
+            "finish_reason": "length"
+        }],
+        "usage": { "prompt_tokens": 40, "completion_tokens": 256 }
+    })
+    .to_string();
+    let r = parse_chat(&body).unwrap();
+    assert_eq!(
+        r.stats.finish_reason.as_deref(),
+        Some("length"),
+        "a vLLM/SGLang native turn cut off by the output cap must not read as a capability failure",
+    );
+}
+
+/// Absent → `None`, never fabricated.
+#[test]
+fn an_absent_stop_reason_stays_none() {
+    let body = serde_json::json!({ "choices": [{ "message": { "content": "x", "tool_calls": [] } }] }).to_string();
+    assert_eq!(parse_chat(&body).unwrap().stats.finish_reason, None);
+}

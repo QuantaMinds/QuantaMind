@@ -58,6 +58,14 @@ struct ChatResponse {
 struct Choice {
     #[serde(default)]
     message: ResponseMessage,
+    /// Why generation stopped — `"stop"` (natural end) vs `"length"` (hit the output cap →
+    /// TRUNCATED). It lives on the CHOICE, not in `timings`/`usage`, so nothing downstream
+    /// can recover it: this struct is the only place it exists on the wire. Omitting it made
+    /// `stats.finish_reason` permanently `None` on every llama.cpp native turn, which turned
+    /// the runner's truncation retry and its setting-vs-hardware split into dead code and
+    /// laundered every truncation into `Malformed`/`Hallucinated`/`EmptyOutput`.
+    #[serde(default)]
+    finish_reason: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -87,10 +95,18 @@ struct ResponseToolFn {
 pub(crate) fn parse_chat(json: &str) -> AppResult<ChatResult> {
     let parsed: ChatResponse = serde_json::from_str(json)
         .map_err(|e| AppError::Inference(format!("bad chat response: {e}")))?;
+    // The choice carries BOTH the message and the stop reason; take it once and keep both.
+    // (Reading only `.message` here is what dropped `finish_reason` on the floor.)
+    let choice = parsed.choices.into_iter().next().unwrap_or_default();
+    let finish_reason = choice.finish_reason;
     // Prefer llama-server's `timings` (prompt/predict ms); fall back to token-count
-    // `usage` when absent. Never fabricate a missing duration.
-    let stats: GenerateStats = parsed.timings.map(|t| t.stats()).unwrap_or_else(|| from_usage(parsed.usage));
-    let msg = parsed.choices.into_iter().next().map(|c| c.message).unwrap_or_default();
+    // `usage` when absent. Never fabricate a missing duration. `finish_reason` is threaded
+    // into BOTH arms — it comes from the choice, so neither stats source can supply it.
+    let stats: GenerateStats = parsed
+        .timings
+        .map(|t| t.stats(finish_reason.clone()))
+        .unwrap_or_else(|| from_usage(parsed.usage, finish_reason));
+    let msg = choice.message;
     let tool_calls = msg
         .tool_calls
         .into_iter()

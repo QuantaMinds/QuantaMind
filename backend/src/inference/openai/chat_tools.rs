@@ -52,6 +52,13 @@ struct ChatResponse {
 struct Choice {
     #[serde(default)]
     message: ResponseMessage,
+    /// Why generation stopped — `"stop"` vs `"length"` (hit the output cap → TRUNCATED). It
+    /// lives on the CHOICE, so this struct is the only place it exists on the wire. Omitting
+    /// it left `stats.finish_reason` permanently `None` on every vLLM/SGLang native turn,
+    /// making the runner's truncation retry and its setting-vs-hardware split dead code
+    /// there — the same defect as llama.cpp's tool path.
+    #[serde(default)]
+    finish_reason: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -81,8 +88,11 @@ struct ResponseToolFn {
 pub(crate) fn parse_chat(json: &str) -> AppResult<ChatResult> {
     let parsed: ChatResponse = serde_json::from_str(json)
         .map_err(|e| AppError::Inference(format!("bad chat response: {e}")))?;
-    let stats: GenerateStats = from_usage(parsed.usage);
-    let msg = parsed.choices.into_iter().next().map(|c| c.message).unwrap_or_default();
+    // Take the choice ONCE and keep both halves — reading only `.message` is what dropped
+    // the stop reason on the floor.
+    let choice = parsed.choices.into_iter().next().unwrap_or_default();
+    let stats: GenerateStats = from_usage(parsed.usage, choice.finish_reason);
+    let msg = choice.message;
     let tool_calls = msg
         .tool_calls
         .into_iter()

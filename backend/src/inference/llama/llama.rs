@@ -155,9 +155,12 @@ async fn stream_chat(
 }
 
 /// Stats for a chat-endpoint run: llama-server's `timings` (prompt/predict ms)
-/// when present, else the all-`None` default — never fabricated.
+/// when present, else the all-`None` default — never fabricated. `finish_reason` is left
+/// `None` here BY DESIGN and stamped by the streaming caller from the chunk's
+/// `choice.finish_reason` as chunks arrive (see the `stats.finish_reason = ...` below) —
+/// this helper never sees a choice.
 fn chat_stats(timings: Option<crate::inference::llama::llama_timings::Timings>) -> GenerateStats {
-    timings.map(|t| t.stats()).unwrap_or_default()
+    timings.map(|t| t.stats(None)).unwrap_or_default()
 }
 
 /// Legacy `/completion` fallback (raw prompt, no chat template). `Ok(None)` means
@@ -219,7 +222,9 @@ async fn stream_completion(
                     }
                     if cancel.is_cancelled() { return Ok(Some(GenerateStats::default())); }
                     if chunk.stop {
-                        return Ok(Some(chunk.timings.unwrap_or_default().stats()));
+                        // The legacy `/completion` wire has no `choices`, so no stop reason
+                        // exists to report — `None` is the measurement, not an omission.
+                        return Ok(Some(chunk.timings.unwrap_or_default().stats(None)));
                     }
                 }
             }
