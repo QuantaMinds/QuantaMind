@@ -65,6 +65,9 @@ impl GenerateChunk {
             total_ms: self.total_duration.map(ns_to_ms),
             cache_n: None, // Ollama's /api/generate reports no prompt-cache count
             finish_reason: self.done_reason.clone(), // "stop" | "length"
+            // `native_tool_calls` stays defaulted (None): this decodes a plain generate/usage
+            // payload, which never asked the native tool API — a zero here would be a claim.
+            ..Default::default()
         }
     }
 }

@@ -98,6 +98,9 @@ impl ChatResponse {
             total_ms: self.total_duration.map(ns_to_ms),
             cache_n: None, // Ollama's /api/chat reports no prompt-cache count
             finish_reason: self.done_reason.clone(), // "stop" | "length"
+            // Set by `NativeToolTurn` from the parsed result, not here: this is the wire
+            // decoder, and it is shared by paths that never asked the native tool API.
+            native_tool_calls: None,
         }
     }
 }

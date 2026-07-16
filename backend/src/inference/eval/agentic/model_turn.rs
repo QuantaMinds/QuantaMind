@@ -414,11 +414,24 @@ impl ModelTurn for NativeToolTurn {
         // the backend can't parse into `tool_calls` but leaves in `content`; dropping it made
         // every such turn a silent empty → `Hallucinated`, hiding the real cause. Returning
         // `content` lets the runner name the honest verdict (`ForeignDialect` / prose /
-        // hallucination). Parity-safe: the backend already yielded zero calls, and the forms
-        // that land here (paren / `<|"|>`-wrapped soup, or plain prose) are exactly the ones the
-        // text salvager (`harmony_calls`) also drops — so this never credits a call the backend
-        // missed, it only makes the FAILURE honest.
-        Ok((native_turn_text(&result.tool_calls, result.content), result.stats))
+        // hallucination).
+        //
+        // The old parity argument here was WRONG, and #159 is what it cost. It reasoned only
+        // about `harmony_calls` — "the forms that land here are exactly the ones the text
+        // salvager also drops, so this never credits a call the backend missed". But
+        // `extract_calls_dialect` tries `extract_standard` FIRST, and that strips markdown
+        // fences and parses `{"name":…,"arguments":…}` — precisely what llama.cpp leaves in
+        // `content` when its native parser doesn't match. So this DID credit calls the backend
+        // missed, silently: the dialect stays `Standard`, nothing flags it, and the run
+        // publishes as `eval_method: native_fc` having produced zero structured calls.
+        //
+        // The salvage itself stays — the run is real and the model did the task; only the
+        // CLAIM about which channel produced it was false. So record the channel instead:
+        // `native_tool_calls` is what lets everything downstream tell a native pass from a
+        // text-salvaged one, rather than assuming.
+        let mut stats = result.stats;
+        stats.native_tool_calls = Some(result.tool_calls.len() as u32);
+        Ok((native_turn_text(&result.tool_calls, result.content), stats))
     }
 
     fn is_thinking(&self) -> bool {

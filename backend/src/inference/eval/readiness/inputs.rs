@@ -12,7 +12,32 @@ use crate::inference::gguf::gguf_quant::quant_from_filename;
 /// the gated metrics, the per-tier breakdown, and the failure taxonomy can never come from
 /// different passes (native-FC defaults off, so both must fall back identically).
 pub fn native_first_source(col: &BatchColumn) -> Option<&AggAgentic> {
-    col.agentic_native_fc.as_ref().filter(|a| a.total_runs > 0).or(col.agentic.as_ref())
+    measured_native(col).or(col.agentic.as_ref())
+}
+
+/// The native aggregate, but ONLY when it actually measured native function-calling.
+///
+/// `total_runs > 0` says the native pass RAN. It does not say the native tool API ever
+/// returned anything: llama.cpp answers with `tool_calls: []` and a fenced
+/// `{"name":…,"arguments":…}` in `content`, `extract_standard` strips the fence and parses
+/// it, the dialect stays `Standard`, and the run scores — so a pass^k built entirely by the
+/// text salvager was being labelled `NativeFc` and published as `eval_method: native_fc`.
+/// Measured live: qwen2.5-coder-7b on llama-server --jinja returned 0 structured calls out
+/// of 9, at every needle depth, with `tool_choice: "required"` making no difference.
+///
+/// So refuse it. `NativeFcStatus::NotSupported` already means exactly this — "the report
+/// shows N/A; we never synthesize a Pass^k for an unmeasured path" — and a native path that
+/// never produced a structured call IS an unmeasured native path. This is `measurable()`
+/// applied to the method label: unmeasurable ⇒ dropped, not scored, not published.
+///
+/// Only `Some(0)` is refused. `None` means the channel was never recorded — every report
+/// written before this existed — and relabelling those would be inventing a measurement we
+/// never took, which is the same sin in the opposite direction.
+pub fn measured_native(col: &BatchColumn) -> Option<&AggAgentic> {
+    col.agentic_native_fc
+        .as_ref()
+        .filter(|a| a.total_runs > 0)
+        .filter(|a| a.native_structured_calls != Some(0))
 }
 
 /// Build the measured inputs for `assess` from a Matrix column. Agentic metrics
@@ -29,7 +54,9 @@ pub fn from_column(
     // Prefer the NATIVE aggregate when it was measured — that's the path a
     // production agent actually uses. Native present → source the gated metrics
     // from it and label the path NativeFc; otherwise the prompt-based proxy.
-    let native = col.agentic_native_fc.as_ref().filter(|a| a.total_runs > 0);
+    // Same predicate `native_first_source` uses — single-sourced, or the label would say
+    // "Native FC" while the gated metrics came from somewhere else.
+    let native = measured_native(col);
     let native_fc = match native {
         Some(n) => NativeFcStatus::Tested { pass_k: n.pass_k().unwrap_or(0.0) },
         None => NativeFcStatus::NotSupported,
@@ -81,7 +108,9 @@ pub fn col_native_status(col: &BatchColumn) -> NativeFcStatus {
 /// row's metrics + tier ladder must come from its OWN path, never the other's.
 pub fn source_for_path(col: &BatchColumn, path: AgentPath) -> Option<&AggAgentic> {
     match path {
-        AgentPath::NativeFc => col.agentic_native_fc.as_ref().filter(|a| a.total_runs > 0),
+        // `measured_native`, not a bare `total_runs > 0`: a native pass that never returned a
+        // structured call measured the text salvager, not native FC.
+        AgentPath::NativeFc => measured_native(col),
         AgentPath::PromptBased => col.agentic.as_ref(),
     }
 }
@@ -91,7 +120,10 @@ pub fn source_for_path(col: &BatchColumn, path: AgentPath) -> Option<&AggAgentic
 /// produces a single row (preserving the legacy single-verdict behaviour) rather than vanishing.
 pub fn measured_paths(col: &BatchColumn) -> Vec<(AgentPath, Option<&AggAgentic>)> {
     let mut out = Vec::new();
-    if let Some(n) = col.agentic_native_fc.as_ref().filter(|a| a.total_runs > 0) {
+    // Gated: a native pass with zero structured calls emits NO native row at all. It would
+    // otherwise publish as `eval_method: native_fc` (row.rs) on the strength of calls the
+    // text salvager recovered — a claim about a channel that never produced one.
+    if let Some(n) = measured_native(col) {
         out.push((AgentPath::NativeFc, Some(n)));
     }
     if let Some(p) = col.agentic.as_ref() {

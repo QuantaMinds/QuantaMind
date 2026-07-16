@@ -188,6 +188,16 @@ pub struct AggAgentic {
     /// per-path aggregate keeps prompt-vs-native structurally separate.
     #[serde(default)]
     pub boundary: Option<BoundaryReport>,
+    /// Summed over this path's tasks: turns whose native tool API returned STRUCTURED
+    /// `tool_calls` vs turns where it returned none and the calls were salvaged out of the
+    /// `content` text. `None` = the prompt path, or an aggregate written before this was
+    /// measured; `Some(0)` = we asked the native API and it never once returned a structured
+    /// call, which means this path's score was produced entirely by the text salvager and is
+    /// NOT native function-calling (see `inputs::measured_native`).
+    #[serde(default)]
+    pub native_structured_calls: Option<u32>,
+    #[serde(default)]
+    pub native_salvaged_calls: Option<u32>,
     /// T*: tokens-per-completed-task — total generated tokens over every run ÷ completions
     /// (run-weighted). The amortized cost including tokens wasted on failed runs, so
     /// `>= avg_output_tokens_success` (Effort). `None` when nothing completed. Output tokens
@@ -348,6 +358,16 @@ pub fn batch_summaries(report: &BatchReport, ts: &str) -> Vec<RunSummary> {
         .collect()
 }
 
+/// Sum an optional counter across reports, preserving "never measured". All-`None` stays
+/// `None`; any `Some` makes the result `Some` — so a zero in the output can only ever have
+/// come from a real measurement, never from absence.
+fn sum_opt(it: impl Iterator<Item = Option<u32>>) -> Option<u32> {
+    it.fold(None, |acc, v| match (acc, v) {
+        (None, None) => None,
+        (a, b) => Some(a.unwrap_or(0) + b.unwrap_or(0)),
+    })
+}
+
 fn agg_agentic(reports: &[AgenticReport], native_fc: bool) -> AggAgentic {
     let mut failures = FailureTracker::default();
     for r in reports {
@@ -409,6 +429,10 @@ fn agg_agentic(reports: &[AgenticReport], native_fc: bool) -> AggAgentic {
         // prompt and native aggregates un-blendable downstream.
         boundary: BoundaryReport::from_reports(reports, native_fc),
         tokens_per_completed,
+        // Fold the channel tally. `None` unless a report actually measured it, so an
+        // aggregate over pre-existing reports stays "not recorded" rather than a fake zero.
+        native_structured_calls: sum_opt(reports.iter().map(|r| r.native_structured_calls)),
+        native_salvaged_calls: sum_opt(reports.iter().map(|r| r.native_salvaged_calls)),
         diagnostic: None, // world/built-in aggregate; the BYO adapter builds its own column
     }
 }

@@ -2,7 +2,7 @@ use super::super::profile::{builtins, ReadinessProfile};
 use super::super::types::{AgentPath, CliffStatus, NativeFcStatus, Readiness};
 use super::{
     agentic_metrics, assess_report, from_column, merge_by_tier, merged_by_tier_for, merged_by_tier_for_path,
-    pass_k_of, resolve_quant, verdict_for, verdicts_for_column,
+    measured_paths, pass_k_of, resolve_quant, source_for_path, verdict_for, verdicts_for_column,
 };
 use crate::inference::eval::batch::BatchReport;
 use crate::inference::backend::backend_kind::BackendKind;
@@ -43,6 +43,8 @@ fn col(passes: u32, total: u32, loops: u32, hall: u32, steps: Option<f64>) -> Ba
             boundary: None,
             tokens_per_completed: None,
             diagnostic: None,
+            native_structured_calls: None,
+            native_salvaged_calls: None,
         }),
         agentic_native_fc: None,
         error: None,
@@ -162,6 +164,8 @@ fn agg(passes: u32, total: u32, loops: u32) -> AggAgentic {
         boundary: None,
         tokens_per_completed: None,
             diagnostic: None,
+            native_structured_calls: None,
+            native_salvaged_calls: None,
     }
 }
 
@@ -244,6 +248,8 @@ fn pass_k_of_is_native_first_then_prompt_then_none() {
         boundary: None,
         tokens_per_completed: None,
             diagnostic: None,
+            native_structured_calls: None,
+            native_salvaged_calls: None,
     });
     assert_eq!(pass_k_of(&c), Some(0.6)); // native, not the prompt 1.0
 
@@ -275,6 +281,8 @@ fn agentic_metrics_prefers_native_then_falls_back_to_prompt() {
         boundary: None,
         tokens_per_completed: None,
             diagnostic: None,
+            native_structured_calls: None,
+            native_salvaged_calls: None,
     });
     let (steps, effort) = agentic_metrics(&c);
     assert_eq!(steps, Some(4.0)); // native, NOT the prompt 2.0 — same telemetry the verdict gated on
@@ -516,4 +524,64 @@ fn model_verdict_by_tier_falls_back_to_prompt_when_native_absent() {
     assert_eq!(v.by_tier.len(), 1);
     assert_eq!(v.by_tier[0].tier, Tier::Medium);
     assert_eq!(v.failures.unknown_tool_calls, 4); // prompt-based source, since native absent
+}
+
+// ── the Native FC channel: a salvaged call is not native function-calling (#159) ──────
+
+/// Build a column whose NATIVE pass ran and scored, with an explicit channel tally.
+/// `structured` = how many turns the native tool API actually returned `tool_calls` for;
+/// `None` = the channel was never recorded (every report written before it was measured).
+fn col_with_native_channel(structured: Option<u32>, salvaged: Option<u32>) -> BatchColumn {
+    let mut c = col(3, 3, 0, 0, Some(2.0));
+    let mut native = c.agentic.clone().unwrap();
+    native.native_structured_calls = structured;
+    native.native_salvaged_calls = salvaged;
+    c.agentic_native_fc = Some(native);
+    c
+}
+
+/// THE REGRESSION (#159). llama.cpp answers a native tool request with `tool_calls: []` and a
+/// fenced `{"name":…,"arguments":…}` in `content`; `extract_standard` strips the fence and
+/// parses it, the dialect stays `Standard`, nothing flags it — so a pass^k built ENTIRELY by
+/// the text salvager was labelled `NativeFc` and published as `eval_method: native_fc`.
+/// Measured live: qwen2.5-coder-7b on llama-server --jinja returned 0 structured calls out of
+/// 9, at every needle depth, and `tool_choice: "required"` changed nothing.
+///
+/// The run still scores — the model did the task, and that's real. Only the CLAIM about which
+/// channel produced it was false. So the native path is refused, exactly as `measurable()`
+/// refuses an unmeasurable rung.
+#[test]
+fn a_native_pass_with_zero_structured_calls_is_not_labeled_native_fc() {
+    let c = col_with_native_channel(Some(0), Some(3));
+    let i = from_column(&c, None, false, CliffStatus::NotProbed);
+    assert_eq!(i.native_fc, NativeFcStatus::NotSupported, "0 structured calls is an UNMEASURED native path");
+    assert_eq!(i.path, AgentPath::PromptBased, "the verdict must not claim a channel that produced nothing");
+    // And it emits no native row at all — that row is what reaches `eval_method: native_fc`.
+    assert!(
+        !measured_paths(&c).iter().any(|(p, _)| *p == AgentPath::NativeFc),
+        "a text-salvaged pass must not publish as native_fc",
+    );
+    assert!(source_for_path(&c, AgentPath::NativeFc).is_none());
+}
+
+/// The other half: a native pass that DID return structured calls is unaffected.
+#[test]
+fn a_native_pass_with_real_structured_calls_is_still_native_fc() {
+    let c = col_with_native_channel(Some(7), Some(0));
+    let i = from_column(&c, None, false, CliffStatus::NotProbed);
+    assert!(matches!(i.native_fc, NativeFcStatus::Tested { .. }));
+    assert_eq!(i.path, AgentPath::NativeFc);
+    assert!(measured_paths(&c).iter().any(|(p, _)| *p == AgentPath::NativeFc));
+}
+
+/// HISTORY MUST NOT BE RELABELLED. Every report written before the channel was measured
+/// carries `None` — "not recorded" — which is NOT the same as a measured zero. Refusing those
+/// would invent a measurement we never took, the same sin as the bug, pointed backwards.
+/// This is why the counters are `Option` and not a `#[serde(default)]` zero.
+#[test]
+fn an_unrecorded_channel_is_left_exactly_as_it_was() {
+    let c = col_with_native_channel(None, None);
+    let i = from_column(&c, None, false, CliffStatus::NotProbed);
+    assert!(matches!(i.native_fc, NativeFcStatus::Tested { .. }), "absent ≠ measured zero — leave it alone");
+    assert_eq!(i.path, AgentPath::NativeFc);
 }

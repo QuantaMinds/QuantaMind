@@ -31,6 +31,8 @@ fn report(collection_id: &str, passes: u32) -> BatchReport {
                 boundary: None,
                 tokens_per_completed: None,
             diagnostic: None,
+            native_structured_calls: None,
+            native_salvaged_calls: None,
             }),
             agentic_native_fc: None,
             error: None,

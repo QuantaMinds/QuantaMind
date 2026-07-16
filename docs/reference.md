@@ -254,6 +254,22 @@ whatever model happens to be loaded).
 - If the window won't go higher, this machine's memory caps it there — reduce the
   prompt / Context Stress Test length to fit the largest window it will launch.
 
+**Native FC is claimed only when a structured call was actually returned.** The Native-FC
+arm asks the backend's native tool API and reads its structured `tool_calls`. Some
+runtime/model pairs never produce one: measured on llama.cpp (`--jinja`) with
+`qwen2.5-coder-7b`, **0 of 9** turns returned a structured call — the model answered with a
+markdown-fenced `{"name":…,"arguments":…}` in `content` instead, and llama.cpp's parser
+anchors on `<tool_call>` tags. (`tool_choice: "required"` made no difference; it is
+undocumented on `/v1/chat/completions` and is silently ignored there.)
+
+The harness still *salvages* that text into a call and scores the run — the model did the
+task, and that is real. But the run is then **not labelled Native FC**: a pass produced
+entirely by the text salvager is an *unmeasured* native path, so it reports N/A for native
+and the verdict sources from the prompt path instead, exactly as an unsupported backend
+would. "This model on this runtime can't do native tool-calling" is a finding worth having,
+not something to paper over with a number the channel never earned. Records written before
+this was measured are left alone — absent is "not recorded", never a measured zero.
+
 **Context Stress Test — a cliff needs more evidence than one bad sample.** Each rung's
 accuracy is pooled across the three needle positions (`passed / trials`, shown beside the
 percentage — "12 / 15"), rather than taken from the *worst* position. Worst-of-positions
