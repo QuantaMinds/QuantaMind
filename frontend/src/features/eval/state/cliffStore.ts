@@ -75,6 +75,11 @@ interface CliffStore {
   step: CliffStep | null;
   /// Wall-clock ms when the current run started (Date.now()). Drives the ETA; null when idle.
   startedAt: number | null;
+  /// Trials/rung when the LAST completed run was inconclusive, else null. The panel's
+  /// read-out must consult this: `classifyCliff` only sees composites, so an inconclusive
+  /// probe looks identical to a healthy one and reads "Accuracy maintained up to ≈N tokens"
+  /// — a finding the sample can't support, contradicting the backend's own verdict.
+  lastInconclusive: number | null;
   error: string | null;
   /// Backend-hydrated cliff depths: collection → model (verbatim key) → tokens.
   results: Record<string, Record<string, number>>;
@@ -86,6 +91,12 @@ interface CliffStore {
   /// pass bar — the model fails from the start, so "✓ no cliff" would be a lie. The Matrix
   /// renders this as a failure state, not a healthy one. In-session only, like `probed`.
   brokenBaseline: Record<string, Record<string, boolean>>;
+  /// (collection → model → trials) probes that RAN but whose sample can't resolve the
+  /// collapse margin — one flipped trial would be worth a whole margin, so "cliff" and
+  /// "no cliff" are the same measurement. Carried separately because the Matrix's
+  /// fallthrough reads "probed, not broken, no depth" as "✓ no cliff — accuracy held",
+  /// which is the opposite of what this means. `trials` is kept so the cell can say WHY.
+  inconclusive: Record<string, Record<string, number>>;
 
   setRequest: (req: CliffRequest) => void;
   consumeRequest: () => CliffRequest | null;
@@ -100,6 +111,10 @@ interface CliffStore {
   /// Did the probe's baseline fail (broken from the start)? When true the Matrix must NOT
   /// claim "✓ no cliff" — the model never had a healthy plateau to fall off.
   hasBrokenBaseline: (collectionId: string, model: string) => boolean;
+  /// Trials/rung when the probe RAN but couldn't resolve the collapse margin, else null.
+  /// The Matrix must check this BEFORE its "probed ⇒ ✓ no cliff" fallthrough, or an
+  /// inconclusive probe renders as "accuracy held the whole range" — the opposite claim.
+  inconclusiveTrials: (collectionId: string, model: string) => number | null;
   runProbe: (args: RunProbeArgs) => Promise<void>;
   stop: () => void;
   reset: () => void;
@@ -142,10 +157,12 @@ export const useCliffStore = create<CliffStore>((set, get) => ({
   frac: 0,
   step: null,
   startedAt: null,
+  lastInconclusive: null,
   error: null,
   results: {},
   probed: {},
   brokenBaseline: {},
+  inconclusive: {},
 
   setRequest: (req) => set({ request: req }),
   consumeRequest: () => {
@@ -158,20 +175,28 @@ export const useCliffStore = create<CliffStore>((set, get) => ({
     try {
       const map = await getCliffResults(collectionId); // model → CliffStatus
       // Restore ALL states so broken/no-cliff survive a reload, not just collapse depths:
-      // results = collapse depths; probed = any probed state; brokenBaseline = Broken.
+      // results = collapse depths; probed = any probed state; brokenBaseline = Broken;
+      // inconclusive = the probe ran but its sample can't resolve the collapse margin.
       const results: Record<string, number> = {};
       const probed: Record<string, boolean> = {};
       const broken: Record<string, boolean> = {};
+      const inconclusive: Record<string, number> = {};
       for (const [m, st] of Object.entries(map)) {
         if (st.status === "NotProbed") continue;
         probed[m] = true;
         if (st.status === "Collapsed") results[m] = st.depth;
         else if (st.status === "Broken") broken[m] = true;
+        // Inconclusive MUST be carried, not left to the `probed` fallthrough: consumers read
+        // "probed, not broken, no depth" as "✓ no cliff — accuracy held the whole range",
+        // which is the exact opposite of "the sample can't tell". Carrying `trials` keeps the
+        // reason renderable instead of a bare flag.
+        else if (st.status === "Inconclusive") inconclusive[m] = st.trials;
       }
       set((s) => ({
         results: { ...s.results, [collectionId]: results },
         probed: { ...s.probed, [collectionId]: probed },
         brokenBaseline: { ...s.brokenBaseline, [collectionId]: broken },
+        inconclusive: { ...s.inconclusive, [collectionId]: inconclusive },
       }));
     } catch (e) {
       // best-effort — a missing/unreadable store just leaves the cell N/A — but log it.
@@ -188,12 +213,14 @@ export const useCliffStore = create<CliffStore>((set, get) => ({
   },
   wasProbed: (collectionId, model) => get().probed[collectionId]?.[model] === true,
   hasBrokenBaseline: (collectionId, model) => get().brokenBaseline[collectionId]?.[model] === true,
+  inconclusiveTrials: (collectionId, model) => get().inconclusive[collectionId]?.[model] ?? null,
 
   runProbe: async ({ model, backend, collectionId, tasks, maxTokens, steps, source, params, modelPath, method }) => {
     // GUARDRAIL 2: clear all prior state BEFORE dispatching — never append to a
     // stale series (that corrupts the chart and the persisted cliff).
     const myRun = ++activeRun;
-    set({ points: [], error: null, running: true, runningModel: model, progress: { done: 0, total: steps }, frac: 0, step: null, startedAt: Date.now() });
+    // `lastInconclusive: null` — a new run must not inherit the previous verdict.
+    set({ points: [], error: null, running: true, runningModel: model, progress: { done: 0, total: steps }, frac: 0, step: null, startedAt: Date.now(), lastInconclusive: null });
 
     // Live per-rung points stream from the backend engine over `cliff-progress`; the
     // engine owns the ladder, padding, verify-and-adjust, classification, and
@@ -238,6 +265,9 @@ export const useCliffStore = create<CliffStore>((set, get) => ({
       // so the chart and the (backend-persisted) status can never disagree.
       const points: CliffPoint[] = report.points.map((p) => ({ promptTokens: p.verified_tokens || null, composite: p.composite, passed: p.passed, trials: p.trials, trace: p.trace }));
       const broken = report.status.status === "Broken";
+      // The probe ran but its sample can't resolve the margin — must NOT fall through to the
+      // Matrix's "✓ no cliff" branch. `null` clears a previous inconclusive on a re-run.
+      const inconclusiveTrials = report.status.status === "Inconclusive" ? report.status.trials : null;
       set((s) => {
         const col = { ...(s.results[collectionId] ?? {}) };
         // `results` holds GENUINE collapse depths only — set it for a real cliff, clear
@@ -253,6 +283,14 @@ export const useCliffStore = create<CliffStore>((set, get) => ({
           // an unmeasured "Run probe ↗"; record broken explicitly so a healthy re-run clears it.
           probed: { ...s.probed, [collectionId]: { ...(s.probed[collectionId] ?? {}), [model]: true } },
           brokenBaseline: { ...s.brokenBaseline, [collectionId]: { ...(s.brokenBaseline[collectionId] ?? {}), [model]: broken } },
+          inconclusive: (() => {
+            const c = { ...(s.inconclusive[collectionId] ?? {}) };
+            if (inconclusiveTrials != null) c[model] = inconclusiveTrials;
+            else delete c[model]; // a conclusive re-run clears it
+            return { ...s.inconclusive, [collectionId]: c };
+          })(),
+          // The run's own verdict, for the panel read-out — cleared on a conclusive re-run.
+          lastInconclusive: inconclusiveTrials,
           results: { ...s.results, [collectionId]: col },
         };
       });
@@ -280,6 +318,6 @@ export const useCliffStore = create<CliffStore>((set, get) => ({
     if (get().running) {
       void stopContextCliff().catch((e) => console.error("stop context-cliff failed:", e));
     }
-    set({ points: [], error: null, running: false, runningModel: null, progress: { done: 0, total: 0 }, frac: 0, step: null, startedAt: null });
+    set({ points: [], error: null, running: false, runningModel: null, progress: { done: 0, total: 0 }, frac: 0, step: null, startedAt: null, lastInconclusive: null });
   },
 }));

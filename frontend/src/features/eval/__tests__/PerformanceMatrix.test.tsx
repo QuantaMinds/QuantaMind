@@ -21,7 +21,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   useBatchStore.getState().reset();
   useCliffStore.getState().reset();
-  useCliffStore.setState({ results: {}, probed: {}, brokenBaseline: {}, request: null });
+  useCliffStore.setState({ results: {}, probed: {}, brokenBaseline: {}, inconclusive: {}, request: null });
   useInstalledModelsStore.setState({ list: [], status: "ready", error: null, lastRefreshedAt: 1 });
 });
 
@@ -92,6 +92,20 @@ describe("PerformanceMatrix", () => {
     expect(screen.getByTestId("cliff-broken-qwen")).toHaveTextContent("fails from start");
     expect(screen.queryByTestId("cliff-nocliff-qwen")).toBeNull(); // never claim "no cliff" when broken
     expect(screen.queryByTestId("cliff-run-qwen")).toBeNull();
+  });
+
+  it("shows 'inconclusive' (not '✓ no cliff') when the sample can't resolve the margin", () => {
+    useBatchStore.setState({ report });
+    // THE CONTRADICTION this pins. An inconclusive probe RAN, so it sets `probed` — and the
+    // cell's fallthrough is "probed ⇒ ✓ no cliff — accuracy held the whole range", in green.
+    // That is the OPPOSITE of what Inconclusive means, and it contradicted the Agent Report,
+    // which said "inconclusive" for the very same run. A ✓ and "cannot produce a finding"
+    // cannot both be true.
+    useCliffStore.setState({ probed: { c: { qwen: true } }, inconclusive: { c: { qwen: 3 } } });
+    render(<PerformanceMatrix focusedModel="qwen" onFocusModel={() => {}} />);
+    expect(screen.getByTestId("cliff-inconclusive-qwen")).toHaveTextContent("inconclusive");
+    // The absence of a finding must never render as a good finding.
+    expect(screen.queryByTestId("cliff-nocliff-qwen")).toBeNull();
   });
 
   it("broken baseline wins over a persisted depth — 'fails from start', not the number", () => {

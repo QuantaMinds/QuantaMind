@@ -24,6 +24,13 @@ export interface CliffPoint {
 /// would be a lie. Mirrors the per-step Pass threshold in ContextCliffPanel.
 export const CLIFF_BASELINE_PASS = 0.5;
 
+/// How far below the baseline a rung must fall to count as a collapse — mirrors
+/// `COLLAPSE_MARGIN` in `inference/eval/cliff/engine.rs`. Named rather than re-typed as a
+/// `0.2` default arg in two places: the backend decides the verdict now, and the UI only
+/// needs this to EXPLAIN it ("can't resolve a 20pp collapse"). Two copies of a number that
+/// must agree is how the collapse rule drifted into three copies in the first place.
+export const CLIFF_COLLAPSE_MARGIN = 0.2;
+
 /// The outcome of a completed probe, computed ONLY from the rung series:
 /// - `no-baseline`  — rung 0 errored (null composite); nothing to compare against.
 /// - `broken-baseline` — rung 0 scored below `CLIFF_BASELINE_PASS`; the model
@@ -43,7 +50,7 @@ export type CliffVerdict =
 /// `CLIFF_BASELINE_PASS` before a "no-cliff"/"cliff" verdict is even
 /// considered — a model that's broken at the smallest context can never
 /// truthfully be reported as "accuracy held". `margin` defaults to 0.20 (20pp).
-export function classifyCliff(points: CliffPoint[], margin = 0.2): CliffVerdict {
+export function classifyCliff(points: CliffPoint[], margin = CLIFF_COLLAPSE_MARGIN): CliffVerdict {
   const base = points[0]?.composite;
   if (base == null) return { kind: "no-baseline" };
   if (base < CLIFF_BASELINE_PASS) return { kind: "broken-baseline", baseline: base };
@@ -58,7 +65,7 @@ export function classifyCliff(points: CliffPoint[], margin = 0.2): CliffVerdict 
 /// baseline that held, broken/absent baseline, or a cliff rung the backend gave
 /// no token count for). Thin wrapper over `classifyCliff` so the persisted depth
 /// and the verdict can never disagree.
-export function cliffPoint(points: CliffPoint[], margin = 0.2): number | null {
+export function cliffPoint(points: CliffPoint[], margin = CLIFF_COLLAPSE_MARGIN): number | null {
   const v = classifyCliff(points, margin);
   return v.kind === "cliff" ? v.depth : null;
 }
