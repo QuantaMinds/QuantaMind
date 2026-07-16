@@ -130,7 +130,5 @@ pub async fn stream_generate(
 /// Assemble the terminal stats from the (possibly trailing) `usage` chunk and the
 /// recorded stop reason.
 fn finalize(usage: Option<Usage>, finish: Option<String>) -> GenerateStats {
-    let mut stats = from_usage(usage);
-    stats.finish_reason = finish;
-    stats
+    from_usage(usage, finish)
 }

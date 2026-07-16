@@ -21,7 +21,17 @@ pub struct Timings {
 }
 
 impl Timings {
-    pub fn stats(&self) -> GenerateStats {
+    /// `finish_reason` is a REQUIRED argument, not a field this can fill: llama-server puts
+    /// it on the `choice`, not in `timings`, so only the caller has it.
+    ///
+    /// It used to be `None` here with a comment saying "set by the caller" — and of the two
+    /// callers, the streaming one did and the TOOL one silently didn't. `stats.finish_reason`
+    /// was therefore permanently `None` on every llama.cpp native turn, which made the
+    /// runner's truncation retry and its setting-vs-hardware split (D9) DEAD CODE: every
+    /// truncated tool turn was laundered into `Malformed`/`Hallucinated`/`EmptyOutput` —
+    /// blaming the model for our own decoder's gap. A comment can't enforce a contract, so
+    /// this is a parameter: you cannot build these stats without answering the question.
+    pub fn stats(&self, finish_reason: Option<String>) -> GenerateStats {
         GenerateStats {
             prompt_eval_count: self.prompt_n,
             prompt_eval_ms: self.prompt_ms.map(|m| m.round() as u64),
@@ -30,7 +40,7 @@ impl Timings {
             load_ms: None,
             total_ms: None,
             cache_n: self.cache_n,
-            finish_reason: None, // set by the caller from the chunk's choice.finish_reason
+            finish_reason,
             native_tool_calls: None, // only `NativeToolTurn` asks the native tool API
         }
     }
@@ -47,7 +57,10 @@ mod tests {
             predicted_n: Some(42), predicted_ms: Some(900.2),
             cache_n: Some(64),
         };
-        let stats = t.stats();
+        // The stop reason comes from the caller (the choice), not from `timings` — pass it
+        // through and assert it survives, since dropping it here is the whole bug.
+        let stats = t.stats(Some("length".into()));
+        assert_eq!(stats.finish_reason.as_deref(), Some("length"), "the caller's stop reason must survive");
         assert_eq!(stats.prompt_eval_count, Some(128));
         assert_eq!(stats.prompt_eval_ms, Some(211)); // rounded
         assert_eq!(stats.eval_count, Some(42));
