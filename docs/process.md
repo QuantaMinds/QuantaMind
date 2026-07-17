@@ -47,6 +47,12 @@ Phase 4 additions (locked; installed when their step lands):
 |---|---|---|
 | Charting (TS) | `visx` v4 (`@next`, scale/shape/group) | React-19-native (stable v3 pins React ≤18). Modular SVG primitives for the Latency charts; we draw axes/legends ourselves. Pin the alpha until v4 ships stable. |
 
+CLI additions (locked; installed with the headless `qm` bin):
+
+| Layer | Choice | Why |
+|---|---|---|
+| CLI arg parsing (Rust) | `clap` (derive + env) | The `qm` bin's subcommand/flag surface; the `env` feature reads `QM_BASE`/`QM_MODEL`. Standard, no hand-rolled parser. Bin-only — the Tauri app doesn't link it at runtime. See [docs/cli/README.md](cli/README.md). |
+
 ### What is explicitly NOT installed (yet)
 
 - Logging library — use `println!` / `console.log` until Phase 2.
@@ -636,10 +642,17 @@ for the contract.
 | 7.2 | **Native-FC test mode**: run the same agentic tasks through Ollama's native `/api/chat` `tool_calls` API (`NativeOllamaTurn` translates back to the canonical call shape, so the sandbox/scoring are byte-identical); parallel **Native FC pass^k** Matrix column behind a toggle; the verdict **prefers native** when measured. Ollama-only — llama.cpp/MLX N/A | done |
 | 7.5 | **Resumable job queue + VRAM isolation**: append-only `.jsonl` job log per run (`persistence/jobs`), healed on a truncated tail; `run_batch_resumable` skips completed units (prompt AND native) and appends each new one; an injected `VramGate` (`OllamaVramGate` = `keep_alive:0` + `/api/ps` poll, **assert-and-fail**) evicts the previous model before the next loads; resume bulk-paints the Matrix from one partial report then streams the tail; transactional finish (save → verify → delete log) | done |
 | 7.3 | **Agentic-aware recommender**: `assess_readiness` returns verdicts **ranked best-first** via the pure `readiness::recommend::rank` (tier Ready>Conditional>NotReady, ties by effort then steps, native-first metrics, float-safe `total_cmp`/`None→MAX`); the Agent Report opens with a leaderboard + a Recommendation banner ("Recommended for {profile}: {model} (Ready)", or "no model is ready — closest" — never a fabricated Ready) | done |
-| 7.6 | Headless `quantamind-cli` | **dropped** |
+| 7.6 | Headless `quantamind-cli` | **revived as `qm`** (see below) |
 
 **Phase 7 complete.** Deferred follow-ups: llama.cpp native-FC; the `unmeasured`/🔧
 badge (lands with a real probe to trigger); per-run (k-level) job granularity.
+
+**Headless `qm` CLI (revives 7.6).** Shipping one verified command at a time on the existing
+crate (ADR 0001 — a `[[bin]]`, not a workspace split), reusing the eval engine verbatim.
+**Phase 1 — `qm doctor`: shipped** (all-five-backend reachability + models + the credential
+classifier + native-FC probe + version; a "runnable, not just reachable" exit gate). Planned next:
+`qm run`/`qm init` (verdict + zero-config first run), then a GitHub Action. Full surface + exit-code
+contract: [docs/cli/README.md](cli/README.md).
 
 Locked decisions: **never fabricate** — an unmeasured hard-required metric blocks
 (ignorance is not a pass), unknowns render N/A, prompt-based vs native paths are

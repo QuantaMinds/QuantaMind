@@ -612,3 +612,13 @@ references the frontend via `pnpm --dir=../frontend dev` / `build` and
 New work almost never adds a top-level folder; it fits into a new feature
 (`frontend/src/features/<name>/`) or a new command + domain module.
 
+### The headless `qm` CLI: `backend/src/bin/qm/`
+
+The Tauri app is the default bin (`backend/src/main.rs`). The **`qm` CLI** is a second
+`[[bin]]` on the *same* crate (ADR 0001 — one crate, no workspace), at
+`backend/src/bin/qm/main.rs`. It is deliberately thin: parse args, call a pure engine in
+`quantamind_lib`, render, map the exit code — no logic in the bin. The engine lives at
+`commands/doctor/` (`report`/`probe`/`render`), composing the existing per-backend
+health/credential/capability probes rather than re-implementing them. Reference:
+[docs/cli/README.md](cli/README.md).
+

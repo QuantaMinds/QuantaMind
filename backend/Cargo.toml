@@ -9,6 +9,12 @@ edition = "2021"
 name = "quantamind_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# The headless `qm` CLI — a thin bin on the existing crate (ADR 0001: single crate,
+# no workspace). Shares the eval/inference engine verbatim via `quantamind_lib`.
+[[bin]]
+name = "qm"
+path = "src/bin/qm/main.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -52,6 +58,9 @@ webrtc-vad = "0.4"
 # Per-user data / config directory resolution (platform::user_dirs) — resolves
 # to %LOCALAPPDATA%\QuantaMind on Windows, ~/.quantamind on Unix.
 dirs = "6"
+# Arg parsing for the headless `qm` CLI bin (env feature backs --base/--model
+# reading QM_BASE/QM_MODEL). See docs/process.md#tech-stack.
+clap = { version = "4", features = ["derive", "env"] }
 
 # Windows-only: process-group signaling for graceful sidecar stop (R1) and
 # TerminateProcess for hard stop. Aligned with the version already resolved in

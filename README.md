@@ -295,6 +295,7 @@ The README stays lean on purpose. Depth lives in `docs/`:
 - **[`docs/architecture.md`](./docs/architecture.md)** — modules, IPC, layering law, robustness rules, folder taxonomy.
 - **[`docs/process.md`](./docs/process.md)** — tech stack, setup, conventions, the step-by-step workflow, roadmap.
 - **[`docs/reference.md`](./docs/reference.md)** — analysis/bench schema and troubleshooting.
+- **[`docs/cli/README.md`](./docs/cli/README.md)** — the headless `qm` CLI. `qm doctor` diagnoses every backend (reachable? models? credential? tool-calling?) and tells you exactly what to fix — the fastest way to confirm your setup before you launch the app.
 
 ---
 
