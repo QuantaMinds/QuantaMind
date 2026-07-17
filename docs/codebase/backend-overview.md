@@ -227,7 +227,8 @@ build's registered names in the table.
 
 `app_lifecycle` and `emit` are in `commands/` but expose **no** `#[tauri::command]`s
 — they are spine helpers (below), not part of the IPC table. `doctor` is likewise **not** in the
-IPC table: it's the pure engine behind the `qm doctor` CLI (`commands/doctor/{report,probe,render}`),
+IPC table: it's the pure engine behind the `qm doctor` CLI (`cli/doctor/{report,probe,render}`, with
+per-engine probing split under `cli/doctor/probe/{ollama,openai_local,remote}`),
 composing the existing per-backend health/credential/capability probes — see `backend/src/bin/qm/`.
 
 ---

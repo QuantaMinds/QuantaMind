@@ -12,7 +12,7 @@ pub mod sink;
 
 pub use render::{exit_code, render_human, FailOn};
 
-use crate::commands::doctor::probe::probe_backend;
+use crate::cli::doctor::probe::probe_backend;
 use crate::commands::eval::batch_cmd::probe_native_tools;
 use crate::errors::AppResult;
 use crate::inference::backend::backend_kind::BackendKind;

@@ -1,15 +1,15 @@
 //! `qm` — QuantaMind's headless CLI. Thin by design: parse args, call the pure
-//! `commands::doctor` engine in `quantamind_lib`, render, and map the documented
-//! exit-code contract. No logic lives here (architecture: thin command, pure core).
+//! `cli::{doctor,run,init}` engines in `quantamind_lib`, render, and map the
+//! documented exit-code contract. No logic here (architecture: thin command, pure core).
 //!
 //! Stream discipline: the report (data) → stdout; every `[QM-CODE]` fix line
 //! (diagnostics) → stderr. So `qm doctor --json | jq` is never polluted by prose.
 
 use clap::{Parser, Subcommand, ValueEnum};
-use quantamind_lib::commands::doctor::render::label;
-use quantamind_lib::commands::doctor::{self, DoctorOptions};
-use quantamind_lib::commands::run::config::QmConfig;
-use quantamind_lib::commands::run::{self, FailOn, RunMode, RunOptions, RunOutcome};
+use quantamind_lib::cli::doctor::render::label;
+use quantamind_lib::cli::doctor::{self, DoctorOptions};
+use quantamind_lib::cli::run::config::QmConfig;
+use quantamind_lib::cli::run::{self, FailOn, RunMode, RunOptions, RunOutcome};
 use quantamind_lib::inference::backend::backend_kind::BackendKind;
 use quantamind_lib::inference::eval::agentic::difficulty::passk::ThinkPreset;
 use quantamind_lib::inference::eval::agentic::spec::Tier;
@@ -307,7 +307,7 @@ async fn pick_model(backend: BackendKind, base: Option<&str>, key: Option<&str>)
 
 async fn run_init(args: InitArgs) {
     let cwd = std::env::current_dir().unwrap_or_default();
-    let Some(cfg) = quantamind_lib::commands::init::detect(resolve_key(None)).await else {
+    let Some(cfg) = quantamind_lib::cli::init::detect(resolve_key(None)).await else {
         eprintln!("[QM-NO-RUNNABLE] no runnable backend found — run `qm doctor` to see what to fix.");
         std::process::exit(run::render::EXIT_UNREACHABLE);
     };

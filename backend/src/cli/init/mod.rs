@@ -2,8 +2,8 @@
 //! doctor scan), record it in `qm.json`, and hand back a ready `QmConfig` the bin
 //! writes + runs. Goal: install → real verdict in under two minutes, nothing typed.
 
-use crate::commands::doctor::{run_doctor, DoctorOptions};
-use crate::commands::run::config::QmConfig;
+use crate::cli::doctor::{run_doctor, DoctorOptions};
+use crate::cli::run::config::QmConfig;
 
 /// The starter defaults a fresh run uses.
 const DEFAULT_COLLECTION: &str = "easy-coding";

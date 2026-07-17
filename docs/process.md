@@ -651,7 +651,7 @@ badge (lands with a real probe to trigger); per-run (k-level) job granularity.
 crate (ADR 0001 — a `[[bin]]`, not a workspace split), reusing the eval engine verbatim.
 - **Phase 1 — `qm doctor`: shipped** (all-five-backend reachability + models + the credential
   classifier + native-FC probe + version; a "runnable, not just reachable" exit gate).
-- **Phase 2 — `qm run` + `qm init`: shipped** (`commands/run` + `commands/init`). `run` wraps the
+- **Phase 2 — `qm run` + `qm init`: shipped** (`cli/run` + `cli/init`; all CLI engines live under `cli/`). `run` wraps the
   thin `run_batch` + the no-hardware `assess_report` → a Ready/Conditional/NotReady verdict with the
   `0/10/20` exit codes and `--fail-on`; `init` auto-detects a runnable backend, writes `qm.json`, and
   runs the suite (zero config). Live-verified on Ollama + llama.cpp incl. a weak model → NotReady/20.
