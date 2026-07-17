@@ -12,14 +12,14 @@ This is an OSS tool built one verified command at a time. Today:
 | Command | State | One-liner |
 |---|---|---|
 | `doctor`  | **shipped** | Diagnose every backend: reachable? models? credential? tool-calling? version? |
-| `init`    | planned | Auto-detect a running backend, write a config + starter collection, run it. |
-| `run`     | planned | Built-in tool-calling suite → tiered verdict + telemetry. |
+| `init`    | **shipped** | Auto-detect a running backend, write `qm.json`, and run the suite (zero config). |
+| `run`     | **shipped** | Built-in tool-calling suite → a Ready/Conditional/NotReady verdict + exit code. |
 | `test`    | planned | Run a custom collection (native + prompt-based) → scoreboard + failure taxonomy. |
 | `report`  | planned | Assess a run against a readiness profile → per-path verdict. |
 | `verify`  | planned | Check a signed report (integrity / tamper-evidence). |
 
-Only `doctor` is implemented. The rest are the intended surface — this doc will grow one section at a
-time as each lands, never ahead of the code.
+`doctor`, `init`, and `run` are implemented; `test/report/verify` are the intended surface — this doc
+grows one section at a time as each lands, never ahead of the code.
 
 ## Running it
 
@@ -67,8 +67,10 @@ surface:
 ```
 
 - `2` is standard usage-error (clap emits it on a parse failure — inherited for free).
-- `3` is domain-specific ("nothing you can run"). For `doctor` it means **no runnable backend**.
-- `10/20/11` belong to the run/verdict commands (planned) — `doctor` never emits them.
+- `3` is domain-specific ("nothing you can run"). For `doctor` it means **no runnable backend**; for
+  `run`/`init` it means the backend was unreachable or the model isn't served (not a failing model).
+- `0/10/20` are the `run`/`init` verdict codes (Ready/Conditional/NotReady); `doctor` never emits them.
+  `11` (inconclusive) is reserved for the planned probe commands.
 
 ## Stream discipline
 
@@ -145,14 +147,86 @@ $ echo $?
 
 ---
 
-## `init` / `run` / `test` / `report` / `verify` — planned
+## `run` — the readiness verdict
+
+Runs a built-in tool-calling collection against one model through the same agentic engine as the
+desktop app, and prints a **Ready / Conditional / NotReady** verdict with an exit code CI can gate on.
+This first cut runs the **prompt-based** path (works on any model, no capability probe).
+
+```
+qm run [--backend <kind>] [--model <name>] [--collection easy-coding] [--profile general-agent]
+       [--k <n>] [--fail-on <conditional|notready|never>] [--thinking] [--json]
+```
+
+| Flag | Meaning | Default |
+|---|---|---|
+| `--backend <kind>` | ollama / llama_cpp / mlx / vllm / sglang. | qm.json, then `ollama` |
+| `--model <name>` | Model to run. Env `QM_MODEL`. | qm.json (else required) |
+| `--base <url>` | Endpoint override (remote backends). Env `QM_BASE`. | qm.json / default port |
+| `--collection <id>` | Built-in collection id. | `easy-coding` |
+| `--profile <id>` | Readiness profile: `general-agent` / `rag-assistant` / `coding-agent`. | `general-agent` |
+| `--k <n>` | Override the **strict pass^k** run count (all `k` runs must pass). Higher = stricter. | the collection tier's default (Easy 5 … Extreme 24) |
+| `--fail-on <policy>` | Which verdict fails the *process*: `conditional` (Conditional→10), `notready` (Conditional tolerated→0), `never` (advisory→0). | `conditional` |
+| `--thinking` | Treat as a reasoning model (raises the token budget, strips `<think>`). | off |
+| `--json` | Emit the report as JSON on stdout (progress/notes to stderr). | off |
+
+**Exit:** the verdict — `0` Ready · `10` Conditional · `20` NotReady — subject to `--fail-on`. A
+`3` means the backend was unreachable or the model isn't served (**not** a failing model — that
+distinction is the point); `2` is a bad collection/profile/arg. With no `--model` and no `qm.json`,
+exit `2` with `[QM-NO-MODEL]`.
+
+### Example — a real run
+```
+$ qm run --backend ollama --model qwen2.5:3b
+· [1/5] es_co_run_failing_test
+  … (progress on stderr)
+VERDICT: Ready   (ollama · qwen2.5:3b · easy-coding)
+  [PromptBased] Ready  pass^k=0.80  runs=4/5
+
+profile: general-agent
+$ echo $?   # 0
+```
+A model that can't drive an agent fails honestly, naming the blocker — never a false pass:
+```
+$ qm run --backend ollama --model llama-3.2-1b-instruct:iq3_m
+VERDICT: Not Ready   (ollama · llama-3.2-1b-instruct:iq3_m · easy-coding)
+  [PromptBased] Not Ready  pass^k=0.00  runs=0/5
+    ✗ pass^k 0.00 < 0.60 required
+$ echo $?   # 20   (with --fail-on never → 0 + a [QM-NOTE], findings still shown)
+```
+
+## `init` — zero-config first run
+
+Auto-detects the first **runnable** backend (reachable + has a model), writes a `qm.json` recording
+it, then runs the suite — so `install → real verdict` takes one command and nothing typed. A later
+`qm run` with no flags reads `qm.json`.
+
+```
+qm init [--json]
+```
+
+`qm.json` is a plain, non-secret record (a remote key stays in env/keychain, never the file):
+```json
+{ "backend": "ollama", "model": "qwen2.5:3b", "collection": "easy-coding", "profile": "general-agent" }
+```
+
+**Exit:** follows the verdict (`0/10/20`), or `3` with `[QM-NO-RUNNABLE]` when nothing is runnable
+(run `qm doctor` to see what to fix).
+
+```
+$ qm init
+wrote qm.json (backend=ollama, model=qwen2.5:3b)     # stderr
+VERDICT: Ready   (ollama · qwen2.5:3b · easy-coding)
+  [PromptBased] Ready  pass^k=0.80  runs=20/25
+$ qm run          # no flags — reads qm.json
+VERDICT: Ready   (ollama · qwen2.5:3b · easy-coding) …
+```
+
+## `test` / `report` / `verify` — planned
 
 Not yet implemented. When they land, each gets its own section here (with a live example and its exit
 codes) — and not before. The intended shape:
 
-- **`init`** — auto-detect a running backend, write a working config + a 3-task starter collection
-  into the cwd, then run it. Target: install → real verdict in under two minutes, zero config typed.
-- **`run`** — the built-in tool-calling suite → tiered `pass^k` verdict (`0/10/20`), `--n`/`--k`.
 - **`test`** — a custom collection under native + prompt-based calling → per-mode scoreboard +
   failure taxonomy. Accepts JSON/JSONL/CSV/BFCL/τ-bench/OpenAI-evals collections.
 - **`report`** — assess a run against a readiness profile (hard gates + soft targets) → per-path
