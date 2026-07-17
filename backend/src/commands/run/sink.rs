@@ -17,8 +17,9 @@ impl CliSink {
 }
 
 impl BatchSink for CliSink {
-    fn task_started(&self, _model: &str, task_id: &str, index: usize, total: usize, _category: &str, _is_native: bool) {
-        eprintln!("· [{}/{}] {task_id}", index + 1, total);
+    fn task_started(&self, _model: &str, task_id: &str, index: usize, total: usize, _category: &str, is_native: bool) {
+        let pass = if is_native { "native" } else { "prompt" };
+        eprintln!("· [{}/{}] {task_id} ({pass})", index + 1, total);
     }
 
     fn agentic_turn(&self, _model: &str, _task_id: &str, _step: &TrajectoryStep, _is_native: bool) {}

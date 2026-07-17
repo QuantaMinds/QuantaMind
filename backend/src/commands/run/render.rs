@@ -42,6 +42,14 @@ pub fn exit_code(status: Readiness, fail_on: FailOn) -> i32 {
     }
 }
 
+/// Parse a 1-based menu selection into a 0-based index, rejecting anything out of
+/// `1..=n` (and blank/non-numeric). Pure so the interactive picker's logic is tested
+/// without a TTY.
+pub fn parse_selection(input: &str, n: usize) -> Option<usize> {
+    let choice: usize = input.trim().parse().ok()?;
+    (1..=n).contains(&choice).then(|| choice - 1)
+}
+
 fn status_label(s: Readiness) -> &'static str {
     match s {
         Readiness::Ready => "Ready",
