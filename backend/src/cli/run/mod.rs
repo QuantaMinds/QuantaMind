@@ -83,6 +83,10 @@ pub enum RunOutcome {
     NativeUnsupported { backend: BackendKind, model: String },
     /// `--thinking standard|deep` but the model can't reason (Ollama 400s it) — exit 2.
     ThinkingUnsupported { backend: BackendKind, model: String },
+    /// The run ERRORED — nothing could be measured (backend fault / 500 / timeout
+    /// cascade). Exit 11 (retry), NOT a definitive NotReady: a measurement of nothing
+    /// must never read as "your model failed".
+    Inconclusive { reason: String },
     Ran(RunReport),
 }
 
@@ -283,7 +287,22 @@ pub async fn run_suite(opts: RunOptions) -> AppResult<RunOutcome> {
     }
     report.think_preset = Some(preset);
 
+    // A run that ERRORED couldn't measure anything → Inconclusive (retry), NOT a
+    // NotReady verdict. A column error is the loud signal; surface it redacted (rule
+    // 7f) instead of leaking a raw internal error string into a readiness "reason".
+    if let Some(err) = report.columns.iter().find_map(|c| c.error.as_deref()) {
+        return Ok(RunOutcome::Inconclusive { reason: crate::redact::redact_path(err) });
+    }
+
     let verdicts = assess_report(&report, &profile);
+    // Belt-and-suspenders: even with no column error, zero measured trials across every
+    // path means we measured nothing — Inconclusive, not a fabricated NotReady. (A real
+    // failure has total_runs > 0: the model ran and lost.)
+    let trials: Vec<u32> = verdicts.iter().map(|v| v.total_runs).collect();
+    if render::measured_nothing(&trials) {
+        return Ok(RunOutcome::Inconclusive { reason: "the run produced no measured trials".into() });
+    }
+
     Ok(RunOutcome::Ran(RunReport {
         collection_id: opts.collection,
         backend: opts.backend,
