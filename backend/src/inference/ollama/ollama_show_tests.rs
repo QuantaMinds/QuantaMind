@@ -9,6 +9,14 @@ fn supports_tools_reads_the_capability_list() {
 }
 
 #[test]
+fn supports_thinking_reads_the_capability_list() {
+    // A reasoning model (e.g. qwen3.5:9b) advertises "thinking"; qwen2.5:3b does not.
+    assert!(supports_thinking(&["completion".into(), "tools".into(), "thinking".into()]));
+    assert!(!supports_thinking(&["completion".into(), "tools".into()]));
+    assert!(!supports_thinking(&[]));
+}
+
+#[test]
 fn parse_version_reads_the_version_string() {
     assert_eq!(parse_version(r#"{"version":"0.11.10"}"#).as_deref(), Some("0.11.10"));
     assert_eq!(parse_version(r#"{}"#), None); // no version key → None, never a fabricated value

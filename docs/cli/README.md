@@ -151,29 +151,38 @@ $ echo $?
 
 Runs a built-in tool-calling collection against one model through the same agentic engine as the
 desktop app, and prints a **Ready / Conditional / NotReady** verdict with an exit code CI can gate on.
-This first cut runs the **prompt-based** path (works on any model, no capability probe).
 
 ```
 qm run [--backend <kind>] [--model <name>] [--collection easy-coding] [--profile general-agent]
-       [--k <n>] [--fail-on <conditional|notready|never>] [--thinking] [--json]
+       [--mode <prompt_based|native|both>] [--tier <easy|medium|hard|extreme>]
+       [--thinking <lean|standard|deep>] [--k <n>] [--fail-on <conditional|notready|never>] [--json]
 ```
 
 | Flag | Meaning | Default |
 |---|---|---|
-| `--backend <kind>` | ollama / llama_cpp / mlx / vllm / sglang. | qm.json, then `ollama` |
-| `--model <name>` | Model to run. Env `QM_MODEL`. | qm.json (else required) |
+| `--backend <kind>` | ollama / llama_cpp / mlx / vllm / sglang. | qm.json, then interactive/ollama |
+| `--model <name>` | Model to run. Env `QM_MODEL`. | qm.json, else interactive pick |
 | `--base <url>` | Endpoint override (remote backends). Env `QM_BASE`. | qm.json / default port |
 | `--collection <id>` | Built-in collection id. | `easy-coding` |
 | `--profile <id>` | Readiness profile: `general-agent` / `rag-assistant` / `coding-agent`. | `general-agent` |
-| `--k <n>` | Override the **strict pass^k** run count (all `k` runs must pass). Higher = stricter. | the collection tier's default (Easy 5 … Extreme 24) |
+| `--mode <path>` | Calling path: `prompt_based`, `native` (function-calling), or `both`. `both` yields a verdict row per path. | `prompt_based` |
+| `--tier <t>` | Difficulty-tier override — scales the per-turn token budget and the default `k` (Easy 5 … Extreme 24). | the collection's own tier |
+| `--thinking <t>` | Reasoning-scratchpad budget: `lean` (off) / `standard` / `deep`. `standard`/`deep` require a model that advertises reasoning. | `lean` |
+| `--k <n>` | Override the **strict pass^k** run count (all `k` runs must pass). Higher = stricter. | the tier's default |
 | `--fail-on <policy>` | Which verdict fails the *process*: `conditional` (Conditional→10), `notready` (Conditional tolerated→0), `never` (advisory→0). | `conditional` |
-| `--thinking` | Treat as a reasoning model (raises the token budget, strips `<think>`). | off |
 | `--json` | Emit the report as JSON on stdout (progress/notes to stderr). | off |
 
 **Exit:** the verdict — `0` Ready · `10` Conditional · `20` NotReady — subject to `--fail-on`. A
 `3` means the backend was unreachable or the model isn't served (**not** a failing model — that
-distinction is the point); `2` is a bad collection/profile/arg. With no `--model` and no `qm.json`,
-exit `2` with `[QM-NO-MODEL]`.
+distinction is the point); `2` is a bad arg, or a capability mismatch: `[QM-NATIVE-UNSUPPORTED]`
+(`--mode native` on a model with no function-calling) or `[QM-THINKING-UNSUPPORTED]`
+(`--thinking standard/deep` on a non-reasoning model — the probe catches it before the run instead
+of letting the backend 400 every request into a bogus NotReady).
+
+**Interactive selection.** In a terminal, a missing `--model` (and no `qm.json`) opens a numbered
+picker of the backend's served models; a missing `--backend` picks among the runnable ones. Over SSH
+/ in CI / a pipe / with `--json`, there's no prompt — it fails fast with exit `2` (never blocks on
+input).
 
 ### Example — a real run
 ```
