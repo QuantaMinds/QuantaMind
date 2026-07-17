@@ -23,6 +23,18 @@ fn fail_on_never_is_advisory_only() {
 }
 
 #[test]
+fn measured_nothing_separates_an_errored_run_from_a_real_failure() {
+    // No paths, or all-zero trials → couldn't measure → Inconclusive.
+    assert!(measured_nothing(&[]));
+    assert!(measured_nothing(&[0]));
+    assert!(measured_nothing(&[0, 0]));
+    // Any positive total_runs = the model actually ran (even if it lost every trial) →
+    // a real NotReady, NOT inconclusive.
+    assert!(!measured_nothing(&[5]));
+    assert!(!measured_nothing(&[0, 5]));
+}
+
+#[test]
 fn selection_accepts_only_in_range_1_based() {
     assert_eq!(parse_selection("1", 3), Some(0));
     assert_eq!(parse_selection(" 3 \n", 3), Some(2)); // trims whitespace/newline

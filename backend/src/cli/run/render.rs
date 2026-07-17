@@ -10,6 +10,8 @@ use crate::inference::eval::readiness::types::Readiness;
 
 pub const EXIT_READY: i32 = 0;
 pub const EXIT_CONDITIONAL: i32 = 10;
+/// The run couldn't measure anything (backend fault / timeout) — CI should RETRY.
+pub const EXIT_INCONCLUSIVE: i32 = 11;
 pub const EXIT_NOTREADY: i32 = 20;
 /// A backend that didn't respond / a missing model — not a failing model.
 pub const EXIT_UNREACHABLE: i32 = 3;
@@ -40,6 +42,13 @@ pub fn exit_code(status: Readiness, fail_on: FailOn) -> i32 {
             Readiness::NotReady => EXIT_NOTREADY,
         },
     }
+}
+
+/// Did the run measure nothing? True when no path ran, or every path's trial count
+/// is zero — the "couldn't measure → Inconclusive" signal, kept distinct from a
+/// measured failure (any positive total_runs, even 0 passes).
+pub fn measured_nothing(total_runs: &[u32]) -> bool {
+    total_runs.is_empty() || total_runs.iter().all(|&n| n == 0)
 }
 
 /// Parse a 1-based menu selection into a 0-based index, rejecting anything out of

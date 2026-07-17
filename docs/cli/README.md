@@ -70,7 +70,8 @@ surface:
 - `3` is domain-specific ("nothing you can run"). For `doctor` it means **no runnable backend**; for
   `run`/`init` it means the backend was unreachable or the model isn't served (not a failing model).
 - `0/10/20` are the `run`/`init` verdict codes (Ready/Conditional/NotReady); `doctor` never emits them.
-  `11` (inconclusive) is reserved for the planned probe commands.
+- `11` (inconclusive) means `run` couldn't measure anything — the backend errored / timed out mid-run
+  (distinct from a model that ran and failed, which is `20`). CI should **retry**, not hard-fail.
 
 ## Stream discipline
 
@@ -172,7 +173,9 @@ qm run [--backend <kind>] [--model <name>] [--collection easy-coding] [--profile
 | `--fail-on <policy>` | Which verdict fails the *process*: `conditional` (Conditional→10), `notready` (Conditional tolerated→0), `never` (advisory→0). | `conditional` |
 | `--json` | Emit the report as JSON on stdout (progress/notes to stderr). | off |
 
-**Exit:** the verdict — `0` Ready · `10` Conditional · `20` NotReady — subject to `--fail-on`. A
+**Exit:** the verdict — `0` Ready · `10` Conditional · `20` NotReady — subject to `--fail-on`. An
+`11` means the run **errored before it could measure anything** (backend fault / timeout) — a
+`[QM-INCONCLUSIVE]`, CI should retry, never a definitive NotReady. A
 `3` means the backend was unreachable or the model isn't served (**not** a failing model — that
 distinction is the point); `2` is a bad arg, or a capability mismatch: `[QM-NATIVE-UNSUPPORTED]`
 (`--mode native` on a model with no function-calling) or `[QM-THINKING-UNSUPPORTED]`

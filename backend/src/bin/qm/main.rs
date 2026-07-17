@@ -368,6 +368,10 @@ async fn execute_run(opts: RunOptions, json: bool, fail_on: FailOn) {
             eprintln!("[QM-THINKING-UNSUPPORTED] '{model}' on {} is not a reasoning model — use --thinking lean.", label(backend));
             std::process::exit(2);
         }
+        RunOutcome::Inconclusive { reason } => {
+            eprintln!("[QM-INCONCLUSIVE] the run errored before it could measure anything — retry. ({reason})");
+            std::process::exit(run::render::EXIT_INCONCLUSIVE);
+        }
         RunOutcome::Ran(report) => {
             let status = report.worst_status();
             if json {
