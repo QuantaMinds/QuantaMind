@@ -5,7 +5,7 @@
 //! soft policy can surface findings without blocking the build.
 
 use super::RunReport;
-use crate::commands::doctor::render::label;
+use crate::cli::doctor::render::label;
 use crate::inference::eval::readiness::types::Readiness;
 
 pub const EXIT_READY: i32 = 0;

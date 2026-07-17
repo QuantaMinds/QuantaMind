@@ -11,6 +11,7 @@
 #![cfg_attr(not(target_os = "windows"), allow(clippy::disallowed_methods))]
 
 pub mod audit;
+pub mod cli;
 pub mod commands;
 pub mod errors;
 /// Rule 7(b)'s chokepoint: confine a frontend-supplied path to an allowed root. A

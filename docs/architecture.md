@@ -617,8 +617,9 @@ New work almost never adds a top-level folder; it fits into a new feature
 The Tauri app is the default bin (`backend/src/main.rs`). The **`qm` CLI** is a second
 `[[bin]]` on the *same* crate (ADR 0001 — one crate, no workspace), at
 `backend/src/bin/qm/main.rs`. It is deliberately thin: parse args, call a pure engine in
-`quantamind_lib`, render, map the exit code — no logic in the bin. The engine lives at
-`commands/doctor/` (`report`/`probe`/`render`), composing the existing per-backend
-health/credential/capability probes rather than re-implementing them. Reference:
-[docs/cli/README.md](cli/README.md).
+`quantamind_lib`, render, map the exit code — no logic in the bin. All CLI command engines live under
+**`backend/src/cli/`** — `cli/doctor/`, `cli/run/`, `cli/init/` — composing the existing per-backend
+health/credential/capability probes rather than re-implementing them. Where a command has genuinely
+per-engine logic it's split per engine: `cli/doctor/probe/{ollama,openai_local,remote}` (the three
+distinct reachability strategies). Reference: [docs/cli/README.md](cli/README.md).
 
