@@ -2049,8 +2049,11 @@ async fn a_hung_turn_with_no_tokens_times_out() {
 /// `timeout(STEP_TIMEOUT, whole_turn)` killed exactly this healthy slow generation.
 #[tokio::test]
 async fn a_slow_but_progressing_turn_is_not_timed_out() {
+    // CI-safe margins: the 15ms pulse gap sits 20x under the 300ms threshold, so a
+    // scheduling hiccup on a loaded runner can't fake a stall (95ms headroom flaked on
+    // the Windows runner with the original 60ms threshold).
     let model = PacedModel { pre_first: ms(10), gap: ms(15), pulses: 40, tail: ms(0), reply: END_CALL, slow: false };
-    let policy = StallPolicy { ttft_grace: ms(200), inter_token: ms(60) };
+    let policy = StallPolicy { ttft_grace: ms(1000), inter_token: ms(300) };
     let (tx, mut rx) = unbounded_channel();
     let outcome = run_once_inner(&model, &sandbox(), 8, 2, policy, 0, &tx, &CancellationToken::new())
         .await
@@ -2067,9 +2070,12 @@ async fn a_slow_but_progressing_turn_is_not_timed_out() {
 /// streaming has started.
 #[tokio::test]
 async fn a_long_prefill_before_first_token_is_not_timed_out() {
-    // Silent for nearly the whole grace (210ms < 300ms), THEN stream normally to the end state.
-    let model = PacedModel { pre_first: ms(210), gap: ms(15), pulses: 12, tail: ms(0), reply: END_CALL, slow: false };
-    let policy = StallPolicy { ttft_grace: ms(300), inter_token: ms(40) };
+    // A prefill silence far past `inter_token` (400ms >> 100ms) but within the grace
+    // (2000ms). The original 210ms-vs-300ms margin (90ms headroom) flaked on the slow
+    // Windows CI runner — the semantics need silence >> inter_token, not "just under
+    // the grace", so the margins are wide on both sides now.
+    let model = PacedModel { pre_first: ms(400), gap: ms(15), pulses: 12, tail: ms(0), reply: END_CALL, slow: false };
+    let policy = StallPolicy { ttft_grace: ms(2000), inter_token: ms(100) };
     let (tx, _rx) = unbounded_channel();
     let outcome = run_once_inner(&model, &sandbox(), 8, 2, policy, 0, &tx, &CancellationToken::new())
         .await
@@ -2084,9 +2090,10 @@ async fn a_long_prefill_before_first_token_is_not_timed_out() {
 /// threshold, not TTFT, is what fires here.
 #[tokio::test]
 async fn a_turn_that_goes_silent_mid_stream_times_out() {
-    // Three healthy tokens, then a silence far longer than `inter_token`, then a (never-reached) end.
-    let model = PacedModel { pre_first: ms(10), gap: ms(15), pulses: 3, tail: ms(220), reply: END_CALL, slow: false };
-    let policy = StallPolicy { ttft_grace: ms(400), inter_token: ms(50) };
+    // Three healthy tokens (15ms gaps, 20x under the 300ms threshold), then a 900ms
+    // silence (3x over it), then a (never-reached) end. Wide on both sides for CI.
+    let model = PacedModel { pre_first: ms(10), gap: ms(15), pulses: 3, tail: ms(900), reply: END_CALL, slow: false };
+    let policy = StallPolicy { ttft_grace: ms(2000), inter_token: ms(300) };
     let (tx, mut rx) = unbounded_channel();
     let outcome = run_once_inner(&model, &sandbox(), 8, 2, policy, 0, &tx, &CancellationToken::new())
         .await
@@ -2103,7 +2110,7 @@ async fn a_turn_that_goes_silent_mid_stream_times_out() {
 /// progress, both reach the end state, regardless of `slow_inference()`.
 #[tokio::test]
 async fn the_step_cap_no_longer_depends_on_slow_inference() {
-    let policy = StallPolicy { ttft_grace: ms(200), inter_token: ms(60) };
+    let policy = StallPolicy { ttft_grace: ms(1000), inter_token: ms(300) };
     for slow in [false, true] {
         let model = PacedModel { pre_first: ms(10), gap: ms(15), pulses: 40, tail: ms(0), reply: END_CALL, slow };
         let (tx, mut rx) = unbounded_channel();
