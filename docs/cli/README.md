@@ -168,7 +168,7 @@ qm run [--backend <kind>] [--model <name>] [--collection easy-coding] [--profile
 | `--profile <id>` | Readiness profile: `general-agent` / `rag-assistant` / `coding-agent`. | `general-agent` |
 | `--mode <path>` | Calling path: `prompt_based`, `native` (function-calling), or `both`. `both` yields a verdict row per path. | `prompt_based` |
 | `--tier <t>` | Difficulty-tier override — scales the per-turn token budget and the default `k` (Easy 5 … Extreme 24). | the collection's own tier |
-| `--thinking <t>` | Reasoning-scratchpad budget: `lean` (off) / `standard` / `deep`. `standard`/`deep` require a model that advertises reasoning. | `lean` |
+| `--thinking <t>` | Reasoning-scratchpad budget: `lean` (off) / `standard` / `deep`. `standard`/`deep` are checked to actually take effect (Ollama: model capability via `/api/show`; llama.cpp/MLX/remote: a live probe for `reasoning_content`) — if reasoning won't happen, the run stops with a clear fix instead of silently behaving like `lean`. | `lean` |
 | `--k <n>` | Override the **strict pass^k** run count (all `k` runs must pass). Higher = stricter. | the tier's default |
 | `--fail-on <policy>` | Which verdict fails the *process*: `conditional` (Conditional→10), `notready` (Conditional tolerated→0), `never` (advisory→0). | `conditional` |
 | `--json` | Emit the report as JSON on stdout (progress/notes to stderr). | off |
@@ -179,8 +179,10 @@ qm run [--backend <kind>] [--model <name>] [--collection easy-coding] [--profile
 `3` means the backend was unreachable or the model isn't served (**not** a failing model — that
 distinction is the point); `2` is a bad arg, or a capability mismatch: `[QM-NATIVE-UNSUPPORTED]`
 (`--mode native` on a model with no function-calling) or `[QM-THINKING-UNSUPPORTED]`
-(`--thinking standard/deep` on a non-reasoning model — the probe catches it before the run instead
-of letting the backend 400 every request into a bogus NotReady).
+(`--thinking standard/deep` where reasoning won't actually happen — caught before the run on **every**
+backend: Ollama would 400 every request; llama.cpp/MLX would silently ignore it and behave like
+`lean`. The message names the per-engine fix, e.g. relaunch llama-server with `--jinja
+--reasoning-format deepseek`).
 
 **Interactive selection.** In a terminal, a missing `--model` (and no `qm.json`) opens a numbered
 picker of the backend's served models; a missing `--backend` picks among the runnable ones. Over SSH

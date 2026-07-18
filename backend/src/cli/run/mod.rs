@@ -16,6 +16,7 @@ use crate::cli::doctor::probe::probe_backend;
 use crate::commands::eval::batch_cmd::probe_native_tools;
 use crate::errors::AppResult;
 use crate::inference::backend::backend_kind::BackendKind;
+use crate::inference::backend::remote_guard::credential_allowed;
 use crate::inference::backend::{endpoint, remote_config};
 use crate::inference::eval::agentic::difficulty::passk::{max_tokens_for_preset, pass_k_for, ThinkPreset};
 use crate::inference::eval::agentic::model_turn::{BackendTurn, NativeToolTurn};
@@ -117,6 +118,33 @@ impl RunReport {
     }
 }
 
+/// Will an OpenAI-compatible backend (llama.cpp / MLX / vLLM / SGLang) actually
+/// produce reasoning in THIS model+server setup? Sends one tiny request and checks
+/// for `reasoning_content` — the field llama.cpp (`--reasoning-format`) and vLLM use.
+/// A null/absent field means `--thinking` would silently no-op (the exact bug this
+/// catches). Fail-OPEN on any transport/parse error so a transient failure never
+/// false-blocks a legitimate run.
+async fn openai_reasons(ep: &str, model: &str, key: Option<&str>) -> bool {
+    let Ok(c) = reqwest::Client::builder().timeout(std::time::Duration::from_secs(8)).build() else {
+        return true;
+    };
+    let mut req = c.post(format!("{ep}/v1/chat/completions")).json(&serde_json::json!({
+        "model": model,
+        "messages": [{"role": "user", "content": "Reply with just the number 7."}],
+        "max_tokens": 32,
+        "stream": false,
+    }));
+    if let Some(k) = key.filter(|k| !k.is_empty() && credential_allowed(ep)) {
+        req = req.bearer_auth(k);
+    }
+    let Ok(resp) = req.send().await else { return true };
+    let Ok(v) = resp.json::<serde_json::Value>().await else { return true };
+    v.pointer("/choices/0/message/reasoning_content")
+        .and_then(|r| r.as_str())
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false)
+}
+
 /// The hardest agentic tier present — sizes the per-turn token budget. Mirrors
 /// `batch_cmd::effective_tier` (private there); `Easy` when no task is agentic.
 fn effective_tier(tasks: &[ToolTask]) -> Tier {
@@ -200,11 +228,19 @@ pub async fn run_suite(opts: RunOptions) -> AppResult<RunOutcome> {
     let is_thinking = !matches!(opts.think, ThinkPreset::Lean);
     let preset = opts.think;
 
-    // Guard: a Thinking-Budget preset on a model that can't reason. Ollama rejects such
-    // a request with HTTP 400 ("does not support thinking"); rather than let every run
-    // error and mislabel that as a NotReady verdict, fail fast with the fix.
-    if is_thinking && opts.backend == BackendKind::Ollama && !probe_supports_thinking(&ep, &opts.model).await {
-        return Ok(RunOutcome::ThinkingUnsupported { backend: opts.backend, model: opts.model });
+    // Guard: a Thinking-Budget preset where reasoning won't actually happen — shown
+    // CLEARLY instead of silently no-op'ing (llama.cpp) or 400'ing every run into a
+    // bogus verdict (Ollama). Ollama gates per-model (probe /api/show); the other
+    // OpenAI-compatible backends can't be queried, so we probe the live setup for a
+    // `reasoning_content` field.
+    if is_thinking {
+        let reasons = match opts.backend {
+            BackendKind::Ollama => probe_supports_thinking(&ep, &opts.model).await,
+            _ => openai_reasons(&ep, &opts.model, opts.api_key.as_deref()).await,
+        };
+        if !reasons {
+            return Ok(RunOutcome::ThinkingUnsupported { backend: opts.backend, model: opts.model });
+        }
     }
     let tier = opts.tier.unwrap_or_else(|| effective_tier(&tasks));
     let targets = vec![ModelTarget { model: opts.model.clone(), backend: opts.backend, is_thinking }];
