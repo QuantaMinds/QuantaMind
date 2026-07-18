@@ -874,7 +874,7 @@ mod live_native_channel_tests {
             keep_alive: None,
             think: None,
         };
-        let (raw, stats) = t.run(&spec).await.expect("live native turn");
+        let (raw, stats) = t.run(&spec, &super::Progress::new()).await.expect("live native turn");
         let salvaged = extract_calls(&raw);
         println!("\n=== LIVE native channel: {label} ===");
         println!("  native_tool_calls (structured) : {:?}", stats.native_tool_calls);

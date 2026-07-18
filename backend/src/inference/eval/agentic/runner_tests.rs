@@ -2070,7 +2070,7 @@ async fn a_long_prefill_before_first_token_is_not_timed_out() {
     // Silent for nearly the whole grace (210ms < 300ms), THEN stream normally to the end state.
     let model = PacedModel { pre_first: ms(210), gap: ms(15), pulses: 12, tail: ms(0), reply: END_CALL, slow: false };
     let policy = StallPolicy { ttft_grace: ms(300), inter_token: ms(40) };
-    let (tx, mut rx) = unbounded_channel();
+    let (tx, _rx) = unbounded_channel();
     let outcome = run_once_inner(&model, &sandbox(), 8, 2, policy, 0, &tx, &CancellationToken::new())
         .await
         .unwrap();
