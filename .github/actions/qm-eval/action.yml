@@ -1,0 +1,111 @@
+name: 'QuantaMind agent-readiness eval'
+description: 'Run the qm tool-calling suite against a model and gate CI on the Ready/Conditional/NotReady verdict.'
+
+# Wraps the `qm run` CLI. Builds `qm` from the QuantaMind source in the workspace
+# (check it out first — see docs/ci/README.md), runs the suite against an
+# OpenAI-compatible endpoint, writes a JUnit report + a JSON report, uploads both
+# as an artifact, and lets `qm`'s exit code (subject to `fail-on`) gate the job.
+#
+# The endpoint URL is an input; the API KEY is NEVER an input (inputs are logged) —
+# pass it as the `QM_API_KEY` env from a secret on the calling step/job.
+
+inputs:
+  backend:
+    description: 'ollama | llama_cpp | mlx | vllm | sglang'
+    default: 'vllm'
+  base-url:
+    description: 'OpenAI-compatible endpoint (e.g. https://vllm.internal:8000). Sets QM_BASE.'
+    required: true
+  model:
+    description: 'Model name to evaluate.'
+    required: true
+  collection:
+    description: 'Built-in collection id.'
+    default: 'easy-coding'
+  mode:
+    description: 'prompt_based | native | both'
+    default: 'prompt_based'
+  tier:
+    description: 'Difficulty-tier override (easy|medium|hard|extreme). Empty = collection default.'
+    default: ''
+  thinking:
+    description: 'lean | standard | deep (standard/deep need a reasoning model).'
+    default: 'lean'
+  k:
+    description: 'pass^k override. Empty = tier default (or 1 when ci-profile=fast).'
+    default: ''
+  profile:
+    description: 'Readiness profile: general-agent | rag-assistant | coding-agent.'
+    default: 'general-agent'
+  fail-on:
+    description: 'Which verdict fails the job: conditional | notready | never.'
+    default: 'conditional'
+  ci-profile:
+    description: 'fast (quick PR gate: k=1) or full (nightly: tier-default k).'
+    default: 'fast'
+  backend-path:
+    description: 'Path to the QuantaMind Rust crate (where Cargo.toml lives).'
+    default: 'backend'
+  artifact-name:
+    description: 'Name of the uploaded report artifact.'
+    default: 'qm-eval-report'
+
+runs:
+  using: composite
+  steps:
+    # qm links the full quantamind lib (Tauri deps), so Linux needs the GUI system
+    # libs to compile — same set as the project's own CI.
+    - name: Install Linux build deps
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf libasound2-dev
+
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: ${{ inputs.backend-path }}
+
+    - name: Build qm
+      shell: bash
+      working-directory: ${{ inputs.backend-path }}
+      run: cargo build --release --bin qm
+
+    - name: Run qm eval
+      shell: bash
+      env:
+        QM_BASE: ${{ inputs.base-url }}
+        # QM_API_KEY is inherited from the caller's env (set it from a secret).
+      run: |
+        BIN="${{ inputs.backend-path }}/target/release/qm"
+        args=(run
+          --backend "${{ inputs.backend }}"
+          --model "${{ inputs.model }}"
+          --collection "${{ inputs.collection }}"
+          --mode "${{ inputs.mode }}"
+          --thinking "${{ inputs.thinking }}"
+          --profile "${{ inputs.profile }}"
+          --fail-on "${{ inputs.fail-on }}"
+          --junit qm-junit.xml
+          --json)
+        tier="${{ inputs.tier }}"
+        if [ -n "$tier" ]; then args+=(--tier "$tier"); fi
+        k="${{ inputs.k }}"
+        if [ -z "$k" ] && [ "${{ inputs.ci-profile }}" = "fast" ]; then k=1; fi
+        if [ -n "$k" ]; then args+=(--k "$k"); fi
+        echo "+ qm ${args[*]}"
+        # `qm`'s exit code (0/10/11/20/2/3, gated by --fail-on) fails this step under
+        # `set -eo pipefail`, which fails the job — the gate. The JSON report goes to
+        # the file; human progress stays on stderr (visible in the log).
+        "$BIN" "${args[@]}" > qm-report.json
+
+    - name: Upload eval report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: |
+          qm-report.json
+          qm-junit.xml
+        if-no-files-found: warn

@@ -655,8 +655,12 @@ crate (ADR 0001 — a `[[bin]]`, not a workspace split), reusing the eval engine
   thin `run_batch` + the no-hardware `assess_report` → a Ready/Conditional/NotReady verdict with the
   `0/10/20` exit codes and `--fail-on`; `init` auto-detects a runnable backend, writes `qm.json`, and
   runs the suite (zero config). Live-verified on Ollama + llama.cpp incl. a weak model → NotReady/20.
-Planned next: a GitHub Action, then `test`/`report`/`verify`. Full surface + exit-code contract:
-[docs/cli/README.md](cli/README.md).
+- **Phase 3 — GitHub Action + `qm run --junit`: shipped.** `qm run --junit <path>` writes a JUnit
+  report (panel mirrors the exit code — Ready green, NotReady red with the culprit tier). The composite
+  action `.github/actions/qm-eval` wraps `qm run` → JUnit + JSON artifact, `fail-on` gates the job;
+  demo at `.github/workflows/eval-example.yml`; usage + vault/OIDC in [docs/ci/README.md](ci/README.md).
+  Gate verified live (NotReady → job red under `notready`, green under `never`).
+Planned next: `test`/`report`/`verify`. Full surface + exit-code contract: [docs/cli/README.md](cli/README.md).
 
 Locked decisions: **never fabricate** — an unmeasured hard-required metric blocks
 (ignorance is not a pass), unknowns render N/A, prompt-based vs native paths are

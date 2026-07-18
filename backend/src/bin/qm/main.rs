@@ -17,6 +17,7 @@ use quantamind_lib::inference::eval::agentic::spec::Tier;
 use quantamind_lib::redact::redact_path;
 use quantamind_lib::secrets;
 use std::io::{IsTerminal, Write};
+use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "qm", version, about = "QuantaMind headless CLI — local agent-readiness")]
@@ -74,6 +75,9 @@ struct RunArgs {
     /// Which verdicts fail the process exit (CI gate).
     #[arg(long, value_enum, default_value = "conditional")]
     fail_on: FailOnArg,
+    /// Also write a JUnit XML report here (for a CI test panel).
+    #[arg(long)]
+    junit: Option<PathBuf>,
     /// Emit the machine-readable report as JSON on stdout (progress/errors to stderr).
     #[arg(long)]
     json: bool,
@@ -245,7 +249,7 @@ async fn run_suite(args: RunArgs) {
         mode: RunMode::from(args.mode),
         profile_id: args.profile,
     };
-    execute_run(opts, args.json, FailOn::from(args.fail_on)).await;
+    execute_run(opts, args.json, FailOn::from(args.fail_on), args.junit).await;
 }
 
 /// True when stdin is an interactive terminal — the gate for any prompt. Over SSH
@@ -332,11 +336,11 @@ async fn run_init(args: InitArgs) {
         mode: RunMode::PromptBased,
         profile_id: cfg.profile,
     };
-    execute_run(opts, args.json, FailOn::Conditional).await;
+    execute_run(opts, args.json, FailOn::Conditional, None).await;
 }
 
 /// Run a suite and exit on the verdict — shared by `run` and `init`.
-async fn execute_run(opts: RunOptions, json: bool, fail_on: FailOn) {
+async fn execute_run(opts: RunOptions, json: bool, fail_on: FailOn, junit: Option<PathBuf>) {
     let outcome = match run::run_suite(opts).await {
         Ok(o) => o,
         Err(e) => {
@@ -405,6 +409,12 @@ async fn execute_run(opts: RunOptions, json: bool, fail_on: FailOn) {
                 }
             } else {
                 print!("{}", run::render_human(&report));
+            }
+            // JUnit is a side artifact (data → a file), independent of --json/stdout.
+            if let Some(path) = junit {
+                if let Err(e) = std::fs::write(&path, run::to_junit(&report)) {
+                    eprintln!("[QM-INTERNAL] could not write JUnit report: {}", redact_path(&e.to_string()));
+                }
             }
             let code = run::exit_code(status, fail_on);
             // Note when a soft policy downgraded a non-Ready verdict to a pass.
