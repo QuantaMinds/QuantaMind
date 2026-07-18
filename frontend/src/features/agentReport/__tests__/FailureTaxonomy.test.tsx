@@ -36,11 +36,16 @@ describe("FailureTaxonomy", () => {
     );
     // Heading names the single selected tier (not a cross-tier sum).
     expect(screen.getByTestId("failure-taxonomy")).toHaveTextContent("— Hard");
-    // Just this tier's 60 events: UnknownTool 30/60=50%, ForbiddenCall 20/60=33%, InfiniteLoop 10/60=17%.
-    expect(screen.getByTestId("failure-row-unknown_tool_calls")).toHaveTextContent("50%");
-    expect(screen.getByTestId("failure-row-forbidden_calls")).toHaveTextContent("33%");
-    expect(screen.getByTestId("failure-row-infinite_loop_hits")).toHaveTextContent("17%");
+    // Percentages are over REAL failures only (30 events): the backend counts
+    // unknown_tool_calls on passing runs too and excludes it from top(), so it must
+    // never deflate the failure shares: ForbiddenCall 20/30=67%, InfiniteLoop 10/30=33%.
+    expect(screen.queryByTestId("failure-row-unknown_tool_calls")).toBeNull();
+    expect(screen.getByTestId("failure-row-forbidden_calls")).toHaveTextContent("67%");
+    expect(screen.getByTestId("failure-row-infinite_loop_hits")).toHaveTextContent("33%");
     expect(screen.getByTestId("failure-taxonomy")).toHaveTextContent("tracked failure events");
+    // ...but the diagnostic count is still visible, framed as a non-failure.
+    expect(screen.getByTestId("failure-diagnostic-unknown-tool")).toHaveTextContent("30");
+    expect(screen.getByTestId("failure-diagnostic-unknown-tool")).toHaveTextContent("not a failure");
     // A zero mode is omitted entirely.
     expect(screen.queryByTestId("failure-row-turn_timeouts")).toBeNull();
   });
@@ -49,5 +54,12 @@ describe("FailureTaxonomy", () => {
     render(<FailureTaxonomy tier={stat("medium", {})} />);
     expect(screen.getByTestId("failure-taxonomy-empty")).toBeInTheDocument();
     expect(screen.getByTestId("failure-taxonomy")).toHaveTextContent("— Medium");
+  });
+
+  it("unknown-tool-only events show the empty state plus the diagnostic, never a 100% failure bar", () => {
+    // Every run passed; the model merely poked decoys. That is NOT a failure distribution.
+    render(<FailureTaxonomy tier={stat("easy", { unknown_tool_calls: 4 })} />);
+    expect(screen.getByTestId("failure-taxonomy-empty")).toBeInTheDocument();
+    expect(screen.getByTestId("failure-diagnostic-unknown-tool")).toHaveTextContent("4");
   });
 });

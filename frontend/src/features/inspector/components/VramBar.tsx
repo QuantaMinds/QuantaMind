@@ -1,6 +1,7 @@
 import type { LoadedModel } from "../../../shared/ipc/system/vram";
 import type { HardwareSnapshot } from "../../../shared/ipc/compare/hardware";
 import { formatBytes } from "../../../shared/format/bytes";
+import { PRESSURE_FRACTION, PRESSURE_LABEL } from "../../../shared/memory/pressure";
 import { vramUsage } from "../format/vram";
 
 /// Per-model memory bar: the model's resident footprint as a share of the
@@ -76,15 +77,18 @@ export function VramBar({
               char = "░";
             }
 
-            const isOomMarker = i === Math.floor(totalCells * 0.85);
+            // The backend's PRESSURE_FRACTION planning threshold — a soft
+            // "Conditional" marker, NOT a measured OOM point (nothing measures
+            // where this machine OOMs), so it renders amber and static.
+            const isPressureMarker = i === Math.floor(totalCells * PRESSURE_FRACTION);
 
             return (
               <span key={i} className={`relative inline-block w-[7px] text-center ${color}`}>
                 {char}
-                {isOomMarker && (
+                {isPressureMarker && (
                   <span
-                    className="absolute inset-y-0 left-0 w-[2px] bg-red-600 z-10 animate-pulse"
-                    title="OOM Risk Threshold (85%)"
+                    className="absolute inset-y-0 left-0 w-[2px] bg-amber-500 z-10"
+                    title={PRESSURE_LABEL}
                   />
                 )}
               </span>
@@ -99,10 +103,12 @@ export function VramBar({
         </div>
       </div>
 
-      {/* Caption under the bar (OOM marker shown inline in the bar above) */}
+      {/* Caption under the bar (pressure marker shown inline in the bar above) */}
       <div className="flex justify-between gap-4 text-[10px] text-gray-500" style={{ maxWidth: "370px" }}>
         <span>▲ Model load ({formatBytes(modelBytes)})</span>
-        <span className="text-red-600 font-semibold whitespace-nowrap">▲ OOM ceiling</span>
+        <span className="text-amber-600 whitespace-nowrap" title={PRESSURE_LABEL}>
+          ▲ pressure threshold (planning estimate)
+        </span>
       </div>
     </div>
   );

@@ -95,10 +95,10 @@ export function AuditPage() {
 
   return (
     <section data-testid="tab-audit" className="space-y-4">
-      {/* The Context-Cliff probe sits on top; the Audit & Compliance history follows below it. */}
+      {/* The Context-Cliff probe sits on top; the run history follows below it. */}
       <ContextCliffPanel />
 
-      <h2 className="text-lg font-semibold text-slate-900">Audit &amp; Compliance</h2>
+      <h2 className="text-lg font-semibold text-slate-900">Run History</h2>
 
       <div style={card} data-testid="audit-history">
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
@@ -116,16 +116,16 @@ export function AuditPage() {
           <button
             type="button"
             disabled={!report}
-            onClick={() => report && download("audit-trail.csv", batchToCsv(report, models), "text/csv")}
+            onClick={() => report && download("run-metrics.csv", batchToCsv(report, models), "text/csv")}
             style={{ ...exportBtn, opacity: report ? 1 : 0.5, cursor: report ? "pointer" : "not-allowed" }}
             data-testid="audit-export-csv"
           >
-            Export Audit Trail (CSV)
+            Export Metrics (CSV)
           </button>
           <button
             type="button"
             disabled={!report}
-            onClick={() => report && download("audit-trail.json", JSON.stringify(report, null, 2), "application/json")}
+            onClick={() => report && download("run-metrics.json", JSON.stringify(report, null, 2), "application/json")}
             style={{ ...exportBtn, opacity: report ? 1 : 0.5, cursor: report ? "pointer" : "not-allowed" }}
             data-testid="audit-export-json"
           >

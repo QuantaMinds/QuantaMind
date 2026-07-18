@@ -280,7 +280,7 @@ export function EvalManager({
 
   const handleExport = () => {
     if (report) {
-      download("audit-trail.csv", batchToCsv(report, list), "text/csv");
+      download("run-metrics.csv", batchToCsv(report, list), "text/csv");
     }
   };
 

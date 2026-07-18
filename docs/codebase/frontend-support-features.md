@@ -359,7 +359,7 @@ export const useHistoryStore = create<HistoryStoreState>((set) => ({
 
 1. **Context Stress Test** (`ContextCliffPanel`) at the top — a diagnostic
    moved off the Tests workspace.
-2. **Audit & Compliance — Results History:** a collection picker (presets +
+2. **Run History — Results History:** a collection picker (presets +
    custom collections from `evalRegistryStore`) feeding `loadCollectionHistory`,
    rendered as a `HistoryTimeline`. **Filtered to the selected backend** so a
    backend switch never shows the previous backend's runs. History is re-fetched
@@ -368,9 +368,12 @@ export const useHistoryStore = create<HistoryStoreState>((set) => ({
    `report.collection_id === collection`, so the graph updates live instead of
    needing an app restart (the collection-id guard stops another collection's run
    from clobbering the chart).
-3. **Export Audit Trail:** CSV (`batchToCsv`) and JSON (`JSON.stringify`) export
+3. **Export Metrics:** CSV (`batchToCsv`) and JSON (`JSON.stringify`) export
    of the latest batch `report` from `batchStore` (both disabled until a report
-   exists). An `InfoButton` links the in-context help.
+   exists). An `InfoButton` links the in-context help. Deliberately NOT called an
+   "audit trail" — the backend's `AuditSink` is the OSS `NoopAudit` (events are
+   dropped by design; see `backend/src/audit.rs`), so the export is a metrics
+   scoreboard, and the UI must not claim an event log that doesn't exist.
 
 It reads from the eval feature's stores/IPC (`evalRegistryStore`, `batchStore`,
 `shared/ipc/eval/matrix`); see the eval documentation for the underlying matrix

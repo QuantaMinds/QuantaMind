@@ -363,7 +363,7 @@ export const REFERENCE_SECTIONS: ReferenceSection[] = [
       {
         id: "audit-export",
         heading: "CSV export",
-        what: "Export the audit trail of runs as CSV.",
+        what: "Export the run-history metrics as CSV (a per-model scoreboard — not an event audit log; the app keeps none).",
         why: "For sharing a regression record or pulling the numbers into a spreadsheet/report.",
         how: "Writes the per-run scores behind the timeline out as a flat CSV.",
       },

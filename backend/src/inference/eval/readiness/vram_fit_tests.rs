@@ -1,5 +1,31 @@
-use super::{estimate, try_profile, Dims};
+use super::{estimate, try_profile, Dims, PRESSURE_FRACTION};
 use crate::inference::vram_math::KvPrecision;
+
+/// Cross-language drift guard: the frontend mirrors `PRESSURE_FRACTION` in
+/// `frontend/src/shared/memory/pressure.ts` (a compile-time constant; an IPC
+/// round-trip for one float buys nothing). This test reads that file and pins the
+/// two values together, so they can never silently diverge — the exact failure
+/// `fit.ts` already exhibits (its unrelated TIGHT_FRACTION drifted to 0.7 while a
+/// stale doc comment here claimed to mirror it). Modeled on the test-enforced
+/// invariant precedent in `persistence/publish/row_tests.rs`.
+#[test]
+fn frontend_pressure_constant_matches_backend() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../frontend/src/shared/memory/pressure.ts");
+    let src = std::fs::read_to_string(path).expect("frontend/src/shared/memory/pressure.ts must exist");
+    let line = src
+        .lines()
+        .find(|l| l.contains("PRESSURE_FRACTION =") && !l.trim_start().starts_with("//"))
+        .expect("pressure.ts must define PRESSURE_FRACTION");
+    let value: f64 = line
+        .split('=')
+        .nth(1)
+        .and_then(|v| v.trim().trim_end_matches(';').parse().ok())
+        .expect("PRESSURE_FRACTION must be a bare float literal");
+    assert_eq!(
+        value, PRESSURE_FRACTION,
+        "frontend pressure.ts PRESSURE_FRACTION ({value}) drifted from backend vram_fit.rs ({PRESSURE_FRACTION})"
+    );
+}
 
 const GIB: u64 = 1_073_741_824;
 

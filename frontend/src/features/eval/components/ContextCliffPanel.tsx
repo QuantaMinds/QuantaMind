@@ -17,6 +17,7 @@ import { ContextCliffChart } from "./ContextCliffChart";
 import type { BackendKind } from "../../../shared/ipc/models/storage";
 import type { AgentPath } from "../../../shared/ipc/eval/readiness";
 import { CLIFF_CTX_HEADROOM, usableCliffTokens, type CliffPreset } from "../../../shared/ipc/eval/cliff";
+import { PRESSURE_FRACTION } from "../../../shared/memory/pressure";
 
 interface ProbeModel {
   name: string;
@@ -221,7 +222,9 @@ export function ContextCliffPanel() {
   const neededCtxK = Math.round((maxTokens + CLIFF_CTX_HEADROOM) / 1000); // what the backend will request
   const footprint = kvBytes != null ? (weightsBytes ?? 0) + kvBytes : null;
   const fitWarning: string | null =
-    selected?.backend === "ollama" && deviceCap != null && footprint != null && footprint > deviceCap * 0.85
+    // Threshold = the backend's PRESSURE_FRACTION planning constant (shared via
+    // shared/memory/pressure.ts), gated on real measurements (deviceCap + footprint).
+    selected?.backend === "ollama" && deviceCap != null && footprint != null && footprint > deviceCap * PRESSURE_FRACTION
       ? footprint > deviceCap
         ? `This machine (${formatBytes(deviceCap)}) likely can't hold ~${neededCtxK}k tokens for ${selected.name} — needs ≈${formatBytes(footprint)}. Reduce Max Tokens (or use a smaller model/quant) before running.`
         : `High memory pressure: ~${neededCtxK}k tokens for ${selected.name} needs ≈${formatBytes(footprint)} of ${formatBytes(deviceCap)} — close to the limit, so the run may spill to CPU (slow).`

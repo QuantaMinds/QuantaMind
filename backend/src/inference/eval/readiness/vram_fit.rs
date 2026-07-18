@@ -2,7 +2,11 @@ use crate::inference::vram_math::{kv_cache_bytes_at, KvPrecision};
 use serde::{Deserialize, Serialize};
 
 /// A model fits but sits at/above this fraction of the cap → flag VRAM pressure
-/// (a soft Conditional, not a block). Mirrors the `fit.ts` "tight" precedent.
+/// (a soft Conditional, not a block). NOT the same concept as `fit.ts`'s
+/// `TIGHT_FRACTION` (0.7, a pre-download heuristic with a 1.3× safety multiplier)
+/// — do not unify them. The frontend mirrors THIS constant in
+/// `frontend/src/shared/memory/pressure.ts`; a drift-guard test below pins the two
+/// to the same value.
 pub const PRESSURE_FRACTION: f64 = 0.85;
 
 /// Fallback context for the KV-cache estimate when the run pinned no `num_ctx`.
@@ -11,10 +15,11 @@ pub const PRESSURE_FRACTION: f64 = 0.85;
 /// default. An explicit run `num_ctx` always wins — this only caps the fallback.
 pub const DEFAULT_FALLBACK_CTX: u32 = 8192;
 
-/// One model's measured memory footprint against an allocation cap: exact on-disk
-/// weights + the real KV cache at the run's context length and the stated cache
-/// precision. Never an estimate of the weights — only the cache uses the canonical
-/// formula. `kv_precision` makes every profile SELF-DESCRIBING: a fit graded at a
+/// One model's memory-footprint ESTIMATE against an allocation cap: the weights
+/// term is exact (on-disk file size), the KV term is computed by the canonical
+/// formula at the run's context length and stated cache precision — nothing here
+/// is read back from a running process. `kv_precision` makes every profile
+/// SELF-DESCRIBING: a fit graded at a
 /// Q8 cache (what a llama.cpp launch would actually use under memory pressure) can
 /// never be silently compared against an f16-graded one.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
