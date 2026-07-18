@@ -62,7 +62,12 @@ describe("buildReportCommand", () => {
 });
 
 describe("workspacePointerCommand", () => {
-  it("points to the eval path (no fake single-prompt command)", () => {
-    expect(workspacePointerCommand("qwen2.5:7b")).toBe("qm run --model qwen2.5:7b --collection easy-coding");
+  it("points to the eval path WITH the backend (correct for non-Ollama GGUF models)", () => {
+    expect(workspacePointerCommand("gemma-4-12b-it_q4_k_m", "llama_cpp")).toBe(
+      "qm run --backend llama_cpp --model gemma-4-12b-it_q4_k_m --collection easy-coding",
+    );
+    expect(workspacePointerCommand("qwen2.5:7b", "ollama")).toBe(
+      "qm run --backend ollama --model qwen2.5:7b --collection easy-coding",
+    );
   });
 });

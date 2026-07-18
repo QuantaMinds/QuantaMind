@@ -83,7 +83,7 @@ export function SingleRun({ model }: { model: string | null }) {
       <p className="text-[10px] text-gray-400 leading-snug" data-testid="workspace-cli-hint">
         No CLI equivalent for a single prompt. To evaluate this model headless, use the Tests tab:{" "}
         <code className="bg-gray-50 border rounded px-1 py-0.5 font-mono text-gray-500">
-          {workspacePointerCommand(model)}
+          {workspacePointerCommand(model, activeBackend)}
         </code>
       </p>
     </div>
