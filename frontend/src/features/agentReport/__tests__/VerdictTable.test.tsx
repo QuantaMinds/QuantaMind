@@ -79,6 +79,42 @@ describe("VerdictTable", () => {
     expect(row).toHaveTextContent("BLOCKING:");
   });
 
+  it("VISIBLY renders the memory breakdown (weights + cache @ ctx vs cap), not just a bare total", () => {
+    // The breakdown the hidden MemoryLine always computed must be user-visible —
+    // "test pass ≠ data quality pass": a hidden node satisfies vitest, not a user.
+    render(<VerdictTable verdicts={VERDICTS} />);
+    const breakdown = within(screen.getByTestId("readiness-row-qwen2.5-coder")).getByTestId("memory-breakdown-visible");
+    expect(breakdown).not.toHaveClass("hidden");
+    expect(breakdown).toHaveTextContent("6.0 GB (5.0 model + 1.0 cache @ 8k ctx) < 24.0 GB cap · fits");
+  });
+
+  it("VISIBLY labels an estimated fit — the backend's 'UI labels the fit estimated' promise on screen", () => {
+    const estimated: ModelVerdict[] = [
+      {
+        ...VERDICTS[0],
+        memory: { ...VERDICTS[0].memory!, estimated: true },
+      },
+    ];
+    render(<VerdictTable verdicts={estimated} />);
+    const est = screen.getByTestId("memory-estimated-visible");
+    expect(est).not.toHaveClass("hidden");
+    expect(est).toHaveTextContent("est.");
+    // ...and the exact fit line carries the est. marker too.
+    expect(screen.getByTestId("memory-breakdown-visible")).toHaveTextContent("· est.");
+  });
+
+  it("VISIBLY renders the verdict's exact backend reasons, not only the lossy category pills", () => {
+    render(<VerdictTable verdicts={VERDICTS} />);
+    // The not_ready row: the verbatim blocking strings the verdict gated on.
+    const blocked = within(screen.getByTestId("readiness-row-phi3.5")).getByTestId("verdict-reasons-visible");
+    expect(blocked).not.toHaveClass("hidden");
+    expect(blocked).toHaveTextContent("✗ pass^k 0.40 < 0.80 required");
+    expect(blocked).toHaveTextContent("✗ loops on 2 runs");
+    // The conditional row: the verbatim soft condition.
+    const cond = within(screen.getByTestId("readiness-row-mistral-nemo")).getByTestId("verdict-reasons-visible");
+    expect(cond).toHaveTextContent("! slow: 8400ms/step > 5000ms target");
+  });
+
   it("shows a thinking segment for a reasoning verdict and nothing for a terse one", () => {
     const thinking: ModelVerdict = {
       model: "qwen3-thinking",

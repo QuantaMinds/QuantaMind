@@ -167,20 +167,21 @@ function getConditionalBreakdown(v: ModelVerdict): string[] {
 
 const ctxLabel = (n: number) => (n >= 1024 ? `${Math.round(n / 1024)}k` : `${n}`);
 
-function MemoryLine({ m, backend }: { m: MemoryProfile | null | undefined; backend: BackendKind }) {
-  const getExpectedText = () => {
-    if (!m) {
-      if (backend !== "ollama") {
-        return "VRAM fit: N/A (single-model backend)";
-      }
-      return "";
-    }
-    const note = !m.fits ? "won't fit" : m.pressure ? "high VRAM pressure" : "fits";
-    const est = m.estimated ? " · est." : "";
-    return `VRAM: ${gb(m.total_bytes)} GB (${gb(m.weights_bytes)} model + ${gb(m.kv_cache_bytes)} cache @ ${ctxLabel(m.context_length)} ctx) ${m.fits ? "<" : ">"} ${gb(m.cap_bytes)} GB cap · ${note}${est}`;
-  };
+/// The full memory-fit line — ONE builder shared by the visible tile and the hidden
+/// test shim, so the surfaced text can never drift from what the tests pin. The
+/// backend promises "The UI labels the fit 'estimated'" (vram_fit.rs) — `est.`
+/// keeps that promise on screen, not just in the HTML export.
+export function memoryLineText(m: MemoryProfile | null | undefined, backend: BackendKind): string {
+  if (!m) {
+    return backend !== "ollama" ? "VRAM fit: N/A (single-model backend)" : "";
+  }
+  const note = !m.fits ? "won't fit" : m.pressure ? "high VRAM pressure" : "fits";
+  const est = m.estimated ? " · est." : "";
+  return `VRAM: ${gb(m.total_bytes)} GB (${gb(m.weights_bytes)} model + ${gb(m.kv_cache_bytes)} cache @ ${ctxLabel(m.context_length)} ctx) ${m.fits ? "<" : ">"} ${gb(m.cap_bytes)} GB cap · ${note}${est}`;
+}
 
-  const expectedText = getExpectedText();
+function MemoryLine({ m, backend }: { m: MemoryProfile | null | undefined; backend: BackendKind }) {
+  const expectedText = memoryLineText(m, backend);
 
   if (!m) {
     return (
@@ -292,7 +293,25 @@ export function VerdictTable({
                   </div>
                   <div className="font-bold text-blue-600 text-[13px]">
                     {m.memory ? `${gb(m.memory.total_bytes)}GB` : "N/A"}
+                    {m.memory?.estimated && (
+                      // The backend's promise ("The UI labels the fit 'estimated'") kept on
+                      // screen — same wording as the HTML export.
+                      <span
+                        className="ml-1 text-[9px] font-bold uppercase text-slate-400 align-middle"
+                        data-testid="memory-estimated-visible"
+                        title="Conservative estimate — the KV cache was sized from a defaulted head count (the model didn't report one)."
+                      >
+                        est.
+                      </span>
+                    )}
                   </div>
+                  {m.memory && (
+                    // The measured breakdown the hidden MemoryLine always computed but never
+                    // showed: weights + KV @ ctx vs the cap. Same builder as the test shim.
+                    <div className="text-[10px] text-slate-500 mt-1 leading-snug" data-testid="memory-breakdown-visible">
+                      {memoryLineText(m.memory, m.backend).replace(/^VRAM: /, "")}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -409,6 +428,20 @@ export function VerdictTable({
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
                       {getDetailsLine(m).replace("Details: ", "")}
+                    </div>
+                  )}
+
+                  {/* The verdict's EXACT reasons, verbatim from the backend — the pills above are
+                      lossy category labels reconstructed by substring-matching; these are the
+                      measured strings the verdict actually gated on (was hidden test-only). */}
+                  {(v.blocking.length > 0 || v.conditions.length > 0) && (
+                    <div className="text-[12px] font-mono leading-relaxed mt-1" data-testid="verdict-reasons-visible">
+                      {v.blocking.map((b, i) => (
+                        <div key={`vb${i}`} className="text-rose-700">✗ {b}</div>
+                      ))}
+                      {v.conditions.map((c, i) => (
+                        <div key={`vc${i}`} className="text-amber-700">! {c}</div>
+                      ))}
                     </div>
                   )}
                 </div>

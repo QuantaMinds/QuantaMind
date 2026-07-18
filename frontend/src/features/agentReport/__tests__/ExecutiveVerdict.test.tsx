@@ -79,4 +79,16 @@ describe("ExecutiveVerdict — run-tier headline + curve-aware Lens 1", () => {
     expect(screen.getByTestId("exec-verdict-empty")).toBeInTheDocument();
     expect(screen.queryByTestId("exec-verdict-status")).toBeNull();
   });
+
+  it("VISIBLY renders the hardware lens (was hidden test-only)", () => {
+    // Even when the run is NOT below recommendation (Easy tested is all we ran here
+    // but hw present): the measured class + its recommended tier must be readable
+    // by a user, not just by vitest via the hidden shim.
+    renderEV([stat("easy", 1, 1), stat("hard", 1, 1)], "hard", workstation);
+    const visible = screen.getByTestId("exec-verdict-hw-lens-visible");
+    expect(visible).not.toHaveClass("hidden");
+    expect(visible).toHaveTextContent("HW: Workstation (64GB RAM) · recommends HARD.");
+    // And it matches the hidden shim's text exactly (one source of truth).
+    expect(screen.getByTestId("exec-verdict-hw-lens").textContent).toBe(visible.textContent);
+  });
 });

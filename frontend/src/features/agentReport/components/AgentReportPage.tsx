@@ -335,11 +335,37 @@ export function AgentReportPage() {
                   </span>
                 </div>
                 <div className="flex items-center gap-1 bg-slate-50 border border-slate-200/60 px-3 py-1 rounded-full text-[11px] shadow-3xs">
+                  <span>Fake-Done:</span>
+                  <span
+                    className={`font-bold ${activeProfile.forbid_hallucinated_completion ? "text-emerald-700" : "text-slate-400"}`}
+                    data-testid="threshold-fake-done-visible"
+                  >
+                    {activeProfile.forbid_hallucinated_completion ? "ON" : "OFF"}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1 bg-slate-50 border border-slate-200/60 px-3 py-1 rounded-full text-[11px] shadow-3xs">
                   <span>Full VRAM:</span>
                   <span className={`font-bold ${activeProfile.require_full_vram ? "text-emerald-700" : "text-slate-400"}`}>
                     {activeProfile.require_full_vram ? "ON" : "OFF"}
                   </span>
                 </div>
+                <div className="flex items-center gap-1 bg-slate-50 border border-slate-200/60 px-3 py-1 rounded-full text-[11px] shadow-3xs">
+                  <span>Native FC:</span>
+                  <span
+                    className={`font-bold ${activeProfile.require_native_fc ? "text-emerald-700" : "text-slate-400"}`}
+                    data-testid="threshold-native-fc-visible"
+                  >
+                    {activeProfile.require_native_fc ? "ON" : "OFF"}
+                  </span>
+                </div>
+                {activeProfile.max_avg_steps != null && (
+                  <div className="flex items-center gap-1 bg-slate-50 border border-slate-200/60 px-3 py-1 rounded-full text-[11px] shadow-3xs">
+                    <span>Max Steps:</span>
+                    <span className="text-slate-900 font-bold" data-testid="threshold-max-steps-visible">
+                      {activeProfile.max_avg_steps}
+                    </span>
+                  </div>
+                )}
                 {activeProfile.min_context_tokens != null && (
                   <div className="flex items-center gap-1 bg-slate-50 border border-slate-200/60 px-3 py-1 rounded-full text-[11px] shadow-3xs">
                     <span>Min Context:</span>
