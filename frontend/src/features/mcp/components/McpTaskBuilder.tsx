@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useMcpStore, type McpFsSeedFile, type McpTaskDef } from "../state/mcpStore";
+import { validateMcpTasks } from "../../../shared/ipc/mcp/run";
+import type { CollectionValidation } from "../../../shared/ipc/eval/registry";
 
 /// Screen 4 — the guided builder. Three sections that ARE the task JSON: Task
 /// (instruction) · Set up the world (seed) · Check the result (oracle). Save
@@ -66,20 +68,43 @@ export function McpTaskBuilder() {
   // Bring-your-own: paste one task object or an array (same McpTaskDef format).
   const [jsonText, setJsonText] = useState("");
   const [jsonErr, setJsonErr] = useState<string | null>(null);
-  const addFromJson = () => {
+  const [validation, setValidation] = useState<CollectionValidation | null>(null);
+  const [validating, setValidating] = useState(false);
+  const addFromJson = async () => {
     setJsonErr(null);
+    setValidation(null);
+    // 1. Parse + shallow shape check (a readable message before hitting the backend).
+    let list: McpTaskDef[];
     try {
       const parsed: unknown = JSON.parse(jsonText);
-      const list = (Array.isArray(parsed) ? parsed : [parsed]) as McpTaskDef[];
+      list = (Array.isArray(parsed) ? parsed : [parsed]) as McpTaskDef[];
       for (const t of list) {
         if (!t || typeof t.name !== "string" || typeof t.instruction !== "string" || !t.world || !t.oracle) {
           throw new Error("each task needs name, instruction, world, oracle");
         }
-        addTask(t);
       }
-      setJsonText("");
     } catch (e) {
       setJsonErr(String(e));
+      return;
+    }
+    // 2. Auto-validate: prove each world/oracle is a reliable test (solvable +
+    //    discriminating) BEFORE it enters the builder. A broken oracle is caught
+    //    here with a named finding, not as a raw error at run time.
+    setValidating(true);
+    try {
+      const verdict = await validateMcpTasks(list);
+      if (!verdict.ok) {
+        setValidation(verdict); // show the ✗ findings; nothing is added
+        return;
+      }
+      const hasWarnings = verdict.tasks.some((t) => t.semantic_warnings.length > 0);
+      if (hasWarnings) setValidation(verdict); // add, but surface the ⚠ notes
+      list.forEach(addTask);
+      setJsonText("");
+    } catch (e) {
+      setJsonErr(`validation failed: ${String(e)}`);
+    } finally {
+      setValidating(false);
     }
   };
 
@@ -162,15 +187,55 @@ export function McpTaskBuilder() {
             onChange={(e) => setJsonText(e.target.value)}
           />
           <div className="flex items-center gap-3">
-            <button type="button" className="rounded bg-neutral-200 px-3 py-1 text-sm text-neutral-900" onClick={addFromJson}>
-              Add from JSON
+            <button
+              type="button"
+              disabled={validating}
+              className="rounded bg-neutral-200 px-3 py-1 text-sm text-neutral-900 disabled:opacity-50"
+              onClick={addFromJson}
+            >
+              {validating ? "Validating…" : "Add from JSON"}
             </button>
             {jsonErr ? (
-              <span className="text-xs text-red-400">{jsonErr}</span>
+              <span className="text-xs text-red-400" data-testid="mcp-json-error">{jsonErr}</span>
             ) : (
-              <span className="text-xs opacity-50">One task object or an array — same format Save writes.</span>
+              <span className="text-xs opacity-50">Validated on add — the world must be solvable and not a do-nothing pass.</span>
             )}
           </div>
+
+          {validation && (
+            <div
+              data-testid="mcp-validation-result"
+              className={`rounded border p-2 text-xs ${validation.ok ? "border-emerald-700 bg-emerald-950/40" : "border-red-700 bg-red-950/40"}`}
+            >
+              <div className={`font-semibold ${validation.ok ? "text-emerald-400" : "text-red-400"}`}>
+                {validation.ok
+                  ? "✓ World is a reliable test — added"
+                  : "✗ Not added — this world can't be trusted as a test. Fix these:"}
+              </div>
+              {validation.structural_error && (
+                <div className="mt-1 text-red-400" data-testid="mcp-validation-structural">
+                  Schema error: {validation.structural_error}
+                </div>
+              )}
+              {validation.tasks.map((t) =>
+                t.semantic.length === 0 && t.semantic_warnings.length === 0 ? null : (
+                  <div key={t.id} className="mt-1">
+                    <span className="opacity-70">{t.id}</span>
+                    {t.semantic.map((m, i) => (
+                      <div key={`e${i}`} className="text-red-400" data-testid={`mcp-validation-semantic-${t.id}-${i}`}>
+                        ✗ {m}
+                      </div>
+                    ))}
+                    {t.semantic_warnings.map((m, i) => (
+                      <div key={`w${i}`} className="text-amber-400" data-testid={`mcp-validation-warning-${t.id}-${i}`}>
+                        ⚠ {m}
+                      </div>
+                    ))}
+                  </div>
+                ),
+              )}
+            </div>
+          )}
         </div>
       </details>
     </div>

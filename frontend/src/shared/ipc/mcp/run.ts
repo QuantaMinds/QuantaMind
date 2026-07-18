@@ -1,12 +1,21 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { BackendKind } from "../models/storage";
 import type { McpTaskDef, McpByoTaskDef } from "../../../features/mcp/state/mcpStore";
-import type { ToolTask } from "../eval/registry";
+import { CollectionValidationSchema, type CollectionValidation, type ToolTask } from "../eval/registry";
 
 /// Convert built MCP tasks (world + oracle) into eval `ToolTask`s so they run
 /// through the SAME batch pipeline as Built-In collections (Stage 2/3).
 export async function buildMcpTasks(tasks: McpTaskDef[]): Promise<ToolTask[]> {
   return (await invoke("build_mcp_tasks", { tasks })) as ToolTask[];
+}
+
+/// Deep-validate world tasks BEFORE they enter the builder — proves each oracle is
+/// solvable AND discriminating (a do-nothing agent fails it), spawning the real
+/// world for the live check. Returns the same `CollectionValidation` the collection
+/// importer renders, so a broken oracle shows named per-task findings at paste time
+/// instead of a raw error at run time.
+export async function validateMcpTasks(tasks: McpTaskDef[]): Promise<CollectionValidation> {
+  return CollectionValidationSchema.parse(await invoke("validate_mcp_tasks", { tasks }));
 }
 
 /// Row-only `ToolTask`s for Bring-Your-Own tasks, so the Simulator has a row to render

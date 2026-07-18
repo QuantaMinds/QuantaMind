@@ -64,11 +64,25 @@ impl DbSeed {
     }
 }
 
+/// Is a seed path unsafe to write under the sandbox? Platform-INDEPENDENT (a world
+/// authored on Unix must be rejected identically when validated on Windows and vice
+/// versa — `Path::is_absolute()` alone disagrees across platforms: a Unix `/etc/x`
+/// is not "absolute" on Windows). Unsafe = traversal (`..`), a POSIX/Windows root
+/// (`/` or `\` lead), a Windows drive prefix (`C:`), or the platform's own
+/// `is_absolute`.
+pub fn is_unsafe_seed_path(rel: &str) -> bool {
+    let bytes = rel.as_bytes();
+    rel.contains("..")
+        || matches!(bytes.first(), Some(b'/') | Some(b'\\'))
+        || (bytes.len() >= 2 && bytes[1] == b':') // C:\ or C:/ drive prefix
+        || Path::new(rel).is_absolute()
+}
+
 /// Write a seed into `root`, confining every path (rejects `..`/absolute, and
 /// `fs_guard` resolves symlinks) so a malformed seed can't escape the sandbox.
 pub fn write_seed(root: &Path, seed: &FsSeed) -> AppResult<()> {
     for (rel, contents) in &seed.files {
-        if rel.contains("..") || Path::new(rel).is_absolute() {
+        if is_unsafe_seed_path(rel) {
             // Redacted (rule 7f): an ABSOLUTE seed path is exactly the case where the
             // offending string can carry /Users/<name>/… — never echo it verbatim.
             return Err(AppError::Validation(format!(

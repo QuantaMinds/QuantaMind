@@ -51,8 +51,9 @@ pub fn static_world_findings(spec: &McpSpec) -> Vec<String> {
                 }
             }
             for rel in seed.files.keys() {
-                if rel.contains("..") || std::path::Path::new(rel).is_absolute() {
+                if crate::inference::eval::mcp::world::is_unsafe_seed_path(rel) {
                     // Authoring-time version of the runtime write_seed guard, redacted.
+                    // Shares the exact predicate so static + runtime never disagree.
                     out.push(format!("seed path '{}' must be relative with no '..' (it would escape the sandbox)", redact_path(rel)));
                 }
             }

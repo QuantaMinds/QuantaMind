@@ -55,15 +55,18 @@ fn content_on_an_absent_path_is_flagged() {
 
 #[test]
 fn escaping_and_absolute_seed_paths_are_flagged_and_redacted() {
+    // Traversal, a POSIX root, and a Windows drive prefix — all must be caught on
+    // EVERY platform (a Unix `/Users/...` is not `is_absolute()` on Windows, so the
+    // check can't lean on that alone).
     let spec = fs_spec(
-        FsSeed::from([("../escape.txt", "x"), ("/Users/alice/abs.txt", "y")]),
+        FsSeed::from([("../escape.txt", "x"), ("/Users/alice/abs.txt", "y"), ("C:\\Users\\bob\\abs.txt", "z")]),
         FsOracle { assert_present: vec!["ok.txt".into()], ..Default::default() },
     );
     let f = static_world_findings(&spec);
-    assert_eq!(f.len(), 2, "{f:?}");
+    assert_eq!(f.len(), 3, "all three unsafe seeds flagged on any platform: {f:?}");
     assert!(f.iter().all(|m| m.contains("must be relative")));
-    // rule 7f: the username from the absolute path never survives into a finding.
-    assert!(f.iter().all(|m| !m.contains("alice")), "{f:?}");
+    // rule 7f: the username from an absolute path never survives into a finding.
+    assert!(f.iter().all(|m| !m.contains("alice") && !m.contains("bob")), "{f:?}");
 }
 
 #[test]

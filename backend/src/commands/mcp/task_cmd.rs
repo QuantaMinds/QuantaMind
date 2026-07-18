@@ -143,6 +143,29 @@ pub fn build_mcp_tasks(tasks: Vec<McpTaskSpec>) -> Result<Vec<ToolTask>, crate::
     Ok(out)
 }
 
+/// Deep-validate pasted/authored MCP world tasks BEFORE they enter the builder —
+/// so a broken oracle (vacuous, contradictory, do-nothing-passes) is caught with a
+/// readable per-task finding at import time, not as a raw error at run time. Runs
+/// the SAME pipeline the collection-import gate uses: structural build → deep
+/// validation → world static + live checks (do-nothing against the real world).
+/// Returns the `CollectionValidation` the UI already renders. A structural build
+/// failure comes back as `ok:false` + `structural_error` (never an IPC Err), so the
+/// paste door shows findings instead of a red toast.
+#[tauri::command]
+pub async fn validate_mcp_tasks(
+    tasks: Vec<McpTaskSpec>,
+) -> Result<crate::inference::eval::agentic::v2::oracle::CollectionValidation, crate::errors::AppError> {
+    use crate::inference::eval::agentic::v2::oracle::{validate_collection_deep, CollectionValidation};
+    let built: Vec<ToolTask> = tasks.iter().enumerate().map(|(i, t)| to_tooltask(t, i)).collect();
+    // Structural trust boundary — a rejection is a finding to show, not an error.
+    if let Err(e) = crate::inference::eval::toolcall::tasks::validate_tasks(&built) {
+        return Ok(CollectionValidation { ok: false, structural_error: Some(e.to_string()), tasks: vec![] });
+    }
+    let mut v = validate_collection_deep(&built).await;
+    crate::inference::eval::mcp::validate::merge_world_checks(&mut v, &built, true).await;
+    Ok(v)
+}
+
 /// Row-only `ToolTask`s for Bring-Your-Own tasks — they give the Simulator a row to
 /// render + key the outcome by (`id` == task name), matching the events the BYO adapter
 /// emits. They are NOT run through the agentic runner (the diagnostic engine drives the
