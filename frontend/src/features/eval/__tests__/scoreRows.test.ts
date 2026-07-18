@@ -1,14 +1,65 @@
 import { describe, expect, it } from "vitest";
-import { toScoreRows } from "../components/scoreboard/scoreRows";
+import { nativeChannelLabel, toScoreRows } from "../components/scoreboard/scoreRows";
 import type { BatchReport } from "../../../shared/ipc/eval/batch";
 import type { InstalledModelInfo } from "../../../shared/ipc/models/storage";
 
 const model = (name: string, quantization: string): InstalledModelInfo =>
   ({ name, quantization, parameter_size: "7B", family: "x", size_bytes: 0, modified_at: "", backend: "ollama" }) as InstalledModelInfo;
 
+describe("nativeChannelLabel", () => {
+  it("never fabricates: unrecorded (both null/absent) renders nothing", () => {
+    expect(nativeChannelLabel(null, null)).toBeUndefined();
+    expect(nativeChannelLabel(undefined, undefined)).toBeUndefined();
+    // Measured but zero calls of either kind → also nothing to say.
+    expect(nativeChannelLabel(0, 0)).toBeUndefined();
+  });
+
+  it("surfaces the headline salvage-only case distinctly", () => {
+    // The backend's "a result worth showing, not hiding": zero structured native
+    // tool_calls, score came entirely from the text salvager.
+    expect(nativeChannelLabel(0, 7)).toBe("0 native calls · 7 text-salvaged");
+    // None-vs-Some(0) preserved: a measured 0 alongside salvage still reads as the finding.
+    expect(nativeChannelLabel(null, 7)).toBe("0 native calls · 7 text-salvaged");
+  });
+
+  it("labels mixed and pure-native channels", () => {
+    expect(nativeChannelLabel(5, 2)).toBe("5 native · 2 salvaged");
+    expect(nativeChannelLabel(9, 0)).toBe("9 native");
+    expect(nativeChannelLabel(9, null)).toBe("9 native");
+  });
+});
+
 describe("toScoreRows", () => {
   it("returns no rows without a report", () => {
     expect(toScoreRows(null, [])).toEqual([]);
+  });
+
+  it("carries the native channel split onto the row only when measured", () => {
+    const agentic = { tasks_passed: 1, tasks_total: 1, passes: 1, total_runs: 1, avg_steps: 1, avg_output_tokens_success: 10, schema_resilience: null, top_error: "none" as const, failures: { infinite_loop_hits: 0, hallucinated_completions: 0, malformed_json_calls: 0, schema_unrecovered_calls: 0 } };
+    const report: BatchReport = {
+      collection_id: "c",
+      columns: [
+        {
+          model: "salvaged",
+          backend: "ollama",
+          toolcall: null,
+          agentic: null,
+          agentic_native_fc: { ...agentic, native_structured_calls: 0, native_salvaged_calls: 4 },
+          error: null,
+        },
+        {
+          model: "unrecorded", // an older report: fields absent → nothing rendered, never a fake 0
+          backend: "ollama",
+          toolcall: null,
+          agentic: null,
+          agentic_native_fc: { ...agentic },
+          error: null,
+        },
+      ],
+    };
+    const rows = toScoreRows(report, []);
+    expect(rows[0].nativeChannel).toBe("0 native calls · 4 text-salvaged");
+    expect(rows[1].nativeChannel).toBeUndefined();
   });
 
   it("formats agentic metrics and shows N/A for nulls, — for single-turn cells", () => {

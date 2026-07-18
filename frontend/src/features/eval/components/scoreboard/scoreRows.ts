@@ -71,6 +71,12 @@ export interface ScoreRow {
   /// or errored columns (no agentic run).
   failures: FailureTracker | null;
   composite: string;
+  /// Native-FC channel split for the Tool-Calling row: how the native pass's tool
+  /// calls actually arrived. `undefined` when never recorded (older report / prompt
+  /// path) — render NOTHING, never a fabricated 0. The headline case is
+  /// "0 native calls · N text-salvaged": the model produced zero structured
+  /// `tool_calls` and its entire score came from the text salvager.
+  nativeChannel?: string;
 }
 
 const fmtNum = (n: number | null) => (n == null ? "N/A" : (Math.round(n * 10) / 10).toString());
@@ -85,6 +91,24 @@ const fmtPct = (n: number | null | undefined) => (n == null ? "—" : `${Math.ro
 const SCHEMA_RESIL_CLEAN_NOTE =
   "No schema errors — the model emitted only well-formed tool calls, so there was nothing to recover from.";
 const cleanNote = (resil: number | null | undefined) => (resil == null ? SCHEMA_RESIL_CLEAN_NOTE : undefined);
+
+/// The native channel split as a display string, derived ONLY from what was
+/// measured. Both absent/null → undefined ("not recorded" — nothing renders, never
+/// a fabricated 0). `0 structured` with salvaged calls is the finding the backend
+/// flags as "a result worth showing, not hiding": the model can't do native
+/// tool-calling on this runtime and its score came from the text salvager.
+export function nativeChannelLabel(
+  structured: number | null | undefined,
+  salvaged: number | null | undefined,
+): string | undefined {
+  if (structured == null && salvaged == null) return undefined;
+  const s = structured ?? 0;
+  const v = salvaged ?? 0;
+  if (s === 0 && v > 0) return `0 native calls · ${v} text-salvaged`;
+  if (s > 0 && v > 0) return `${s} native · ${v} salvaged`;
+  if (s > 0) return `${s} native`;
+  return undefined; // measured, but zero calls of either kind — nothing to say
+}
 
 export function toScoreRows(report: BatchReport | null, models: InstalledModelInfo[]): ScoreRow[] {
   if (!report) return [];
@@ -142,6 +166,7 @@ export function toScoreRows(report: BatchReport | null, models: InstalledModelIn
       topErrorNative: c.error ? "Error" : nativeAllErrored ? NATIVE_ERROR_LABEL[nat!.native_error_class ?? "none"] : nat ? TOP_ERROR_LABEL[nat.top_error] : "—",
       failuresNative: nat?.failures ?? null,
       composite: fmtPct(c.toolcall?.composite),
+      nativeChannel: nat ? nativeChannelLabel(nat.native_structured_calls, nat.native_salvaged_calls) : undefined,
     };
   });
 }

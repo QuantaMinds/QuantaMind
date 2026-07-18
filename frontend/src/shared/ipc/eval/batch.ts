@@ -262,6 +262,15 @@ export const AgenticReportSchema = z.object({
   // Bring-Your-Own: present only for a diagnostic (no answer key). Drives the
   // "schema-valid X/Y" score cell instead of pass^k. Nullish so every other report parses.
   diagnostic: DiagnosticStatsSchema.nullish(),
+  // Native-FC channel split: how many tool calls arrived as STRUCTURED native
+  // `tool_calls` vs recovered by the text salvager. `.nullish()` mirrors the Rust
+  // `Option` + `#[serde(default)]`: absent/None = "not recorded" (prompt path /
+  // older reports) and must never render as a fake measured 0 — while
+  // `structured === 0 && salvaged > 0` is the "this model can't do native
+  // tool-calling on this runtime, the whole score came from the salvager" finding
+  // the backend calls "a result worth showing, not hiding".
+  native_structured_calls: z.number().int().nullish(),
+  native_salvaged_calls: z.number().int().nullish(),
 });
 export type AgenticReport = z.infer<typeof AgenticReportSchema>;
 
@@ -319,6 +328,12 @@ export const AggAgenticSchema = z.object({
   // Bring-Your-Own: the per-model diagnostic (schema-valid + attribution) for a no-answer-key
   // run. Present ONLY on a BYO column → Model Results shows "schema-valid X/Y". Nullish otherwise.
   diagnostic: DiagnosticStatsSchema.nullish(),
+  // Native-FC channel split summed across tasks (the Rust `sum_opt` preserves
+  // None-vs-Some(0): all-None stays "not recorded"). See AgenticReportSchema for
+  // the semantics; surfaced so a native column whose score came entirely from the
+  // text salvager is visible, not a bare green Pass^k.
+  native_structured_calls: z.number().int().nullish(),
+  native_salvaged_calls: z.number().int().nullish(),
 });
 export type AggAgentic = z.infer<typeof AggAgenticSchema>;
 
