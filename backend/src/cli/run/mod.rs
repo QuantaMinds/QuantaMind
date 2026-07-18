@@ -7,9 +7,11 @@
 //! no-hardware verdict path). Nothing new in the eval engine — this is wiring.
 
 pub mod config;
+pub mod junit;
 pub mod render;
 pub mod sink;
 
+pub use junit::to_junit;
 pub use render::{exit_code, render_human, FailOn};
 
 use crate::cli::doctor::probe::probe_backend;
