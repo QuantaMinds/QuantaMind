@@ -1,7 +1,7 @@
 use crate::errors::AppResult;
 use crate::inference::backend::backend_kind::BackendKind;
 use crate::inference::eval::agentic::difficulty::passk::answer_tokens_for;
-use crate::inference::eval::agentic::model_turn::{BackendTurn, ModelTurn};
+use crate::inference::eval::agentic::model_turn::{BackendTurn, ModelTurn, Progress};
 use crate::inference::eval::agentic::spec::Tier;
 use crate::inference::eval::toolcall::parse::extract_calls;
 use crate::inference::eval::toolcall::prompt::build_system;
@@ -113,7 +113,7 @@ pub(crate) async fn trace_one_with<M: ModelTurn>(turn: &M, model: &str, task: &T
         keep_alive: None,
         think: None,
     };
-    let (raw_output, stats) = turn.run(&spec).await?;
+    let (raw_output, stats) = turn.run(&spec, &Progress::new()).await?;
     let verdict = score(&task.expected, extract_calls(&raw_output).as_deref());
     Ok(TraceResult { system_message, user_prompt: task.prompt.clone(), raw_output, verdict, prompt_tokens: stats.prompt_eval_count })
 }

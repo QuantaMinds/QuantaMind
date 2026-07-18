@@ -1,8 +1,8 @@
 use crate::errors::AppResult;
-use crate::inference::eval::agentic::model_turn::ModelTurn;
+use crate::inference::eval::agentic::model_turn::{ModelTurn, Progress};
 use crate::inference::eval::agentic::scoring::report::{FailureKind, SafetyAttribution, TopError};
 use crate::inference::eval::agentic::runner::{
-    run_agentic, run_agentic_within, run_once, run_once_cancellable, run_once_inner, task_budget, AgenticConfig,
+    run_agentic, run_agentic_within, run_once, run_once_cancellable, run_once_inner, task_budget, AgenticConfig, StallPolicy,
 };
 use tokio_util::sync::CancellationToken;
 use crate::inference::eval::agentic::sandbox::{DeterministicSandbox, EndStateRule, MockResponse, TaskCheckpoint};
@@ -33,7 +33,7 @@ impl ScriptedModel {
 }
 
 impl ModelTurn for ScriptedModel {
-    async fn run(&self, _spec: &GenerateSpec) -> AppResult<(String, GenerateStats)> {
+    async fn run(&self, _spec: &GenerateSpec, _progress: &Progress) -> AppResult<(String, GenerateStats)> {
         let i = self.next.fetch_add(1, Ordering::SeqCst).min(self.replies.len() - 1);
         let (text, n) = &self.replies[i];
         Ok((text.clone(), GenerateStats { eval_count: Some(*n), ..Default::default() }))
@@ -49,7 +49,7 @@ struct StatsScriptedModel {
 }
 
 impl ModelTurn for StatsScriptedModel {
-    async fn run(&self, _spec: &GenerateSpec) -> AppResult<(String, GenerateStats)> {
+    async fn run(&self, _spec: &GenerateSpec, _progress: &Progress) -> AppResult<(String, GenerateStats)> {
         let i = self.next.fetch_add(1, Ordering::SeqCst).min(self.replies.len() - 1);
         let (text, stats) = &self.replies[i];
         Ok((text.clone(), stats.clone()))
@@ -71,7 +71,7 @@ impl FlakyModel {
 }
 
 impl ModelTurn for FlakyModel {
-    async fn run(&self, _spec: &GenerateSpec) -> AppResult<(String, GenerateStats)> {
+    async fn run(&self, _spec: &GenerateSpec, _progress: &Progress) -> AppResult<(String, GenerateStats)> {
         let i = self.next.fetch_add(1, Ordering::SeqCst);
         if self.err_on.contains(&i) {
             return Err(crate::errors::AppError::Inference("ollama timed out".into()));
@@ -605,7 +605,7 @@ struct CancelingModel {
 }
 
 impl ModelTurn for CancelingModel {
-    async fn run(&self, _spec: &GenerateSpec) -> AppResult<(String, GenerateStats)> {
+    async fn run(&self, _spec: &GenerateSpec, _progress: &Progress) -> AppResult<(String, GenerateStats)> {
         let i = self.next.fetch_add(1, Ordering::SeqCst);
         if i == self.cancel_on_call {
             self.cancel.cancel(); // the "click" — this turn still finishes and returns normally
@@ -665,7 +665,7 @@ struct CancelMidStreamModel {
 }
 
 impl ModelTurn for CancelMidStreamModel {
-    async fn run(&self, _spec: &GenerateSpec) -> AppResult<(String, GenerateStats)> {
+    async fn run(&self, _spec: &GenerateSpec, _progress: &Progress) -> AppResult<(String, GenerateStats)> {
         self.cancel.cancel();
         Ok((String::new(), GenerateStats::default()))
     }
@@ -808,7 +808,7 @@ async fn endless_valid_calls_are_tallied_as_infinite_loops() {
 struct PromptHeavyModel;
 
 impl ModelTurn for PromptHeavyModel {
-    async fn run(&self, _spec: &GenerateSpec) -> AppResult<(String, GenerateStats)> {
+    async fn run(&self, _spec: &GenerateSpec, _progress: &Progress) -> AppResult<(String, GenerateStats)> {
         Ok((END_CALL.to_string(), GenerateStats { prompt_eval_count: Some(9999), eval_count: Some(12), ..Default::default() }))
     }
 }
@@ -1863,7 +1863,7 @@ struct CaptureSystemModel {
     system: std::sync::Mutex<Option<String>>,
 }
 impl ModelTurn for CaptureSystemModel {
-    async fn run(&self, spec: &GenerateSpec) -> AppResult<(String, GenerateStats)> {
+    async fn run(&self, spec: &GenerateSpec, _progress: &Progress) -> AppResult<(String, GenerateStats)> {
         *self.system.lock().unwrap() = spec.system.clone();
         Ok(("answered in plain prose".into(), GenerateStats { eval_count: Some(1), ..Default::default() }))
     }
@@ -1978,26 +1978,143 @@ async fn forbidden_pair_is_terminal_while_allowed_args_advance() {
     assert!(ok.reached_end);
 }
 
-/// A model whose turn never returns in time — exercises the per-step timeout.
+// --- Stall-based per-step timeout (PR1): a turn is terminated only when its TOKEN PROGRESS
+// stalls, never merely for being slow. Two thresholds replace the old elapsed `STEP_TIMEOUT`
+// ×`SLOW_STEP_MULTIPLIER`: `ttft_grace` (to the first token, absorbs prefill) and `inter_token`
+// (max gap between tokens once streaming). All GPU-free: scripted mocks drive the `Progress`
+// handle with tiny ms-scale thresholds; a "long" turn is simulated by many sub-threshold pulses.
+
+/// Milliseconds as a `Duration`, for the ms-scale stall thresholds/pulse schedules below.
+fn ms(n: u64) -> std::time::Duration {
+    std::time::Duration::from_millis(n)
+}
+
+/// A model whose turn never returns and never pulses a token — a genuinely hung backend. The
+/// stall watchdog must terminate it on the TTFT grace (no first token in time), not hang forever.
 struct HangingModel;
 impl ModelTurn for HangingModel {
-    async fn run(&self, _spec: &GenerateSpec) -> AppResult<(String, GenerateStats)> {
+    async fn run(&self, _spec: &GenerateSpec, _progress: &Progress) -> AppResult<(String, GenerateStats)> {
         tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
         Ok((END_CALL.to_string(), GenerateStats::default()))
     }
 }
 
+/// Drives the stall watchdog deterministically with no live backend: sleep `pre_first` (the
+/// prefill / time-to-first-token), then emit `pulses` progress ticks — one streamed token each,
+/// exactly like a backend's `push` closure — spaced by `gap`, then a final `tail` silence, then
+/// return `reply`. `slow` sets `slow_inference()` so a test can prove the stall treatment no
+/// longer forks on it.
+struct PacedModel {
+    pre_first: std::time::Duration,
+    gap: std::time::Duration,
+    pulses: u32,
+    tail: std::time::Duration,
+    reply: &'static str,
+    slow: bool,
+}
+impl ModelTurn for PacedModel {
+    async fn run(&self, _spec: &GenerateSpec, progress: &Progress) -> AppResult<(String, GenerateStats)> {
+        tokio::time::sleep(self.pre_first).await;
+        for _ in 0..self.pulses {
+            progress.pulse();
+            tokio::time::sleep(self.gap).await;
+        }
+        tokio::time::sleep(self.tail).await;
+        Ok((self.reply.to_string(), GenerateStats { eval_count: Some(10), ..Default::default() }))
+    }
+    fn slow_inference(&self) -> bool {
+        self.slow
+    }
+}
+
+/// T1 — updates the old `a_stalled_turn_times_out_and_terminates`. A turn that never emits a
+/// first token and never returns is genuinely hung: the watchdog must terminate it on
+/// `ttft_grace` as a `TurnTimeout`. Preserves the true-hang tripwire the stall rewrite must keep.
 #[tokio::test]
-async fn a_stalled_turn_times_out_and_terminates() {
+async fn a_hung_turn_with_no_tokens_times_out() {
+    let policy = StallPolicy { ttft_grace: ms(60), inter_token: ms(30) };
     let (tx, mut rx) = unbounded_channel();
-    // Tiny budget so the stalled turn trips it immediately.
-    let outcome = run_once_inner(&HangingModel, &sandbox(), 8, 2, std::time::Duration::from_millis(5), 0, &tx, &CancellationToken::new())
+    let outcome = run_once_inner(&HangingModel, &sandbox(), 8, 2, policy, 0, &tx, &CancellationToken::new())
         .await
         .unwrap();
     drop(tx);
     assert!(!outcome.reached_end);
     assert_eq!(outcome.failure, Some(FailureKind::TurnTimeout));
     assert_eq!(drain(&mut rx).last().unwrap().kind, StepKind::TurnTimeout);
+}
+
+/// T2 — THE CORE FIX. A turn that keeps emitting tokens, each gap well under `inter_token`, for a
+/// total wall-clock far past any single old elapsed cap (40 sub-threshold pulses stand in for a
+/// multi-minute reasoning turn) must NOT be scored `TurnTimeout`: it is progressing. The old
+/// `timeout(STEP_TIMEOUT, whole_turn)` killed exactly this healthy slow generation.
+#[tokio::test]
+async fn a_slow_but_progressing_turn_is_not_timed_out() {
+    let model = PacedModel { pre_first: ms(10), gap: ms(15), pulses: 40, tail: ms(0), reply: END_CALL, slow: false };
+    let policy = StallPolicy { ttft_grace: ms(200), inter_token: ms(60) };
+    let (tx, mut rx) = unbounded_channel();
+    let outcome = run_once_inner(&model, &sandbox(), 8, 2, policy, 0, &tx, &CancellationToken::new())
+        .await
+        .unwrap();
+    drop(tx);
+    assert!(outcome.reached_end, "a steadily-progressing turn must reach the end state, not time out");
+    assert_ne!(outcome.failure, Some(FailureKind::TurnTimeout));
+    assert!(drain(&mut rx).iter().all(|s| s.kind != StepKind::TurnTimeout), "no step may be a TurnTimeout");
+}
+
+/// T3 — a long-context prefill emits no tokens while it runs, so the first token can legitimately
+/// arrive just under `ttft_grace`. That must be absorbed (not a stall), proving the two
+/// thresholds are distinct: TTFT covers prefill; `inter_token` only governs the gap AFTER
+/// streaming has started.
+#[tokio::test]
+async fn a_long_prefill_before_first_token_is_not_timed_out() {
+    // Silent for nearly the whole grace (210ms < 300ms), THEN stream normally to the end state.
+    let model = PacedModel { pre_first: ms(210), gap: ms(15), pulses: 12, tail: ms(0), reply: END_CALL, slow: false };
+    let policy = StallPolicy { ttft_grace: ms(300), inter_token: ms(40) };
+    let (tx, _rx) = unbounded_channel();
+    let outcome = run_once_inner(&model, &sandbox(), 8, 2, policy, 0, &tx, &CancellationToken::new())
+        .await
+        .unwrap();
+    drop(tx);
+    assert!(outcome.reached_end, "a first token arriving within the TTFT grace must not be a timeout");
+    assert_ne!(outcome.failure, Some(FailureKind::TurnTimeout));
+}
+
+/// T4 — streaming started (first token fine), then the backend wedged: the gap between tokens
+/// blew past `inter_token`. That IS a stall and must terminate as `TurnTimeout` — the inter-token
+/// threshold, not TTFT, is what fires here.
+#[tokio::test]
+async fn a_turn_that_goes_silent_mid_stream_times_out() {
+    // Three healthy tokens, then a silence far longer than `inter_token`, then a (never-reached) end.
+    let model = PacedModel { pre_first: ms(10), gap: ms(15), pulses: 3, tail: ms(220), reply: END_CALL, slow: false };
+    let policy = StallPolicy { ttft_grace: ms(400), inter_token: ms(50) };
+    let (tx, mut rx) = unbounded_channel();
+    let outcome = run_once_inner(&model, &sandbox(), 8, 2, policy, 0, &tx, &CancellationToken::new())
+        .await
+        .unwrap();
+    drop(tx);
+    assert!(!outcome.reached_end, "a mid-stream stall must terminate the run");
+    assert_eq!(outcome.failure, Some(FailureKind::TurnTimeout));
+    assert_eq!(drain(&mut rx).last().unwrap().kind, StepKind::TurnTimeout);
+}
+
+/// T5 — the old code multiplied the per-step cap by `SLOW_STEP_MULTIPLIER` when `slow_inference()`
+/// was true. Stall detection is progress-keyed, so a fast and a slow model on the SAME
+/// sub-threshold pulse schedule get the SAME verdict — there is no hidden ×N fork left. Both
+/// progress, both reach the end state, regardless of `slow_inference()`.
+#[tokio::test]
+async fn the_step_cap_no_longer_depends_on_slow_inference() {
+    let policy = StallPolicy { ttft_grace: ms(200), inter_token: ms(60) };
+    for slow in [false, true] {
+        let model = PacedModel { pre_first: ms(10), gap: ms(15), pulses: 40, tail: ms(0), reply: END_CALL, slow };
+        let (tx, mut rx) = unbounded_channel();
+        let outcome = run_once_inner(&model, &sandbox(), 8, 2, policy, 0, &tx, &CancellationToken::new())
+            .await
+            .unwrap();
+        drop(tx);
+        assert!(outcome.reached_end, "slow_inference={slow}: identical progress must get an identical pass");
+        assert_ne!(outcome.failure, Some(FailureKind::TurnTimeout), "slow_inference={slow}");
+        assert!(drain(&mut rx).iter().all(|s| s.kind != StepKind::TurnTimeout), "slow_inference={slow}");
+    }
 }
 
 // --- Fix 1: process EVERY parsed call in a turn, not just the first ----------------
@@ -2378,7 +2495,7 @@ impl ThinkingModel {
 }
 
 impl ModelTurn for ThinkingModel {
-    async fn run(&self, spec: &GenerateSpec) -> AppResult<(String, GenerateStats)> {
+    async fn run(&self, spec: &GenerateSpec, _progress: &Progress) -> AppResult<(String, GenerateStats)> {
         self.seen_num_predict.lock().unwrap().push(spec.options.as_ref().and_then(|o| o.num_predict));
         self.seen_prompts.lock().unwrap().push(spec.prompt.clone());
         let i = self.next.fetch_add(1, Ordering::SeqCst).min(self.replies.len() - 1);

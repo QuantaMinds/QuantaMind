@@ -145,7 +145,7 @@ mod tests {
     async fn an_oracle_satisfies_every_authored_task_and_a_trivial_agent_fails() {
         use crate::errors::AppResult;
         use crate::inference::eval::agentic::build::sandbox_for;
-        use crate::inference::eval::agentic::model_turn::ModelTurn;
+        use crate::inference::eval::agentic::model_turn::{ModelTurn, Progress};
         use crate::inference::eval::agentic::runner::run_once;
         use crate::inference::eval::agentic::spec::FaultInjection;
         use crate::inference::generate::generate_spec::GenerateSpec;
@@ -159,7 +159,7 @@ mod tests {
             next: AtomicUsize,
         }
         impl ModelTurn for Scripted {
-            async fn run(&self, _s: &GenerateSpec) -> AppResult<(String, GenerateStats)> {
+            async fn run(&self, _s: &GenerateSpec, _progress: &Progress) -> AppResult<(String, GenerateStats)> {
                 let i = self.next.fetch_add(1, Ordering::SeqCst);
                 // Past the script: emit a no-op (no tool call) → never advances.
                 let body = self.calls.get(i).cloned().unwrap_or_else(|| "{}".into());

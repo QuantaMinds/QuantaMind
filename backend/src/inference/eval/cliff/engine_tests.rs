@@ -13,7 +13,7 @@ struct CliffModel {
 }
 
 impl ModelTurn for CliffModel {
-    async fn run(&self, spec: &GenerateSpec) -> AppResult<(String, GenerateStats)> {
+    async fn run(&self, spec: &GenerateSpec, _progress: &Progress) -> AppResult<(String, GenerateStats)> {
         let chars = spec.system.as_deref().map_or(0, |s| s.len()) + spec.prompt.len();
         let toks = (chars / 4) as u32;
         let text = if toks < self.threshold { self.good.clone() } else { "I cannot help with that.".to_string() };
@@ -33,7 +33,7 @@ struct TruncatingModel {
 }
 
 impl ModelTurn for TruncatingModel {
-    async fn run(&self, spec: &GenerateSpec) -> AppResult<(String, GenerateStats)> {
+    async fn run(&self, spec: &GenerateSpec, _progress: &Progress) -> AppResult<(String, GenerateStats)> {
         let chars = spec.system.as_deref().map_or(0, |s| s.len()) + spec.prompt.len();
         let wanted = (chars / 4) as u32;
         // The window is a ceiling, not an error: the count saturates instead of growing.
@@ -306,7 +306,7 @@ struct CancelsMidRun {
     cancel: CancellationToken,
 }
 impl ModelTurn for CancelsMidRun {
-    async fn run(&self, _spec: &GenerateSpec) -> AppResult<(String, GenerateStats)> {
+    async fn run(&self, _spec: &GenerateSpec, _progress: &Progress) -> AppResult<(String, GenerateStats)> {
         self.cancel.cancel();
         Ok((String::new(), GenerateStats { prompt_eval_count: None, ..Default::default() }))
     }
@@ -597,7 +597,7 @@ struct CachingModel {
 }
 
 impl ModelTurn for CachingModel {
-    async fn run(&self, spec: &GenerateSpec) -> AppResult<(String, GenerateStats)> {
+    async fn run(&self, spec: &GenerateSpec, _progress: &Progress) -> AppResult<(String, GenerateStats)> {
         let chars = spec.system.as_deref().map_or(0, |s| s.len()) + spec.prompt.len();
         let real = (chars / 4) as u32;
         // Warm cache: all but one token served from the reused prefix.
@@ -692,7 +692,7 @@ struct OneFlipModel {
 }
 
 impl ModelTurn for OneFlipModel {
-    async fn run(&self, spec: &GenerateSpec) -> AppResult<(String, GenerateStats)> {
+    async fn run(&self, spec: &GenerateSpec, _progress: &Progress) -> AppResult<(String, GenerateStats)> {
         let toks = ((spec.system.as_deref().map_or(0, |s| s.len()) + spec.prompt.len()) / 4) as u32;
         let where_injected = spec
             .prompt

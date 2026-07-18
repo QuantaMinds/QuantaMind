@@ -46,12 +46,40 @@ async fn resolve_model_stops(endpoint: &str, backend: BackendKind, model: &str) 
         .unwrap_or_default()
 }
 
+/// Token-progress handle the runner hands each turn: the turn calls [`Progress::pulse`] once per
+/// streamed token (a real backend does so inside its `push` closure), and the runner's stall
+/// watchdog samples [`Progress::count`] to tell a slow-but-*progressing* turn from a hung one.
+/// Cheap to clone (an `Arc` counter); a scripted test model pulses it directly to drive the
+/// watchdog with no live backend.
+#[derive(Clone, Default)]
+pub struct Progress {
+    tokens: std::sync::Arc<std::sync::atomic::AtomicU64>,
+}
+
+impl Progress {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// One streamed token — advances forward progress. Called from the backend's token `push`
+    /// closure on the live path, and directly by scripted mocks in tests.
+    pub fn pulse(&self) {
+        self.tokens.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Tokens streamed so far. The stall watchdog samples this between waits: an unchanged count
+    /// across `inter_token` is a stall; the first non-zero is the first token (ends TTFT grace).
+    pub fn count(&self) -> u64 {
+        self.tokens.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
 /// One model turn behind a seam: prompt in → (text, stats) out. The runner
 /// depends on this, not on a concrete backend, so it stays unit-testable with a
 /// scripted model while the real path drives a live `InferenceBackend`.
 #[allow(async_fn_in_trait)]
 pub trait ModelTurn {
-    async fn run(&self, spec: &GenerateSpec) -> AppResult<(String, GenerateStats)>;
+    async fn run(&self, spec: &GenerateSpec, progress: &Progress) -> AppResult<(String, GenerateStats)>;
 
     /// Best-effort: load the model resident BEFORE the first scored turn so its
     /// cold-load latency (weights into VRAM) isn't charged to the first task as a
@@ -103,8 +131,8 @@ pub trait ModelTurn {
 /// uses that seam so the prompt path reuses a shared `&BackendTurn` while the native path builds
 /// a fresh per-task `NativeToolTurn`. Both are then one uniform `T: ModelTurn`.
 impl<M: ModelTurn + Sync> ModelTurn for &M {
-    async fn run(&self, spec: &GenerateSpec) -> AppResult<(String, GenerateStats)> {
-        (**self).run(spec).await
+    async fn run(&self, spec: &GenerateSpec, progress: &Progress) -> AppResult<(String, GenerateStats)> {
+        (**self).run(spec, progress).await
     }
     async fn warm_up(&self) -> AppResult<()> {
         (**self).warm_up().await
@@ -195,9 +223,15 @@ fn merge_eval_options(
 }
 
 impl ModelTurn for BackendTurn {
-    async fn run(&self, spec: &GenerateSpec) -> AppResult<(String, GenerateStats)> {
+    async fn run(&self, spec: &GenerateSpec, progress: &Progress) -> AppResult<(String, GenerateStats)> {
         let mut out = String::new();
-        let push = |t: &str| out.push_str(t);
+        // Pulse once per streamed token, inside the single funnel every backend already routes
+        // tokens through, so the runner's stall watchdog sees forward progress uniformly across
+        // Ollama/llama.cpp/MLX/vLLM/SGLang.
+        let push = |t: &str| {
+            out.push_str(t);
+            progress.pulse();
+        };
         let cancel = self.cancel.clone();
         // The agentic loop builds its spec without a model name (it only knows the
         // `ModelTurn` seam). Inject our own so Ollama — which sends `spec.model` in
@@ -379,7 +413,12 @@ fn native_turn_text(calls: &[NativeToolCall], content: String) -> String {
 }
 
 impl ModelTurn for NativeToolTurn {
-    async fn run(&self, spec: &GenerateSpec) -> AppResult<(String, GenerateStats)> {
+    // `_progress` is intentionally not pulsed: the native path is a single-shot, non-streaming
+    // `chat_with_tools` call, so there is no per-token funnel to hook. The stall watchdog therefore
+    // degrades to a flat `TTFT_GRACE` cap on the native pass (no `INTER_TOKEN_STALL` phase) — the
+    // "a progressing turn is never timed out" guarantee is the streaming (prompt) path only. Not a
+    // regression: native turns are `slow_inference() == false`, so their cap widened 180s → 720s.
+    async fn run(&self, spec: &GenerateSpec, _progress: &Progress) -> AppResult<(String, GenerateStats)> {
         let tools = build_tools_value(&self.tools);
         let system = native_system(&self.tools, self.terminal);
         // Budget parity with the prompt path: the runner pins the tier-scaled per-turn
@@ -445,7 +484,7 @@ impl ModelTurn for NativeToolTurn {
 
 #[cfg(test)]
 mod tests {
-    use super::{merge_eval_options, native_system, native_think, native_turn_text, synthesize_calls, BackendTurn, ModelTurn, NativeToolCall, NativeToolTurn};
+    use super::{merge_eval_options, native_system, native_think, native_turn_text, synthesize_calls, BackendTurn, ModelTurn, NativeToolCall, NativeToolTurn, Progress};
     use crate::inference::backend::backend_kind::BackendKind;
     use crate::inference::eval::toolcall::parse::{extract_calls, extract_calls_dialect, looks_like_broken_json, looks_like_foreign_dialect, ToolCallDialect};
     use crate::inference::eval::toolcall::prompt::TerminalGuidance;
@@ -499,7 +538,7 @@ mod tests {
             .create_async()
             .await;
         let turn = backend_turn(s.url(), false);
-        let (out, stats) = turn.run(&GenerateSpec { prompt: "p".into(), ..Default::default() }).await.unwrap();
+        let (out, stats) = turn.run(&GenerateSpec { prompt: "p".into(), ..Default::default() }, &Progress::new()).await.unwrap();
         assert_eq!(out, "ok");
         assert_eq!(stats.finish_reason.as_deref(), Some("stop"));
         m.assert_async().await; // the body really carried think:false
@@ -518,7 +557,7 @@ mod tests {
             .create_async()
             .await;
         let turn = backend_turn(s.url(), true);
-        let (out, _) = turn.run(&GenerateSpec { prompt: "p".into(), ..Default::default() }).await.unwrap();
+        let (out, _) = turn.run(&GenerateSpec { prompt: "p".into(), ..Default::default() }, &Progress::new()).await.unwrap();
         assert_eq!(out, "<think>hm</think>ok");
         m.assert_async().await;
     }
@@ -546,7 +585,7 @@ mod tests {
             max_tokens: 256,
             is_thinking: false,
         };
-        let (out, _) = turn.run(&GenerateSpec { prompt: "p".into(), ..Default::default() }).await.unwrap();
+        let (out, _) = turn.run(&GenerateSpec { prompt: "p".into(), ..Default::default() }, &Progress::new()).await.unwrap();
         let calls = extract_calls(&out).unwrap();
         assert_eq!(calls[0].name, "reply");
         m.assert_async().await; // the body really carried think:false
@@ -644,7 +683,7 @@ mod tests {
             stop_cache: Default::default(),
         };
         let spec = GenerateSpec { prompt: "What is 2+2? Answer with just the number.".into(), options: tiny.clone(), ..Default::default() };
-        let (out, stats) = turn.run(&spec).await.unwrap();
+        let (out, stats) = turn.run(&spec, &Progress::new()).await.unwrap();
         eprintln!("LIVE prompt-path: out={out:?} finish={:?} eval_count={:?}", stats.finish_reason, stats.eval_count);
         assert!(!out.trim().is_empty(), "non-thinking turn must produce VISIBLE output");
         assert!(!out.contains("<think>"), "thinking must be disabled, not merely split");
@@ -657,7 +696,7 @@ mod tests {
             options: None, terminal: TerminalGuidance::MustUseTools, max_tokens: 64, is_thinking: false,
         };
         let spec = GenerateSpec { prompt: "Reply with the text: ok".into(), options: tiny, ..Default::default() };
-        let (out, stats) = native.run(&spec).await.unwrap();
+        let (out, stats) = native.run(&spec, &Progress::new()).await.unwrap();
         eprintln!("LIVE native-path: out={out:?} finish={:?} eval_count={:?}", stats.finish_reason, stats.eval_count);
         let calls = extract_calls(&out).expect("suppressed turn must emit a parseable tool call, not hidden thinking");
         assert_eq!(calls[0].name, "reply");
@@ -669,7 +708,7 @@ mod tests {
             options: Some(GenerateOptions { num_predict: Some(512), temperature: Some(0.0), ..Default::default() }),
             ..Default::default()
         };
-        let (out, stats) = thinking.run(&spec).await.unwrap();
+        let (out, stats) = thinking.run(&spec, &Progress::new()).await.unwrap();
         let head: String = out.chars().take(120).collect();
         eprintln!("LIVE thinking-path: out[..120]={head:?} finish={:?} eval_count={:?}", stats.finish_reason, stats.eval_count);
         assert!(out.contains("<think>"), "is_thinking:true must still capture the scratchpad");
@@ -835,7 +874,7 @@ mod live_native_channel_tests {
             keep_alive: None,
             think: None,
         };
-        let (raw, stats) = t.run(&spec).await.expect("live native turn");
+        let (raw, stats) = t.run(&spec, &super::Progress::new()).await.expect("live native turn");
         let salvaged = extract_calls(&raw);
         println!("\n=== LIVE native channel: {label} ===");
         println!("  native_tool_calls (structured) : {:?}", stats.native_tool_calls);

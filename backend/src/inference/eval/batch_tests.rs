@@ -1,7 +1,7 @@
 use super::*;
 use crate::errors::AppResult;
 use crate::inference::backend::backend_kind::BackendKind;
-use crate::inference::eval::agentic::model_turn::{BackendTurn, ModelTurn};
+use crate::inference::eval::agentic::model_turn::{BackendTurn, ModelTurn, Progress};
 use crate::inference::eval::agentic::sandbox::{EndStateRule, TaskCheckpoint};
 use crate::inference::eval::agentic::spec::AgenticSpec;
 use crate::inference::eval::toolcall::matrix::ModelTarget;
@@ -18,7 +18,7 @@ struct ScriptedModel {
 }
 
 impl ModelTurn for ScriptedModel {
-    async fn run(&self, _spec: &GenerateSpec) -> AppResult<(String, GenerateStats)> {
+    async fn run(&self, _spec: &GenerateSpec, _progress: &Progress) -> AppResult<(String, GenerateStats)> {
         Ok((self.reply.clone(), GenerateStats { eval_count: Some(5), prompt_eval_count: Some(3), ..Default::default() }))
     }
 }
@@ -215,7 +215,7 @@ struct NativeErrModel {
     err: Option<String>,
 }
 impl ModelTurn for NativeErrModel {
-    async fn run(&self, _s: &GenerateSpec) -> AppResult<(String, GenerateStats)> {
+    async fn run(&self, _s: &GenerateSpec, _progress: &Progress) -> AppResult<(String, GenerateStats)> {
         match &self.err {
             Some(m) => Err(crate::errors::AppError::Inference(m.clone())),
             None => Ok((r#"{"name":"ping","args":{}}"#.into(), GenerateStats { eval_count: Some(5), ..Default::default() })),
@@ -510,7 +510,7 @@ struct WarmTrackModel {
 }
 
 impl ModelTurn for WarmTrackModel {
-    async fn run(&self, _s: &GenerateSpec) -> AppResult<(String, GenerateStats)> {
+    async fn run(&self, _s: &GenerateSpec, _progress: &Progress) -> AppResult<(String, GenerateStats)> {
         self.log.lock().unwrap().push(format!("run:{}", self.model));
         Ok((r#"{"name":"ping","args":{}}"#.into(), GenerateStats { eval_count: Some(5), ..Default::default() }))
     }
