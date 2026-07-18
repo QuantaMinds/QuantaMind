@@ -12,7 +12,7 @@ pub mod render;
 pub mod sink;
 
 pub use junit::to_junit;
-pub use render::{exit_code, render_human, FailOn};
+pub use render::{exit_code, render_human, render_scoreboard, FailOn};
 
 use crate::cli::doctor::probe::probe_backend;
 use crate::commands::eval::batch_cmd::probe_native_tools;
@@ -73,8 +73,10 @@ pub struct RunOptions {
     pub think: ThinkPreset,
     /// Native tool-calling, prompt-based, or both.
     pub mode: RunMode,
-    /// Readiness profile id (a `profile::builtins()` id).
+    /// Readiness profile: a built-in id OR a `.json` file path.
     pub profile_id: String,
+    /// If set, write the raw `BatchReport` here (for offline `qm report --report`).
+    pub save_report: Option<std::path::PathBuf>,
 }
 
 /// What a run produced. The bin maps each variant to the documented exit code.
@@ -82,7 +84,11 @@ pub enum RunOutcome {
     Unreachable { backend: BackendKind, endpoint: String },
     ModelNotFound { backend: BackendKind, model: String, available: Vec<String> },
     UnknownCollection { id: String },
+    /// A `--collection` file that failed to read / parse / validate — exit 2.
+    BadCollectionFile { path: String, reason: String },
     UnknownProfile { id: String },
+    /// A `--profile` file that failed to read / parse — exit 2.
+    BadProfileFile { path: String, reason: String },
     /// `--mode native` but the model/backend has no native tool-calling — exit 2.
     NativeUnsupported { backend: BackendKind, model: String },
     /// `--thinking standard|deep` but the model can't reason (Ollama 400s it) — exit 2.
@@ -188,15 +194,73 @@ fn skeleton(collection_id: &str, targets: &[ModelTarget]) -> BatchReport {
     }
 }
 
+/// Why a collection couldn't be resolved.
+enum CollectionError {
+    /// Not a file, and not a known built-in id.
+    UnknownBuiltin,
+    /// A file that failed to read/parse/validate (reason already redacted).
+    BadFile(String),
+}
+
+/// Resolve `--collection`: a file path (JSON: a raw `ToolTask[]` or a v2 object,
+/// auto-detected + size-capped by `evals::read_capped`) OR a built-in id. A spec that
+/// names a file (has a separator or ends `.json`) always goes down the file path so a
+/// typo'd filename reports a file error, not "unknown built-in".
+fn load_collection(spec: &str) -> Result<Vec<ToolTask>, CollectionError> {
+    let path = std::path::Path::new(spec);
+    let looks_like_file = path.is_file() || spec.ends_with(".json") || spec.contains(std::path::MAIN_SEPARATOR) || spec.contains('/');
+    if looks_like_file {
+        return crate::persistence::evals::read_capped(path)
+            .map_err(|e| CollectionError::BadFile(crate::redact::redact_path(&e.to_string())));
+    }
+    builtin_collection(spec).ok_or(CollectionError::UnknownBuiltin)
+}
+
+/// Why a profile couldn't be resolved.
+enum ProfileError {
+    UnknownBuiltin,
+    BadFile(String),
+}
+
+/// Resolve `--profile`: a JSON file (a `ReadinessProfile`, 1 MB cap) OR a built-in id
+/// (`general-agent` / `rag-assistant` / `coding-agent`).
+fn load_profile(spec: &str) -> Result<crate::inference::eval::readiness::profile::ReadinessProfile, ProfileError> {
+    let path = std::path::Path::new(spec);
+    let looks_like_file = path.is_file() || spec.ends_with(".json") || spec.contains('/') || spec.contains(std::path::MAIN_SEPARATOR);
+    if looks_like_file {
+        let text = crate::persistence::evals::read_text_capped(path)
+            .map_err(|e| ProfileError::BadFile(crate::redact::redact_path(&e.to_string())))?;
+        return parse_profile_lenient(&text).map_err(ProfileError::BadFile);
+    }
+    profile::builtins().into_iter().find(|p| p.id == spec).ok_or(ProfileError::UnknownBuiltin)
+}
+
+/// Deserialize a `ReadinessProfile`, accepting a `required_tier` written in any case
+/// (`Easy`/`EASY`/`easy`) — the built-in v2 *collection* loader is case-insensitive
+/// about tier, so a hand-written profile shouldn't be stricter (a real papercut).
+fn parse_profile_lenient(text: &str) -> Result<crate::inference::eval::readiness::profile::ReadinessProfile, String> {
+    let mut value: serde_json::Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
+    if let Some(lowered) = value.get("required_tier").and_then(|v| v.as_str()).map(str::to_lowercase) {
+        value["required_tier"] = serde_json::Value::String(lowered);
+    }
+    serde_json::from_value(value).map_err(|e| e.to_string())
+}
+
 /// Run the built-in suite and assess it. Preflights reachability + model presence
 /// (reusing the doctor probe) so an unreachable server or a missing model fails fast
 /// with the right signal instead of being mislabelled a failing model.
 pub async fn run_suite(opts: RunOptions) -> AppResult<RunOutcome> {
-    let Some(mut tasks) = builtin_collection(&opts.collection) else {
-        return Ok(RunOutcome::UnknownCollection { id: opts.collection });
+    let mut tasks = match load_collection(&opts.collection) {
+        Ok(t) => t,
+        Err(CollectionError::UnknownBuiltin) => return Ok(RunOutcome::UnknownCollection { id: opts.collection }),
+        Err(CollectionError::BadFile(reason)) => {
+            return Ok(RunOutcome::BadCollectionFile { path: opts.collection, reason })
+        }
     };
-    let Some(profile) = profile::builtins().into_iter().find(|p| p.id == opts.profile_id) else {
-        return Ok(RunOutcome::UnknownProfile { id: opts.profile_id });
+    let profile = match load_profile(&opts.profile_id) {
+        Ok(p) => p,
+        Err(ProfileError::UnknownBuiltin) => return Ok(RunOutcome::UnknownProfile { id: opts.profile_id }),
+        Err(ProfileError::BadFile(reason)) => return Ok(RunOutcome::BadProfileFile { path: opts.profile_id, reason }),
     };
 
     // Preflight — reuse the doctor probe (reachability + served models).
@@ -340,6 +404,13 @@ pub async fn run_suite(opts: RunOptions) -> AppResult<RunOutcome> {
     }
     report.think_preset = Some(preset);
 
+    // Persist the raw BatchReport if asked (for offline `qm report --report`). Saved
+    // even for an errored/inconclusive run — the raw evidence is still worth keeping.
+    if let Some(path) = &opts.save_report {
+        let json = serde_json::to_string_pretty(&report).map_err(|e| crate::errors::AppError::Internal(e.to_string()))?;
+        std::fs::write(path, json).map_err(|e| crate::errors::AppError::Internal(format!("write report: {e}")))?;
+    }
+
     // A run that ERRORED couldn't measure anything → Inconclusive (retry), NOT a
     // NotReady verdict. A column error is the loud signal; surface it redacted (rule
     // 7f) instead of leaking a raw internal error string into a readiness "reason".
@@ -357,10 +428,94 @@ pub async fn run_suite(opts: RunOptions) -> AppResult<RunOutcome> {
     }
 
     Ok(RunOutcome::Ran(RunReport {
-        collection_id: opts.collection,
+        // Display the collection by its basename, never the full path (rule 7f — no
+        // absolute path / machine info in output).
+        collection_id: display_collection(&opts.collection),
         backend: opts.backend,
         model: opts.model,
         profile_id: opts.profile_id,
         verdicts,
     }))
+}
+
+/// A leak-safe display name for a collection: a built-in id as-is, a file as its
+/// basename only (never the absolute path).
+fn display_collection(spec: &str) -> String {
+    let path = std::path::Path::new(spec);
+    if spec.ends_with(".json") || spec.contains('/') || spec.contains(std::path::MAIN_SEPARATOR) {
+        return path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| spec.to_string());
+    }
+    spec.to_string()
+}
+
+/// Outcome of an offline `qm report --report <file>` re-assessment.
+pub enum ReportOutcome {
+    BadReportFile { path: String, reason: String },
+    UnknownProfile { id: String },
+    BadProfileFile { path: String, reason: String },
+    Ran(RunReport),
+}
+
+/// Offline: reload a saved `BatchReport` (written by `run`/`test --save-report`) and
+/// re-assess it against a profile (a built-in id OR a `.json` file) — no backend, no
+/// inference. Lets you score one run against many bars.
+pub fn assess_saved(report_path: &str, profile_spec: &str) -> ReportOutcome {
+    let text = match crate::persistence::evals::read_text_capped(std::path::Path::new(report_path)) {
+        Ok(t) => t,
+        Err(e) => {
+            return ReportOutcome::BadReportFile {
+                path: report_path.to_string(),
+                reason: crate::redact::redact_path(&e.to_string()),
+            }
+        }
+    };
+    let report: BatchReport = match serde_json::from_str(&text) {
+        Ok(r) => r,
+        Err(e) => return ReportOutcome::BadReportFile { path: report_path.to_string(), reason: e.to_string() },
+    };
+    let profile = match load_profile(profile_spec) {
+        Ok(p) => p,
+        Err(ProfileError::UnknownBuiltin) => return ReportOutcome::UnknownProfile { id: profile_spec.to_string() },
+        Err(ProfileError::BadFile(reason)) => return ReportOutcome::BadProfileFile { path: profile_spec.to_string(), reason },
+    };
+    let verdicts = assess_report(&report, &profile);
+    let first = report.columns.first();
+    ReportOutcome::Ran(RunReport {
+        collection_id: display_collection(&report.collection_id),
+        backend: first.map(|c| c.backend).unwrap_or_default(),
+        model: first.map(|c| c.model.clone()).unwrap_or_default(),
+        profile_id: profile.id.clone(),
+        verdicts,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{display_collection, parse_profile_lenient};
+
+    #[test]
+    fn profile_tier_is_case_insensitive_like_collections() {
+        let base = r#"{"id":"s","name":"S","min_pass_k":0.9,"max_avg_steps":null,
+            "max_ms_per_step":null,"min_context_tokens":null,"forbid_infinite_loop":true,
+            "forbid_hallucinated_completion":true,"require_full_vram":false,
+            "require_native_fc":false,"required_tier":"TIER"}"#;
+        // "Easy" / "EASY" / "easy" all parse to the same profile.
+        for t in ["Easy", "EASY", "easy", "Medium"] {
+            let p = parse_profile_lenient(&base.replace("TIER", t)).unwrap_or_else(|e| panic!("tier {t}: {e}"));
+            assert_eq!(p.min_pass_k, 0.9);
+        }
+        // A genuinely invalid tier still errors (clearly).
+        assert!(parse_profile_lenient(&base.replace("TIER", "gigantic")).is_err());
+    }
+
+    #[test]
+    fn display_collection_never_leaks_an_absolute_path() {
+        assert_eq!(display_collection("easy-coding"), "easy-coding"); // built-in id as-is
+        assert_eq!(display_collection("/private/tmp/abc/my_suite.json"), "my_suite.json");
+        assert_eq!(display_collection("./rel/dir/x.json"), "x.json");
+        // No username / home path survives (rule 7f).
+        let d = display_collection("/Users/alice/secret/col.json");
+        assert_eq!(d, "col.json");
+        assert!(!d.contains("alice") && !d.contains("secret"));
+    }
 }

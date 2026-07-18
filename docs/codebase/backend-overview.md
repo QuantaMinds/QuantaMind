@@ -103,7 +103,9 @@ the eval engine without the GUI (ADR 0001 keeps it a `[[bin]]`, not a workspace 
 `clap` subcommand dispatch → a pure engine in `quantamind_lib::commands::{doctor,run,init}` → render →
 `std::process::exit(<contract code>)`. Thin by rule (thin command, pure core). Subcommands: `doctor`
 (diagnose), `run` (built-in suite → Ready/Conditional/NotReady verdict, wraps `run_batch` +
-`readiness::assess_report`), `init` (auto-detect → write `qm.json` → run). The surface + exit-code
+`readiness::assess_report`), `init` (auto-detect → write `qm.json` → run), `test` (run a user
+collection FILE via `persistence::evals::read_capped` → per-mode scoreboard), `report` (offline:
+reload a saved `BatchReport` + re-assess against a profile, no backend). The surface + exit-code
 contract live in [docs/cli/README.md](../cli/README.md).
 · **How/Where used:** `cargo run --bin qm -- doctor` / `target/debug/qm`. Stream discipline: report →
 stdout, `[QM-CODE]` fix lines → stderr (so `--json` pipes cleanly).

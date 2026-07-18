@@ -660,7 +660,18 @@ crate (ADR 0001 — a `[[bin]]`, not a workspace split), reusing the eval engine
   action `.github/actions/qm-eval` wraps `qm run` → JUnit + JSON artifact, `fail-on` gates the job;
   demo at `.github/workflows/eval-example.yml`; usage + vault/OIDC in [docs/ci/README.md](ci/README.md).
   Gate verified live (NotReady → job red under `notready`, green under `never`).
-Planned next: `test`/`report`/`verify`. Full surface + exit-code contract: [docs/cli/README.md](cli/README.md).
+- **`qm test`: shipped** — run a user-provided collection FILE (v2-object or `ToolTask[]` JSON, loaded
+  via `persistence::evals::read_capped`, 1 MB cap) under `--mode both` → a per-mode native-vs-prompt
+  scoreboard. `--collection` now accepts a file on `run` too. Collection basename shown, never the path
+  (rule 7f). Live-verified on Ollama (custom file → scoreboard; bad/missing/malformed → exit 2).
+- **`qm report`: shipped** — offline re-assessment. `run`/`test --save-report <path>` persist the raw
+  `BatchReport`; `qm report --report <path> --profile <id|file>` reloads it and re-assesses (via
+  `assess_report`, no backend) against any bar. `--profile` now accepts a `ReadinessProfile` `.json`
+  file on `run`/`test` too. Live-verified: same run → Ready @ 0.6 bar, NotReady @ 0.9 bar.
+**OSS CLI surface complete** (doctor/init/run/test/report). **`qm verify` deferred** — its value is a
+cross-party trust boundary (shared/published reports) this local single-user tool doesn't have yet, and
+it needs signing infra the lean core dropped; revisit when publish/sharing lands. Full surface +
+exit-code contract: [docs/cli/README.md](cli/README.md).
 
 Locked decisions: **never fabricate** — an unmeasured hard-required metric blocks
 (ignorance is not a pass), unknowns render N/A, prompt-based vs native paths are

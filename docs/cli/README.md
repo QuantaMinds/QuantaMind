@@ -14,12 +14,13 @@ This is an OSS tool built one verified command at a time. Today:
 | `doctor`  | **shipped** | Diagnose every backend: reachable? models? credential? tool-calling? version? |
 | `init`    | **shipped** | Auto-detect a running backend, write `qm.json`, and run the suite (zero config). |
 | `run`     | **shipped** | Built-in tool-calling suite → a Ready/Conditional/NotReady verdict + exit code. |
-| `test`    | planned | Run a custom collection (native + prompt-based) → scoreboard + failure taxonomy. |
-| `report`  | planned | Assess a run against a readiness profile → per-path verdict. |
-| `verify`  | planned | Check a signed report (integrity / tamper-evidence). |
+| `test`    | **shipped** | Run a custom collection FILE (native + prompt) → a per-mode scoreboard + verdict. |
+| `report`  | **shipped** | Re-assess a saved run against a readiness profile, offline (no backend). |
+| `verify`  | deferred | Signed-report tamper-evidence — out of scope for the local OSS tool (see below). |
 
-`doctor`, `init`, and `run` are implemented; `test/report/verify` are the intended surface — this doc
-grows one section at a time as each lands, never ahead of the code.
+`doctor`, `init`, `run`, `test`, and `report` are implemented — the OSS CLI surface. `verify` is
+deferred (rationale in its section). This doc grows one section at a time as each lands, never ahead of
+the code.
 
 ## Running it
 
@@ -236,13 +237,96 @@ $ qm run          # no flags — reads qm.json
 VERDICT: Ready   (ollama · qwen2.5:3b · easy-coding) …
 ```
 
-## `test` / `report` / `verify` — planned
+## `test` — run YOUR collection (per-mode scoreboard)
 
-Not yet implemented. When they land, each gets its own section here (with a live example and its exit
-codes) — and not before. The intended shape:
+Same engine as `run`, but against a **collection file you provide** and defaulting to `--mode both`,
+so you get a native-vs-prompt scoreboard for your own eval.
 
-- **`test`** — a custom collection under native + prompt-based calling → per-mode scoreboard +
-  failure taxonomy. Accepts JSON/JSONL/CSV/BFCL/τ-bench/OpenAI-evals collections.
-- **`report`** — assess a run against a readiness profile (hard gates + soft targets) → per-path
-  verdict; can re-assess a saved `test --json` offline.
-- **`verify`** — check a signed report's integrity (tamper-evidence).
+```
+qm test --collection <file.json> [--backend <k>] [--model <m>]
+        [--mode both] [--tier <t>] [--thinking <t>] [--k <n>] [--fail-on <p>] [--junit <path>] [--json]
+```
+
+**Collection file** — JSON, auto-detected between two shapes (size-capped at 1 MB, schema-validated):
+1. a **v2 collection object** `{ "name", "domain", "tier", "tasks": [ … ] }` — the format the desktop
+   Tests page authors and the built-ins use (multi-step `agent_loop` tasks; this is what the readiness
+   verdict scores);
+2. a raw **`ToolTask[]` array**.
+
+Other formats (CSV, JSONL, BFCL, τ-bench, OpenAI-evals) are **not** parsed by the CLI — convert to one
+of the two JSON shapes first. (`qm run --collection <file>` accepts a file too; `test` just defaults to
+both modes and prints the scoreboard.)
+
+Flags mirror [`run`](#run--the-readiness-verdict) (`--tier`/`--thinking`/`--k`/`--fail-on`/`--junit`/
+`--json`); `--mode` defaults to `both`. Exit codes are the same contract.
+
+### Example
+```
+$ qm test --collection ./my_suite.json --backend ollama --model qwen2.5:3b --k 1
+· [1/2] es_co_run_failing_test (native)
+  … (progress on stderr)
+VERDICT: Not Ready   (ollama · qwen2.5:3b · my_suite.json)
+
+mode          pass^k  tasks   steps  effort   top-error
+NativeFc      0.00    0/2     2.0    —        reported_in_prose_calls=2
+    ✗ pass^k 0.00 < 0.60 required
+PromptBased   1.00    2/2     2.0    49       none
+
+profile: general-agent
+```
+The scoreboard makes the native-vs-prompt split obvious — here the 3B's native tool-calling reports in
+prose while its prompt-based path passes. A bad/missing/malformed file exits `2` with a clear
+`[QM-BAD-COLLECTION]` (the path is redacted per rule 7f).
+
+## `report` — re-assess a saved run, offline
+
+Score a **saved run** against a readiness profile without touching a backend — so you can hold one run
+up to many bars (a strict launch gate, a lenient smoke bar) in milliseconds.
+
+```
+qm run  --model <m> --save-report run.json      # or: qm test … --save-report run.json
+qm report --report run.json --profile <id|file.json> [--fail-on <p>] [--junit <path>] [--json]
+```
+
+`--save-report <path>` (on `run` and `test`) writes the **raw run report** (the internal `BatchReport`,
+re-loadable). `qm report` reloads it, re-assesses against `--profile` (a built-in id **or** a
+`ReadinessProfile` `.json`), and prints the same verdict as `run` — but offline, and against whatever
+bar you name. No inference, no endpoint.
+
+**Profile file** (all fields shown; `required_tier` is `easy|medium|hard|extreme`):
+```json
+{ "id": "strict", "name": "Strict launch gate", "min_pass_k": 0.9,
+  "max_avg_steps": null, "max_ms_per_step": null, "min_context_tokens": null,
+  "forbid_infinite_loop": true, "forbid_hallucinated_completion": true,
+  "require_full_vram": false, "require_native_fc": false, "required_tier": "easy" }
+```
+
+### Example — one run, two bars
+```
+$ qm report --report run.json --profile general-agent    # min_pass_k 0.6
+VERDICT: Ready   (ollama · qwen2.5:3b · easy-coding)
+  [PromptBased] Ready  pass^k=0.80  runs=4/5
+
+$ qm report --report run.json --profile strict.json       # min_pass_k 0.9
+VERDICT: Not Ready   (ollama · qwen2.5:3b · easy-coding)
+  [PromptBased] Not Ready  pass^k=0.80  runs=4/5
+    ✗ pass^k 0.80 < 0.90 required
+$ echo $?   # 20
+```
+
+**Exit:** the verdict (`0`/`10`/`20`, subject to `--fail-on`). `2` on a bad/missing report or profile
+file (`[QM-BAD-REPORT]` / `[QM-BAD-PROFILE]`, path redacted).
+
+## `verify` — deferred (out of OSS scope)
+
+`verify` would check a **cryptographically signed** report's integrity — tamper-evidence for a report
+someone shares or publishes. It is **deliberately not built** in the OSS core:
+
+- Its value is a *trust boundary* (a report moving between parties). This local, single-user tool
+  doesn't have one yet — a signature you both generate and verify on your own machine proves nothing.
+- It needs signing infrastructure (an Ed25519 dependency + key management) that the lean OSS surface
+  intentionally dropped (it lived on the enterprise serving-ops commands), and the project's scope keeps
+  at-rest crypto as a *seam*, not a built feature.
+
+It becomes worth building the day reports are shared/published (a real recipient to protect). Until
+then, shipping a signature nobody needs would be security theater.
