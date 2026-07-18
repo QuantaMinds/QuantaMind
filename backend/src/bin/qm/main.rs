@@ -365,7 +365,13 @@ async fn execute_run(opts: RunOptions, json: bool, fail_on: FailOn) {
             std::process::exit(2);
         }
         RunOutcome::ThinkingUnsupported { backend, model } => {
-            eprintln!("[QM-THINKING-UNSUPPORTED] '{model}' on {} is not a reasoning model — use --thinking lean.", label(backend));
+            // A backend-specific, actionable fix — reasoning fails for different reasons per engine.
+            let hint = match backend {
+                BackendKind::Ollama => "this model has no reasoning capability — use --thinking lean, or pick a reasoning model (e.g. one whose `ollama show` lists \"thinking\")",
+                BackendKind::LlamaCpp | BackendKind::Mlx => "the server returned no reasoning — relaunch it with `--jinja --reasoning-format deepseek` and use a reasoning model, or use --thinking lean",
+                _ => "the server returned no reasoning — enable its reasoning parser, or use --thinking lean",
+            };
+            eprintln!("[QM-THINKING-UNSUPPORTED] --thinking won't take effect for '{model}' on {}: {hint}.", label(backend));
             std::process::exit(2);
         }
         RunOutcome::Inconclusive { reason } => {
