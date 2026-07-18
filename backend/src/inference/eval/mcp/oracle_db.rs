@@ -10,14 +10,17 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 /// Run SQL against `db` via the `sqlite3` CLI; returns the trimmed stdout.
+/// Both error paths are REDACTED (rule 7f): the OS spawn error and sqlite's own
+/// stderr can each embed the absolute temp-dir path of the world's DB.
 pub(crate) fn run_sqlite(db: &Path, sql: &str) -> AppResult<String> {
+    use crate::redact::redact_path;
     let out = Host::command("sqlite3")
         .arg(db)
         .arg(sql)
         .output()
-        .map_err(|e| AppError::Io(format!("sqlite3 spawn: {e}")))?;
+        .map_err(|e| AppError::Io(format!("sqlite3 spawn: {} — db worlds need the sqlite3 CLI on PATH", redact_path(&e.to_string()))))?;
     if !out.status.success() {
-        return Err(AppError::Internal(format!("sqlite3: {}", String::from_utf8_lossy(&out.stderr))));
+        return Err(AppError::Internal(format!("sqlite3: {}", redact_path(String::from_utf8_lossy(&out.stderr).trim()))));
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }

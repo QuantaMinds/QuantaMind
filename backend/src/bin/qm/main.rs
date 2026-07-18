@@ -43,6 +43,22 @@ enum Command {
     Report(ReportArgs),
     /// Context Stress Test: ramp prompt depth and find where tool-calling collapses.
     Cliff(CliffArgs),
+    /// Prove a collection/world is a reliable test BEFORE running it (the same gate
+    /// `run`/`test` apply automatically to uploaded files).
+    Validate(ValidateArgs),
+}
+
+#[derive(clap::Args)]
+struct ValidateArgs {
+    /// Built-in collection id or a collection/world .json file.
+    #[arg(long)]
+    collection: Option<String>,
+    /// Spawn each MCP world and run the do-nothing check (default on; needs npx).
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    live_world: bool,
+    /// Emit the machine-readable CollectionValidation as JSON on stdout.
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(clap::Args)]
@@ -340,6 +356,44 @@ async fn main() {
         Command::Test(args) => run_test(args).await,
         Command::Report(args) => run_report(args),
         Command::Cliff(args) => run_cliff_cmd(args).await,
+        Command::Validate(args) => run_validate_cmd(args).await,
+    }
+}
+
+/// Validate a collection/world — the detailed-report form of the run gate.
+async fn run_validate_cmd(args: ValidateArgs) {
+    use quantamind_lib::cli::validate::{render_validation, run_validate, validate_exit, ValidateOutcome};
+    let collection = resolve_collection(args.collection);
+    match run_validate(&collection, args.live_world).await {
+        Err(e) => {
+            eprintln!("[QM-INTERNAL] validation failed: {}", redact_path(&e.to_string()));
+            std::process::exit(1);
+        }
+        Ok(ValidateOutcome::UnknownCollection { id }) => {
+            eprintln!("[QM-BAD-COLLECTION] unknown collection '{id}'.");
+            std::process::exit(2);
+        }
+        Ok(ValidateOutcome::BadFile { path, reason }) => {
+            eprintln!("[QM-BAD-COLLECTION] could not load '{}': {reason}", redact_path(&path));
+            std::process::exit(2);
+        }
+        Ok(ValidateOutcome::DepsMissing { fix, validation }) => {
+            if args.json {
+                println!("{}", serde_json::to_string_pretty(&validation).unwrap_or_default());
+            } else {
+                print!("{}", render_validation(&validation));
+            }
+            eprintln!("[QM-WORLD-DEPS] world tasks could not be live-checked — {fix}. Install, then re-run `qm validate`.");
+            std::process::exit(11); // inconclusive: the worlds were NOT proven
+        }
+        Ok(ValidateOutcome::Done(v)) => {
+            if args.json {
+                println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
+            } else {
+                print!("{}", render_validation(&v));
+            }
+            std::process::exit(validate_exit(&v));
+        }
     }
 }
 
@@ -706,6 +760,19 @@ async fn execute(opts: RunOptions, json: bool, fail_on: FailOn, junit: Option<Pa
         RunOutcome::Inconclusive { reason } => {
             eprintln!("[QM-INCONCLUSIVE] the run errored before it could measure anything — retry. ({reason})");
             std::process::exit(run::render::EXIT_INCONCLUSIVE);
+        }
+        RunOutcome::CollectionInvalid { findings } => {
+            // The mandatory gate: an uploaded collection with a broken answer key must
+            // never start testing — a pass^k from an invalid world would be a lie.
+            eprintln!("[QM-COLLECTION-INVALID] {} finding(s) — testing not started. Fix these, or run `qm validate` for the full report:", findings.len());
+            for f in &findings {
+                eprintln!("  ✗ {f}");
+            }
+            std::process::exit(20);
+        }
+        RunOutcome::WorldDepsMissing { fix } => {
+            eprintln!("[QM-WORLD-DEPS] {fix} — install, then re-run.");
+            std::process::exit(2);
         }
         RunOutcome::Ran(report) => finish_ran(&report, json, fail_on, junit, render),
     }

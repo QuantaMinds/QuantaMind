@@ -64,12 +64,31 @@ impl DbSeed {
     }
 }
 
+/// Is a seed path unsafe to write under the sandbox? Platform-INDEPENDENT (a world
+/// authored on Unix must be rejected identically when validated on Windows and vice
+/// versa — `Path::is_absolute()` alone disagrees across platforms: a Unix `/etc/x`
+/// is not "absolute" on Windows). Unsafe = traversal (`..`), a POSIX/Windows root
+/// (`/` or `\` lead), a Windows drive prefix (`C:`), or the platform's own
+/// `is_absolute`.
+pub fn is_unsafe_seed_path(rel: &str) -> bool {
+    let bytes = rel.as_bytes();
+    rel.contains("..")
+        || matches!(bytes.first(), Some(b'/') | Some(b'\\'))
+        || (bytes.len() >= 2 && bytes[1] == b':') // C:\ or C:/ drive prefix
+        || Path::new(rel).is_absolute()
+}
+
 /// Write a seed into `root`, confining every path (rejects `..`/absolute, and
 /// `fs_guard` resolves symlinks) so a malformed seed can't escape the sandbox.
 pub fn write_seed(root: &Path, seed: &FsSeed) -> AppResult<()> {
     for (rel, contents) in &seed.files {
-        if rel.contains("..") || Path::new(rel).is_absolute() {
-            return Err(AppError::Validation(format!("seed path '{rel}' must be relative, no ..")));
+        if is_unsafe_seed_path(rel) {
+            // Redacted (rule 7f): an ABSOLUTE seed path is exactly the case where the
+            // offending string can carry /Users/<name>/… — never echo it verbatim.
+            return Err(AppError::Validation(format!(
+                "seed path '{}' must be relative, no ..",
+                crate::redact::redact_path(rel)
+            )));
         }
         let target = root.join(rel);
         if let Some(parent) = target.parent() {
@@ -90,10 +109,46 @@ struct ScratchDir {
 impl ScratchDir {
     fn new() -> AppResult<ScratchDir> {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
+        sweep_orphans();
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!("qm-mcp-world-{}-{n}", std::process::id()));
         std::fs::create_dir_all(&path).map_err(|e| AppError::Io(e.to_string()))?;
         Ok(ScratchDir { path })
+    }
+}
+
+/// Best-effort sweep of `qm-mcp-world-<pid>-*` dirs whose owning process is DEAD —
+/// a SIGKILL'd run can never Drop, so without this every hard kill leaks a temp
+/// dir forever. Unix-only (`kill -0` liveness probe); errors ignored (a sweep must
+/// never block a new world). Called once per world construction — cheap, since the
+/// scan only pays when orphans actually exist.
+fn sweep_orphans() {
+    #[cfg(unix)]
+    {
+        use crate::os::{EngineHost, Host};
+        let me = std::process::id();
+        let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else { return };
+        for e in entries.flatten() {
+            let name = e.file_name();
+            let Some(name) = name.to_str() else { continue };
+            let Some(rest) = name.strip_prefix("qm-mcp-world-") else { continue };
+            let Some(pid_str) = rest.split('-').next() else { continue };
+            let Ok(pid) = pid_str.parse::<u32>() else { continue };
+            if pid == me {
+                continue; // our own live worlds
+            }
+            // `kill -0` = liveness probe, sends no signal. Non-success → pid is dead
+            // (or not ours to signal — either way its worlds are not in use by us).
+            // Via `Host::command` per the repo's disallowed-`Command::new` lint.
+            let alive = Host::command("kill")
+                .args(["-0", &pid.to_string()])
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(true); // probe failed → assume alive, never sweep in doubt
+            if !alive {
+                let _ = std::fs::remove_dir_all(e.path());
+            }
+        }
     }
 }
 

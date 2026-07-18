@@ -571,6 +571,15 @@ export const REFERENCE_SECTIONS: ReferenceSection[] = [
         source: "backend/src/cli/run/ (assess_saved)",
       },
       {
+        id: "cli-validate",
+        heading: "Tests/MCP pages ⇄ qm validate — prove the test before trusting it",
+        what: "Validates a collection or WORLD file the way this app's import validation does — structural schema, reachability (a perfect scripted agent succeeds), discrimination (a do-nothing agent fails), plus MCP-world checks: static (vacuous or contradictory oracle, escaping seed paths) and live (spawn the real server, grade the oracle on the untouched seed — it must fail).",
+        why: "An eval is only as honest as its answer key: a 2026 τ-bench audit measured a literal do-nothing agent at 38% pass^k on unvalidated tasks. The same pipeline gates `qm run`/`test` on every uploaded file — an invalid collection can never start testing (no bypass flag), so a green pass^k always means something.",
+        how: "World files are plain JSON (the same shape this app's MCP builder authors): an array of { instruction, world (fs files / db setupSql), oracle (assert_present/assert_content or assert_contains) }. Each run spawns a REAL MCP server (@modelcontextprotocol/server-filesystem or mcp-server-sqlite-npx via npx) in a throwaway sandbox and grades the end-state of the files/rows, never the model's words. Needs npx (Node) for any world; sqlite3 for db worlds — missing deps print the install command before any model runs. A server that dies mid-run is Inconclusive (retry), never a fake model failure.",
+        formula: "SYNOPSIS\n  qm validate [--collection ID_OR_FILE] [--live-world true|false] [--json]\n\nPLACEHOLDERS\n  ID_OR_FILE   a built-in id, a collection .json, or a WORLD .json\n  --live-world spawn each world + run the do-nothing check (default true; needs npx)\n\nEXIT STATUS\n  0 valid · 10 warnings only · 20 invalid (fix the ✗ findings)\n  11 worlds not live-checkable (npx/sqlite3 missing) · 2 bad file\n\nWORLD FILE (author a real-tool test)\n  [{ \"name\": \"summarize\",\n     \"instruction\": \"Read notes.txt, write summary.md containing 'alpha'.\",\n     \"world\":  { \"type\": \"fs\", \"files\": [{ \"path\": \"notes.txt\", \"content\": \"alpha shipped\" }] },\n     \"oracle\": { \"assert_present\": [\"summary.md\"], \"assert_content\": [[\"summary.md\", \"alpha\"]] } }]\n\nEXAMPLES\n  qm validate --collection ./worlds.json      # prove it before running\n  qm run --collection ./worlds.json --model qwen2.5:3b   # gate runs automatically",
+        source: "backend/src/cli/validate.rs · backend/src/inference/eval/mcp/validate.rs",
+      },
+      {
         id: "cli-cicd",
         heading: "CI/CD — gate a pipeline on model readiness",
         what: "Two ways to wire the verdict into CI: plain shell (the exit-code contract works in any runner) or the bundled GitHub Action `.github/actions/qm-eval`, which builds qm, runs the suite, writes a JUnit report for the test panel, and uploads the JSON report as an artifact.",

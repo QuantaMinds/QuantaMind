@@ -106,7 +106,9 @@ the eval engine without the GUI (ADR 0001 keeps it a `[[bin]]`, not a workspace 
 `readiness::assess_report`), `init` (auto-detect → write `qm.json` → run), `test` (run a user
 collection FILE via `persistence::evals::read_capped` → per-mode scoreboard), `report` (offline:
 reload a saved `BatchReport` + re-assess against a profile, no backend), `cliff` (the Context
-Stress Test headless — wraps `cliff::engine`, greedy prompt-based). The surface + exit-code
+Stress Test headless — wraps `cliff::engine`, greedy prompt-based), `validate` (proves a
+collection/world is a reliable test — reachable + discriminating + MCP-world static/live checks;
+also the mandatory gate `run`/`test` apply to uploaded files). The surface + exit-code
 contract live in [docs/cli/README.md](../cli/README.md).
 · **How/Where used:** `cargo run --bin qm -- doctor` / `target/debug/qm`. Stream discipline: report →
 stdout, `[QM-CODE]` fix lines → stderr (so `--json` pipes cleanly).

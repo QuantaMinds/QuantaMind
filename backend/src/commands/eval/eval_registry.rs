@@ -47,7 +47,11 @@ pub async fn validate_custom_collection(
     name: String,
 ) -> Result<CollectionValidation, AppError> {
     let tasks = evals::load(&evals_dir(&app)?, &name)?;
-    Ok(validate_collection_deep(&tasks).await)
+    let mut v = validate_collection_deep(&tasks).await;
+    // World tasks (agentic.mcp): fold in the static + live do-nothing checks — the
+    // findings land in the same fields this UI already renders.
+    crate::inference::eval::mcp::validate::merge_world_checks(&mut v, &tasks, true).await;
+    Ok(v)
 }
 
 /// Dry-run the same deep validation on an external `.json` file BEFORE importing it — so a
@@ -56,7 +60,9 @@ pub async fn validate_custom_collection(
 #[tauri::command]
 pub async fn validate_collection_file(source_path: PathBuf) -> Result<CollectionValidation, AppError> {
     let tasks = evals::read_capped(&source_path)?;
-    Ok(validate_collection_deep(&tasks).await)
+    let mut v = validate_collection_deep(&tasks).await;
+    crate::inference::eval::mcp::validate::merge_world_checks(&mut v, &tasks, true).await;
+    Ok(v)
 }
 
 /// Read a picked text file (e.g. a CSV) by PATH with the size cap, returning its

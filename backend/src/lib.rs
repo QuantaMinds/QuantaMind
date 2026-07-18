@@ -241,6 +241,7 @@ pub fn run() {
             commands::mcp::run_cmd::mcp_scratch_db_path,
             commands::mcp::task_cmd::build_mcp_byo_tasks,
             commands::mcp::task_cmd::build_mcp_tasks,
+            commands::mcp::task_cmd::validate_mcp_tasks,
             commands::system::onboarding::scaffold_onboarding_workspace,
             commands::system::os_info::os_platform,
         ])

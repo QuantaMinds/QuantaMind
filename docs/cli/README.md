@@ -16,9 +16,12 @@ This is an OSS tool built one verified command at a time. Today:
 | `run`     | **shipped** | Built-in tool-calling suite → a Ready/Conditional/NotReady verdict + exit code. |
 | `test`    | **shipped** | Run a custom collection FILE (native + prompt) → a per-mode scoreboard + verdict. |
 | `report`  | **shipped** | Re-assess a saved run against a readiness profile, offline (no backend). |
+| `cliff`   | **shipped** | Context Stress Test: where does tool-calling collapse with prompt depth? |
+| `validate`| **shipped** | Prove a collection/world is a reliable test — the gate `run`/`test` apply to uploads. |
 | `verify`  | deferred | Signed-report tamper-evidence — out of scope for the local OSS tool (see below). |
 
-`doctor`, `init`, `run`, `test`, and `report` are implemented — the OSS CLI surface. `verify` is
+`doctor`, `init`, `run`, `test`, `report`, `cliff`, and `validate` are implemented — the OSS CLI
+surface. `verify` is
 deferred (rationale in its section). This doc grows one section at a time as each lands, never ahead of
 the code.
 
@@ -335,6 +338,56 @@ scored (the verdict uses only real measurements).
 **Exit:** `0` no-cliff · `10` collapsed · `11` inconclusive (sample too small to resolve a cliff
 from noise — add tasks/repeats, don't trust a coin flip) · `20` broken baseline (fails at the
 smallest context — a tool-call failure, not a context limit) · `2`/`3` as usual.
+
+## `validate` — prove the test before trusting it, and MCP worlds
+
+An eval is only as honest as its answer key. `validate` proves a collection is a **reliable test**
+before any model runs it — and the same pipeline gates `run`/`test` automatically on every uploaded
+file (**an invalid collection can never start testing**; there is deliberately no bypass flag).
+
+```
+qm validate [--collection <id|file.json>] [--live-world <true|false>] [--json]
+```
+
+What it proves, per task:
+- **structural** — schema, known tools, consistent agentic spec (always ran at load).
+- **reachable** — a scripted perfect agent replaying the oracle reaches the end state (sandbox tasks).
+- **discriminating** — a do-nothing agent FAILS. This is the check the field keeps re-learning the
+  hard way: a 2026 τ-bench audit measured a literal do-nothing agent at 38% pass^k, and SWE-bench had
+  to ship "Verified" after unsolvable tasks poisoned results. A task a do-nothing agent passes proves
+  nothing.
+- **world checks (MCP tasks)** — static: vacuous oracle (asserts nothing), contradictory oracle
+  (present ∩ absent), escaping/absolute seed paths; **live** (default, needs `npx`): spawn the REAL
+  world, then grade the oracle against the untouched seed — it must fail, or the world is vacuous.
+
+**Exit:** `0` valid · `10` warnings only · `20` invalid (fix the ✗ findings) · `11` worlds couldn't be
+live-checked (npx/sqlite3 missing — install hint printed) · `2` bad file.
+
+### World files — author a real-tool test in JSON
+
+A third auto-detected collection shape (alongside the v2 object and raw `ToolTask[]`): an array of
+world tasks, the same shape the desktop MCP builder authors. Each spawns a REAL MCP server
+(`@modelcontextprotocol/server-filesystem` / `mcp-server-sqlite-npx` via `npx`) scoped to a fresh
+throwaway sandbox per run; grading reads the **end state of the world, never the model's words**.
+
+```json
+[{ "name": "summarize-notes",
+   "instruction": "Read notes.txt, then create summary.md containing the word 'alpha'.",
+   "world":  { "type": "fs", "files": [{ "path": "notes.txt", "content": "Project alpha shipped." }] },
+   "oracle": { "assert_present": ["summary.md"], "assert_content": [["summary.md", "alpha"]] } },
+ { "name": "insert-user",
+   "instruction": "Insert a user named alice into the users table.",
+   "world":  { "type": "db", "setupSql": "CREATE TABLE users (name TEXT, email TEXT);" },
+   "oracle": { "assert_contains": [["SELECT name FROM users", "alice"]] } }]
+```
+
+Then simply: `qm run --collection ./worlds.json --model <m>` — the gate validates, each of the `k`
+runs gets a byte-identical fresh world, the model acts through real tools, the oracle grades the
+real files/rows. Requirements: `npx` (Node.js) for every world; `sqlite3` additionally for db worlds
+— missing deps are reported with the install command before any model time is spent
+(`[QM-WORLD-DEPS]`). A server that dies mid-run is classified **Inconclusive (11)** — a server
+fault, never a fabricated model failure. Scratch worlds are cleaned even after a `kill -9`
+(orphan sweep on the next world use).
 
 ## Interactive pickers
 

@@ -675,7 +675,14 @@ crate (ADR 0001 — a `[[bin]]`, not a workspace split), reusing the eval engine
   prompts. The in-app Docs → Reference page now documents every CLI command with full syntax,
   mapped to the page each mirrors (Workspace⇄doctor/init, Tests⇄run/test, Audit⇄cliff, Agent
   Report⇄report).
-**OSS CLI surface complete** (doctor/init/run/test/report/cliff). **`qm verify` deferred** — its value is a
+- **`qm validate`: shipped** — proves a collection/world is a reliable test before it runs, and
+  gates `run`/`test` on every uploaded file (an invalid answer key can never start testing). Adds a
+  new world-validation engine (`inference/eval/mcp/validate.rs`): static checks (vacuous/
+  contradictory oracle, escaping seeds) + a LIVE do-nothing check (spawn the real MCP world, grade
+  the untouched seed — must fail). CLI now also loads the friendly world-file shape and runs MCP
+  worlds end-to-end. Rule-7f fixes: run_sqlite + write_seed errors redacted; orphan scratch-dir
+  sweep on SIGKILL. GUI validate commands adopt the same world checks.
+**OSS CLI surface complete** (doctor/init/run/test/report/cliff/validate). **`qm verify` deferred** — its value is a
 cross-party trust boundary (shared/published reports) this local single-user tool doesn't have yet, and
 it needs signing infra the lean core dropped; revisit when publish/sharing lands. Full surface +
 exit-code contract: [docs/cli/README.md](cli/README.md).

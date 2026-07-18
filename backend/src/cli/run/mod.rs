@@ -93,6 +93,12 @@ pub enum RunOutcome {
     NativeUnsupported { backend: BackendKind, model: String },
     /// `--thinking standard|deep` but the model can't reason (Ollama 400s it) — exit 2.
     ThinkingUnsupported { backend: BackendKind, model: String },
+    /// An uploaded collection FAILED the mandatory validation gate — testing must not
+    /// start on a broken answer key. Exit 20; `findings` name every defect + its fix.
+    CollectionInvalid { findings: Vec<String> },
+    /// World tasks present but npx/sqlite3 missing — exit 2 with the install fix,
+    /// BEFORE any model time is burnt.
+    WorldDepsMissing { fix: String },
     /// A remote backend responded but the credential didn't resolve `Ok` (401 / wrong
     /// path / server error) — a credential problem, NOT a missing model. Exit 3.
     CredentialError { backend: BackendKind, report: RemoteAuthReport },
@@ -195,6 +201,7 @@ fn skeleton(collection_id: &str, targets: &[ModelTarget]) -> BatchReport {
 }
 
 /// Why a collection couldn't be resolved. `pub(crate)` — shared with `cli::cliff`.
+#[derive(Debug)]
 pub(crate) enum CollectionError {
     /// Not a file, and not a known built-in id.
     UnknownBuiltin,
@@ -202,18 +209,48 @@ pub(crate) enum CollectionError {
     BadFile(String),
 }
 
-/// Resolve `--collection`: a file path (JSON: a raw `ToolTask[]` or a v2 object,
-/// auto-detected + size-capped by `evals::read_capped`) OR a built-in id. A spec that
-/// names a file (has a separator or ends `.json`) always goes down the file path so a
-/// typo'd filename reports a file error, not "unknown built-in".
-pub(crate) fn load_collection(spec: &str) -> Result<Vec<ToolTask>, CollectionError> {
+/// A resolved collection + whether it came from a user FILE (uploaded/authored) —
+/// file collections must pass the full validation gate before any model runs.
+pub(crate) struct LoadedCollection {
+    pub tasks: Vec<ToolTask>,
+    pub from_file: bool,
+}
+
+/// Resolve `--collection`: a file path OR a built-in id. A file is auto-detected
+/// across THREE JSON shapes (all size-capped at 1 MB):
+/// 1. a v2 collection object `{name, tier, tasks: […]}`;
+/// 2. a raw `ToolTask[]` array (may carry `agentic.mcp` worlds);
+/// 3. a WORLD file — an array of `{name, instruction, world:{type:fs|db,…}, oracle}`
+///    (the same shape the desktop MCP builder authors), converted via the existing
+///    `build_mcp_tasks`.
+/// A spec that names a file (separator or `.json`) always goes down the file path so
+/// a typo'd filename reports a file error, not "unknown built-in".
+pub(crate) fn load_collection(spec: &str) -> Result<LoadedCollection, CollectionError> {
     let path = std::path::Path::new(spec);
     let looks_like_file = path.is_file() || spec.ends_with(".json") || spec.contains(std::path::MAIN_SEPARATOR) || spec.contains('/');
     if looks_like_file {
-        return crate::persistence::evals::read_capped(path)
-            .map_err(|e| CollectionError::BadFile(crate::redact::redact_path(&e.to_string())));
+        let text = crate::persistence::evals::read_text_capped(path)
+            .map_err(|e| CollectionError::BadFile(crate::redact::redact_path(&e.to_string())))?;
+        // World-file shape: an array whose items carry `instruction` + `world`.
+        let is_world_file = serde_json::from_str::<serde_json::Value>(&text)
+            .ok()
+            .and_then(|v| v.as_array().and_then(|a| a.first().cloned()))
+            .map(|first| first.get("instruction").is_some() && first.get("world").is_some())
+            .unwrap_or(false);
+        let tasks = if is_world_file {
+            let specs: Vec<crate::commands::mcp::run_cmd::McpTaskSpec> = serde_json::from_str(&text)
+                .map_err(|e| CollectionError::BadFile(format!("world file: {e}")))?;
+            crate::commands::mcp::task_cmd::build_mcp_tasks(specs)
+                .map_err(|e| CollectionError::BadFile(crate::redact::redact_path(&e.to_string())))?
+        } else {
+            crate::persistence::evals::parse_collection(&text)
+                .map_err(|e| CollectionError::BadFile(crate::redact::redact_path(&e.to_string())))?
+        };
+        return Ok(LoadedCollection { tasks, from_file: true });
     }
-    builtin_collection(spec).ok_or(CollectionError::UnknownBuiltin)
+    builtin_collection(spec)
+        .map(|tasks| LoadedCollection { tasks, from_file: false })
+        .ok_or(CollectionError::UnknownBuiltin)
 }
 
 /// Why a profile couldn't be resolved.
@@ -250,13 +287,51 @@ fn parse_profile_lenient(text: &str) -> Result<crate::inference::eval::readiness
 /// (reusing the doctor probe) so an unreachable server or a missing model fails fast
 /// with the right signal instead of being mislabelled a failing model.
 pub async fn run_suite(opts: RunOptions) -> AppResult<RunOutcome> {
-    let mut tasks = match load_collection(&opts.collection) {
+    let loaded = match load_collection(&opts.collection) {
         Ok(t) => t,
         Err(CollectionError::UnknownBuiltin) => return Ok(RunOutcome::UnknownCollection { id: opts.collection }),
         Err(CollectionError::BadFile(reason)) => {
             return Ok(RunOutcome::BadCollectionFile { path: opts.collection, reason })
         }
     };
+    let mut tasks = loaded.tasks;
+
+    // MANDATORY validate-before-run gate for uploaded/user files (built-ins are
+    // CI-guarded at authoring time): an invalid answer key would make every pass^k a
+    // lie, so testing MUST NOT start on one. No bypass flag.
+    if loaded.from_file {
+        let specs: Vec<&crate::inference::eval::mcp::world::McpSpec> =
+            tasks.iter().filter_map(|t| t.agentic.as_ref().and_then(|a| a.mcp.as_ref())).collect();
+        if let Some(fix) = crate::inference::eval::mcp::validate::world_deps_missing(&specs) {
+            return Ok(RunOutcome::WorldDepsMissing { fix });
+        }
+        let mut v = crate::inference::eval::agentic::v2::oracle::validate_collection_deep(&tasks).await;
+        crate::inference::eval::mcp::validate::merge_world_checks(&mut v, &tasks, true).await;
+        if !v.ok {
+            let mut findings = Vec::new();
+            if let Some(e) = &v.structural_error {
+                findings.push(e.clone());
+            }
+            for t in &v.tasks {
+                if t.reachable == "no" {
+                    findings.push(format!("{}: unreachable — {}", t.id, t.detail));
+                }
+                if t.discriminating == Some(false) {
+                    findings.push(format!("{}: not discriminating — a do-nothing agent passes it", t.id));
+                }
+                for f in &t.semantic {
+                    findings.push(format!("{}: {f}", t.id));
+                }
+            }
+            return Ok(RunOutcome::CollectionInvalid { findings });
+        }
+        // Warnings never block, but the user must see them before the run.
+        for t in &v.tasks {
+            for w in &t.semantic_warnings {
+                eprintln!("! {}: {w}", t.id);
+            }
+        }
+    }
     let profile = match load_profile(&opts.profile_id) {
         Ok(p) => p,
         Err(ProfileError::UnknownBuiltin) => return Ok(RunOutcome::UnknownProfile { id: opts.profile_id }),

@@ -7,4 +7,5 @@
 pub mod oracle_db;
 pub mod oracle_fs;
 pub mod score;
+pub mod validate;
 pub mod world;

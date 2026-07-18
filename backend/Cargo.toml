@@ -4,6 +4,10 @@ version = "0.2.0"
 description = "QuantaMind — local LLM workspace"
 authors = ["quantamind-dev"]
 edition = "2021"
+# Two binaries live on this crate (the Tauri app `quantamind` + the headless `qm`
+# CLI), so a bare `cargo run` — which `tauri dev` invokes without `--bin` — would be
+# ambiguous. Pin the app as the default so `tauri dev`/`tauri build` just work.
+default-run = "quantamind"
 
 [lib]
 name = "quantamind_lib"
