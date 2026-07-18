@@ -317,6 +317,38 @@ $ echo $?   # 20
 **Exit:** the verdict (`0`/`10`/`20`, subject to `--fail-on`). `2` on a bad/missing report or profile
 file (`[QM-BAD-REPORT]` / `[QM-BAD-PROFILE]`, path redacted).
 
+## `cliff` — Context Stress Test
+
+Ramps prompt depth toward `--max-tokens` and classifies where tool-calling collapses — the same
+Tauri-free engine the desktop Audit tab drives, prompt-based, **greedy (temp 0)** so the same
+(model, collection) reproduces the same verdict.
+
+```
+qm cliff [--backend <k>] [--model <m>] [--collection <id|file>]
+         [--max-tokens 4096] [--steps 4] [--source <corporate_policy|system_logs|financial_ledger>] [--json]
+```
+
+Output: one line per rung (`~N tok · accuracy X% (passed/trials)` — the tally shown only when
+measured) then a `STATUS:` line. A rung that would exceed the context window is dropped, never
+scored (the verdict uses only real measurements).
+
+**Exit:** `0` no-cliff · `10` collapsed · `11` inconclusive (sample too small to resolve a cliff
+from noise — add tasks/repeats, don't trust a coin flip) · `20` broken baseline (fails at the
+smallest context — a tool-call failure, not a context limit) · `2`/`3` as usual.
+
+## Interactive pickers
+
+In a terminal, omitting a value opens a numbered picker (over SSH/CI/pipes there is never a
+prompt — omitted values fall back to safe defaults):
+
+- `--model` / `--backend` — pick from the probed backend's served models (as before).
+- `--collection` (`run`/`cliff`) — pick from the **27 built-in collections**, listed with their
+  tier (`easy` / `medium` / `hard` / `extreme` + the boundary/safety sets) and domain. Non-TTY
+  default: `easy-coding`.
+- `--thinking` (`run`) — pick the thinking tier: `lean` (reasoning OFF) / `standard` (~2k
+  scratchpad) / `deep` (~8k). Non-TTY default: `lean`. `standard`/`deep` remain guarded per
+  model+server (see `[QM-THINKING-UNSUPPORTED]`).
+
 ## `verify` — deferred (out of OSS scope)
 
 `verify` would check a **cryptographically signed** report's integrity — tamper-evidence for a report
