@@ -1,6 +1,6 @@
 use super::*;
 use crate::commands::remote::remote_health::RemoteAuthReport;
-use crate::commands::doctor::report::DoctorReport;
+use crate::cli::doctor::report::DoctorReport;
 
 fn remote(status: RemoteAuthStatus, insecure_key: bool) -> BackendDoctor {
     BackendDoctor {
@@ -65,7 +65,7 @@ fn a_healthy_scan_emits_no_blocker_spam() {
     // Ollama runnable + vLLM simply off → no fix line for the backend that's just not running.
     let report = DoctorReport { backends: vec![ollama(true, &["qwen2.5:3b"]), remote(RemoteAuthStatus::Unreachable, false)] };
     assert!(error_lines(&report).is_empty(), "a healthy scan should be quiet: {:?}", error_lines(&report));
-    assert_eq!(report.exit_code(), crate::commands::doctor::report::EXIT_OK);
+    assert_eq!(report.exit_code(), crate::cli::doctor::report::EXIT_OK);
 }
 
 #[test]

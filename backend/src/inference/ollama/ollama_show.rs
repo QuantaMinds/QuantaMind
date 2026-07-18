@@ -69,6 +69,20 @@ pub async fn probe_supports_tools(endpoint: &str, model: &str) -> bool {
     show_model(endpoint, model).await.map(|r| supports_tools(&r.capabilities)).unwrap_or(false)
 }
 
+/// Whether a model's reported capabilities include reasoning ("thinking"). Ollama
+/// rejects a `think` request to a non-thinking model with HTTP 400, so this gates the
+/// Thinking-Budget presets before a run wastes effort on a guaranteed error.
+pub fn supports_thinking(caps: &[String]) -> bool {
+    caps.iter().any(|c| c == "thinking")
+}
+
+/// Best-effort probe: does this Ollama model support reasoning? Any error → `true`
+/// (fail-open) so a transient probe failure never blocks a legitimately-thinking run;
+/// the real 400 (if any) then surfaces honestly from the run itself.
+pub async fn probe_supports_thinking(endpoint: &str, model: &str) -> bool {
+    show_model(endpoint, model).await.map(|r| supports_thinking(&r.capabilities)).unwrap_or(true)
+}
+
 /// Extract the version string from a `/api/version` body (`{"version":"0.11.10"}`).
 /// Split out so it's unit-tested without a live server.
 pub fn parse_version(body: &str) -> Option<String> {

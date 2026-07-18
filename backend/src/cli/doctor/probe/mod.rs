@@ -1,18 +1,25 @@
-//! Per-backend probing — composes the existing health/credential/capability
-//! probes into one `BackendDoctor`. No new network logic: reachability, the
-//! credential classifier, and the native-FC probe are all reused verbatim.
+//! Per-engine backend probing for `qm doctor`. The dispatcher + the shared HTTP
+//! helpers live here; each inference engine's strategy is its own child module:
+//! - [`ollama`] — native `/api/version` + `/api/tags` + `/api/show` (tools capability).
+//! - [`openai_local`] — llama.cpp / MLX over the OpenAI `/v1/models` surface, no auth.
+//! - [`remote`] — vLLM / SGLang, run through the credential classifier.
+//!
+//! No new network logic anywhere: reachability, the credential classifier, and the
+//! native-FC probe are all reused verbatim from the existing modules.
 
 use super::report::{BackendDoctor, NativeFc};
-use crate::commands::remote::remote_health::{host_of, probe_remote_credential, RemoteAuthStatus};
-use crate::commands::system::health::probe_health;
+use crate::commands::remote::remote_health::host_of;
 use crate::inference::backend::backend_kind::BackendKind;
 use crate::inference::backend::endpoint;
 use crate::inference::backend::remote_guard::credential_allowed;
 use crate::inference::mlx::server::mlx_endpoint::mlx_endpoint;
-use crate::inference::ollama::ollama_show::probe_supports_tools;
 use reqwest::Client;
 use serde::Deserialize;
 use std::time::Duration;
+
+mod ollama;
+mod openai_local;
+mod remote;
 
 const PROBE_TIMEOUT: Duration = Duration::from_millis(2500);
 
@@ -86,6 +93,7 @@ async fn ollama_models(c: &Client, ep: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// A down/unresponsive backend, with its endpoint redacted (scheme+host+port).
 fn unreachable(kind: BackendKind, ep: &str) -> BackendDoctor {
     BackendDoctor {
         kind,
@@ -98,8 +106,9 @@ fn unreachable(kind: BackendKind, ep: &str) -> BackendDoctor {
     }
 }
 
-/// Probe one backend into a `BackendDoctor`. `model` enables Ollama's native-FC
-/// capability check; `key` is the remote bearer credential (never from argv).
+/// Probe one backend into a `BackendDoctor`, dispatching to the per-engine strategy.
+/// `model` enables Ollama's native-FC check; `key` is the remote bearer credential
+/// (never from argv).
 pub async fn probe_backend(
     kind: BackendKind,
     override_base: Option<&str>,
@@ -111,77 +120,8 @@ pub async fn probe_backend(
         return unreachable(kind, &cands[0]);
     };
     match kind {
-        BackendKind::Ollama => probe_ollama(&c, &cands[0], model).await,
-        BackendKind::LlamaCpp | BackendKind::Mlx => probe_local_openai(&c, kind, &cands).await,
-        BackendKind::VLlm | BackendKind::SgLang => probe_remote_openai(&c, kind, &cands[0], key).await,
-    }
-}
-
-/// Ollama: `/api/version` for reachability+version, `/api/tags` for models,
-/// `/api/show` for the native-FC capability.
-async fn probe_ollama(c: &Client, ep: &str, model: Option<&str>) -> BackendDoctor {
-    let health = probe_health(ep).await;
-    let models = if health.available { ollama_models(c, ep).await } else { vec![] };
-    let native_fc = match (health.available, model) {
-        (true, Some(m)) => {
-            if probe_supports_tools(ep, m).await {
-                NativeFc::Supported
-            } else {
-                NativeFc::Unsupported
-            }
-        }
-        _ => NativeFc::NotProbed,
-    };
-    BackendDoctor {
-        kind: BackendKind::Ollama,
-        endpoint: host_of(ep),
-        reachable: health.available,
-        version: health.version,
-        models,
-        credential: None,
-        native_fc,
-    }
-}
-
-/// llama.cpp / mlx: OpenAI-compatible, no auth. First candidate that answers
-/// `/v1/models` wins. No version endpoint on this path → "not available" (honest).
-async fn probe_local_openai(c: &Client, kind: BackendKind, cands: &[String]) -> BackendDoctor {
-    for ep in cands {
-        if let Some(models) = openai_models(c, ep, None).await {
-            return BackendDoctor {
-                kind,
-                endpoint: host_of(ep),
-                reachable: true,
-                version: None,
-                models,
-                credential: None,
-                native_fc: NativeFc::NotProbed,
-            };
-        }
-    }
-    unreachable(kind, &cands[0])
-}
-
-/// vLLM / SGLang: run the credential classifier (the full Unreachable/401/insecure
-/// failure space), then list models only when the credential resolved `Ok`.
-async fn probe_remote_openai(c: &Client, kind: BackendKind, ep: &str, key: Option<&str>) -> BackendDoctor {
-    let cred = probe_remote_credential(ep, key).await;
-    let reachable = matches!(
-        cred.status,
-        RemoteAuthStatus::Ok | RemoteAuthStatus::Unauthorized | RemoteAuthStatus::NotFound | RemoteAuthStatus::ServerError
-    );
-    let models = if cred.status == RemoteAuthStatus::Ok {
-        openai_models(c, ep, key).await.unwrap_or_default()
-    } else {
-        vec![]
-    };
-    BackendDoctor {
-        kind,
-        endpoint: cred.host.clone(),
-        reachable,
-        version: None,
-        models,
-        credential: Some(cred),
-        native_fc: NativeFc::NotProbed,
+        BackendKind::Ollama => ollama::probe(&c, &cands[0], model).await,
+        BackendKind::LlamaCpp | BackendKind::Mlx => openai_local::probe(&c, kind, &cands).await,
+        BackendKind::VLlm | BackendKind::SgLang => remote::probe(&c, kind, &cands[0], key).await,
     }
 }
