@@ -2,6 +2,7 @@
 pub mod app_lifecycle;
 pub mod audio;
 pub mod compare;
+pub mod doctor;
 pub mod emit;
 pub mod eval;
 pub mod gguf;

@@ -1,0 +1,160 @@
+# QuantaMind CLI (`qm`) — reference
+
+`qm` is the **headless** face of QuantaMind: the same agent-readiness engine as the desktop app,
+driven from the terminal for first-run setup, CI gating, air-gapped runs, and scripting. It talks
+directly to your local or remote inference server — no GUI, no phone-home. Every command prints
+human text, or a machine-readable object with `--json`.
+
+## Status (be honest about what ships)
+
+This is an OSS tool built one verified command at a time. Today:
+
+| Command | State | One-liner |
+|---|---|---|
+| `doctor`  | **shipped** | Diagnose every backend: reachable? models? credential? tool-calling? version? |
+| `init`    | planned | Auto-detect a running backend, write a config + starter collection, run it. |
+| `run`     | planned | Built-in tool-calling suite → tiered verdict + telemetry. |
+| `test`    | planned | Run a custom collection (native + prompt-based) → scoreboard + failure taxonomy. |
+| `report`  | planned | Assess a run against a readiness profile → per-path verdict. |
+| `verify`  | planned | Check a signed report (integrity / tamper-evidence). |
+
+Only `doctor` is implemented. The rest are the intended surface — this doc will grow one section at a
+time as each lands, never ahead of the code.
+
+## Running it
+
+```bash
+# from a checkout (debug build):
+cargo run --bin qm -- <command> [flags]
+
+# or build once and use the binary:
+cargo build --bin qm             # → target/debug/qm
+target/debug/qm <command> [flags]
+
+target/debug/qm --help           # top-level help
+target/debug/qm doctor --help    # per-command help
+```
+
+`qm` is a bin target on the single `quantamind` crate (ADR 0001 — no workspace), so it shares the
+inference/eval engine verbatim.
+
+## Engines & ports
+
+`qm` covers all five backends QuantaMind supports — three local, two remote:
+
+| Backend | `--backend` | Kind | Port `doctor` probes | Notes |
+|---|---|---|---|---|
+| Ollama    | `ollama`    | local  | `11434` | Native `/api/version` + `/api/tags` + `/api/show` (tool-calling capability). |
+| llama.cpp | `llama_cpp` | local  | `8081` then `8080` | QuantaMind's sidecar runs on **8081**; `8080` is the community `llama-server` default. OpenAI-compatible `/v1/models`. |
+| MLX       | `mlx`       | local  | `8082` then `8080` | Apple-Silicon `mlx_lm.server`. OpenAI-compatible. |
+| vLLM      | `vllm`      | remote | `8000` | OpenAI-compatible. Credential-classified (`/v1/models`). |
+| SGLang    | `sglang`    | remote | `30000` | OpenAI-compatible. Credential-classified. |
+
+`--base <url>` / env `QM_BASE` overrides the probed endpoint (targeted `--backend` only — a base URL
+is backend-specific). A remote key comes from env `QM_API_KEY` or the OS keychain — **never argv**
+(rule 7). A key is transmitted only over `https`/loopback; over plain http it is **withheld** and
+`doctor` says so.
+
+## Exit-code contract (a QuantaMind contract — gate CI on these)
+
+These are ours, documented here — not `sysexits.h`. They are stable and shared across the `qm`
+surface:
+
+```
+0  Ready / OK        10 Conditional      20 NotReady
+2  bad args          3  nothing runnable / backend unreachable
+11 Inconclusive (a probe couldn't run properly — CI should RETRY)
+```
+
+- `2` is standard usage-error (clap emits it on a parse failure — inherited for free).
+- `3` is domain-specific ("nothing you can run"). For `doctor` it means **no runnable backend**.
+- `10/20/11` belong to the run/verdict commands (planned) — `doctor` never emits them.
+
+## Stream discipline
+
+**stdout carries data; stderr carries diagnostics.** With `--json`, stdout is the report object and
+*nothing else* — every `[QM-CODE] what — fix` line goes to stderr — so `qm doctor --json | jq` never
+chokes on prose. In human mode the rendered report is stdout, the `[QM-CODE]` fix lines stderr.
+
+---
+
+## `doctor` — first-run diagnosis
+
+The activation command: on a fresh machine it tells you exactly what to do next, in one command, with
+no prompts. Ordered cheapest-first per backend — **reachable? → models? → credential? → native
+tool-calling? → version** — and every failure carries the exact fix (shown, never run).
+
+```
+qm doctor [--backend <ollama|llama_cpp|mlx|vllm|sglang>] [--base <url>] [--model <name>] [--json]
+```
+
+| Flag | Meaning | Default / env |
+|---|---|---|
+| `--backend <kind>` | Check one backend. Omit to **scan all five**. | scan all |
+| `--base <url>` | Endpoint for the targeted backend (with `--backend`). | env `QM_BASE` |
+| `--model <name>` | Model to check native tool-calling against (Ollama). | env `QM_MODEL` |
+| `--json` | Emit the machine-readable report on stdout (fixes still to stderr). | off |
+
+**Runnable, not just reachable.** A backend counts as ready only when it is reachable **and** has ≥1
+model **and** (remote) the credential resolved `Ok`. A reachable server with **zero models** — the
+single most common first-run trap — is a loud finding, never a green line. `doctor` exits `0` iff at
+least one backend is runnable, else `3`, so `qm doctor && qm run` short-circuits honestly.
+
+**The three failure modes it keeps distinct** (opposite fixes — they must never swap):
+
+| Situation | What `doctor` says |
+|---|---|
+| Server down / wrong port | `[QM-BACKEND-UNREACHABLE] … — start it: <command>` |
+| Server up, key rejected (401/403) | `[QM-UNAUTHORIZED] <host> rejected the API key — check QM_API_KEY` |
+| Key set but URL is plain http | `[QM-INSECURE-KEY] <host> — the key was withheld. Use https or drop the key.` |
+| Reachable, no models | `[QM-NO-MODELS] <backend> is up but has no models — pull/serve one: ollama pull qwen2.5` |
+
+**Exit:** `0` at least one runnable backend · `3` none runnable / unreachable · `2` bad args.
+
+### Example — healthy scan (Ollama up, others off)
+```
+$ qm doctor
+ollama     http://localhost:11434       ✓ ready  v0.24.0  models: 9
+llama_cpp  http://localhost:8081        ✗ unreachable
+mlx        http://localhost:8082        ✗ unreachable
+vllm       http://localhost:8000        ✗ unreachable  credential: Unreachable
+sglang     http://localhost:30000       ✗ unreachable  credential: Unreachable
+
+Next: qm run --backend ollama --model qwen2.5:3b
+$ echo $?
+0
+```
+stderr is quiet when something is runnable (no fix-line spam for backends that are simply off). Point
+at a specific backend to focus, and machine-read with `--json`:
+```
+$ qm doctor --backend ollama --model qwen2.5:3b --json | jq '.backends[0].native_fc'
+"supported"
+```
+
+### Example — the first-run trap (reachable, zero models)
+```
+$ qm doctor --backend ollama          # ollama running, nothing pulled
+ollama     http://localhost:11434       ! reachable  v0.24.0  models: 0
+
+No runnable backend — fix the findings above, then re-run `qm doctor`.
+# stderr:
+[QM-NO-MODELS] ollama is up but has no models — pull/serve one: ollama pull qwen2.5
+$ echo $?
+3
+```
+
+---
+
+## `init` / `run` / `test` / `report` / `verify` — planned
+
+Not yet implemented. When they land, each gets its own section here (with a live example and its exit
+codes) — and not before. The intended shape:
+
+- **`init`** — auto-detect a running backend, write a working config + a 3-task starter collection
+  into the cwd, then run it. Target: install → real verdict in under two minutes, zero config typed.
+- **`run`** — the built-in tool-calling suite → tiered `pass^k` verdict (`0/10/20`), `--n`/`--k`.
+- **`test`** — a custom collection under native + prompt-based calling → per-mode scoreboard +
+  failure taxonomy. Accepts JSON/JSONL/CSV/BFCL/τ-bench/OpenAI-evals collections.
+- **`report`** — assess a run against a readiness profile (hard gates + soft targets) → per-path
+  verdict; can re-assess a saved `test --json` offline.
+- **`verify`** — check a signed report's integrity (tamper-evidence).

@@ -95,6 +95,17 @@ the `quantamind` binary does.
 fn main() { quantamind_lib::run() }
 ```
 
+## File: `backend/src/bin/qm/main.rs` — the headless `qm` CLI
+
+**Responsibility:** the second binary on this crate — the `qm` command-line tool. · **Why:**
+CI gating, first-run setup, and air-gapped/scripted use need a headless entrypoint that reuses
+the eval engine without the GUI (ADR 0001 keeps it a `[[bin]]`, not a workspace split). · **What:**
+`clap` subcommand dispatch → the pure engine in `quantamind_lib::commands::doctor` → render →
+`std::process::exit(<contract code>)`. Thin by rule (thin command, pure core). Today it exposes one
+subcommand, `doctor`; the surface + exit-code contract live in [docs/cli/README.md](../cli/README.md).
+· **How/Where used:** `cargo run --bin qm -- doctor` / `target/debug/qm`. Stream discipline: report →
+stdout, `[QM-CODE]` fix lines → stderr (so `--json` pipes cleanly).
+
 ## File: `backend/src/lib.rs`
 
 **Responsibility:** assemble and run the entire Tauri app. · **Why:** one
@@ -213,7 +224,9 @@ The `invoke_handler!` table registers **127** commands. Grouped by
 build's registered names in the table.
 
 `app_lifecycle` and `emit` are in `commands/` but expose **no** `#[tauri::command]`s
-— they are spine helpers (below), not part of the IPC table.
+— they are spine helpers (below), not part of the IPC table. `doctor` is likewise **not** in the
+IPC table: it's the pure engine behind the `qm doctor` CLI (`commands/doctor/{report,probe,render}`),
+composing the existing per-backend health/credential/capability probes — see `backend/src/bin/qm/`.
 
 ---
 
