@@ -14,6 +14,7 @@ pub use render::{exit_code, render_human, FailOn};
 
 use crate::cli::doctor::probe::probe_backend;
 use crate::commands::eval::batch_cmd::probe_native_tools;
+use crate::commands::remote::remote_health::{RemoteAuthReport, RemoteAuthStatus};
 use crate::errors::AppResult;
 use crate::inference::backend::backend_kind::BackendKind;
 use crate::inference::backend::remote_guard::credential_allowed;
@@ -84,6 +85,9 @@ pub enum RunOutcome {
     NativeUnsupported { backend: BackendKind, model: String },
     /// `--thinking standard|deep` but the model can't reason (Ollama 400s it) — exit 2.
     ThinkingUnsupported { backend: BackendKind, model: String },
+    /// A remote backend responded but the credential didn't resolve `Ok` (401 / wrong
+    /// path / server error) — a credential problem, NOT a missing model. Exit 3.
+    CredentialError { backend: BackendKind, report: RemoteAuthReport },
     /// The run ERRORED — nothing could be measured (backend fault / 500 / timeout
     /// cascade). Exit 11 (retry), NOT a definitive NotReady: a measurement of nothing
     /// must never read as "your model failed".
@@ -138,6 +142,11 @@ async fn openai_reasons(ep: &str, model: &str, key: Option<&str>) -> bool {
         req = req.bearer_auth(k);
     }
     let Ok(resp) = req.send().await else { return true };
+    // Fail-open on a non-2xx too: a transient 500/503 on the probe must not be read as
+    // "this model can't reason" and false-block an otherwise-fine thinking run.
+    if !resp.status().is_success() {
+        return true;
+    }
     let Ok(v) = resp.json::<serde_json::Value>().await else { return true };
     v.pointer("/choices/0/message/reasoning_content")
         .and_then(|r| r.as_str())
@@ -192,6 +201,12 @@ pub async fn run_suite(opts: RunOptions) -> AppResult<RunOutcome> {
     let probed = probe_backend(opts.backend, opts.base.as_deref(), Some(&opts.model), opts.api_key.as_deref()).await;
     if !probed.reachable {
         return Ok(RunOutcome::Unreachable { backend: opts.backend, endpoint: probed.endpoint });
+    }
+    // A remote backend that responded but NOT with an OK credential (401 / wrong path /
+    // server error) returns an empty model list — classify it as the credential problem
+    // it is, not a bogus "model not found" (the status is right there in the probe).
+    if let Some(cred) = probed.credential.filter(|c| c.status != RemoteAuthStatus::Ok) {
+        return Ok(RunOutcome::CredentialError { backend: opts.backend, report: cred });
     }
     if !probed.models.iter().any(|m| m == &opts.model) {
         return Ok(RunOutcome::ModelNotFound { backend: opts.backend, model: opts.model, available: probed.models });

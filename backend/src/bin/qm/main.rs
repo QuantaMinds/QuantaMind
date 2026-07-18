@@ -10,9 +10,11 @@ use quantamind_lib::cli::doctor::render::label;
 use quantamind_lib::cli::doctor::{self, DoctorOptions};
 use quantamind_lib::cli::run::config::QmConfig;
 use quantamind_lib::cli::run::{self, FailOn, RunMode, RunOptions, RunOutcome};
+use quantamind_lib::commands::remote::remote_health::RemoteAuthStatus;
 use quantamind_lib::inference::backend::backend_kind::BackendKind;
 use quantamind_lib::inference::eval::agentic::difficulty::passk::ThinkPreset;
 use quantamind_lib::inference::eval::agentic::spec::Tier;
+use quantamind_lib::redact::redact_path;
 use quantamind_lib::secrets;
 use std::io::{IsTerminal, Write};
 
@@ -314,7 +316,7 @@ async fn run_init(args: InitArgs) {
     match cfg.save(&cwd) {
         Ok(path) => eprintln!("wrote {} (backend={}, model={})", path.display(), label(cfg.backend), cfg.model),
         Err(e) => {
-            eprintln!("[QM-INTERNAL] could not write qm.json: {e}");
+            eprintln!("[QM-INTERNAL] could not write qm.json: {}", redact_path(&e.to_string()));
             std::process::exit(1);
         }
     }
@@ -338,7 +340,7 @@ async fn execute_run(opts: RunOptions, json: bool, fail_on: FailOn) {
     let outcome = match run::run_suite(opts).await {
         Ok(o) => o,
         Err(e) => {
-            eprintln!("[QM-INTERNAL] run failed: {e}");
+            eprintln!("[QM-INTERNAL] run failed: {}", redact_path(&e.to_string()));
             std::process::exit(1);
         }
     };
@@ -350,6 +352,19 @@ async fn execute_run(opts: RunOptions, json: bool, fail_on: FailOn) {
         }
         RunOutcome::ModelNotFound { backend, model, available } => {
             eprintln!("[QM-MODEL-NOT-FOUND] {} has no model '{model}' — available: {}", label(backend), if available.is_empty() { "(none)".into() } else { available.join(", ") });
+            std::process::exit(run::render::EXIT_UNREACHABLE);
+        }
+        RunOutcome::CredentialError { backend, report } => {
+            // The same distinctions doctor makes — a credential problem is not a missing model.
+            if report.insecure_key {
+                eprintln!("[QM-INSECURE-KEY] {} — a key is set but the URL isn't https; the key was withheld. Use https or drop the key.", report.host);
+            } else {
+                match report.status {
+                    RemoteAuthStatus::Unauthorized => eprintln!("[QM-UNAUTHORIZED] {} rejected the API key — check QM_API_KEY.", report.host),
+                    RemoteAuthStatus::NotFound => eprintln!("[QM-NOT-OPENAI] {} has no /v1/models — check the URL is an OpenAI-compatible server.", report.host),
+                    _ => eprintln!("[QM-SERVER-ERROR] {} returned an error — check the server ({}).", report.host, label(backend)),
+                }
+            }
             std::process::exit(run::render::EXIT_UNREACHABLE);
         }
         RunOutcome::UnknownCollection { id } => {
