@@ -339,6 +339,7 @@ export function PerformanceMatrix({
                         schemaResilNote: r.schemaResilNoteNative,
                         topError: r.topErrorNative,
                         failures: r.failuresNative,
+                        nativeChannel: r.nativeChannel,
                       }]
                     : []),
                   // Prompt-based row only when that pass ran (or as the sole fallback row when
@@ -355,6 +356,7 @@ export function PerformanceMatrix({
                         schemaResilNote: r.schemaResilNote,
                         topError: r.topError,
                         failures: r.failures,
+                        nativeChannel: undefined as string | undefined,
                       }]
                     : []),
                 ];
@@ -396,6 +398,19 @@ export function PerformanceMatrix({
                       }
                     >
                       {passKCell(p.passK)}
+                      {p.kind === "native" && p.nativeChannel && (
+                        // The measured channel split — the honest counterweight to a green
+                        // native Pass^k whose calls were actually recovered by the text
+                        // salvager ("0 native calls · N text-salvaged"). Absent = not
+                        // recorded; never a fabricated 0.
+                        <div
+                          data-testid={`matrix-native-channel-${r.model}`}
+                          style={{ fontSize: 10, fontWeight: 500, color: p.nativeChannel.startsWith("0 native") ? "#b45309" : "#64748b", fontFamily: "'JetBrains Mono', monospace", marginTop: 2, whiteSpace: "nowrap" }}
+                          title="How the native pass's tool calls actually arrived: structured native tool_calls vs recovered from plain text by the salvager. '0 native calls' means the model never used the native channel — its score came entirely from text salvage."
+                        >
+                          {p.nativeChannel}
+                        </div>
+                      )}
                     </td>
                     <td
                       style={{ ...td, color: p.steps === "—" || p.steps === "N/A" ? "#94a3b8" : "#334155" }}
