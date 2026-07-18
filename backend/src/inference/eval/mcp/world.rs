@@ -125,6 +125,7 @@ impl ScratchDir {
 fn sweep_orphans() {
     #[cfg(unix)]
     {
+        use crate::os::{EngineHost, Host};
         let me = std::process::id();
         let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else { return };
         for e in entries.flatten() {
@@ -138,7 +139,8 @@ fn sweep_orphans() {
             }
             // `kill -0` = liveness probe, sends no signal. Non-success → pid is dead
             // (or not ours to signal — either way its worlds are not in use by us).
-            let alive = std::process::Command::new("kill")
+            // Via `Host::command` per the repo's disallowed-`Command::new` lint.
+            let alive = Host::command("kill")
                 .args(["-0", &pid.to_string()])
                 .status()
                 .map(|s| s.success())

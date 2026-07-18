@@ -92,8 +92,11 @@ pub fn world_deps_missing(specs: &[&McpSpec]) -> Option<String> {
     if specs.is_empty() {
         return None;
     }
+    use crate::os::{EngineHost, Host};
     let have = |bin: &str| {
-        std::process::Command::new(bin)
+        // Via `Host::command` per the repo's disallowed-`Command::new` lint
+        // (applies CREATE_NO_WINDOW so a probe never flashes a console on Windows).
+        Host::command(bin)
             .arg("--version")
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
