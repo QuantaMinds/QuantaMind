@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildRunCommand, buildCliffCommand, buildReportCommand, modeFrom, shellQuote, workspacePointerCommand } from "../qmCommand";
+import { buildRunCommand, buildCliffCommand, buildReportCommand, modeFrom, shellQuote } from "../qmCommand";
 
 describe("shellQuote", () => {
   it("leaves shell-safe values (incl. model tags) bare", () => {
@@ -61,13 +61,3 @@ describe("buildReportCommand", () => {
   });
 });
 
-describe("workspacePointerCommand", () => {
-  it("points to the eval path WITH the backend (correct for non-Ollama GGUF models)", () => {
-    expect(workspacePointerCommand("gemma-4-12b-it_q4_k_m", "llama_cpp")).toBe(
-      "qm run --backend llama_cpp --model gemma-4-12b-it_q4_k_m --collection easy-coding",
-    );
-    expect(workspacePointerCommand("qwen2.5:7b", "ollama")).toBe(
-      "qm run --backend ollama --model qwen2.5:7b --collection easy-coding",
-    );
-  });
-});

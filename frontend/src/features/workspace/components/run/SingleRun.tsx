@@ -8,7 +8,6 @@ import { useNavStore } from "../../../../shared/state/navStore";
 import { useCompareStore } from "../../../compare/state/compareStore";
 import { useParamsStore } from "../../../../shared/state/paramsStore";
 import { backendRunHint } from "../../state/runHint";
-import { workspacePointerCommand } from "../../../../shared/cli/qmCommand";
 
 /// Single-model run trigger: run_prompt streaming with per-prompt params and
 /// history. The response is shown on the Analysis tab — this mirrors the live
@@ -78,13 +77,14 @@ export function SingleRun({ model }: { model: string | null }) {
         onRun={runNow}
         onCancel={cancel}
       />
-      {/* A single interactive prompt has no headless `qm` equivalent — point to the
-          eval path instead of fabricating a command. */}
+      {/* The Workspace runs the user's own system+user prompt against the global model
+          with the global params — a free-form generation the `qm` CLI has no equivalent
+          for (the CLI evaluates fixed test collections). State that truthfully; never
+          show a `qm run --collection …` command, which would imply a false equivalence. */}
       <p className="text-[10px] text-gray-400 leading-snug" data-testid="workspace-cli-hint">
-        No CLI equivalent for a single prompt. To evaluate this model headless, use the Tests tab:{" "}
-        <code className="bg-gray-50 border rounded px-1 py-0.5 font-mono text-gray-500">
-          {workspacePointerCommand(model, activeBackend)}
-        </code>
+        No CLI equivalent — the Workspace runs your own system + user prompt with the global model &amp; params.
+        The <code className="bg-gray-50 border rounded px-1 py-0.5 font-mono text-gray-500">qm</code> CLI evaluates
+        fixed test collections, not free-form prompts.
       </p>
     </div>
   );

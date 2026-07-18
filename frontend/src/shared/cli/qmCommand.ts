@@ -103,10 +103,3 @@ export function buildReportCommand(o: { profile: string }): QmCommand {
   };
 }
 
-/// Workspace ⇄ (no eval command) — a pointer to the headless eval path instead of a
-/// fabricated command, since a single interactive prompt has no `qm` equivalent. The
-/// `--backend` is required so the command is correct for non-Ollama models (a GGUF
-/// name would fail against Ollama's default).
-export function workspacePointerCommand(model: string | null, backend: BackendKind): string {
-  return `qm run --backend ${backend} --model ${shellQuote(model ?? MODEL_PLACEHOLDER)} --collection easy-coding`;
-}
