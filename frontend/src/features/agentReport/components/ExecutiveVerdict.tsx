@@ -118,6 +118,15 @@ export function ExecutiveVerdict({
         </p>
       )}
 
+      {/* The hardware lens, VISIBLY: the measured hardware class and the tier it
+          recommends (was hidden test-only; previously surfaced only inside the
+          below-recommendation advisory). */}
+      {hwClass && (
+        <p data-testid="exec-verdict-hw-lens-visible" className="text-[11px] text-slate-500 font-medium">
+          HW: {hwClass} · recommends {up(hwRec as Tier)}.
+        </p>
+      )}
+
       {belowRec && (
         <div
           data-testid="exec-verdict-advisory"

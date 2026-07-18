@@ -374,7 +374,12 @@ the reason text via `getIndicatorLabel`) plus a details line; `conditional` rows
 list `! Latency / ! Efficiency / ! High Pressure` from the conditions. The
 `showNativeFc` toggle filters native-FC rows. Hidden mirror elements
 (`MetricsLine`, `MemoryLine`, `Reasons`) carry the raw `pass_k`/steps/effort/cliff
-+ VRAM line + escaped reasons for assertions/screen readers. The memory pill
++ VRAM line + escaped reasons for assertions/screen readers — and since the
+truth-first pass the same measured data is also VISIBLE: the memory tile shows the
+full breakdown (`weights + cache @ ctx vs cap`, via the shared `memoryLineText`
+builder, with an `est.` marker keeping vram_fit.rs's "the UI labels the fit
+'estimated'" promise), and the Diagnostics section shows the verdict's exact
+backend `✗ blocking` / `! conditions` strings verbatim below the category pills. The memory pill
 (`{VRAM|Unified memory}: NGB`) renders **only when memory was measured** — an
 unmeasured row (single-model backend / run error) shows just its BLOCKING/targets, never
 a bare `… : N/A`. For a reasoning verdict `MetricsLine` also appends a `🧠 thinking: <preset>`
