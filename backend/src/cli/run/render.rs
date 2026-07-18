@@ -6,7 +6,7 @@
 
 use super::RunReport;
 use crate::cli::doctor::render::label;
-use crate::inference::eval::readiness::types::Readiness;
+use crate::inference::eval::readiness::types::{ModelVerdict, Readiness};
 
 pub const EXIT_READY: i32 = 0;
 pub const EXIT_CONDITIONAL: i32 = 10;
@@ -97,6 +97,62 @@ pub fn render_human(r: &RunReport) -> String {
         }
         for c in &v.verdict.conditions {
             out.push_str(&format!("    ! {c}\n"));
+        }
+    }
+    out.push_str(&format!("\nprofile: {}\n", r.profile_id));
+    out
+}
+
+/// Summed `tasks_passed / tasks_total` across a verdict's tiers.
+fn tier_totals(v: &ModelVerdict) -> (u32, u32) {
+    v.by_tier.iter().fold((0, 0), |(p, t), s| (p + s.tasks_passed, t + s.tasks_total))
+}
+
+/// The single largest failure category (`name=count`), or "none" / "—" — for the
+/// scoreboard's at-a-glance "what went wrong most".
+fn top_failure<T: serde::Serialize>(f: &T) -> String {
+    let Ok(serde_json::Value::Object(m)) = serde_json::to_value(f) else {
+        return "—".into();
+    };
+    m.iter()
+        .filter_map(|(k, v)| v.as_u64().filter(|&n| n > 0).map(|n| (k.clone(), n)))
+        .max_by_key(|(_, n)| *n)
+        .map(|(k, n)| format!("{k}={n}"))
+        .unwrap_or_else(|| "none".into())
+}
+
+/// A per-calling-mode scoreboard (→ stdout) for `qm test`: one row per measured path
+/// (native / prompt), with the headline verdict on top. Richer than `render_human`,
+/// which is verdict-focused.
+pub fn render_scoreboard(r: &RunReport) -> String {
+    let mut out = String::new();
+    out.push_str(&format!(
+        "VERDICT: {}   ({} · {} · {})\n\n",
+        status_label(r.worst_status()),
+        label(r.backend),
+        r.model,
+        r.collection_id
+    ));
+    out.push_str(&format!("{:<14}{:<8}{:<8}{:<7}{:<9}{}\n", "mode", "pass^k", "tasks", "steps", "effort", "top-error"));
+    for v in &r.verdicts {
+        let (passed, total) = tier_totals(v);
+        let tasks = if total > 0 { format!("{passed}/{total}") } else { "—".into() };
+        let steps = v.avg_steps.map(|s| format!("{s:.1}")).unwrap_or_else(|| "—".into());
+        let effort = v.effort.map(|e| format!("{e:.0}")).unwrap_or_else(|| "—".into());
+        out.push_str(&format!(
+            "{:<14}{:<8}{:<8}{:<7}{:<9}{}\n",
+            format!("{:?}", v.verdict.path),
+            passk_str(v.pass_k),
+            tasks,
+            steps,
+            effort,
+            top_failure(&v.failures)
+        ));
+        // A non-Ready mode carries its blocking reasons underneath.
+        if v.verdict.status != Readiness::Ready {
+            for b in &v.verdict.blocking {
+                out.push_str(&format!("    ✗ {b}\n"));
+            }
         }
     }
     out.push_str(&format!("\nprofile: {}\n", r.profile_id));

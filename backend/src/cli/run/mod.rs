@@ -12,7 +12,7 @@ pub mod render;
 pub mod sink;
 
 pub use junit::to_junit;
-pub use render::{exit_code, render_human, FailOn};
+pub use render::{exit_code, render_human, render_scoreboard, FailOn};
 
 use crate::cli::doctor::probe::probe_backend;
 use crate::commands::eval::batch_cmd::probe_native_tools;
@@ -82,6 +82,8 @@ pub enum RunOutcome {
     Unreachable { backend: BackendKind, endpoint: String },
     ModelNotFound { backend: BackendKind, model: String, available: Vec<String> },
     UnknownCollection { id: String },
+    /// A `--collection` file that failed to read / parse / validate — exit 2.
+    BadCollectionFile { path: String, reason: String },
     UnknownProfile { id: String },
     /// `--mode native` but the model/backend has no native tool-calling — exit 2.
     NativeUnsupported { backend: BackendKind, model: String },
@@ -188,12 +190,38 @@ fn skeleton(collection_id: &str, targets: &[ModelTarget]) -> BatchReport {
     }
 }
 
+/// Why a collection couldn't be resolved.
+enum CollectionError {
+    /// Not a file, and not a known built-in id.
+    UnknownBuiltin,
+    /// A file that failed to read/parse/validate (reason already redacted).
+    BadFile(String),
+}
+
+/// Resolve `--collection`: a file path (JSON: a raw `ToolTask[]` or a v2 object,
+/// auto-detected + size-capped by `evals::read_capped`) OR a built-in id. A spec that
+/// names a file (has a separator or ends `.json`) always goes down the file path so a
+/// typo'd filename reports a file error, not "unknown built-in".
+fn load_collection(spec: &str) -> Result<Vec<ToolTask>, CollectionError> {
+    let path = std::path::Path::new(spec);
+    let looks_like_file = path.is_file() || spec.ends_with(".json") || spec.contains(std::path::MAIN_SEPARATOR) || spec.contains('/');
+    if looks_like_file {
+        return crate::persistence::evals::read_capped(path)
+            .map_err(|e| CollectionError::BadFile(crate::redact::redact_path(&e.to_string())));
+    }
+    builtin_collection(spec).ok_or(CollectionError::UnknownBuiltin)
+}
+
 /// Run the built-in suite and assess it. Preflights reachability + model presence
 /// (reusing the doctor probe) so an unreachable server or a missing model fails fast
 /// with the right signal instead of being mislabelled a failing model.
 pub async fn run_suite(opts: RunOptions) -> AppResult<RunOutcome> {
-    let Some(mut tasks) = builtin_collection(&opts.collection) else {
-        return Ok(RunOutcome::UnknownCollection { id: opts.collection });
+    let mut tasks = match load_collection(&opts.collection) {
+        Ok(t) => t,
+        Err(CollectionError::UnknownBuiltin) => return Ok(RunOutcome::UnknownCollection { id: opts.collection }),
+        Err(CollectionError::BadFile(reason)) => {
+            return Ok(RunOutcome::BadCollectionFile { path: opts.collection, reason })
+        }
     };
     let Some(profile) = profile::builtins().into_iter().find(|p| p.id == opts.profile_id) else {
         return Ok(RunOutcome::UnknownProfile { id: opts.profile_id });
@@ -357,10 +385,38 @@ pub async fn run_suite(opts: RunOptions) -> AppResult<RunOutcome> {
     }
 
     Ok(RunOutcome::Ran(RunReport {
-        collection_id: opts.collection,
+        // Display the collection by its basename, never the full path (rule 7f — no
+        // absolute path / machine info in output).
+        collection_id: display_collection(&opts.collection),
         backend: opts.backend,
         model: opts.model,
         profile_id: opts.profile_id,
         verdicts,
     }))
+}
+
+/// A leak-safe display name for a collection: a built-in id as-is, a file as its
+/// basename only (never the absolute path).
+fn display_collection(spec: &str) -> String {
+    let path = std::path::Path::new(spec);
+    if spec.ends_with(".json") || spec.contains('/') || spec.contains(std::path::MAIN_SEPARATOR) {
+        return path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| spec.to_string());
+    }
+    spec.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::display_collection;
+
+    #[test]
+    fn display_collection_never_leaks_an_absolute_path() {
+        assert_eq!(display_collection("easy-coding"), "easy-coding"); // built-in id as-is
+        assert_eq!(display_collection("/private/tmp/abc/my_suite.json"), "my_suite.json");
+        assert_eq!(display_collection("./rel/dir/x.json"), "x.json");
+        // No username / home path survives (rule 7f).
+        let d = display_collection("/Users/alice/secret/col.json");
+        assert_eq!(d, "col.json");
+        assert!(!d.contains("alice") && !d.contains("secret"));
+    }
 }

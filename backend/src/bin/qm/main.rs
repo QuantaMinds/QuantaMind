@@ -34,6 +34,48 @@ enum Command {
     Run(RunArgs),
     /// Auto-detect a backend, write qm.json, and run the suite (zero config).
     Init(InitArgs),
+    /// Run a custom collection FILE → a per-mode scoreboard + verdict.
+    Test(TestArgs),
+}
+
+#[derive(clap::Args)]
+struct TestArgs {
+    /// Collection file to run (JSON: a ToolTask array or a v2 collection object).
+    #[arg(long)]
+    collection: PathBuf,
+    /// Backend to run against.
+    #[arg(long, value_enum)]
+    backend: Option<BackendArg>,
+    /// Model to run. Env: QM_MODEL.
+    #[arg(long, env = "QM_MODEL")]
+    model: Option<String>,
+    /// Endpoint override (remote backends). Env: QM_BASE.
+    #[arg(long, env = "QM_BASE")]
+    base: Option<String>,
+    /// Readiness profile id.
+    #[arg(long, default_value = "general-agent")]
+    profile: String,
+    /// Calling path(s): defaults to `both` (native + prompt) for a full scoreboard.
+    #[arg(long, value_enum, default_value = "both")]
+    mode: ModeArg,
+    /// Difficulty-tier override.
+    #[arg(long, value_enum)]
+    tier: Option<TierArg>,
+    /// Reasoning-scratchpad budget.
+    #[arg(long, value_enum, default_value = "lean")]
+    thinking: ThinkingArg,
+    /// pass^k override.
+    #[arg(long)]
+    k: Option<u32>,
+    /// Which verdicts fail the process exit (CI gate).
+    #[arg(long, value_enum, default_value = "conditional")]
+    fail_on: FailOnArg,
+    /// Also write a JUnit XML report here.
+    #[arg(long)]
+    junit: Option<PathBuf>,
+    /// Emit the machine-readable report as JSON on stdout.
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(clap::Args)]
@@ -214,7 +256,40 @@ async fn main() {
         Command::Doctor(args) => run_doctor(args).await,
         Command::Run(args) => run_suite(args).await,
         Command::Init(args) => run_init(args).await,
+        Command::Test(args) => run_test(args).await,
     }
+}
+
+async fn run_test(args: TestArgs) {
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let cfg = QmConfig::load(&cwd);
+    let backend = resolve_backend(args.backend, &cfg).await;
+    let api_key = resolve_key(Some(backend));
+    let base = args.base.or_else(|| cfg.as_ref().and_then(|c| c.base.clone()));
+    let model = match args.model.or_else(|| cfg.as_ref().map(|c| c.model.clone())) {
+        Some(m) => m,
+        None => match pick_model(backend, base.as_deref(), api_key.as_deref()).await {
+            Some(m) => m,
+            None => {
+                eprintln!("[QM-NO-MODEL] no model — pass --model, run `qm init`, or run in a terminal to pick one.");
+                std::process::exit(2);
+            }
+        },
+    };
+    let opts = RunOptions {
+        backend,
+        model,
+        // The engine's loader treats a path with a separator / `.json` as a file.
+        collection: args.collection.to_string_lossy().into_owned(),
+        base,
+        api_key,
+        k: args.k,
+        tier: args.tier.map(Tier::from),
+        think: ThinkPreset::from(args.thinking),
+        mode: RunMode::from(args.mode),
+        profile_id: args.profile,
+    };
+    execute(opts, args.json, FailOn::from(args.fail_on), args.junit, Render::Scoreboard).await;
 }
 
 async fn run_suite(args: RunArgs) {
@@ -249,7 +324,7 @@ async fn run_suite(args: RunArgs) {
         mode: RunMode::from(args.mode),
         profile_id: args.profile,
     };
-    execute_run(opts, args.json, FailOn::from(args.fail_on), args.junit).await;
+    execute(opts, args.json, FailOn::from(args.fail_on), args.junit, Render::Verdict).await;
 }
 
 /// True when stdin is an interactive terminal — the gate for any prompt. Over SSH
@@ -336,11 +411,18 @@ async fn run_init(args: InitArgs) {
         mode: RunMode::PromptBased,
         profile_id: cfg.profile,
     };
-    execute_run(opts, args.json, FailOn::Conditional, None).await;
+    execute(opts, args.json, FailOn::Conditional, None, Render::Verdict).await;
 }
 
-/// Run a suite and exit on the verdict — shared by `run` and `init`.
-async fn execute_run(opts: RunOptions, json: bool, fail_on: FailOn, junit: Option<PathBuf>) {
+/// Human render style for a completed run.
+#[derive(Clone, Copy)]
+enum Render {
+    Verdict,
+    Scoreboard,
+}
+
+/// Run a suite and exit on the verdict — shared by `run`, `init`, and `test`.
+async fn execute(opts: RunOptions, json: bool, fail_on: FailOn, junit: Option<PathBuf>, render: Render) {
     let outcome = match run::run_suite(opts).await {
         Ok(o) => o,
         Err(e) => {
@@ -373,6 +455,10 @@ async fn execute_run(opts: RunOptions, json: bool, fail_on: FailOn, junit: Optio
         }
         RunOutcome::UnknownCollection { id } => {
             eprintln!("[QM-BAD-COLLECTION] unknown collection '{id}'.");
+            std::process::exit(2);
+        }
+        RunOutcome::BadCollectionFile { path, reason } => {
+            eprintln!("[QM-BAD-COLLECTION] could not load collection file '{}': {reason}", redact_path(&path));
             std::process::exit(2);
         }
         RunOutcome::UnknownProfile { id } => {
@@ -408,7 +494,10 @@ async fn execute_run(opts: RunOptions, json: bool, fail_on: FailOn, junit: Optio
                     }
                 }
             } else {
-                print!("{}", run::render_human(&report));
+                match render {
+                    Render::Verdict => print!("{}", run::render_human(&report)),
+                    Render::Scoreboard => print!("{}", run::render_scoreboard(&report)),
+                }
             }
             // JUnit is a side artifact (data → a file), independent of --json/stdout.
             if let Some(path) = junit {

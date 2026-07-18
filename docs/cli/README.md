@@ -14,12 +14,12 @@ This is an OSS tool built one verified command at a time. Today:
 | `doctor`  | **shipped** | Diagnose every backend: reachable? models? credential? tool-calling? version? |
 | `init`    | **shipped** | Auto-detect a running backend, write `qm.json`, and run the suite (zero config). |
 | `run`     | **shipped** | Built-in tool-calling suite → a Ready/Conditional/NotReady verdict + exit code. |
-| `test`    | planned | Run a custom collection (native + prompt-based) → scoreboard + failure taxonomy. |
+| `test`    | **shipped** | Run a custom collection FILE (native + prompt) → a per-mode scoreboard + verdict. |
 | `report`  | planned | Assess a run against a readiness profile → per-path verdict. |
 | `verify`  | planned | Check a signed report (integrity / tamper-evidence). |
 
-`doctor`, `init`, and `run` are implemented; `test/report/verify` are the intended surface — this doc
-grows one section at a time as each lands, never ahead of the code.
+`doctor`, `init`, `run`, and `test` are implemented; `report/verify` are the intended surface — this
+doc grows one section at a time as each lands, never ahead of the code.
 
 ## Running it
 
@@ -236,13 +236,51 @@ $ qm run          # no flags — reads qm.json
 VERDICT: Ready   (ollama · qwen2.5:3b · easy-coding) …
 ```
 
-## `test` / `report` / `verify` — planned
+## `test` — run YOUR collection (per-mode scoreboard)
 
-Not yet implemented. When they land, each gets its own section here (with a live example and its exit
-codes) — and not before. The intended shape:
+Same engine as `run`, but against a **collection file you provide** and defaulting to `--mode both`,
+so you get a native-vs-prompt scoreboard for your own eval.
 
-- **`test`** — a custom collection under native + prompt-based calling → per-mode scoreboard +
-  failure taxonomy. Accepts JSON/JSONL/CSV/BFCL/τ-bench/OpenAI-evals collections.
-- **`report`** — assess a run against a readiness profile (hard gates + soft targets) → per-path
-  verdict; can re-assess a saved `test --json` offline.
+```
+qm test --collection <file.json> [--backend <k>] [--model <m>]
+        [--mode both] [--tier <t>] [--thinking <t>] [--k <n>] [--fail-on <p>] [--junit <path>] [--json]
+```
+
+**Collection file** — JSON, auto-detected between two shapes (size-capped at 1 MB, schema-validated):
+1. a **v2 collection object** `{ "name", "domain", "tier", "tasks": [ … ] }` — the format the desktop
+   Tests page authors and the built-ins use (multi-step `agent_loop` tasks; this is what the readiness
+   verdict scores);
+2. a raw **`ToolTask[]` array**.
+
+Other formats (CSV, JSONL, BFCL, τ-bench, OpenAI-evals) are **not** parsed by the CLI — convert to one
+of the two JSON shapes first. (`qm run --collection <file>` accepts a file too; `test` just defaults to
+both modes and prints the scoreboard.)
+
+Flags mirror [`run`](#run--the-readiness-verdict) (`--tier`/`--thinking`/`--k`/`--fail-on`/`--junit`/
+`--json`); `--mode` defaults to `both`. Exit codes are the same contract.
+
+### Example
+```
+$ qm test --collection ./my_suite.json --backend ollama --model qwen2.5:3b --k 1
+· [1/2] es_co_run_failing_test (native)
+  … (progress on stderr)
+VERDICT: Not Ready   (ollama · qwen2.5:3b · my_suite.json)
+
+mode          pass^k  tasks   steps  effort   top-error
+NativeFc      0.00    0/2     2.0    —        reported_in_prose_calls=2
+    ✗ pass^k 0.00 < 0.60 required
+PromptBased   1.00    2/2     2.0    49       none
+
+profile: general-agent
+```
+The scoreboard makes the native-vs-prompt split obvious — here the 3B's native tool-calling reports in
+prose while its prompt-based path passes. A bad/missing/malformed file exits `2` with a clear
+`[QM-BAD-COLLECTION]` (the path is redacted per rule 7f).
+
+## `report` / `verify` — planned
+
+Not yet implemented (each gets its own section when it lands, with a live example):
+
+- **`report`** — assess a saved run against a readiness profile (hard gates + soft targets); re-assess
+  a saved report against a different profile offline.
 - **`verify`** — check a signed report's integrity (tamper-evidence).
