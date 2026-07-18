@@ -79,7 +79,7 @@ pub fn render_cliff(r: &CliffReport) -> String {
 /// (one line per rung) goes to stderr via `on_rung`.
 pub async fn run_cliff_probe(opts: CliffOptions) -> AppResult<CliffOutcome> {
     let tasks = match super::run::load_collection(&opts.run.collection) {
-        Ok(t) => t,
+        Ok(t) => t.tasks,
         Err(super::run::CollectionError::UnknownBuiltin) => {
             return Ok(CliffOutcome::UnknownCollection { id: opts.run.collection })
         }

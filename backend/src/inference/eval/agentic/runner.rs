@@ -878,12 +878,19 @@ async fn run_steps<M: ModelTurn>(
                     }
                 })
             } else if let Some(w) = mcp_world.as_ref() {
-                // Execute the call against the REAL MCP server (async — fine here). An in-band
-                // tool error or a protocol error is surfaced as text; the oracle grades the world.
+                // Execute the call against the REAL MCP server (async — fine here). An IN-BAND
+                // tool error (`is_error:true` — e.g. reading a nonexistent path) comes back as
+                // `Ok(exec)` and is injected as text: it's part of the world and the model should
+                // react to it. A transport/protocol `Err` (server died / timed out / spoke
+                // non-JSON) means the WORLD is broken — every future call would fail too, and
+                // injecting it would let the model's inevitable retries be mis-scored as an
+                // `infinite_loop` (a server fault charged to the model; live kill-test proved
+                // exactly that). Propagate instead: the run becomes a per-run infra error the
+                // pass^k loop skips (`tasks_errored`), the same treatment as a spawn failure.
                 let nc: NativeToolCall = call.clone().into();
                 Some(match w.execute(&nc).await {
                     Ok(exec) => (StepKind::ToolCall, exec.text),
-                    Err(e) => (StepKind::ToolError, e.friendly()),
+                    Err(e) => return Err(e),
                 })
             } else {
                 None
