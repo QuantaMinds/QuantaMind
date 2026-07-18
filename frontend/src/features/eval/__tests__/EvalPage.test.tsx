@@ -81,22 +81,36 @@ describe("EvalPage (3-pane workspace)", () => {
     expect(useBatchStore.getState().outcomeByKey).toEqual({});
   });
 
-  it("halts an in-flight Context-Cliff probe when the collection changes (context-shift law)", () => {
+  // Nav-persistence: a Tests-page selection change must NEVER cancel a run on another
+  // surface. The Audit cliff owns its own model/collection + Stop.
+  it("does NOT halt a running Context-Cliff probe when the collection changes (nav-persistence)", () => {
     render(<EvalPage />);
-    // Simulate a probe running (started from the Audit tab) for the old collection.
+    // A probe running (started from the Audit tab) for a different collection.
     act(() => useCliffStore.setState({ running: true, runningModel: "llama3.2:1b" }));
-    expect(useCliffStore.getState().running).toBe(true);
-    // A collection switch must stop it (cliffStore.stop) — not leave the GPU grinding.
     act(() => useEvalRegistryStore.setState({ selected: "finance" }));
-    expect(useCliffStore.getState().running).toBe(false);
-    expect(useCliffStore.getState().runningModel).toBeNull();
+    expect(useCliffStore.getState().running).toBe(true);
+    expect(useCliffStore.getState().runningModel).toBe("llama3.2:1b");
   });
 
-  it("halts an in-flight Context-Cliff probe when the backend changes", () => {
+  it("does NOT halt a running Context-Cliff probe when the (global) backend changes", () => {
     render(<EvalPage />);
     act(() => useCliffStore.setState({ running: true, runningModel: "llama3.2:1b" }));
+    // The backend is global — this fires even from the Workspace model picker.
     act(() => useBackendStore.setState({ selectedBackend: "llama_cpp" }));
-    expect(useCliffStore.getState().running).toBe(false);
+    expect(useCliffStore.getState().running).toBe(true);
+  });
+
+  it("does NOT clear a RUNNING batch's live report on a backend switch (the run keeps streaming)", () => {
+    render(<EvalPage />);
+    act(() =>
+      useBatchStore.setState({
+        running: true,
+        report: { collection_id: "easy-coding", columns: [{ model: "llama3.2:1b", backend: "ollama", toolcall: null, agentic: null, error: null }] },
+      }),
+    );
+    act(() => useBackendStore.setState({ selectedBackend: "llama_cpp" }));
+    expect(useBatchStore.getState().report).not.toBeNull();
+    expect(useBatchStore.getState().running).toBe(true);
   });
 });
 

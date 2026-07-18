@@ -10,6 +10,9 @@ import { useBatchRun } from "../../hooks/useBatchRun";
 import { useBackendStore } from "../../../../shared/state/backendStore";
 import { formatIpcError } from "../../../../shared/ipc/core/error";
 import { useToast } from "../../../../shared/ui/Toast";
+import { CliCommandPreview } from "../../../../shared/cli/CliCommandPreview";
+import { buildRunCommand, modeFrom } from "../../../../shared/cli/qmCommand";
+import { useParamsStore } from "../../../../shared/state/paramsStore";
 import {
   validateCustomCollection,
   type ToolTask,
@@ -80,6 +83,7 @@ export function EvalManager({
   // The eval runs ONE model from the GLOBAL selection (single source of truth) — the
   // header's multi (Ollama) / single (llama.cpp/MLX) picker. No per-page model list.
   const selectedModels = useSelectedModelStore((s) => s.selectedModels);
+  const cliParams = useParamsStore((s) => s.globalParams); // for the equivalent-CLI-command preview
   const running = useBatchStore((s) => s.running);
   const stopping = useBatchStore((s) => s.stopping);
   const report = useBatchStore((s) => s.report);
@@ -929,6 +933,25 @@ export function EvalManager({
               "▶ RUN BATCH"
             )}
           </button>
+          {/* The equivalent `qm` command for the current selections — teaches the CLI in place. */}
+          {!mcpActive && (
+            <CliCommandPreview
+              testId="eval-cli-preview"
+              cmd={buildRunCommand({
+                backend: selectedModels.find((m) => m.name === model)?.backend ?? selectedModels[0]?.backend ?? "ollama",
+                model: model || null,
+                collection: selected,
+                isCustom: !isPreset(selected),
+                mode: modeFrom(nativeFc, promptBased),
+                tier: tierSel === "auto" ? undefined : effectiveTier,
+                thinking: thinkPreset,
+                k,
+                maxSteps,
+                decoy: decoyEnabled ? decoyCount : undefined,
+                params: cliParams,
+              })}
+            />
+          )}
           {stopping ? (
             <div style={{ fontSize: 11, color: "#64748b", fontFamily: "Inter, sans-serif", textAlign: "center", marginTop: -6 }}>
               Stopping — finishing the current step, this can take a few seconds…

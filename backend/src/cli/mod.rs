@@ -11,5 +11,6 @@
 pub mod cliff;
 pub mod doctor;
 pub mod init;
+pub mod prompt;
 pub mod run;
 pub mod validate;

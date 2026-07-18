@@ -11,6 +11,8 @@ import { loadedModels, type LoadedModel } from "../../../shared/ipc/system/vram"
 import { formatBytes } from "../../../shared/format/bytes";
 import { useCliffStore } from "../state/cliffStore";
 import { InfoButton } from "../../../shared/ui/InfoButton";
+import { CliCommandPreview } from "../../../shared/cli/CliCommandPreview";
+import { buildCliffCommand } from "../../../shared/cli/qmCommand";
 import { TOOL_HELP, METRIC_HELP } from "../help";
 import { classifyCliff, CLIFF_BASELINE_PASS, CLIFF_COLLAPSE_MARGIN } from "../cliff";
 import { ContextCliffChart } from "./ContextCliffChart";
@@ -839,6 +841,19 @@ export function ContextCliffPanel() {
         >
           {running ? "■ Stop Probe" : "Execute Probe"}
         </button>
+        <CliCommandPreview
+          testId="cliff-cli-preview"
+          cmd={buildCliffCommand({
+            backend: selected?.backend ?? "ollama",
+            model: selected?.name ?? null,
+            collection: active,
+            maxTokens,
+            steps: testSteps,
+            source: preset,
+            native: method === "native_fc",
+            params: globalParams,
+          })}
+        />
       </div>
     </div>
   );

@@ -3,8 +3,6 @@ import { useEvalRegistryStore } from "../state/evalRegistryStore";
 import { useSelectedModelStore } from "../../../shared/state/selectedModelStore";
 import { useBackendStore } from "../../../shared/state/backendStore";
 import { useBatchStore } from "../state/batchStore";
-import { useCliffStore } from "../state/cliffStore";
-import { stopBatchEval } from "../../../shared/ipc/eval/batch";
 import { getHardwareTier, type HardwareTier } from "../../../shared/ipc/compare/hardware";
 import { PASS_K_BY_TIER, MAX_STEPS_BY_TIER, type Tier } from "../../../shared/ipc/eval/readiness";
 import { EvalManager } from "./manager/EvalManager";
@@ -141,30 +139,30 @@ export function EvalPage() {
     }
   }, [hwTier]);
 
-  // Context-shift cancellation law: a backend OR collection switch invalidates the
-  // target of every long-running process, so ALL compute for the old context halts.
-  // The cliff probe (which survives plain tab navigation by design) is stopped here
-  // too — not just the batch — so a switch never leaves the GPU grinding an
-  // abandoned ladder. `cliffStore.stop()` bumps its generation token, so no further
-  // rungs dispatch and the abandoned run never persists.
+  // Nav-persistence law: a selection change must NEVER cancel an IN-FLIGHT run. The
+  // backend is a GLOBAL selection — it also changes from the Workspace model picker —
+  // so navigating to another page and starting a different task (or just picking a
+  // model) must leave every running task ALONE: it keeps running where you left off.
+  // We therefore only clear a STALE, COMPLETED batch report so old-context Pass/Fail
+  // doesn't linger for the new selection; a running batch keeps streaming its live
+  // results untouched, and the Audit cliff — which owns its own model/collection and
+  // its own Stop — is never cancelled from the Tests page.
   const haltOldContext = () => {
-    if (useBatchStore.getState().running) void stopBatchEval();
-    useBatchStore.getState().reset();
-    useCliffStore.getState().stop();
+    if (!useBatchStore.getState().running) useBatchStore.getState().reset();
   };
 
-  // On a backend switch the last run's results + chosen targets belong to the OLD
-  // backend's models — halt + clear, then targets re-seed from the new backend below.
+  // On a backend switch a COMPLETED report belongs to the OLD backend's models — clear
+  // it (only when idle; a running batch is left alone), then targets re-seed below.
   useEffect(() => {
     haltOldContext();
     setFocusedModel("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedBackend]);
 
-  // On a collection switch the previous collection's per-(model,task) outcomes are
-  // stale — a shared task id would otherwise show the OLD collection's Pass/Fail
-  // until a new batch runs. Halt + clear (the event gate drops any late events);
-  // keep the targets (models are collection-free).
+  // On a collection switch a COMPLETED report's per-(model,task) outcomes are stale — a
+  // shared task id would otherwise show the OLD collection's Pass/Fail. Clear it (only
+  // when idle); a running batch keeps streaming. Keep the targets (models are
+  // collection-free).
   useEffect(() => {
     haltOldContext();
     setFocusedTaskId(null);

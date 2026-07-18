@@ -8,6 +8,8 @@ import { useNavStore } from "../../../../shared/state/navStore";
 import { useCompareStore } from "../../../compare/state/compareStore";
 import { useParamsStore } from "../../../../shared/state/paramsStore";
 import { backendRunHint } from "../../state/runHint";
+import { CliCommandPreview } from "../../../../shared/cli/CliCommandPreview";
+import { buildPromptCommand } from "../../../../shared/cli/qmCommand";
 
 /// Single-model run trigger: run_prompt streaming with per-prompt params and
 /// history. The response is shown on the Analysis tab — this mirrors the live
@@ -23,6 +25,7 @@ export function SingleRun({ model }: { model: string | null }) {
   const vllmHealthy = useBackendStore((s) => s.vllmHealthy);
   const sglangHealthy = useBackendStore((s) => s.sglangHealthy);
   const activeBackend = useBackendStore((s) => s.selectedBackend);
+  const cliParams = useParamsStore((s) => s.globalParams); // for the equivalent-CLI-command preview
   const setSingleRun = useCompareStore((s) => s.setSingleRun);
   const active = useNavStore((s) => s.topView) === "workspace";
   const { output, status, error, metrics, start, cancel } = useStreamingRun();
@@ -76,6 +79,13 @@ export function SingleRun({ model }: { model: string | null }) {
         blockedHint={blockedHint}
         onRun={runNow}
         onCancel={cancel}
+      />
+      {/* The Workspace's free-form generation now HAS a headless twin: `qm prompt`
+          (system+user prompt + the same params, streamed). Prompt text is read from
+          stdin, so it stays out of the shown command. */}
+      <CliCommandPreview
+        testId="workspace-cli-preview"
+        cmd={buildPromptCommand({ backend: activeBackend, model, params: cliParams })}
       />
     </div>
   );

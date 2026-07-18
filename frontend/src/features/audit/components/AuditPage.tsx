@@ -7,6 +7,9 @@ import { loadCollectionHistory, type RunSummary } from "../../../shared/ipc/eval
 import { formatIpcError } from "../../../shared/ipc/core/error";
 import type { BackendKind } from "../../../shared/ipc/models/storage";
 import { HistoryTimeline } from "../../eval/components/matrix/HistoryTimeline";
+import { useSelectedModelStore } from "../../../shared/state/selectedModelStore";
+import { CliCommandPreview } from "../../../shared/cli/CliCommandPreview";
+import { buildRunHistory } from "../../../shared/cli/qmCommand";
 import { PresetOptGroups } from "../../eval/components/PresetOptGroups";
 import { ContextCliffPanel } from "../../eval/components/ContextCliffPanel";
 import { batchToCsv, download } from "../../eval/exportBatch";
@@ -41,6 +44,7 @@ export function AuditPage() {
   const report = useBatchStore((s) => s.report);
   const models = useInstalledModelsStore((s) => s.list);
   const selectedBackend = useBackendStore((s) => s.selectedBackend);
+  const historyModel = useSelectedModelStore((s) => s.selectedModels[0]?.name ?? null); // for the Run History CLI hint
   const [collection, setCollection] = useState(DEFAULT_PRESET);
   const [history, setHistory] = useState<RunSummary[]>([]);
   // A load failure is surfaced, never swallowed — an empty graph must distinguish
@@ -132,6 +136,18 @@ export function AuditPage() {
             Export JSON
           </button>
           <InfoButton {...TOOL_HELP.auditHistory} testId="audit-history" />
+        </div>
+        <div style={{ marginBottom: 10 }}>
+          <CliCommandPreview
+            testId="run-history-cli-preview"
+            cmd={buildRunHistory({
+              backend: selectedBackend,
+              model: historyModel,
+              collection,
+              isCustom: !presets.some((p) => p.id === collection),
+              profile: "general-agent",
+            })}
+          />
         </div>
         {historyError ? (
           // A real load failure — never let it masquerade as the empty "no runs yet" state.

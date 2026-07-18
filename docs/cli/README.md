@@ -18,6 +18,7 @@ This is an OSS tool built one verified command at a time. Today:
 | `report`  | **shipped** | Re-assess a saved run against a readiness profile, offline (no backend). |
 | `cliff`   | **shipped** | Context Stress Test: where does tool-calling collapse with prompt depth? |
 | `validate`| **shipped** | Prove a collection/world is a reliable test — the gate `run`/`test` apply to uploads. |
+| `prompt`  | **shipped** | Free-form generation: a system+user prompt with params, streamed to stdout (Workspace twin). |
 | `verify`  | deferred | Signed-report tamper-evidence — out of scope for the local OSS tool (see below). |
 
 `doctor`, `init`, `run`, `test`, `report`, `cliff`, and `validate` are implemented — the OSS CLI
@@ -388,6 +389,37 @@ real files/rows. Requirements: `npx` (Node.js) for every world; `sqlite3` additi
 (`[QM-WORLD-DEPS]`). A server that dies mid-run is classified **Inconclusive (11)** — a server
 fault, never a fabricated model failure. Scratch worlds are cleaned even after a `kill -9`
 (orphan sweep on the next world use).
+
+## `prompt` — free-form generation (the Workspace twin)
+
+The one non-eval command: run a system+user prompt against a model with inference params and stream
+the output — the headless equivalent of the Workspace Run button (same inference path).
+
+```
+qm prompt [--backend <k>] [--model <m>] [--system '…'] [--user '…']
+          [--temperature 0.7] [--top-p 0.9] [--top-k 40] [--num-predict 512]
+          [--repeat-penalty 1.1] [--seed 42] [--num-ctx 8192]
+```
+
+The user prompt comes from `--user` or, when omitted, **stdin** (pipe it, or type + Ctrl-D). Tokens
+stream to **stdout**; `[QM-*]` diagnostics + a `[QM-DONE] N tokens` summary go to stderr, so
+`qm prompt … | tee out.txt` captures only the generation. Exit `0` ok · `3` unreachable /
+model-not-served · `2` bad args/params.
+
+```
+echo "Summarize this in one line: …" | qm prompt --backend ollama --model qwen2.5:7b --temperature 0.7
+qm prompt --model qwen2.5:7b --system "You are terse." --user "Name three primary colors."
+```
+
+## Inference params & extra eval knobs
+
+`run`, `test`, and `cliff` accept the **same 7 global params** as `prompt`
+(`--temperature --top-p --top-k --num-predict --repeat-penalty --seed --num-ctx`) — they mirror the
+GUI's global params exactly (`max_tokens` → `--num-predict`). Eval is **greedy (temp 0) by default**
+for reproducibility; pass `--temperature` (etc.) to sample, matching the GUI. `cliff` is greedy too
+unless you pass params, and gains `--mode native|prompt_based` (default prompt-based) to probe the
+native tool-calling path. `run`/`test` also gain `--max-steps N` (per-turn step cap) and `--decoy N`
+(decoy tools injected per task) — the last two UI controls that had no flag.
 
 ## Interactive pickers
 

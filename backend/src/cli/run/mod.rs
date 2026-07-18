@@ -77,6 +77,15 @@ pub struct RunOptions {
     pub profile_id: String,
     /// If set, write the raw `BatchReport` here (for offline `qm report --report`).
     pub save_report: Option<std::path::PathBuf>,
+    /// Per-turn step cap override (UI "Max Steps"). `None` = each task's authored cap.
+    pub max_steps: Option<u32>,
+    /// Decoy-tool count injected per task (UI "Decoy Tools"). `None` = the task's own.
+    pub decoy_tools: Option<u32>,
+    /// Global inference params (temperature/top_p/…). `None` = greedy eval default.
+    /// When set, the header options win over the greedy spec default (see
+    /// `merge_eval_options`), so `qm run --temperature 0.7` matches the GUI's
+    /// "run with my params" behavior.
+    pub params: Option<crate::persistence::prompts::schema::InferenceParams>,
 }
 
 /// What a run produced. The bin maps each variant to the documented exit code.
@@ -365,8 +374,20 @@ pub async fn run_suite(opts: RunOptions) -> AppResult<RunOutcome> {
             } else if let Some(tier) = opts.tier {
                 spec.k = Some(pass_k_for(tier));
             }
+            // Max-steps + decoy overrides — same field targets as `apply_overrides`.
+            if opts.max_steps.is_some() {
+                spec.max_steps = opts.max_steps;
+            }
+            if let Some(n) = opts.decoy_tools {
+                spec.axes.get_or_insert_with(Default::default).decoy_tools = n;
+            }
         }
     }
+
+    // Global inference params → the header options every turn merges over the greedy
+    // spec default (temperature/top_p/top_k win; see `merge_eval_options`). `None`
+    // keeps the reproducible greedy eval behavior.
+    let turn_options = opts.params.as_ref().map(crate::commands::prompt::prompt_options::to_generate_options);
 
     // Resolve the endpoint; remote backends resolve their key from remote_config.
     let ep = opts
@@ -417,6 +438,7 @@ pub async fn run_suite(opts: RunOptions) -> AppResult<RunOutcome> {
         let mut skel = skeleton(&opts.collection, &targets);
         let ep_native = ep.clone();
         let backend = opts.backend;
+        let native_options = turn_options.clone();
         run_native_fc_pass(
             &mut skel,
             &tasks,
@@ -432,7 +454,7 @@ pub async fn run_suite(opts: RunOptions) -> AppResult<RunOutcome> {
                     endpoint: ep_native.clone(),
                     model: model.to_string(),
                     tools: task.tools.clone(),
-                    options: None,
+                    options: native_options.clone(),
                     terminal,
                     max_tokens: max_tokens_for_preset(tier, true, preset),
                     is_thinking,
@@ -453,12 +475,13 @@ pub async fn run_suite(opts: RunOptions) -> AppResult<RunOutcome> {
     let mut report = if opts.mode.wants_prompt() {
         let turn_cancel = cancel.clone();
         let ep_prompt = ep.clone();
+        let prompt_options = turn_options.clone();
         run_batch(&opts.collection, &targets, &tasks, cancel, sink, move |t: &ModelTarget| BackendTurn {
             backend: t.backend,
             endpoint: ep_prompt.clone(),
             model: t.model.clone(),
             cancel: turn_cancel.clone(),
-            options: None,
+            options: prompt_options.clone(),
             keep_alive: Some(600),
             is_thinking: t.is_thinking,
             max_tokens: max_tokens_for_preset(tier, t.is_thinking, preset),
