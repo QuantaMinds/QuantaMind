@@ -10,6 +10,8 @@ import { useBatchRun } from "../../hooks/useBatchRun";
 import { useBackendStore } from "../../../../shared/state/backendStore";
 import { formatIpcError } from "../../../../shared/ipc/core/error";
 import { useToast } from "../../../../shared/ui/Toast";
+import { CliCommandPreview } from "../../../../shared/cli/CliCommandPreview";
+import { buildRunCommand, modeFrom } from "../../../../shared/cli/qmCommand";
 import {
   validateCustomCollection,
   type ToolTask,
@@ -929,6 +931,22 @@ export function EvalManager({
               "▶ RUN BATCH"
             )}
           </button>
+          {/* The equivalent `qm` command for the current selections — teaches the CLI in place. */}
+          {!mcpActive && (
+            <CliCommandPreview
+              testId="eval-cli-preview"
+              cmd={buildRunCommand({
+                backend: selectedModels.find((m) => m.name === model)?.backend ?? selectedModels[0]?.backend ?? "ollama",
+                model: model || null,
+                collection: selected,
+                isCustom: !isPreset(selected),
+                mode: modeFrom(nativeFc, promptBased),
+                tier: tierSel === "auto" ? undefined : effectiveTier,
+                thinking: thinkPreset,
+                k,
+              })}
+            />
+          )}
           {stopping ? (
             <div style={{ fontSize: 11, color: "#64748b", fontFamily: "Inter, sans-serif", textAlign: "center", marginTop: -6 }}>
               Stopping — finishing the current step, this can take a few seconds…

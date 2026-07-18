@@ -18,6 +18,8 @@ import { READINESS_HELP } from "../readinessHelp";
 import { capOptions, defaultCapBytes, archLabel } from "../capBytes";
 import { EditProfileModal } from "./EditProfileModal";
 import { useToast } from "../../../shared/ui/Toast";
+import { CliCommandPreview } from "../../../shared/cli/CliCommandPreview";
+import { buildReportCommand } from "../../../shared/cli/qmCommand";
 import type { Tier } from "../../../shared/ipc/eval/readiness";
 
 /// Stable composite identity for a deep-dive target — a model now has up to two verdicts
@@ -318,6 +320,12 @@ export function AgentReportPage() {
             </button>
 
           </div>
+
+          {selectedProfileId && (
+            <div className="mt-2">
+              <CliCommandPreview testId="report-cli-preview" cmd={buildReportCommand({ profile: selectedProfileId })} />
+            </div>
+          )}
 
           {/* Row 2: Active Thresholds display */}
           {activeProfile && (

@@ -8,6 +8,7 @@ import { useNavStore } from "../../../../shared/state/navStore";
 import { useCompareStore } from "../../../compare/state/compareStore";
 import { useParamsStore } from "../../../../shared/state/paramsStore";
 import { backendRunHint } from "../../state/runHint";
+import { workspacePointerCommand } from "../../../../shared/cli/qmCommand";
 
 /// Single-model run trigger: run_prompt streaming with per-prompt params and
 /// history. The response is shown on the Analysis tab — this mirrors the live
@@ -77,6 +78,14 @@ export function SingleRun({ model }: { model: string | null }) {
         onRun={runNow}
         onCancel={cancel}
       />
+      {/* A single interactive prompt has no headless `qm` equivalent — point to the
+          eval path instead of fabricating a command. */}
+      <p className="text-[10px] text-gray-400 leading-snug" data-testid="workspace-cli-hint">
+        No CLI equivalent for a single prompt. To evaluate this model headless, use the Tests tab:{" "}
+        <code className="bg-gray-50 border rounded px-1 py-0.5 font-mono text-gray-500">
+          {workspacePointerCommand(model)}
+        </code>
+      </p>
     </div>
   );
 }
