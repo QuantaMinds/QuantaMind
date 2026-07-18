@@ -1,0 +1,50 @@
+name: qm eval (example)
+
+# A runnable EXAMPLE of gating CI on model readiness with the qm-eval action.
+# It is manual (workflow_dispatch) + a nightly schedule, because it needs a reachable
+# OpenAI-compatible endpoint (vLLM/SGLang) — GitHub's runners can't host a local model.
+# Point `base-url` at your endpoint and set the QM_API_KEY secret. See docs/ci/README.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      base-url:
+        description: 'OpenAI-compatible endpoint URL'
+        required: true
+      model:
+        description: 'Model to evaluate'
+        required: true
+      fail-on:
+        description: 'conditional | notready | never'
+        default: 'notready'
+  # Nightly full sweep — enable once an endpoint + secret are wired.
+  # schedule:
+  #   - cron: '0 7 * * *'
+
+jobs:
+  # PR-gate profile: fast (k=1), fails the job on a NotReady model.
+  eval-fast:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run agent-readiness eval
+        uses: ./.github/actions/qm-eval
+        with:
+          backend: vllm
+          base-url: ${{ inputs.base-url }}
+          model: ${{ inputs.model }}
+          collection: easy-coding
+          ci-profile: fast
+          fail-on: ${{ inputs.fail-on }}
+        env:
+          # Injected from a secret — never a plaintext value, never an action input.
+          QM_API_KEY: ${{ secrets.QM_API_KEY }}
+
+      # Render the JUnit report in GitHub's native test panel (optional — the report
+      # is also uploaded as an artifact by the action). Runs even when the eval failed.
+      - name: Publish test report
+        if: always()
+        uses: mikepenz/action-junit-report@v4
+        with:
+          report_paths: qm-junit.xml
+          check_name: qm agent-readiness
