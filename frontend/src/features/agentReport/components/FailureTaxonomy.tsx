@@ -3,10 +3,14 @@ import type { FailureTracker } from "../../../shared/ipc/eval/batch";
 
 const cap = (t: Tier) => t.charAt(0).toUpperCase() + t.slice(1);
 
-/// The tracked failure modes → human label + the vulnerability each exposes. Static
-/// documentation (matches the mockup); the counts are measured.
+/// The tracked TERMINAL failure modes → human label + the vulnerability each
+/// exposes. Labels/descriptions are static; the counts are measured. Mirrors the
+/// backend's `FailureTracker::top()` set — `unknown_tool_calls` is deliberately NOT
+/// here: the backend counts it on every run regardless of pass/fail (a distraction
+/// diagnostic, not a terminal failure), so including it would deflate every
+/// percentage below with non-failure events. It renders as a separate diagnostics
+/// line instead.
 const FAILURE_MODES: { key: keyof FailureTracker; label: string; vuln: string }[] = [
-  { key: "unknown_tool_calls", label: "UnknownTool", vuln: "Fell for decoy tools injected into the context." },
   { key: "forbidden_calls", label: "ForbiddenCall", vuln: "Violated 'must_not_call' rules on decision boundaries." },
   { key: "infinite_loop_hits", label: "InfiniteLoop", vuln: "Failed to resolve hidden prerequisites; repeated actions." },
   { key: "hallucinated_completions", label: "Hallucinated", vuln: "Claimed done / called methods outside the schema." },
@@ -31,6 +35,10 @@ export function FailureTaxonomy({ tier }: { tier: TierStat | null }) {
     .filter((r) => r.count > 0)
     .sort((a, b) => b.count - a.count);
   const grand = rows.reduce((n, r) => n + r.count, 0);
+  // Diagnostic, not a failure: the backend counts decoy/unknown-tool calls on every
+  // run (passing ones too) and excludes them from top(); shown separately so they
+  // never skew the failure percentages above.
+  const unknownTool = total.unknown_tool_calls ?? 0;
   const tierLabel = cap(tier.tier);
 
   return (
@@ -45,6 +53,12 @@ export function FailureTaxonomy({ tier }: { tier: TierStat | null }) {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           No failures recorded for {tierLabel}.
+          {unknownTool > 0 && (
+            <span data-testid="failure-diagnostic-unknown-tool" className="text-slate-400">
+              {" "}
+              (diagnostic: {unknownTool} decoy/unknown-tool call{unknownTool === 1 ? "" : "s"} — counted on passing runs too, not a failure)
+            </span>
+          )}
         </div>
       ) : (
         <div className="space-y-2">
@@ -66,6 +80,13 @@ export function FailureTaxonomy({ tier }: { tier: TierStat | null }) {
               );
             })}
           </div>
+          {unknownTool > 0 && (
+            <p data-testid="failure-diagnostic-unknown-tool" className="text-xs text-slate-500">
+              Diagnostic — UnknownTool: {unknownTool} decoy/unknown-tool call{unknownTool === 1 ? "" : "s"} (fell for decoy
+              tools injected into the context). Counted on passing runs too — a distraction signal, not a failure, so it is
+              excluded from the percentages above.
+            </p>
+          )}
         </div>
       )}
     </section>
