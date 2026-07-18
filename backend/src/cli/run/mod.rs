@@ -73,8 +73,10 @@ pub struct RunOptions {
     pub think: ThinkPreset,
     /// Native tool-calling, prompt-based, or both.
     pub mode: RunMode,
-    /// Readiness profile id (a `profile::builtins()` id).
+    /// Readiness profile: a built-in id OR a `.json` file path.
     pub profile_id: String,
+    /// If set, write the raw `BatchReport` here (for offline `qm report --report`).
+    pub save_report: Option<std::path::PathBuf>,
 }
 
 /// What a run produced. The bin maps each variant to the documented exit code.
@@ -85,6 +87,8 @@ pub enum RunOutcome {
     /// A `--collection` file that failed to read / parse / validate — exit 2.
     BadCollectionFile { path: String, reason: String },
     UnknownProfile { id: String },
+    /// A `--profile` file that failed to read / parse — exit 2.
+    BadProfileFile { path: String, reason: String },
     /// `--mode native` but the model/backend has no native tool-calling — exit 2.
     NativeUnsupported { backend: BackendKind, model: String },
     /// `--thinking standard|deep` but the model can't reason (Ollama 400s it) — exit 2.
@@ -212,6 +216,25 @@ fn load_collection(spec: &str) -> Result<Vec<ToolTask>, CollectionError> {
     builtin_collection(spec).ok_or(CollectionError::UnknownBuiltin)
 }
 
+/// Why a profile couldn't be resolved.
+enum ProfileError {
+    UnknownBuiltin,
+    BadFile(String),
+}
+
+/// Resolve `--profile`: a JSON file (a `ReadinessProfile`, 1 MB cap) OR a built-in id
+/// (`general-agent` / `rag-assistant` / `coding-agent`).
+fn load_profile(spec: &str) -> Result<crate::inference::eval::readiness::profile::ReadinessProfile, ProfileError> {
+    let path = std::path::Path::new(spec);
+    let looks_like_file = path.is_file() || spec.ends_with(".json") || spec.contains('/') || spec.contains(std::path::MAIN_SEPARATOR);
+    if looks_like_file {
+        let text = crate::persistence::evals::read_text_capped(path)
+            .map_err(|e| ProfileError::BadFile(crate::redact::redact_path(&e.to_string())))?;
+        return serde_json::from_str(&text).map_err(|e| ProfileError::BadFile(e.to_string()));
+    }
+    profile::builtins().into_iter().find(|p| p.id == spec).ok_or(ProfileError::UnknownBuiltin)
+}
+
 /// Run the built-in suite and assess it. Preflights reachability + model presence
 /// (reusing the doctor probe) so an unreachable server or a missing model fails fast
 /// with the right signal instead of being mislabelled a failing model.
@@ -223,8 +246,10 @@ pub async fn run_suite(opts: RunOptions) -> AppResult<RunOutcome> {
             return Ok(RunOutcome::BadCollectionFile { path: opts.collection, reason })
         }
     };
-    let Some(profile) = profile::builtins().into_iter().find(|p| p.id == opts.profile_id) else {
-        return Ok(RunOutcome::UnknownProfile { id: opts.profile_id });
+    let profile = match load_profile(&opts.profile_id) {
+        Ok(p) => p,
+        Err(ProfileError::UnknownBuiltin) => return Ok(RunOutcome::UnknownProfile { id: opts.profile_id }),
+        Err(ProfileError::BadFile(reason)) => return Ok(RunOutcome::BadProfileFile { path: opts.profile_id, reason }),
     };
 
     // Preflight — reuse the doctor probe (reachability + served models).
@@ -368,6 +393,13 @@ pub async fn run_suite(opts: RunOptions) -> AppResult<RunOutcome> {
     }
     report.think_preset = Some(preset);
 
+    // Persist the raw BatchReport if asked (for offline `qm report --report`). Saved
+    // even for an errored/inconclusive run — the raw evidence is still worth keeping.
+    if let Some(path) = &opts.save_report {
+        let json = serde_json::to_string_pretty(&report).map_err(|e| crate::errors::AppError::Internal(e.to_string()))?;
+        std::fs::write(path, json).map_err(|e| crate::errors::AppError::Internal(format!("write report: {e}")))?;
+    }
+
     // A run that ERRORED couldn't measure anything → Inconclusive (retry), NOT a
     // NotReady verdict. A column error is the loud signal; surface it redacted (rule
     // 7f) instead of leaking a raw internal error string into a readiness "reason".
@@ -403,6 +435,47 @@ fn display_collection(spec: &str) -> String {
         return path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| spec.to_string());
     }
     spec.to_string()
+}
+
+/// Outcome of an offline `qm report --report <file>` re-assessment.
+pub enum ReportOutcome {
+    BadReportFile { path: String, reason: String },
+    UnknownProfile { id: String },
+    BadProfileFile { path: String, reason: String },
+    Ran(RunReport),
+}
+
+/// Offline: reload a saved `BatchReport` (written by `run`/`test --save-report`) and
+/// re-assess it against a profile (a built-in id OR a `.json` file) — no backend, no
+/// inference. Lets you score one run against many bars.
+pub fn assess_saved(report_path: &str, profile_spec: &str) -> ReportOutcome {
+    let text = match crate::persistence::evals::read_text_capped(std::path::Path::new(report_path)) {
+        Ok(t) => t,
+        Err(e) => {
+            return ReportOutcome::BadReportFile {
+                path: report_path.to_string(),
+                reason: crate::redact::redact_path(&e.to_string()),
+            }
+        }
+    };
+    let report: BatchReport = match serde_json::from_str(&text) {
+        Ok(r) => r,
+        Err(e) => return ReportOutcome::BadReportFile { path: report_path.to_string(), reason: e.to_string() },
+    };
+    let profile = match load_profile(profile_spec) {
+        Ok(p) => p,
+        Err(ProfileError::UnknownBuiltin) => return ReportOutcome::UnknownProfile { id: profile_spec.to_string() },
+        Err(ProfileError::BadFile(reason)) => return ReportOutcome::BadProfileFile { path: profile_spec.to_string(), reason },
+    };
+    let verdicts = assess_report(&report, &profile);
+    let first = report.columns.first();
+    ReportOutcome::Ran(RunReport {
+        collection_id: display_collection(&report.collection_id),
+        backend: first.map(|c| c.backend).unwrap_or_default(),
+        model: first.map(|c| c.model.clone()).unwrap_or_default(),
+        profile_id: profile.id.clone(),
+        verdicts,
+    })
 }
 
 #[cfg(test)]

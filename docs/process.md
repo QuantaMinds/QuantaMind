@@ -664,7 +664,11 @@ crate (ADR 0001 — a `[[bin]]`, not a workspace split), reusing the eval engine
   via `persistence::evals::read_capped`, 1 MB cap) under `--mode both` → a per-mode native-vs-prompt
   scoreboard. `--collection` now accepts a file on `run` too. Collection basename shown, never the path
   (rule 7f). Live-verified on Ollama (custom file → scoreboard; bad/missing/malformed → exit 2).
-Planned next: `report`/`verify`. Full surface + exit-code contract: [docs/cli/README.md](cli/README.md).
+- **`qm report`: shipped** — offline re-assessment. `run`/`test --save-report <path>` persist the raw
+  `BatchReport`; `qm report --report <path> --profile <id|file>` reloads it and re-assesses (via
+  `assess_report`, no backend) against any bar. `--profile` now accepts a `ReadinessProfile` `.json`
+  file on `run`/`test` too. Live-verified: same run → Ready @ 0.6 bar, NotReady @ 0.9 bar.
+Planned next: `verify`. Full surface + exit-code contract: [docs/cli/README.md](cli/README.md).
 
 Locked decisions: **never fabricate** — an unmeasured hard-required metric blocks
 (ignorance is not a pass), unknowns render N/A, prompt-based vs native paths are

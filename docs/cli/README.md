@@ -15,10 +15,10 @@ This is an OSS tool built one verified command at a time. Today:
 | `init`    | **shipped** | Auto-detect a running backend, write `qm.json`, and run the suite (zero config). |
 | `run`     | **shipped** | Built-in tool-calling suite → a Ready/Conditional/NotReady verdict + exit code. |
 | `test`    | **shipped** | Run a custom collection FILE (native + prompt) → a per-mode scoreboard + verdict. |
-| `report`  | planned | Assess a run against a readiness profile → per-path verdict. |
+| `report`  | **shipped** | Re-assess a saved run against a readiness profile, offline (no backend). |
 | `verify`  | planned | Check a signed report (integrity / tamper-evidence). |
 
-`doctor`, `init`, `run`, and `test` are implemented; `report/verify` are the intended surface — this
+`doctor`, `init`, `run`, `test`, and `report` are implemented; `verify` is the intended surface — this
 doc grows one section at a time as each lands, never ahead of the code.
 
 ## Running it
@@ -277,10 +277,46 @@ The scoreboard makes the native-vs-prompt split obvious — here the 3B's native
 prose while its prompt-based path passes. A bad/missing/malformed file exits `2` with a clear
 `[QM-BAD-COLLECTION]` (the path is redacted per rule 7f).
 
-## `report` / `verify` — planned
+## `report` — re-assess a saved run, offline
 
-Not yet implemented (each gets its own section when it lands, with a live example):
+Score a **saved run** against a readiness profile without touching a backend — so you can hold one run
+up to many bars (a strict launch gate, a lenient smoke bar) in milliseconds.
 
-- **`report`** — assess a saved run against a readiness profile (hard gates + soft targets); re-assess
-  a saved report against a different profile offline.
-- **`verify`** — check a signed report's integrity (tamper-evidence).
+```
+qm run  --model <m> --save-report run.json      # or: qm test … --save-report run.json
+qm report --report run.json --profile <id|file.json> [--fail-on <p>] [--junit <path>] [--json]
+```
+
+`--save-report <path>` (on `run` and `test`) writes the **raw run report** (the internal `BatchReport`,
+re-loadable). `qm report` reloads it, re-assesses against `--profile` (a built-in id **or** a
+`ReadinessProfile` `.json`), and prints the same verdict as `run` — but offline, and against whatever
+bar you name. No inference, no endpoint.
+
+**Profile file** (all fields shown; `required_tier` is `easy|medium|hard|extreme`):
+```json
+{ "id": "strict", "name": "Strict launch gate", "min_pass_k": 0.9,
+  "max_avg_steps": null, "max_ms_per_step": null, "min_context_tokens": null,
+  "forbid_infinite_loop": true, "forbid_hallucinated_completion": true,
+  "require_full_vram": false, "require_native_fc": false, "required_tier": "easy" }
+```
+
+### Example — one run, two bars
+```
+$ qm report --report run.json --profile general-agent    # min_pass_k 0.6
+VERDICT: Ready   (ollama · qwen2.5:3b · easy-coding)
+  [PromptBased] Ready  pass^k=0.80  runs=4/5
+
+$ qm report --report run.json --profile strict.json       # min_pass_k 0.9
+VERDICT: Not Ready   (ollama · qwen2.5:3b · easy-coding)
+  [PromptBased] Not Ready  pass^k=0.80  runs=4/5
+    ✗ pass^k 0.80 < 0.90 required
+$ echo $?   # 20
+```
+
+**Exit:** the verdict (`0`/`10`/`20`, subject to `--fail-on`). `2` on a bad/missing report or profile
+file (`[QM-BAD-REPORT]` / `[QM-BAD-PROFILE]`, path redacted).
+
+## `verify` — planned
+
+Not yet implemented — check a signed report's integrity (tamper-evidence). Gets its own section, with a
+live example, when it lands.

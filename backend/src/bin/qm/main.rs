@@ -9,7 +9,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use quantamind_lib::cli::doctor::render::label;
 use quantamind_lib::cli::doctor::{self, DoctorOptions};
 use quantamind_lib::cli::run::config::QmConfig;
-use quantamind_lib::cli::run::{self, FailOn, RunMode, RunOptions, RunOutcome};
+use quantamind_lib::cli::run::{self, FailOn, ReportOutcome, RunMode, RunOptions, RunOutcome};
 use quantamind_lib::commands::remote::remote_health::RemoteAuthStatus;
 use quantamind_lib::inference::backend::backend_kind::BackendKind;
 use quantamind_lib::inference::eval::agentic::difficulty::passk::ThinkPreset;
@@ -36,6 +36,27 @@ enum Command {
     Init(InitArgs),
     /// Run a custom collection FILE → a per-mode scoreboard + verdict.
     Test(TestArgs),
+    /// Re-assess a saved run against a readiness profile, offline (no backend).
+    Report(ReportArgs),
+}
+
+#[derive(clap::Args)]
+struct ReportArgs {
+    /// A saved run report (from `run`/`test --save-report`).
+    #[arg(long)]
+    report: PathBuf,
+    /// Readiness profile: a built-in id (general-agent/rag-assistant/coding-agent) or a .json file.
+    #[arg(long, default_value = "general-agent")]
+    profile: String,
+    /// Which verdicts fail the process exit.
+    #[arg(long, value_enum, default_value = "conditional")]
+    fail_on: FailOnArg,
+    /// Also write a JUnit XML report here.
+    #[arg(long)]
+    junit: Option<PathBuf>,
+    /// Emit the machine-readable report as JSON on stdout.
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(clap::Args)]
@@ -73,6 +94,9 @@ struct TestArgs {
     /// Also write a JUnit XML report here.
     #[arg(long)]
     junit: Option<PathBuf>,
+    /// Write the raw run report here for offline re-assessment (`qm report --report`).
+    #[arg(long)]
+    save_report: Option<PathBuf>,
     /// Emit the machine-readable report as JSON on stdout.
     #[arg(long)]
     json: bool,
@@ -120,6 +144,9 @@ struct RunArgs {
     /// Also write a JUnit XML report here (for a CI test panel).
     #[arg(long)]
     junit: Option<PathBuf>,
+    /// Write the raw run report here for offline re-assessment (`qm report --report`).
+    #[arg(long)]
+    save_report: Option<PathBuf>,
     /// Emit the machine-readable report as JSON on stdout (progress/errors to stderr).
     #[arg(long)]
     json: bool,
@@ -257,6 +284,26 @@ async fn main() {
         Command::Run(args) => run_suite(args).await,
         Command::Init(args) => run_init(args).await,
         Command::Test(args) => run_test(args).await,
+        Command::Report(args) => run_report(args),
+    }
+}
+
+/// Offline re-assessment of a saved run against a profile — no backend.
+fn run_report(args: ReportArgs) {
+    match run::assess_saved(&args.report.to_string_lossy(), &args.profile) {
+        ReportOutcome::BadReportFile { path, reason } => {
+            eprintln!("[QM-BAD-REPORT] could not load report '{}': {reason}", redact_path(&path));
+            std::process::exit(2);
+        }
+        ReportOutcome::UnknownProfile { id } => {
+            eprintln!("[QM-BAD-PROFILE] unknown profile '{id}' — try general-agent, rag-assistant, coding-agent, or a .json file.");
+            std::process::exit(2);
+        }
+        ReportOutcome::BadProfileFile { path, reason } => {
+            eprintln!("[QM-BAD-PROFILE] could not load profile '{}': {reason}", redact_path(&path));
+            std::process::exit(2);
+        }
+        ReportOutcome::Ran(report) => finish_ran(&report, args.json, FailOn::from(args.fail_on), args.junit, Render::Verdict),
     }
 }
 
@@ -288,6 +335,7 @@ async fn run_test(args: TestArgs) {
         think: ThinkPreset::from(args.thinking),
         mode: RunMode::from(args.mode),
         profile_id: args.profile,
+        save_report: args.save_report,
     };
     execute(opts, args.json, FailOn::from(args.fail_on), args.junit, Render::Scoreboard).await;
 }
@@ -323,6 +371,7 @@ async fn run_suite(args: RunArgs) {
         think: ThinkPreset::from(args.thinking),
         mode: RunMode::from(args.mode),
         profile_id: args.profile,
+        save_report: args.save_report,
     };
     execute(opts, args.json, FailOn::from(args.fail_on), args.junit, Render::Verdict).await;
 }
@@ -410,6 +459,7 @@ async fn run_init(args: InitArgs) {
         think: ThinkPreset::Lean,
         mode: RunMode::PromptBased,
         profile_id: cfg.profile,
+        save_report: None,
     };
     execute(opts, args.json, FailOn::Conditional, None, Render::Verdict).await;
 }
@@ -465,6 +515,10 @@ async fn execute(opts: RunOptions, json: bool, fail_on: FailOn, junit: Option<Pa
             eprintln!("[QM-BAD-PROFILE] unknown profile '{id}' — try general-agent, rag-assistant, or coding-agent.");
             std::process::exit(2);
         }
+        RunOutcome::BadProfileFile { path, reason } => {
+            eprintln!("[QM-BAD-PROFILE] could not load profile file '{}': {reason}", redact_path(&path));
+            std::process::exit(2);
+        }
         RunOutcome::NativeUnsupported { backend, model } => {
             eprintln!("[QM-NATIVE-UNSUPPORTED] {} has no native tool-calling for '{model}' — use --mode prompt_based or both.", label(backend));
             std::process::exit(2);
@@ -483,36 +537,40 @@ async fn execute(opts: RunOptions, json: bool, fail_on: FailOn, junit: Option<Pa
             eprintln!("[QM-INCONCLUSIVE] the run errored before it could measure anything — retry. ({reason})");
             std::process::exit(run::render::EXIT_INCONCLUSIVE);
         }
-        RunOutcome::Ran(report) => {
-            let status = report.worst_status();
-            if json {
-                match serde_json::to_string_pretty(&report) {
-                    Ok(s) => println!("{s}"),
-                    Err(e) => {
-                        eprintln!("[QM-INTERNAL] failed to serialize report: {e}");
-                        std::process::exit(1);
-                    }
-                }
-            } else {
-                match render {
-                    Render::Verdict => print!("{}", run::render_human(&report)),
-                    Render::Scoreboard => print!("{}", run::render_scoreboard(&report)),
-                }
+        RunOutcome::Ran(report) => finish_ran(&report, json, fail_on, junit, render),
+    }
+}
+
+/// Render a completed run (verdict or scoreboard), write JUnit if asked, and exit on
+/// the verdict — shared by the live `execute` path and the offline `report` path.
+fn finish_ran(report: &run::RunReport, json: bool, fail_on: FailOn, junit: Option<PathBuf>, render: Render) -> ! {
+    let status = report.worst_status();
+    if json {
+        match serde_json::to_string_pretty(report) {
+            Ok(s) => println!("{s}"),
+            Err(e) => {
+                eprintln!("[QM-INTERNAL] failed to serialize report: {e}");
+                std::process::exit(1);
             }
-            // JUnit is a side artifact (data → a file), independent of --json/stdout.
-            if let Some(path) = junit {
-                if let Err(e) = std::fs::write(&path, run::to_junit(&report)) {
-                    eprintln!("[QM-INTERNAL] could not write JUnit report: {}", redact_path(&e.to_string()));
-                }
-            }
-            let code = run::exit_code(status, fail_on);
-            // Note when a soft policy downgraded a non-Ready verdict to a pass.
-            if code == 0 && status != quantamind_lib::inference::eval::readiness::types::Readiness::Ready {
-                eprintln!("[QM-NOTE] verdict is {status:?} but --fail-on let it pass (exit 0).");
-            }
-            std::process::exit(code);
+        }
+    } else {
+        match render {
+            Render::Verdict => print!("{}", run::render_human(report)),
+            Render::Scoreboard => print!("{}", run::render_scoreboard(report)),
         }
     }
+    // JUnit is a side artifact (data → a file), independent of --json/stdout.
+    if let Some(path) = junit {
+        if let Err(e) = std::fs::write(&path, run::to_junit(report)) {
+            eprintln!("[QM-INTERNAL] could not write JUnit report: {}", redact_path(&e.to_string()));
+        }
+    }
+    let code = run::exit_code(status, fail_on);
+    // Note when a soft policy downgraded a non-Ready verdict to a pass.
+    if code == 0 && status != quantamind_lib::inference::eval::readiness::types::Readiness::Ready {
+        eprintln!("[QM-NOTE] verdict is {status:?} but --fail-on let it pass (exit 0).");
+    }
+    std::process::exit(code);
 }
 
 async fn run_doctor(args: DoctorArgs) {
