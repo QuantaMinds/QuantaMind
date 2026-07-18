@@ -194,8 +194,8 @@ fn skeleton(collection_id: &str, targets: &[ModelTarget]) -> BatchReport {
     }
 }
 
-/// Why a collection couldn't be resolved.
-enum CollectionError {
+/// Why a collection couldn't be resolved. `pub(crate)` — shared with `cli::cliff`.
+pub(crate) enum CollectionError {
     /// Not a file, and not a known built-in id.
     UnknownBuiltin,
     /// A file that failed to read/parse/validate (reason already redacted).
@@ -206,7 +206,7 @@ enum CollectionError {
 /// auto-detected + size-capped by `evals::read_capped`) OR a built-in id. A spec that
 /// names a file (has a separator or ends `.json`) always goes down the file path so a
 /// typo'd filename reports a file error, not "unknown built-in".
-fn load_collection(spec: &str) -> Result<Vec<ToolTask>, CollectionError> {
+pub(crate) fn load_collection(spec: &str) -> Result<Vec<ToolTask>, CollectionError> {
     let path = std::path::Path::new(spec);
     let looks_like_file = path.is_file() || spec.ends_with(".json") || spec.contains(std::path::MAIN_SEPARATOR) || spec.contains('/');
     if looks_like_file {

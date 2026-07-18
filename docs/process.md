@@ -668,7 +668,14 @@ crate (ADR 0001 — a `[[bin]]`, not a workspace split), reusing the eval engine
   `BatchReport`; `qm report --report <path> --profile <id|file>` reloads it and re-assesses (via
   `assess_report`, no backend) against any bar. `--profile` now accepts a `ReadinessProfile` `.json`
   file on `run`/`test` too. Live-verified: same run → Ready @ 0.6 bar, NotReady @ 0.9 bar.
-**OSS CLI surface complete** (doctor/init/run/test/report). **`qm verify` deferred** — its value is a
+- **`qm cliff`: shipped** — the Context Stress Test headless (`cli/cliff.rs` wrapping the same
+  Tauri-free `cliff::engine` the Audit tab drives; greedy, prompt-based; exit 0 no-cliff / 10
+  collapsed / 11 inconclusive / 20 broken). Plus interactive pickers for `--collection` (27
+  built-ins listed with tier/domain) and `--thinking` (lean/standard/deep) — TTY only, CI never
+  prompts. The in-app Docs → Reference page now documents every CLI command with full syntax,
+  mapped to the page each mirrors (Workspace⇄doctor/init, Tests⇄run/test, Audit⇄cliff, Agent
+  Report⇄report).
+**OSS CLI surface complete** (doctor/init/run/test/report/cliff). **`qm verify` deferred** — its value is a
 cross-party trust boundary (shared/published reports) this local single-user tool doesn't have yet, and
 it needs signing infra the lean core dropped; revisit when publish/sharing lands. Full surface +
 exit-code contract: [docs/cli/README.md](cli/README.md).

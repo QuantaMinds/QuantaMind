@@ -6,10 +6,13 @@
 //! (diagnostics) → stderr. So `qm doctor --json | jq` is never polluted by prose.
 
 use clap::{Parser, Subcommand, ValueEnum};
+use quantamind_lib::cli::cliff::{self, cliff_exit, render_cliff, CliffOptions, CliffOutcome};
 use quantamind_lib::cli::doctor::render::label;
 use quantamind_lib::cli::doctor::{self, DoctorOptions};
 use quantamind_lib::cli::run::config::QmConfig;
 use quantamind_lib::cli::run::{self, FailOn, ReportOutcome, RunMode, RunOptions, RunOutcome};
+use quantamind_lib::commands::eval::toolcall_cmd::list_builtin_collections;
+use quantamind_lib::inference::eval::cliff::{CliffPreset, CliffSource};
 use quantamind_lib::commands::remote::remote_health::RemoteAuthStatus;
 use quantamind_lib::inference::backend::backend_kind::BackendKind;
 use quantamind_lib::inference::eval::agentic::difficulty::passk::ThinkPreset;
@@ -38,6 +41,57 @@ enum Command {
     Test(TestArgs),
     /// Re-assess a saved run against a readiness profile, offline (no backend).
     Report(ReportArgs),
+    /// Context Stress Test: ramp prompt depth and find where tool-calling collapses.
+    Cliff(CliffArgs),
+}
+
+#[derive(clap::Args)]
+struct CliffArgs {
+    /// Backend to probe against.
+    #[arg(long, value_enum)]
+    backend: Option<BackendArg>,
+    /// Model to probe. Env: QM_MODEL.
+    #[arg(long, env = "QM_MODEL")]
+    model: Option<String>,
+    /// Built-in collection id or a collection file. Omit in a terminal to pick from a list.
+    #[arg(long)]
+    collection: Option<String>,
+    /// Endpoint override. Env: QM_BASE.
+    #[arg(long, env = "QM_BASE")]
+    base: Option<String>,
+    /// Ceiling for the padding ladder (deepest rung's target tokens).
+    #[arg(long, default_value_t = 4096)]
+    max_tokens: u32,
+    /// Ladder rungs (baseline + deeper rungs).
+    #[arg(long, default_value_t = 4)]
+    steps: u32,
+    /// Padding corpus preset.
+    #[arg(long, value_enum, default_value = "corporate_policy")]
+    source: SourceArg,
+    /// Emit the machine-readable CliffReport as JSON on stdout.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum SourceArg {
+    #[value(name = "corporate_policy", alias = "corporate-policy")]
+    CorporatePolicy,
+    #[value(name = "system_logs", alias = "system-logs")]
+    SystemLogs,
+    #[value(name = "financial_ledger", alias = "financial-ledger")]
+    FinancialLedger,
+}
+
+impl From<SourceArg> for CliffSource {
+    fn from(s: SourceArg) -> Self {
+        let preset = match s {
+            SourceArg::CorporatePolicy => CliffPreset::CorporatePolicy,
+            SourceArg::SystemLogs => CliffPreset::SystemLogs,
+            SourceArg::FinancialLedger => CliffPreset::FinancialLedger,
+        };
+        CliffSource::Preset { preset }
+    }
 }
 
 #[derive(clap::Args)]
@@ -117,9 +171,9 @@ struct RunArgs {
     /// Model to run (falls back to qm.json; env QM_MODEL).
     #[arg(long, env = "QM_MODEL")]
     model: Option<String>,
-    /// Built-in collection id.
-    #[arg(long, default_value = "easy-coding")]
-    collection: String,
+    /// Built-in collection id or a collection file. Omit in a terminal to pick from a list.
+    #[arg(long)]
+    collection: Option<String>,
     /// Endpoint override (required for remote backends). Env: QM_BASE.
     #[arg(long, env = "QM_BASE")]
     base: Option<String>,
@@ -135,9 +189,9 @@ struct RunArgs {
     /// Calling path to exercise.
     #[arg(long, value_enum, default_value = "prompt_based")]
     mode: ModeArg,
-    /// Reasoning-scratchpad budget: lean (off) / standard / deep.
-    #[arg(long, value_enum, default_value = "lean")]
-    thinking: ThinkingArg,
+    /// Reasoning-scratchpad budget: lean (off) / standard / deep. Omit in a terminal to pick.
+    #[arg(long, value_enum)]
+    thinking: Option<ThinkingArg>,
     /// Which verdicts fail the process exit (CI gate).
     #[arg(long, value_enum, default_value = "conditional")]
     fail_on: FailOnArg,
@@ -285,6 +339,7 @@ async fn main() {
         Command::Init(args) => run_init(args).await,
         Command::Test(args) => run_test(args).await,
         Command::Report(args) => run_report(args),
+        Command::Cliff(args) => run_cliff_cmd(args).await,
     }
 }
 
@@ -363,17 +418,91 @@ async fn run_suite(args: RunArgs) {
     let opts = RunOptions {
         backend,
         model,
-        collection: args.collection,
+        collection: resolve_collection(args.collection),
         base,
         api_key,
         k: args.k,
         tier: args.tier.map(Tier::from),
-        think: ThinkPreset::from(args.thinking),
+        think: resolve_thinking(args.thinking),
         mode: RunMode::from(args.mode),
         profile_id: args.profile,
         save_report: args.save_report,
     };
     execute(opts, args.json, FailOn::from(args.fail_on), args.junit, Render::Verdict).await;
+}
+
+/// Context Stress Test — prompt-based, greedy; exit no-cliff 0 / collapsed 10 /
+/// inconclusive 11 / broken 20 (the documented contract).
+async fn run_cliff_cmd(args: CliffArgs) {
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let cfg = QmConfig::load(&cwd);
+    let backend = resolve_backend(args.backend, &cfg).await;
+    let api_key = resolve_key(Some(backend));
+    let base = args.base.or_else(|| cfg.as_ref().and_then(|c| c.base.clone()));
+    let model = match args.model.or_else(|| cfg.as_ref().map(|c| c.model.clone())) {
+        Some(m) => m,
+        None => match pick_model(backend, base.as_deref(), api_key.as_deref()).await {
+            Some(m) => m,
+            None => {
+                eprintln!("[QM-NO-MODEL] no model — pass --model, run `qm init`, or run in a terminal to pick one.");
+                std::process::exit(2);
+            }
+        },
+    };
+    let opts = CliffOptions {
+        run: RunOptions {
+            backend,
+            model,
+            collection: resolve_collection(args.collection),
+            base,
+            api_key,
+            k: None,
+            tier: None,
+            think: ThinkPreset::Lean,
+            mode: RunMode::PromptBased,
+            profile_id: "general-agent".into(),
+            save_report: None,
+        },
+        max_tokens: args.max_tokens,
+        steps: args.steps,
+        source: CliffSource::from(args.source),
+    };
+    match cliff::run_cliff_probe(opts).await {
+        Err(e) => {
+            eprintln!("[QM-INTERNAL] cliff probe failed: {}", redact_path(&e.to_string()));
+            std::process::exit(1);
+        }
+        Ok(CliffOutcome::Unreachable { backend, endpoint }) => {
+            eprintln!("[QM-BACKEND-UNREACHABLE] {} not reachable at {endpoint} — run `qm doctor` to diagnose.", label(backend));
+            std::process::exit(run::render::EXIT_UNREACHABLE);
+        }
+        Ok(CliffOutcome::ModelNotFound { backend, model, available }) => {
+            eprintln!("[QM-MODEL-NOT-FOUND] {} has no model '{model}' — available: {}", label(backend), if available.is_empty() { "(none)".into() } else { available.join(", ") });
+            std::process::exit(run::render::EXIT_UNREACHABLE);
+        }
+        Ok(CliffOutcome::UnknownCollection { id }) => {
+            eprintln!("[QM-BAD-COLLECTION] unknown collection '{id}'.");
+            std::process::exit(2);
+        }
+        Ok(CliffOutcome::BadCollectionFile { path, reason }) => {
+            eprintln!("[QM-BAD-COLLECTION] could not load collection file '{}': {reason}", redact_path(&path));
+            std::process::exit(2);
+        }
+        Ok(CliffOutcome::Probed(report)) => {
+            if args.json {
+                match serde_json::to_string_pretty(&report) {
+                    Ok(s) => println!("{s}"),
+                    Err(e) => {
+                        eprintln!("[QM-INTERNAL] failed to serialize report: {e}");
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                print!("{}", render_cliff(&report));
+            }
+            std::process::exit(cliff_exit(&report.status));
+        }
+    }
 }
 
 /// True when stdin is an interactive terminal — the gate for any prompt. Over SSH
@@ -433,6 +562,47 @@ async fn pick_model(backend: BackendKind, base: Option<&str>, key: Option<&str>)
     let bd = doctor::probe::probe_backend(backend, base, None, key).await;
     let i = select(&format!("Select a model for {}:", label(backend)), &bd.models)?;
     bd.models.get(i).cloned()
+}
+
+/// Resolve `--collection`: explicit value wins; omitted in a terminal → a numbered
+/// picker of the BUILT-IN collections with their tier (easy/medium/hard/extreme);
+/// omitted non-TTY (CI/pipe) → the `easy-coding` default, never a prompt.
+fn resolve_collection(arg: Option<String>) -> String {
+    if let Some(c) = arg {
+        return c;
+    }
+    if is_interactive() {
+        let infos = list_builtin_collections();
+        let rows: Vec<String> = infos.iter().map(|c| format!("{:<28} [{:<7}] {}", c.id, c.tier, c.domain)).collect();
+        if let Some(i) = select("Select a built-in collection (id · tier · domain):", &rows) {
+            return infos[i].id.clone();
+        }
+    }
+    "easy-coding".into()
+}
+
+/// Resolve `--thinking`: explicit wins; omitted in a terminal → pick the thinking
+/// tier (lean = reasoning OFF); omitted non-TTY → lean (the safe default — standard/
+/// deep are guarded per-model anyway).
+fn resolve_thinking(arg: Option<ThinkingArg>) -> ThinkPreset {
+    if let Some(t) = arg {
+        return ThinkPreset::from(t);
+    }
+    if is_interactive() {
+        let rows = vec![
+            "lean     — reasoning OFF (any model)".to_string(),
+            "standard — thinking on, 2k-scale scratchpad (reasoning models only)".to_string(),
+            "deep     — thinking on, 8k-scale scratchpad (reasoning models only)".to_string(),
+        ];
+        if let Some(i) = select("Select the thinking tier:", &rows) {
+            return match i {
+                1 => ThinkPreset::Standard,
+                2 => ThinkPreset::Deep,
+                _ => ThinkPreset::Lean,
+            };
+        }
+    }
+    ThinkPreset::Lean
 }
 
 async fn run_init(args: InitArgs) {
