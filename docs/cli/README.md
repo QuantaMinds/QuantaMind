@@ -16,10 +16,11 @@ This is an OSS tool built one verified command at a time. Today:
 | `run`     | **shipped** | Built-in tool-calling suite → a Ready/Conditional/NotReady verdict + exit code. |
 | `test`    | **shipped** | Run a custom collection FILE (native + prompt) → a per-mode scoreboard + verdict. |
 | `report`  | **shipped** | Re-assess a saved run against a readiness profile, offline (no backend). |
-| `verify`  | planned | Check a signed report (integrity / tamper-evidence). |
+| `verify`  | deferred | Signed-report tamper-evidence — out of scope for the local OSS tool (see below). |
 
-`doctor`, `init`, `run`, `test`, and `report` are implemented; `verify` is the intended surface — this
-doc grows one section at a time as each lands, never ahead of the code.
+`doctor`, `init`, `run`, `test`, and `report` are implemented — the OSS CLI surface. `verify` is
+deferred (rationale in its section). This doc grows one section at a time as each lands, never ahead of
+the code.
 
 ## Running it
 
@@ -316,7 +317,16 @@ $ echo $?   # 20
 **Exit:** the verdict (`0`/`10`/`20`, subject to `--fail-on`). `2` on a bad/missing report or profile
 file (`[QM-BAD-REPORT]` / `[QM-BAD-PROFILE]`, path redacted).
 
-## `verify` — planned
+## `verify` — deferred (out of OSS scope)
 
-Not yet implemented — check a signed report's integrity (tamper-evidence). Gets its own section, with a
-live example, when it lands.
+`verify` would check a **cryptographically signed** report's integrity — tamper-evidence for a report
+someone shares or publishes. It is **deliberately not built** in the OSS core:
+
+- Its value is a *trust boundary* (a report moving between parties). This local, single-user tool
+  doesn't have one yet — a signature you both generate and verify on your own machine proves nothing.
+- It needs signing infrastructure (an Ed25519 dependency + key management) that the lean OSS surface
+  intentionally dropped (it lived on the enterprise serving-ops commands), and the project's scope keeps
+  at-rest crypto as a *seam*, not a built feature.
+
+It becomes worth building the day reports are shared/published (a real recipient to protect). Until
+then, shipping a signature nobody needs would be security theater.
