@@ -230,9 +230,20 @@ fn load_profile(spec: &str) -> Result<crate::inference::eval::readiness::profile
     if looks_like_file {
         let text = crate::persistence::evals::read_text_capped(path)
             .map_err(|e| ProfileError::BadFile(crate::redact::redact_path(&e.to_string())))?;
-        return serde_json::from_str(&text).map_err(|e| ProfileError::BadFile(e.to_string()));
+        return parse_profile_lenient(&text).map_err(ProfileError::BadFile);
     }
     profile::builtins().into_iter().find(|p| p.id == spec).ok_or(ProfileError::UnknownBuiltin)
+}
+
+/// Deserialize a `ReadinessProfile`, accepting a `required_tier` written in any case
+/// (`Easy`/`EASY`/`easy`) — the built-in v2 *collection* loader is case-insensitive
+/// about tier, so a hand-written profile shouldn't be stricter (a real papercut).
+fn parse_profile_lenient(text: &str) -> Result<crate::inference::eval::readiness::profile::ReadinessProfile, String> {
+    let mut value: serde_json::Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
+    if let Some(lowered) = value.get("required_tier").and_then(|v| v.as_str()).map(str::to_lowercase) {
+        value["required_tier"] = serde_json::Value::String(lowered);
+    }
+    serde_json::from_value(value).map_err(|e| e.to_string())
 }
 
 /// Run the built-in suite and assess it. Preflights reachability + model presence
@@ -480,7 +491,22 @@ pub fn assess_saved(report_path: &str, profile_spec: &str) -> ReportOutcome {
 
 #[cfg(test)]
 mod tests {
-    use super::display_collection;
+    use super::{display_collection, parse_profile_lenient};
+
+    #[test]
+    fn profile_tier_is_case_insensitive_like_collections() {
+        let base = r#"{"id":"s","name":"S","min_pass_k":0.9,"max_avg_steps":null,
+            "max_ms_per_step":null,"min_context_tokens":null,"forbid_infinite_loop":true,
+            "forbid_hallucinated_completion":true,"require_full_vram":false,
+            "require_native_fc":false,"required_tier":"TIER"}"#;
+        // "Easy" / "EASY" / "easy" all parse to the same profile.
+        for t in ["Easy", "EASY", "easy", "Medium"] {
+            let p = parse_profile_lenient(&base.replace("TIER", t)).unwrap_or_else(|e| panic!("tier {t}: {e}"));
+            assert_eq!(p.min_pass_k, 0.9);
+        }
+        // A genuinely invalid tier still errors (clearly).
+        assert!(parse_profile_lenient(&base.replace("TIER", "gigantic")).is_err());
+    }
 
     #[test]
     fn display_collection_never_leaks_an_absolute_path() {
