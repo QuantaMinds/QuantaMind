@@ -25,30 +25,29 @@ describe("CliCommandPreview", () => {
     localStorage.clear();
   });
 
-  it("is collapsed by default — the command is hidden until expanded", () => {
+  it("is default-OPEN — the command is visible immediately", () => {
     render(<CliCommandPreview cmd={{ command: "qm run --model m" }} />);
     expect(screen.getByTestId("cli-preview-toggle")).toBeInTheDocument();
-    expect(screen.queryByTestId("cli-preview-command")).toBeNull();
+    expect(screen.getByTestId("cli-preview-command")).toHaveTextContent("qm run --model m");
   });
 
-  it("expands to show the command, copies it, and toasts", async () => {
+  it("copies the command and toasts", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, { clipboard: { writeText } });
     render(<CliCommandPreview cmd={{ command: "qm run --model qwen2.5:7b --k 8" }} />);
-    fireEvent.click(screen.getByTestId("cli-preview-toggle"));
-    expect(screen.getByTestId("cli-preview-command")).toHaveTextContent("qm run --model qwen2.5:7b --k 8");
     fireEvent.click(screen.getByTestId("cli-preview-copy"));
     await Promise.resolve();
     expect(writeText).toHaveBeenCalledWith("qm run --model qwen2.5:7b --k 8");
     expect(show).toHaveBeenCalledWith("Command copied");
   });
 
-  it("persists the open state across mounts (localStorage)", () => {
+  it("persists a COLLAPSE across mounts (default open, but a collapse is remembered)", () => {
     const { unmount } = render(<CliCommandPreview cmd={{ command: "qm run" }} />);
-    fireEvent.click(screen.getByTestId("cli-preview-toggle")); // open
+    fireEvent.click(screen.getByTestId("cli-preview-toggle")); // collapse (it starts open)
+    expect(screen.queryByTestId("cli-preview-command")).toBeNull();
     unmount();
     render(<CliCommandPreview cmd={{ command: "qm run" }} />);
-    expect(screen.getByTestId("cli-preview-command")).toBeInTheDocument(); // stays open
+    expect(screen.queryByTestId("cli-preview-command")).toBeNull(); // stays collapsed
   });
 
   it("shows the note + a pick-a-model hint when incomplete", () => {

@@ -8,6 +8,8 @@ import { useNavStore } from "../../../../shared/state/navStore";
 import { useCompareStore } from "../../../compare/state/compareStore";
 import { useParamsStore } from "../../../../shared/state/paramsStore";
 import { backendRunHint } from "../../state/runHint";
+import { CliCommandPreview } from "../../../../shared/cli/CliCommandPreview";
+import { buildPromptCommand } from "../../../../shared/cli/qmCommand";
 
 /// Single-model run trigger: run_prompt streaming with per-prompt params and
 /// history. The response is shown on the Analysis tab — this mirrors the live
@@ -23,6 +25,7 @@ export function SingleRun({ model }: { model: string | null }) {
   const vllmHealthy = useBackendStore((s) => s.vllmHealthy);
   const sglangHealthy = useBackendStore((s) => s.sglangHealthy);
   const activeBackend = useBackendStore((s) => s.selectedBackend);
+  const cliParams = useParamsStore((s) => s.globalParams); // for the equivalent-CLI-command preview
   const setSingleRun = useCompareStore((s) => s.setSingleRun);
   const active = useNavStore((s) => s.topView) === "workspace";
   const { output, status, error, metrics, start, cancel } = useStreamingRun();
@@ -77,15 +80,13 @@ export function SingleRun({ model }: { model: string | null }) {
         onRun={runNow}
         onCancel={cancel}
       />
-      {/* The Workspace runs the user's own system+user prompt against the global model
-          with the global params — a free-form generation the `qm` CLI has no equivalent
-          for (the CLI evaluates fixed test collections). State that truthfully; never
-          show a `qm run --collection …` command, which would imply a false equivalence. */}
-      <p className="text-[10px] text-gray-400 leading-snug" data-testid="workspace-cli-hint">
-        No CLI equivalent — the Workspace runs your own system + user prompt with the global model &amp; params.
-        The <code className="bg-gray-50 border rounded px-1 py-0.5 font-mono text-gray-500">qm</code> CLI evaluates
-        fixed test collections, not free-form prompts.
-      </p>
+      {/* The Workspace's free-form generation now HAS a headless twin: `qm prompt`
+          (system+user prompt + the same params, streamed). Prompt text is read from
+          stdin, so it stays out of the shown command. */}
+      <CliCommandPreview
+        testId="workspace-cli-preview"
+        cmd={buildPromptCommand({ backend: activeBackend, model, params: cliParams })}
+      />
     </div>
   );
 }

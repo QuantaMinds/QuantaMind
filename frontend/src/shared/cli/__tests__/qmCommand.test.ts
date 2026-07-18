@@ -1,5 +1,17 @@
 import { describe, it, expect } from "vitest";
-import { buildRunCommand, buildCliffCommand, buildReportCommand, modeFrom, shellQuote } from "../qmCommand";
+import { buildRunCommand, buildCliffCommand, buildReportCommand, buildPromptCommand, buildRunHistory, paramFlags, modeFrom, shellQuote } from "../qmCommand";
+
+describe("paramFlags", () => {
+  it("emits ONLY the params the user set (all 7 supported, unset omitted)", () => {
+    expect(paramFlags(undefined)).toEqual([]);
+    expect(paramFlags({})).toEqual([]);
+    expect(paramFlags({ temperature: 0.7, top_p: 0.9, top_k: 40, max_tokens: 512, repeat_penalty: 1.1, seed: 42, num_ctx: 8192 })).toEqual([
+      "--temperature 0.7", "--top-p 0.9", "--top-k 40", "--num-predict 512", "--repeat-penalty 1.1", "--seed 42", "--num-ctx 8192",
+    ]);
+    // A single set field → a single flag; max_tokens maps to --num-predict.
+    expect(paramFlags({ max_tokens: 256 })).toEqual(["--num-predict 256"]);
+  });
+});
 
 describe("shellQuote", () => {
   it("leaves shell-safe values (incl. model tags) bare", () => {
@@ -42,6 +54,33 @@ describe("buildRunCommand", () => {
     const c = buildRunCommand({ ...base, model: null });
     expect(c.incomplete).toBe(true);
     expect(c.command).toContain("--model YOUR_MODEL");
+  });
+
+  it("appends --max-steps, --decoy, and all set params", () => {
+    const c = buildRunCommand({ ...base, maxSteps: 6, decoy: 2, params: { temperature: 0.4, seed: 7 } });
+    expect(c.command).toContain("--max-steps 6");
+    expect(c.command).toContain("--decoy 2");
+    expect(c.command).toContain("--temperature 0.4");
+    expect(c.command).toContain("--seed 7");
+    // Unset params never appear.
+    expect(c.command).not.toContain("--top-p");
+  });
+});
+
+describe("buildPromptCommand", () => {
+  it("builds `qm prompt` with params + a stdin note (Workspace's real equivalent)", () => {
+    const c = buildPromptCommand({ backend: "ollama", model: "qwen2.5:7b", params: { temperature: 0.8 } });
+    expect(c.command).toBe("qm prompt --backend ollama --model qwen2.5:7b --temperature 0.8");
+    expect(c.note).toMatch(/stdin/);
+  });
+});
+
+describe("buildRunHistory", () => {
+  it("is a runnable save + re-assess chain", () => {
+    const c = buildRunHistory({ backend: "ollama", model: "qwen2.5:7b", collection: "easy-coding", isCustom: false, profile: "general-agent" });
+    expect(c.command).toBe(
+      "qm run --backend ollama --model qwen2.5:7b --collection easy-coding --save-report run.json && qm report --report run.json --profile general-agent",
+    );
   });
 });
 

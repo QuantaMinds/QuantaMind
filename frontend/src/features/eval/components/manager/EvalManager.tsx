@@ -12,6 +12,7 @@ import { formatIpcError } from "../../../../shared/ipc/core/error";
 import { useToast } from "../../../../shared/ui/Toast";
 import { CliCommandPreview } from "../../../../shared/cli/CliCommandPreview";
 import { buildRunCommand, modeFrom } from "../../../../shared/cli/qmCommand";
+import { useParamsStore } from "../../../../shared/state/paramsStore";
 import {
   validateCustomCollection,
   type ToolTask,
@@ -82,6 +83,7 @@ export function EvalManager({
   // The eval runs ONE model from the GLOBAL selection (single source of truth) — the
   // header's multi (Ollama) / single (llama.cpp/MLX) picker. No per-page model list.
   const selectedModels = useSelectedModelStore((s) => s.selectedModels);
+  const cliParams = useParamsStore((s) => s.globalParams); // for the equivalent-CLI-command preview
   const running = useBatchStore((s) => s.running);
   const stopping = useBatchStore((s) => s.stopping);
   const report = useBatchStore((s) => s.report);
@@ -944,6 +946,9 @@ export function EvalManager({
                 tier: tierSel === "auto" ? undefined : effectiveTier,
                 thinking: thinkPreset,
                 k,
+                maxSteps,
+                decoy: decoyEnabled ? decoyCount : undefined,
+                params: cliParams,
               })}
             />
           )}

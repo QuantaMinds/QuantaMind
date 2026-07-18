@@ -9,11 +9,13 @@ import type { QmCommand } from "./qmCommand";
 const LS_KEY = "qm.cliPreview.open";
 
 export function CliCommandPreview({ cmd, testId = "cli-preview" }: { cmd: QmCommand; testId?: string }) {
+  // Default OPEN so the command is visible the moment the user selects things; an
+  // explicit collapse persists "0" and is respected on return.
   const [open, setOpen] = useState<boolean>(() => {
     try {
-      return localStorage.getItem(LS_KEY) === "1";
+      return localStorage.getItem(LS_KEY) !== "0";
     } catch {
-      return false;
+      return true;
     }
   });
   const [copied, setCopied] = useState(false);

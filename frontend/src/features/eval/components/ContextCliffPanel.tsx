@@ -850,6 +850,8 @@ export function ContextCliffPanel() {
             maxTokens,
             steps: testSteps,
             source: preset,
+            native: method === "native_fc",
+            params: globalParams,
           })}
         />
       </div>

@@ -14,6 +14,8 @@ use quantamind_lib::cli::run::{self, FailOn, ReportOutcome, RunMode, RunOptions,
 use quantamind_lib::commands::eval::toolcall_cmd::list_builtin_collections;
 use quantamind_lib::inference::eval::cliff::{CliffPreset, CliffSource};
 use quantamind_lib::commands::remote::remote_health::RemoteAuthStatus;
+use quantamind_lib::commands::prompt::prompt_options::validate_params;
+use quantamind_lib::persistence::prompts::schema::InferenceParams;
 use quantamind_lib::inference::backend::backend_kind::BackendKind;
 use quantamind_lib::inference::eval::agentic::difficulty::passk::ThinkPreset;
 use quantamind_lib::inference::eval::agentic::spec::Tier;
@@ -46,6 +48,30 @@ enum Command {
     /// Prove a collection/world is a reliable test BEFORE running it (the same gate
     /// `run`/`test` apply automatically to uploaded files).
     Validate(ValidateArgs),
+    /// Free-form generation: a system+user prompt with params, streamed to stdout
+    /// (the headless twin of the Workspace Run).
+    Prompt(PromptArgs),
+}
+
+#[derive(clap::Args)]
+struct PromptArgs {
+    /// Backend to generate against (falls back to qm.json, then ollama).
+    #[arg(long, value_enum)]
+    backend: Option<BackendArg>,
+    /// Model to run. Env: QM_MODEL.
+    #[arg(long, env = "QM_MODEL")]
+    model: Option<String>,
+    /// Endpoint override. Env: QM_BASE.
+    #[arg(long, env = "QM_BASE")]
+    base: Option<String>,
+    /// Optional system prompt.
+    #[arg(long)]
+    system: Option<String>,
+    /// The user prompt. Omit to read it from stdin (pipe or type, then Ctrl-D).
+    #[arg(long)]
+    user: Option<String>,
+    #[command(flatten)]
+    params: ParamArgs,
 }
 
 #[derive(clap::Args)]
@@ -84,6 +110,11 @@ struct CliffArgs {
     /// Padding corpus preset.
     #[arg(long, value_enum, default_value = "corporate_policy")]
     source: SourceArg,
+    /// Calling path: prompt_based (default) or native tool-calling.
+    #[arg(long, value_enum, default_value = "prompt_based")]
+    mode: ModeArg,
+    #[command(flatten)]
+    params: ParamArgs,
     /// Emit the machine-readable CliffReport as JSON on stdout.
     #[arg(long)]
     json: bool,
@@ -158,6 +189,14 @@ struct TestArgs {
     /// pass^k override.
     #[arg(long)]
     k: Option<u32>,
+    /// Per-turn step cap (UI "Max Steps"). Default: each task's authored cap.
+    #[arg(long)]
+    max_steps: Option<u32>,
+    /// Decoy tools injected per task (UI "Decoy Tools"). Default: the task's own.
+    #[arg(long)]
+    decoy: Option<u32>,
+    #[command(flatten)]
+    params: ParamArgs,
     /// Which verdicts fail the process exit (CI gate).
     #[arg(long, value_enum, default_value = "conditional")]
     fail_on: FailOnArg,
@@ -177,6 +216,59 @@ struct InitArgs {
     /// Emit the machine-readable report as JSON on stdout (progress/errors to stderr).
     #[arg(long)]
     json: bool,
+}
+
+/// The 7 global inference params, shared across run/test/cliff/prompt via
+/// `#[command(flatten)]`. All optional — unset ones keep the command's default
+/// (greedy temp-0 for eval; the model's own defaults for `prompt`).
+#[derive(clap::Args, Clone)]
+struct ParamArgs {
+    /// Sampling temperature 0.0–2.0 (eval defaults to 0.0 greedy; set to sample).
+    #[arg(long)]
+    temperature: Option<f32>,
+    /// Nucleus sampling top-p 0.0–1.0.
+    #[arg(long)]
+    top_p: Option<f32>,
+    /// Top-k sampling.
+    #[arg(long)]
+    top_k: Option<u32>,
+    /// Max generated tokens (Ollama `num_predict`). (Distinct from `cliff --max-tokens`,
+    /// which is the padding-ladder ceiling.)
+    #[arg(long)]
+    num_predict: Option<u32>,
+    /// Repetition penalty 0.0–2.0.
+    #[arg(long)]
+    repeat_penalty: Option<f32>,
+    /// RNG seed for reproducible sampling.
+    #[arg(long)]
+    seed: Option<i64>,
+    /// Context window size (≥1).
+    #[arg(long)]
+    num_ctx: Option<u32>,
+}
+
+impl ParamArgs {
+    /// Validated `InferenceParams`, or `None` when the user set nothing (keep the
+    /// command default). Exits 2 with `[QM-BAD-PARAM]` on an out-of-range value.
+    fn resolve(&self) -> Option<InferenceParams> {
+        let p = InferenceParams {
+            temperature: self.temperature,
+            top_p: self.top_p,
+            top_k: self.top_k,
+            max_tokens: self.num_predict,
+            repeat_penalty: self.repeat_penalty,
+            seed: self.seed,
+            num_ctx: self.num_ctx,
+        };
+        if p == InferenceParams::default() {
+            return None;
+        }
+        if let Err(e) = validate_params(&p) {
+            eprintln!("[QM-BAD-PARAM] {}", redact_path(&e.to_string()));
+            std::process::exit(2);
+        }
+        Some(p)
+    }
 }
 
 #[derive(clap::Args)]
@@ -208,6 +300,14 @@ struct RunArgs {
     /// Reasoning-scratchpad budget: lean (off) / standard / deep. Omit in a terminal to pick.
     #[arg(long, value_enum)]
     thinking: Option<ThinkingArg>,
+    /// Per-turn step cap (UI "Max Steps"). Default: each task's authored cap.
+    #[arg(long)]
+    max_steps: Option<u32>,
+    /// Decoy tools injected per task (UI "Decoy Tools"). Default: the task's own.
+    #[arg(long)]
+    decoy: Option<u32>,
+    #[command(flatten)]
+    params: ParamArgs,
     /// Which verdicts fail the process exit (CI gate).
     #[arg(long, value_enum, default_value = "conditional")]
     fail_on: FailOnArg,
@@ -357,6 +457,59 @@ async fn main() {
         Command::Report(args) => run_report(args),
         Command::Cliff(args) => run_cliff_cmd(args).await,
         Command::Validate(args) => run_validate_cmd(args).await,
+        Command::Prompt(args) => run_prompt_cmd(args).await,
+    }
+}
+
+/// Free-form generation → streamed stdout. tokens=stdout, [QM-*]=stderr.
+async fn run_prompt_cmd(args: PromptArgs) {
+    use quantamind_lib::cli::prompt::{run_prompt, PromptOptions, PromptOutcome};
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let cfg = QmConfig::load(&cwd);
+    let backend = resolve_backend(args.backend, &cfg).await;
+    let api_key = resolve_key(Some(backend));
+    let base = args.base.or_else(|| cfg.as_ref().and_then(|c| c.base.clone()));
+    let model = match args.model.or_else(|| cfg.as_ref().map(|c| c.model.clone())) {
+        Some(m) => m,
+        None => match pick_model(backend, base.as_deref(), api_key.as_deref()).await {
+            Some(m) => m,
+            None => {
+                eprintln!("[QM-NO-MODEL] no model — pass --model, run `qm init`, or run in a terminal to pick one.");
+                std::process::exit(2);
+            }
+        },
+    };
+    // Resolve the user prompt: --user wins; else read stdin.
+    let user = match args.user {
+        Some(u) => u,
+        None => {
+            use std::io::Read;
+            let mut buf = String::new();
+            if std::io::stdin().read_to_string(&mut buf).is_err() || buf.trim().is_empty() {
+                eprintln!("[QM-NO-PROMPT] no prompt — pass --user \"…\" or pipe it on stdin.");
+                std::process::exit(2);
+            }
+            buf
+        }
+    };
+    let opts = PromptOptions { backend, model, base, api_key, system: args.system, user, params: args.params.resolve() };
+    match run_prompt(opts).await {
+        Err(e) => {
+            eprintln!("[QM-INTERNAL] generation failed: {}", redact_path(&e.to_string()));
+            std::process::exit(1);
+        }
+        Ok(PromptOutcome::Unreachable { backend, endpoint }) => {
+            eprintln!("[QM-BACKEND-UNREACHABLE] {} not reachable at {endpoint} — run `qm doctor` to diagnose.", label(backend));
+            std::process::exit(run::render::EXIT_UNREACHABLE);
+        }
+        Ok(PromptOutcome::ModelNotFound { backend, model, available }) => {
+            eprintln!("[QM-MODEL-NOT-FOUND] {} has no model '{model}' — available: {}", label(backend), if available.is_empty() { "(none)".into() } else { available.join(", ") });
+            std::process::exit(run::render::EXIT_UNREACHABLE);
+        }
+        Ok(PromptOutcome::Done { tokens }) => {
+            eprintln!("[QM-DONE] {tokens} tokens");
+            std::process::exit(0);
+        }
     }
 }
 
@@ -445,6 +598,9 @@ async fn run_test(args: TestArgs) {
         mode: RunMode::from(args.mode),
         profile_id: args.profile,
         save_report: args.save_report,
+        max_steps: args.max_steps,
+        decoy_tools: args.decoy,
+        params: args.params.resolve(),
     };
     execute(opts, args.json, FailOn::from(args.fail_on), args.junit, Render::Scoreboard).await;
 }
@@ -481,6 +637,9 @@ async fn run_suite(args: RunArgs) {
         mode: RunMode::from(args.mode),
         profile_id: args.profile,
         save_report: args.save_report,
+        max_steps: args.max_steps,
+        decoy_tools: args.decoy,
+        params: args.params.resolve(),
     };
     execute(opts, args.json, FailOn::from(args.fail_on), args.junit, Render::Verdict).await;
 }
@@ -513,13 +672,18 @@ async fn run_cliff_cmd(args: CliffArgs) {
             k: None,
             tier: None,
             think: ThinkPreset::Lean,
-            mode: RunMode::PromptBased,
+            mode: RunMode::PromptBased, // ignored by the cliff engine; `native` below picks the path
             profile_id: "general-agent".into(),
             save_report: None,
+            max_steps: None,
+            decoy_tools: None,
+            params: None, // cliff params flow via CliffOptions below, not RunOptions
         },
         max_tokens: args.max_tokens,
         steps: args.steps,
         source: CliffSource::from(args.source),
+        native: matches!(args.mode, ModeArg::Native),
+        params: args.params.resolve(),
     };
     match cliff::run_cliff_probe(opts).await {
         Err(e) => {
@@ -684,6 +848,9 @@ async fn run_init(args: InitArgs) {
         mode: RunMode::PromptBased,
         profile_id: cfg.profile,
         save_report: None,
+        max_steps: None,
+        decoy_tools: None,
+        params: None,
     };
     execute(opts, args.json, FailOn::Conditional, None, Render::Verdict).await;
 }

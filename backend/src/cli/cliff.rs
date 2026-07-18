@@ -13,7 +13,6 @@ use crate::inference::eval::agentic::model_turn::BackendTurn;
 use crate::inference::eval::agentic::spec::Tier;
 use crate::inference::eval::cliff::{build_ladder, run_cliff_with, CliffReport, CliffSource, DEFAULT_DEPTHS};
 use crate::inference::eval::readiness::types::CliffStatus;
-use crate::inference::generate::generate_options::GenerateOptions;
 use tokio_util::sync::CancellationToken;
 
 /// Same headroom the GUI probe reserves above the deepest rung for system prompt,
@@ -27,6 +26,25 @@ pub struct CliffOptions {
     /// Number of ladder rungs (min 2: baseline + deepest).
     pub steps: u32,
     pub source: CliffSource,
+    /// Native tool-calling path (vs the default prompt-based proxy).
+    pub native: bool,
+    /// Sampling params. `None` → greedy temp-0 (reproducible). When set,
+    /// temperature/top_p/… sample; `num_ctx` is still forced to the ladder window.
+    pub params: Option<crate::persistence::prompts::schema::InferenceParams>,
+}
+
+/// The answer-delivery mandate per task — MustUseTools for a stateful/ordered
+/// end-state, else PlainTextOk. Mirrors `readiness_cmd::cliff_terminal` (kept local
+/// to avoid coupling the CLI to the Tauri command layer).
+fn cliff_terminal(
+    task: &crate::inference::eval::toolcall::tasks::ToolTask,
+) -> crate::inference::eval::toolcall::prompt::TerminalGuidance {
+    use crate::inference::eval::agentic::sandbox::EndStateRule;
+    use crate::inference::eval::toolcall::prompt::TerminalGuidance;
+    match task.agentic.as_ref().map(|s| &s.end_state) {
+        Some(EndStateRule::RequireAll(_)) | Some(EndStateRule::RequireSequence(_)) => TerminalGuidance::MustUseTools,
+        _ => TerminalGuidance::PlainTextOk,
+    }
 }
 
 pub enum CliffOutcome {
@@ -108,45 +126,63 @@ pub async fn run_cliff_probe(opts: CliffOptions) -> AppResult<CliffOutcome> {
         _ => {}
     }
 
-    // Greedy + a window that fits the deepest rung — the probe is a diagnostic, so
-    // the same (model, collection) must reproduce the same verdict run-to-run.
+    // A window that fits the deepest rung. Greedy (temp 0) by default so the probe
+    // reproduces run-to-run; user params sample instead. `num_ctx` is ALWAYS forced
+    // to the ladder window — a smaller user value would truncate the deepest rung.
     let needed_ctx = opts.max_tokens.saturating_add(CTX_HEADROOM);
-    let options = GenerateOptions { temperature: Some(0.0), num_ctx: Some(needed_ctx), ..Default::default() };
+    let mut options = opts
+        .params
+        .as_ref()
+        .map(crate::commands::prompt::prompt_options::to_generate_options)
+        .unwrap_or_default();
+    if options.temperature.is_none() {
+        options.temperature = Some(0.0);
+    }
+    options.num_ctx = Some(needed_ctx);
 
     let cancel = CancellationToken::new();
-    let turn = BackendTurn {
-        backend: opts.run.backend,
-        endpoint: ep,
-        model: opts.run.model.clone(),
-        cancel: cancel.clone(),
-        options: Some(options),
-        keep_alive: None,
-        is_thinking: false, // liveness probe at the answer floor, mirrors the GUI prompt path
-        max_tokens: answer_tokens_for(Tier::Easy),
-        cpu_offloaded: false,
-        ctx_ceiling: crate::inference::eval::agentic::runner::NUM_CTX_CEILING,
-        stop_cache: Default::default(),
-    };
-
     let ladder = build_ladder(opts.max_tokens, opts.steps);
     let mut on_rung = |done: usize, total: usize, point: &crate::inference::eval::cliff::CliffPoint| {
         let acc = point.composite.map(|c| format!("{:.0}%", c * 100.0)).unwrap_or_else(|| "—".into());
         eprintln!("· rung {done}/{total}: ~{} tok · {acc}", point.verified_tokens);
     };
     let mut no_step = |_s: crate::inference::eval::cliff::StepProgress| {};
-    let report = run_cliff_with(
-        &turn,
-        &opts.run.model,
-        &tasks,
-        &opts.source,
-        &ladder,
-        &DEFAULT_DEPTHS,
-        needed_ctx,
-        &cancel,
-        &mut on_rung,
-        &mut no_step,
-    )
-    .await?;
+
+    let report = if opts.native {
+        // Native tool-calling cliff — a fresh NativeToolTurn per task carrying its
+        // schemas (mirrors the GUI native path, readiness_cmd.rs make_native).
+        let make_native = |task: &crate::inference::eval::toolcall::tasks::ToolTask| {
+            crate::inference::eval::agentic::model_turn::NativeToolTurn {
+                backend: opts.run.backend,
+                endpoint: ep.clone(),
+                model: opts.run.model.clone(),
+                tools: task.tools.clone(),
+                options: Some(options.clone()),
+                terminal: cliff_terminal(task),
+                max_tokens: answer_tokens_for(Tier::Easy),
+                is_thinking: false,
+            }
+        };
+        crate::inference::eval::cliff::run_cliff_with_factory(
+            &make_native, &opts.run.model, &tasks, &opts.source, &ladder, &DEFAULT_DEPTHS, needed_ctx, &cancel, &mut on_rung, &mut no_step,
+        )
+        .await?
+    } else {
+        let turn = BackendTurn {
+            backend: opts.run.backend,
+            endpoint: ep,
+            model: opts.run.model.clone(),
+            cancel: cancel.clone(),
+            options: Some(options),
+            keep_alive: None,
+            is_thinking: false, // liveness probe at the answer floor, mirrors the GUI prompt path
+            max_tokens: answer_tokens_for(Tier::Easy),
+            cpu_offloaded: false,
+            ctx_ceiling: crate::inference::eval::agentic::runner::NUM_CTX_CEILING,
+            stop_cache: Default::default(),
+        };
+        run_cliff_with(&turn, &opts.run.model, &tasks, &opts.source, &ladder, &DEFAULT_DEPTHS, needed_ctx, &cancel, &mut on_rung, &mut no_step).await?
+    };
     // `RunMode` is unused here (prompt-only probe) but kept on RunOptions for parity.
     let _ = RunMode::PromptBased;
     Ok(CliffOutcome::Probed(report))
