@@ -168,12 +168,13 @@ mod tests {
         }
 
         /// Replace each `*…*` string with a concrete value that satisfies the glob
-        /// (its literal segments joined in order); keep everything else exact.
+        /// (its literal segments joined in order); keep everything else exact. A leading
+        /// `~` (unordered sigil) is stripped first so the joined tokens form a clean value.
         fn concretize(v: &Value) -> Value {
             match v {
                 Value::Object(o) => Value::Object(o.iter().map(|(k, x)| (k.clone(), concretize(x))).collect()),
                 Value::String(s) if s.contains('*') => {
-                    let lit: String = s.split('*').filter(|p| !p.is_empty()).collect();
+                    let lit: String = s.trim_start_matches('~').split('*').filter(|p| !p.is_empty()).collect();
                     Value::String(if lit.is_empty() { "x".into() } else { lit })
                 }
                 other => other.clone(),
@@ -328,7 +329,7 @@ mod tests {
         match v {
             Value::Object(o) => Value::Object(o.iter().map(|(k, x)| (k.clone(), concretize_args(x))).collect()),
             Value::String(s) if s.contains('*') => {
-                let lit: String = s.split('*').filter(|p| !p.is_empty()).collect();
+                let lit: String = s.trim_start_matches('~').split('*').filter(|p| !p.is_empty()).collect();
                 Value::String(if lit.is_empty() { "x".into() } else { lit })
             }
             other => other.clone(),
