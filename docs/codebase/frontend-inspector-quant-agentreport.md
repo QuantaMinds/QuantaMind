@@ -202,7 +202,7 @@ calls `buildLatencyBars` and `buildHistogram` once and threads the results down.
 
 | Hook | Does |
 |---|---|
-| `useLoadedModels` | `get_loaded_models` (`/api/ps`) → `Map<name, LoadedModel>`; `refresh()` on demand; errors → empty map. |
+| `useLoadedModels` | `get_loaded_models` → `Map<name, LoadedModel>`; `refresh()` on demand; errors → empty map. Source = Ollama `/api/ps` **plus** the running llama.cpp model: the app-spawned server (`running_summary`), or — when the app started none — a `/props` probe of port 8081 so an **externally-started** `llama-server` (a manual launch, or one the `qm` CLI started) still surfaces its footprint + KV ceilings instead of "Not available". |
 | `useRunHistory` | `history_list` → `HistoryEntry[]`; errors → `[]`. |
 | `useHardware` + `deviceMemory` | `get_hardware_snapshot` once; `deviceMemory` derives the pool total + `unified` flag (Apple RAM vs NVIDIA VRAM). |
 | `useParentWidth` | `ResizeObserver` → container width for SVG sizing. |

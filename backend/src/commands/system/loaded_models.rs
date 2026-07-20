@@ -77,7 +77,10 @@ fn append_llama(models: &mut Vec<LoadedModel>, running: Option<(String, u32)>) {
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.clone());
     let size_bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-    models.push(LoadedModel { name, size_bytes, size_vram_bytes: 0, context_length: Some(ctx) });
+    // ctx 0 means "unknown" (an external server's /props didn't report it) — carry None, not a
+    // fabricated 0-token window that the Context Budget bar would render as "N / 0 ctx".
+    let context_length = (ctx > 0).then_some(ctx);
+    models.push(LoadedModel { name, size_bytes, size_vram_bytes: 0, context_length });
 }
 
 #[tauri::command]
@@ -85,7 +88,18 @@ pub async fn get_loaded_models(
     llama: tauri::State<'_, crate::commands::llama::llama_server_types::LlamaServerState>,
 ) -> Result<Vec<LoadedModel>, AppError> {
     let mut models = fetch_loaded(DEFAULT_OLLAMA, DEFAULT_TIMEOUT).await?;
-    append_llama(&mut models, llama.running_summary());
+    // Prefer the app-spawned server (trusted state, no HTTP). When the app started nothing, probe
+    // the llama.cpp port for an EXTERNALLY-started server (a manual `llama-server`, or one the `qm`
+    // CLI launched) — otherwise its loaded model shows "Not available" in the Inspector despite
+    // being resident. The probe is best-effort and only runs when there's no app-managed server.
+    let running = match llama.running_summary() {
+        Some(s) => Some(s),
+        None => {
+            use crate::commands::llama::llama_runtime::{probe_running_model, PROBE_TIMEOUT_MS};
+            probe_running_model(PROBE_TIMEOUT_MS).await
+        }
+    };
+    append_llama(&mut models, running);
     Ok(models)
 }
 
@@ -109,5 +123,16 @@ mod tests {
         let mut models = vec![];
         append_llama(&mut models, None);
         assert!(models.is_empty());
+    }
+
+    #[test]
+    fn append_llama_unknown_ctx_is_none_not_a_zero_window() {
+        // An external server whose /props reported no n_ctx (ctx 0) must not surface a
+        // fabricated 0-token context window; the row still appears for its KV ceilings.
+        let mut models = vec![];
+        append_llama(&mut models, Some(("/Users/x/.quantamind/gguf/gpt-oss-20b_q4_k_m.gguf".into(), 0)));
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].name, "gpt-oss-20b_q4_k_m");
+        assert_eq!(models[0].context_length, None);
     }
 }
