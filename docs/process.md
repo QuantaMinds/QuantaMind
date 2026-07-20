@@ -768,6 +768,30 @@ Parking lot for ideas, libraries, and changes deliberately deferred. Nothing
 here is in the current phase — see [Phase roadmap](#phase-roadmap). If something
 here becomes relevant, move it into a phase plan first.
 
+### Latency⇢Tests link: deferred follow-ups
+
+From the inspector↔eval latency-link work (plan-reviewed 2026-07-20), deliberately
+out of v1 scope:
+
+- **Run-history store / side-by-side run comparison.** v1 keeps latest-run-per-
+  collection retention (in-session `batchStore` + latest transcripts). The config
+  stamp on `BatchColumn` (`quantization_claimed`, `kv_cache_type`, `num_ctx`,
+  `think_preset`, placement bytes) exists precisely so comparison later is a VIEW,
+  not a data migration. Includes a disk-transcript loader command for post-restart
+  history.
+- **"Measured" KV tier.** llama.cpp `/metrics` removed its KV-usage gauges;
+  re-adding is open upstream (ggml-org/llama.cpp#23632, version-dependent in
+  wrappers). If it ships, upgrade the llama.cpp tier from "computed from measured
+  tokens" to "measured" — never assume it's present.
+- **KV-cache quantization as a first-class eval dimension.** Users will want to
+  test task RELIABILITY at q8_0/q4_0 KV (key-cache quant degrades quality; value-
+  cache tolerates it — a known silent-failure source), not just use KV-quant as
+  the OOM remedy. Must carry the mode flag per the metric-comparability rule.
+- **Forced-OOM live acceptance run.** The OOM classifier (`is_oom_message`) is
+  unit-tested against the real backend strings; deliberately NOT exercised by
+  forcing a live host OOM (destabilizes the machine for no new information). If a
+  real OOM occurs in normal use, the task badge + ceiling answer are the live test.
+
 ### World-state eval: deferred hardening
 
 Follow-ups to the answer-key guardrails work (RESERVED extension + shared
