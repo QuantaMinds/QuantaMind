@@ -196,7 +196,7 @@ QuantaMind is a workbench, not a chat app — each surface answers one question 
 
 **Models** — One modal, three sources. Disk pre-check refuses any install leaving < 2 GB free. Real-time progress (bytes/speed/ETA), cancellable, resumable HF downloads (`.partial` + Range), pure-Rust GGUF header parsing, and an 8-family chat-template registry.
 
-**Analysis** — Multi-select models, one prompt, three run strategies with a hardware feasibility verdict (`ok`/`risky`/`wont_fit`) computed at click time. Per-model streaming columns, throughput/TTFT chart, word-level diff, and a **Quant** sub-tab that compares a family's quantizations on size · fit · quality · tool-calling. The **Latency** tab adds "context ceiling by KV cache precision" meters — how much context your machine holds for a model at f16 / q8_0 (≈2×) / q4_0 (≈4×, with quality + long-context speed caveats).
+**Analysis** — Multi-select models, one prompt, three run strategies with a hardware feasibility verdict (`ok`/`risky`/`wont_fit`) computed at click time. Per-model streaming columns, throughput/TTFT chart, word-level diff, and a **Quant** sub-tab that compares a family's quantizations on size · fit · quality · tool-calling. The **Latency** tab adds "context ceiling by KV cache precision" meters — how much context your machine holds for a model at f16 / q8_0 (≈2×) / q4_0 (≈4×, with quality + long-context speed caveats). These read the model that's currently loaded in memory (measured, never fabricated) — including a `llama-server` you started yourself or via the `qm` CLI, not only one the app launched.
 
 </details>
 

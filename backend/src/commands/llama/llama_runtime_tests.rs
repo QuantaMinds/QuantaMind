@@ -289,3 +289,32 @@ async fn health_reports_unavailable_when_no_server_is_running() {
     assert!(!h.available);
     assert_eq!(h.version, None);
 }
+
+/// The real `/props` body an externally-started llama-server returns (captured live from a
+/// `qm`-launched gpt-oss-20b) → the loaded model's absolute path and per-slot context window,
+/// so the Inspector can surface a server the app didn't spawn.
+#[test]
+fn parse_props_reads_model_path_and_ctx() {
+    let body = r#"{"default_generation_settings":{"params":{"seed":42},"n_ctx":16384},"total_slots":4,"model_alias":"gpt-oss-20b_q4_k_m.gguf","model_path":"/Users/x/.quantamind/gguf/gpt-oss-20b_q4_k_m.gguf"}"#;
+    assert_eq!(
+        parse_props(body),
+        Some(("/Users/x/.quantamind/gguf/gpt-oss-20b_q4_k_m.gguf".to_string(), 16384))
+    );
+}
+
+/// Older llama.cpp omits top-level `model_path`, carrying the path in
+/// `default_generation_settings.model` — the fallback picks it up.
+#[test]
+fn parse_props_falls_back_to_generation_settings_model() {
+    let body = r#"{"default_generation_settings":{"model":"/models/foo.gguf","n_ctx":4096}}"#;
+    assert_eq!(parse_props(body), Some(("/models/foo.gguf".to_string(), 4096)));
+}
+
+/// No model path anywhere, and non-JSON, both degrade to None — never a fabricated entry.
+#[test]
+fn parse_props_returns_none_without_a_path() {
+    assert_eq!(parse_props(r#"{"default_generation_settings":{"n_ctx":8192}}"#), None);
+    assert_eq!(parse_props("not json"), None);
+}
+
+

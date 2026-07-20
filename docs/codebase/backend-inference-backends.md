@@ -674,7 +674,7 @@ stderr-aware launcher where loading is slow.
 | File | Role |
 |---|---|
 | `llama_start.rs` | `start_llama_server` / `stop_llama_server` / `llama_server_info` (one-time spawn readout) commands. |
-| `llama_runtime.rs` | spawn/probe/ready primitives + `check_llama_health`. |
+| `llama_runtime.rs` | spawn/probe/ready primitives + `check_llama_health`; `probe_running_model` (`/props` → `(model_path, n_ctx)`) surfaces an externally-started server the app didn't spawn. |
 | `llama_server_types.rs` | `LlamaServerState` (one `Child`) + `LlamaStartResult`. |
 | `llama_discover.rs` | scan dirs for `*.gguf` → `InstalledModelInfo{backend=LlamaCpp}`. |
 | `llama_models.rs` | `list_llama_models` / `delete_llama_model` (symlink-safe). |
