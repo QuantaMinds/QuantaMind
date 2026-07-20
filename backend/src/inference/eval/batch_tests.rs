@@ -989,3 +989,166 @@ fn wall_ms_is_stamped_by_the_builder_never_fabricated() {
     assert_eq!(report.wall_ms, None, "no clock ran → no wall time, never a fabricated 0");
     assert_eq!(report.with_wall_ms(1234).wall_ms, Some(1234));
 }
+
+// Run: QM_LIVE_MODEL=qwen2.5:3b cargo test --lib turn_costs_live -- --ignored --nocapture
+// Rule-6 live check for the Inspector Test-run link: drives ONE agentic task (k=1) against a
+// real Ollama and inspects the ACTUAL per-turn cost fields the runner now keeps — the exact
+// acceptance criteria from the plan: eval_ms/total_ms/output_tokens Some on every real turn,
+// cache_n None on Ollama (issue #8008 — must render "Not available"), wall_ms stamped on the
+// per-task report, and backend_rss(Ollama) measurable while the server runs.
+#[tokio::test]
+#[ignore = "live: requires a running Ollama server and a pulled model"]
+async fn turn_costs_live() {
+    use crate::inference::eval::agentic::v2::collection::load_v2_collection;
+    use crate::inference::eval::agentic::v2::scenarios::v2_json;
+
+    #[derive(Default)]
+    struct CostSink {
+        steps: Mutex<Vec<TrajectoryStep>>,
+        outcomes: Mutex<Vec<TaskOutcome>>,
+    }
+    impl BatchSink for CostSink {
+        fn task_started(&self, _m: &str, _t: &str, _i: usize, _total: usize, _c: &str, _n: bool) {}
+        fn agentic_turn(&self, _m: &str, _t: &str, step: &TrajectoryStep, _n: bool) {
+            self.steps.lock().unwrap().push(step.clone());
+        }
+        fn task_done(&self, _m: &str, _t: &str, o: &TaskOutcome, _n: bool) {
+            self.outcomes.lock().unwrap().push(o.clone());
+        }
+    }
+
+    let model = std::env::var("QM_LIVE_MODEL").unwrap_or_else(|_| "qwen2.5:3b".into());
+    let mut tasks = load_v2_collection(v2_json("easy-coding").unwrap()).unwrap();
+    // One task, one run, tight step cap — the check is about metric plumbing, not pass rates.
+    tasks.retain(|t| t.agentic.is_some());
+    tasks.truncate(1);
+    if let Some(a) = tasks[0].agentic.as_mut() {
+        a.k = Some(1);
+        a.max_steps = Some(4);
+    }
+    let targets = vec![ModelTarget { model: model.clone(), backend: BackendKind::Ollama, is_thinking: false }];
+    let sink = Arc::new(CostSink::default());
+    let make = move |t: &ModelTarget| BackendTurn {
+        backend: BackendKind::Ollama,
+        endpoint: "http://localhost:11434".into(),
+        model: t.model.clone(),
+        cancel: CancellationToken::new(),
+        options: None,
+        keep_alive: None,
+        is_thinking: false,
+        max_tokens: 512,
+        cpu_offloaded: false,
+        ctx_ceiling: crate::inference::eval::agentic::runner::NUM_CTX_CEILING,
+        stop_cache: Default::default(),
+    };
+
+    let _ = run_batch("easy-coding", &targets, &tasks, CancellationToken::new(), sink.clone(), make).await.unwrap();
+
+    let steps = sink.steps.lock().unwrap().clone();
+    assert!(!steps.is_empty(), "the run must stream at least one turn");
+    println!("\n=== turn_costs_live: {model}, {} steps ===", steps.len());
+    for s in &steps {
+        println!(
+            "  r{}s{} {:?}: prefill={:?}tok/{:?}ms decode={:?}ms total={:?}ms out={:?}tok cache_n={:?}",
+            s.run_index, s.step_index, s.kind, s.prefill_tokens, s.prefill_ms, s.eval_ms, s.total_ms, s.output_tokens, s.cache_n
+        );
+    }
+    // Every REAL model turn (one with a prefill) must now carry the decode/total/output
+    // fields the runner used to discard — and cache_n must stay None on Ollama (honesty:
+    // the UI renders "Not available", never a fabricated number).
+    let real: Vec<_> = steps.iter().filter(|s| s.prefill_tokens.is_some()).collect();
+    assert!(!real.is_empty(), "at least one turn must carry server stats");
+    for s in &real {
+        assert!(s.eval_ms.is_some(), "Ollama reports eval_duration — must not be dropped");
+        assert!(s.total_ms.is_some(), "Ollama reports total_duration — must not be dropped");
+        assert!(s.output_tokens.is_some(), "eval_count must be carried for every model");
+        assert!(s.cache_n.is_none(), "Ollama reports no cache count (ollama#8008) — never fabricate one");
+    }
+    // The per-task report carries the measured whole-batch wall clock.
+    let outcomes = sink.outcomes.lock().unwrap().clone();
+    let wall = outcomes.iter().find_map(|o| match o {
+        TaskOutcome::Agentic { report } => report.wall_ms,
+        _ => None,
+    });
+    println!("  task wall_ms: {wall:?}");
+    assert!(wall.is_some_and(|w| w > 0), "wall_ms must be stamped on the task report");
+    // The sink-side RSS probe is measurable while the server runs (the Tauri sink stamps
+    // this per step; here we prove the probe itself against the live process).
+    let rss = crate::commands::system::process_memory::backend_rss(BackendKind::Ollama);
+    println!("  ollama RSS now: {rss:?}");
+    assert!(rss.is_some_and(|b| b > 0), "a running Ollama must yield a positive RSS sample");
+}
+
+// Run: cargo test --lib turn_costs_live_llama -- --ignored --nocapture
+// The llama.cpp arm of the rule-6 live check: same one-task run against llama-server
+// (:8081, --jinja). The cache-truth acceptance criterion INVERTS here: llama.cpp's
+// `timings` reports `cache_n` on every turn, so real turns must carry Some — the same
+// UI that says "Not available" on Ollama shows measured cache hits here.
+#[tokio::test]
+#[ignore = "live: requires llama-server on :8081 (--jinja) with a model loaded"]
+async fn turn_costs_live_llama() {
+    use crate::inference::eval::agentic::v2::collection::load_v2_collection;
+    use crate::inference::eval::agentic::v2::scenarios::v2_json;
+
+    #[derive(Default)]
+    struct CostSink {
+        steps: Mutex<Vec<TrajectoryStep>>,
+    }
+    impl BatchSink for CostSink {
+        fn task_started(&self, _m: &str, _t: &str, _i: usize, _total: usize, _c: &str, _n: bool) {}
+        fn agentic_turn(&self, _m: &str, _t: &str, step: &TrajectoryStep, _n: bool) {
+            self.steps.lock().unwrap().push(step.clone());
+        }
+        fn task_done(&self, _m: &str, _t: &str, _o: &TaskOutcome, _n: bool) {}
+    }
+
+    let model = std::env::var("QM_LIVE_MODEL").unwrap_or_else(|_| "qwen2.5-coder-7b-instruct_q4_k_m".into());
+    let mut tasks = load_v2_collection(v2_json("easy-coding").unwrap()).unwrap();
+    tasks.retain(|t| t.agentic.is_some());
+    tasks.truncate(1);
+    if let Some(a) = tasks[0].agentic.as_mut() {
+        a.k = Some(1);
+        a.max_steps = Some(4);
+    }
+    let targets = vec![ModelTarget { model: model.clone(), backend: BackendKind::LlamaCpp, is_thinking: false }];
+    let sink = Arc::new(CostSink::default());
+    let make = move |t: &ModelTarget| BackendTurn {
+        backend: BackendKind::LlamaCpp,
+        endpoint: "http://localhost:8081".into(),
+        model: t.model.clone(),
+        cancel: CancellationToken::new(),
+        options: None,
+        keep_alive: None,
+        is_thinking: false,
+        max_tokens: 512,
+        cpu_offloaded: false,
+        ctx_ceiling: 4096, // clamp to the launched -c
+        stop_cache: Default::default(),
+    };
+
+    let _ = run_batch("easy-coding", &targets, &tasks, CancellationToken::new(), sink.clone(), make).await.unwrap();
+
+    let steps = sink.steps.lock().unwrap().clone();
+    assert!(!steps.is_empty(), "the run must stream at least one turn");
+    println!("\n=== turn_costs_live_llama: {model}, {} steps ===", steps.len());
+    for s in &steps {
+        println!(
+            "  r{}s{} {:?}: prefill={:?}tok/{:?}ms decode={:?}ms total={:?}ms out={:?}tok cache_n={:?}",
+            s.run_index, s.step_index, s.kind, s.prefill_tokens, s.prefill_ms, s.eval_ms, s.total_ms, s.output_tokens, s.cache_n
+        );
+    }
+    let real: Vec<_> = steps.iter().filter(|s| s.prefill_tokens.is_some() || s.cache_n.is_some()).collect();
+    assert!(!real.is_empty(), "at least one turn must carry server timings");
+    for s in &real {
+        assert!(s.eval_ms.is_some(), "llama.cpp reports predicted_ms — must not be dropped");
+        assert!(s.output_tokens.is_some(), "predicted_n must be carried");
+        assert!(s.cache_n.is_some(), "llama.cpp reports cache_n on every turn — the measured cache tier");
+    }
+    // Turn 2+ of a multi-turn run reuses the transcript prefix: measured cache hits > 0.
+    if let Some(later) = real.iter().find(|s| s.step_index > 0) {
+        assert!(later.cache_n.unwrap() > 0, "a follow-up turn must reuse the prefix cache");
+    }
+    let rss = crate::commands::system::process_memory::backend_rss(BackendKind::LlamaCpp);
+    println!("  llama-server RSS now: {rss:?}");
+    assert!(rss.is_some_and(|b| b > 0), "a running llama-server must yield a positive RSS sample");
+}
