@@ -599,6 +599,10 @@ async fn run_steps<M: ModelTurn>(
                         cache_n: None, // no model response on a stall
                         prefill_tokens: None,
                         prefill_ms: None,
+                        eval_ms: None,
+                        load_ms: None,
+                        total_ms: None,
+                        output_tokens: None,
                         reasoning_tokens: None,
                         context_used: None,
                         context_window: None,
@@ -659,6 +663,12 @@ async fn run_steps<M: ModelTurn>(
         let cache_n = stats.cache_n;
         let prefill_tokens = stats.prompt_eval_count; // prompt_n = recomputed; total = cache_n + this
         let prefill_ms = stats.prompt_eval_ms;
+        // The rest of the turn's cost accounting, previously read-and-discarded here — the
+        // Latency view's per-task step track needs the full prefill/decode/load split.
+        let eval_ms = stats.eval_ms;
+        let load_ms = stats.load_ms;
+        let total_ms = stats.total_ms;
+        let turn_output_tokens = stats.eval_count;
         // How much this turn spent thinking: the measured generated-token count for a reasoning
         // model (its output is dominated by the `<think>` scratchpad; the tool-call answer is a
         // small tail). `None` for a terse model — never a fabricated 0. The trace sums this per run
@@ -668,6 +678,7 @@ async fn run_steps<M: ModelTurn>(
         let send = |kind: StepKind, injection: Option<String>, env: EnvView| {
             let _ = tx.send(TrajectoryStep {
                 run_index, step_index, raw_output: raw.clone(), injection, kind, env, cache_n, prefill_tokens, prefill_ms,
+                eval_ms, load_ms, total_ms, output_tokens: turn_output_tokens,
                 reasoning_tokens, context_used: None, context_window: None,
                 initial_prompt: (step_index == 0).then(|| sandbox.initial_prompt.clone()),
             });
@@ -734,6 +745,7 @@ async fn run_steps<M: ModelTurn>(
                         let _ = tx.send(TrajectoryStep {
                             run_index, step_index, raw_output: raw.clone(), injection: None, kind, env: EnvView::None,
                             cache_n, prefill_tokens, prefill_ms,
+                            eval_ms, load_ms, total_ms, output_tokens: turn_output_tokens,
                             reasoning_tokens: Some(reasoning_tokens),
                             context_used: Some(context_used),
                             context_window: Some(num_ctx),
@@ -996,6 +1008,10 @@ async fn run_steps<M: ModelTurn>(
                 cache_n: None, // synthetic terminal step, no model response
                 prefill_tokens: None,
                 prefill_ms: None,
+                eval_ms: None,
+                load_ms: None,
+                total_ms: None,
+                output_tokens: None,
                 reasoning_tokens: None,
                 context_used: None,
                 context_window: None,
@@ -1017,6 +1033,10 @@ async fn run_steps<M: ModelTurn>(
         cache_n: None, // synthetic terminal step, no model response
         prefill_tokens: None,
         prefill_ms: None,
+        eval_ms: None,
+        load_ms: None,
+        total_ms: None,
+        output_tokens: None,
         reasoning_tokens: None,
         context_used: None,
         context_window: None,

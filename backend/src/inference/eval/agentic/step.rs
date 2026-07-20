@@ -90,6 +90,23 @@ pub struct TrajectoryStep {
     /// cache bust re-incurs. `None` when the backend doesn't report it / no model response.
     #[serde(default)]
     pub prefill_ms: Option<u64>,
+    /// Wall-clock spent DECODING this turn (llama.cpp `timings.predicted_ms`, Ollama
+    /// `eval_duration`). With `prefill_ms` this is the per-turn prefill/decode split the
+    /// Latency view charts. `None` when unreported / no model response.
+    #[serde(default)]
+    pub eval_ms: Option<u64>,
+    /// Model-load time the server charged to THIS turn (Ollama `load_duration`; a warm turn
+    /// reports ~0, a cold first turn the real load). `None` on backends that don't report it.
+    #[serde(default)]
+    pub load_ms: Option<u64>,
+    /// Server-reported wall-clock for the whole turn (Ollama `total_duration`). NOT the sum of
+    /// the parts — includes queueing/tokenize. `None` on backends that don't report it.
+    #[serde(default)]
+    pub total_ms: Option<u64>,
+    /// Tokens GENERATED this turn (`eval_count`/`predicted_n`) for every model — unlike
+    /// `reasoning_tokens`, which is only stamped for thinking models. `None` when unreported.
+    #[serde(default)]
+    pub output_tokens: Option<u32>,
     /// D9 usage accounting, populated on a `Truncated` / `ReasoningOverrun` turn so the UI can show
     /// BOTH bars and name which limit fired. `reasoning_tokens` = tokens this turn spent reasoning
     /// (≈ generated tokens when the answer was starved); `context_used`/`context_window` = how full

@@ -71,6 +71,10 @@ mod tests {
                 cache_n: Some(42),
                 prefill_tokens: Some(8),
                 prefill_ms: Some(12),
+                eval_ms: Some(950),
+                load_ms: Some(0),
+                total_ms: Some(1103),
+                output_tokens: Some(40),
                 reasoning_tokens: None,
                 context_used: None,
                 context_window: None,
@@ -86,6 +90,12 @@ mod tests {
         assert_eq!(v["cache_n"], 42);
         assert_eq!(v["prefill_tokens"], 8);
         assert_eq!(v["prefill_ms"], 12);
+        // Turn-cost fields (prefill/decode split + generated count) flatten too — the
+        // Latency view's per-task step track reads them off the same event.
+        assert_eq!(v["eval_ms"], 950);
+        assert_eq!(v["load_ms"], 0);
+        assert_eq!(v["total_ms"], 1103);
+        assert_eq!(v["output_tokens"], 40);
         // env present and tagged.
         assert_eq!(v["env"]["kind"], "file_system");
         assert_eq!(v["env"]["op"], "read");

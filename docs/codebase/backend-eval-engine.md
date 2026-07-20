@@ -563,6 +563,12 @@ value above.
   ReportedInProse, ForeignDialect, EmptyOutput, Truncated, ReasoningOverrun}`;
   `TrajectoryStep{run_index, step_index, raw_output, injection, kind, …, reasoning_tokens,
   context_used, context_window, initial_prompt}` (the D9 trio drives the two-bar diagnostic).
+  Turn-cost fields `eval_ms` / `load_ms` / `total_ms` / `output_tokens` carry the rest of the
+  per-turn `GenerateStats` (decode wall-clock, load charged to the turn, server total, generated
+  count for EVERY model — not just thinking) so the Inspector's Test-run latency view gets the
+  full prefill/decode split; previously these were read-and-discarded at the runner. All
+  `Option` — `None` means the backend didn't report it (never a fabricated 0) or the step is
+  synthetic (timeout/stall terminals).
   `ReportedInProse` (G3) = did all the work but answered in plain text instead of the
   required reporter tool (content-correct, wrong-channel); the UI renders it TEAL — the
   mildest failure, distinct from a hard red fail.
