@@ -155,7 +155,10 @@ export function EvalPage() {
   // it (only when idle; a running batch is left alone), then targets re-seed below.
   useEffect(() => {
     haltOldContext();
-    setFocusedModel("");
+    // Nav-persistence: while a batch streams, keep the results view bound to the RUN's model.
+    // The backend is GLOBAL (it also changes from the Workspace picker), so clearing focus here
+    // would blank the live Scoreboard/Trace the moment the user glances at another screen.
+    if (!useBatchStore.getState().running) setFocusedModel("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedBackend]);
 
@@ -165,7 +168,10 @@ export function EvalPage() {
   // collection-free).
   useEffect(() => {
     haltOldContext();
-    setFocusedTaskId(null);
+    // While running, keep the Evaluator/Simulator focused on the live task — a collection change
+    // (including the one a mid-run tier switch triggers) must not null the focus, or the trace
+    // goes blank until the live task id happens to change again.
+    if (!useBatchStore.getState().running) setFocusedTaskId(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCollection]);
 
@@ -173,6 +179,9 @@ export function EvalPage() {
   // reset if it leaves (a backend switch trims the selection to the new backend).
   useEffect(() => {
     if (selectedModels.some((m) => m.name === evalModel)) return;
+    // Don't re-target the eval model out from under a running batch — the run keeps its model,
+    // and repointing here would detach the live scoreboard/trace from the model actually running.
+    if (useBatchStore.getState().running) return;
     setEvalModel(selectedModels[0]?.name ?? "");
   }, [selectedModels, evalModel]);
 
@@ -210,6 +219,11 @@ export function EvalPage() {
   // Only re-targets a BUILT-IN selection — a custom collection is left alone.
   useEffect(() => {
     if (!effectiveTier || !isPreset(selectedCollection)) return;
+    // Never swap the collection out from under a running batch: the Scoreboard/Trace read the
+    // SELECTED collection's tasks, so retargeting mid-run strands the live run's tasks (its
+    // steps are keyed to the old collection's task ids) and blanks the live view. The user can
+    // still change the tier lever; it just won't re-pick the collection until the run ends.
+    if (useBatchStore.getState().running) return;
     const cur = presets.find((p) => p.id === selectedCollection);
     if (cur && cur.tier === effectiveTier) return; // already a valid in-tier selection
     const first = presets.find((p) => p.tier === effectiveTier);
