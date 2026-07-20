@@ -54,6 +54,8 @@ Reliability is scored with **pass^k** — does the model succeed *k* of *k* time
 
 **Just want to run it?** Download a prebuilt build from **[quantamind.co](https://quantamind.co/)** and launch — no toolchain needed. You'll still need [Ollama](https://ollama.com/) running with a model pulled ([Step 2](#quick-start) below).
 
+**Prefer the terminal?** The headless `qm` CLI needs only Rust + a running backend — see the **[CLI quickstart](./docs/cli/README.md#quickstart--three-commands-to-your-first-verdict)** (build → `qm doctor` → `qm init`, and every failure prints its exact fix).
+
 **Building from source** takes ~5 minutes. macOS is first-class today; Windows and Linux dev builds run too, with sidecar lifecycles being rewired phase-by-phase (see [Roadmap](#roadmap)).
 
 **1 · Install toolchains** (skip any you already have)
@@ -295,7 +297,7 @@ The README stays lean on purpose. Depth lives in `docs/`:
 - **[`docs/architecture.md`](./docs/architecture.md)** — modules, IPC, layering law, robustness rules, folder taxonomy.
 - **[`docs/process.md`](./docs/process.md)** — tech stack, setup, conventions, the step-by-step workflow, roadmap.
 - **[`docs/reference.md`](./docs/reference.md)** — analysis/bench schema and troubleshooting.
-- **[`docs/cli/README.md`](./docs/cli/README.md)** — the headless `qm` CLI. `qm doctor` diagnoses every backend (reachable? models? credential? tool-calling?) and tells you exactly what to fix; `qm init` auto-detects a backend and runs the suite with zero config; `qm run` prints a Ready/Conditional/NotReady verdict with a CI-gateable exit code.
+- **[`docs/cli/README.md`](./docs/cli/README.md)** — the headless `qm` CLI, with a **[three-command quickstart](./docs/cli/README.md#quickstart--three-commands-to-your-first-verdict)** (build → `qm doctor` → `qm init`; connecting takes seconds once built). `qm doctor` diagnoses every backend (reachable? models? credential? tool-calling?) and tells you exactly what to fix; `qm init` auto-detects a backend and runs the suite with zero config; `qm run` prints a Ready/Conditional/NotReady verdict with a CI-gateable exit code.
 
 ---
 

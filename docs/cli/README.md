@@ -5,6 +5,74 @@ driven from the terminal for first-run setup, CI gating, air-gapped runs, and sc
 directly to your local or remote inference server — no GUI, no phone-home. Every command prints
 human text, or a machine-readable object with `--json`.
 
+## Quickstart — three commands to your first verdict
+
+Build once, then **connect and get a verdict the way `gh auth login` / `gcloud init` work**: one
+diagnose command, one zero-config init. After the one-time build, connecting takes seconds — every
+failure prints the exact fix command, so you're never stuck googling.
+
+**0 · Prerequisites** (skip what you already have)
+
+- **Rust 1.75+** — macOS `brew install rust` · Linux `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh` · Windows `winget install Rustlang.Rustup`
+- **A running inference server with ≥1 model.** Fastest path is Ollama:
+
+```bash
+# macOS: brew install ollama · Linux: curl -fsSL https://ollama.com/install.sh | sh
+# Windows: winget install Ollama.Ollama (runs as a service after install)
+ollama serve &
+ollama pull qwen2.5:3b        # ~2 GB — a good first model to gate
+```
+
+Already running llama.cpp / MLX / vLLM / SGLang instead? Skip this — `qm doctor` finds whatever is up.
+
+**1 · Build the binary** (one-time; the first compile takes a few minutes)
+
+```bash
+git clone https://github.com/QuantaMinds/QuantaMind.git
+cd QuantaMind/backend
+cargo build --bin qm
+sudo install -m755 target/debug/qm /usr/local/bin/qm   # optional: put `qm` on PATH
+qm --version                                           # → qm 0.2.0
+```
+
+(No PATH install? Use `target/debug/qm` wherever this doc says `qm`.)
+
+**2 · Connect — is anything runnable?**
+
+```console
+$ qm doctor
+ollama     http://localhost:11434       ✓ ready  v0.24.0  models: 9
+llama_cpp  http://localhost:8081        ✗ unreachable
+...
+Next: qm run --backend ollama --model qwen2.5:3b
+```
+
+`doctor` probes all five backends and holds them to **runnable** (reachable + ≥1 model +
+credential OK), not merely reachable. Anything wrong → a `[QM-…]` line on stderr with the exact fix
+(`ollama serve`, `ollama pull …`, `check QM_API_KEY`), shown, never run.
+
+**3 · First verdict — zero config**
+
+```console
+$ qm init
+wrote qm.json (backend=ollama, model=qwen2.5:3b)
+· [1/5] es_co_run_failing_test (prompt)
+...
+VERDICT: Ready   (ollama · qwen2.5:3b · easy-coding)
+```
+
+`init` auto-detects the first runnable backend, writes a non-secret `./qm.json`, and runs the suite.
+From here a bare `qm run` needs **zero flags** (it reads `qm.json`), and the exit code is the verdict
+— `qm run --fail-on notready` gates CI like a unit test.
+
+**Remote GPU box instead of local?** No config file needed — env only:
+
+```bash
+export QM_BASE=https://vllm.internal:8000   # your endpoint
+export QM_API_KEY=…                         # env or OS keychain — never an argument
+qm doctor --backend vllm && qm run --backend vllm --model qwen3-32b
+```
+
 ## Status (be honest about what ships)
 
 This is an OSS tool built one verified command at a time. Today:
@@ -26,22 +94,12 @@ surface. `verify` is
 deferred (rationale in its section). This doc grows one section at a time as each lands, never ahead of
 the code.
 
-## Running it
+## Help & build notes
 
-```bash
-# from a checkout (debug build):
-cargo run --bin qm -- <command> [flags]
-
-# or build once and use the binary:
-cargo build --bin qm             # → target/debug/qm
-target/debug/qm <command> [flags]
-
-target/debug/qm --help           # top-level help
-target/debug/qm doctor --help    # per-command help
-```
-
-`qm` is a bin target on the single `quantamind` crate (ADR 0001 — no workspace), so it shares the
-inference/eval engine verbatim.
+`qm --help` prints the command list; `qm <command> --help` the per-command flag reference. From a
+checkout you can also run without building: `cargo run --bin qm -- <command> [flags]`. `qm` is a bin
+target on the single `quantamind` crate (ADR 0001 — no workspace), so it shares the inference/eval
+engine verbatim with the desktop app — the CLI and the GUI can never disagree about a verdict.
 
 ## Engines & ports
 
