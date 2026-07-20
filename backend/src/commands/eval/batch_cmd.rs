@@ -22,9 +22,11 @@ use crate::inference::eval::batch::{
 use crate::inference::eval::toolcall::matrix::ModelTarget;
 use crate::inference::eval::toolcall::tasks::{validate_tasks, ToolTask};
 use crate::commands::system::hardware::snapshot;
+use crate::commands::system::process_memory;
 use crate::inference::eval::readiness::hardware::hwclass::agentic_ctx_ceiling;
 use crate::inference::llama::llama::probe_llama_n_ctx;
-use crate::inference::ollama::ollama_placement::probe_placement;
+use crate::commands::llama::llama_server_types::LlamaServerState;
+use crate::inference::ollama::ollama_placement::{probe_placement, ModelPlacement};
 use crate::inference::ollama::ollama_show::{probe_ollama_version, probe_supports_tools};
 use crate::persistence::eval_history;
 use crate::persistence::jobs::queue::{self, RunConfig};
@@ -99,6 +101,10 @@ struct TauriBatchSink {
     /// `None` when `app_config_dir` was unavailable at construction — the run
     /// proceeds without transcripts (warned once at construction).
     transcripts_dir: Option<PathBuf>,
+    /// model → backend, so each streamed step can carry a host RSS sample of the RIGHT
+    /// local server process (the generation layer stays ID-free and host-free; sampling
+    /// lives here at the command boundary). Remote/unknown → the sample stays `None`.
+    backends: HashMap<String, BackendKind>,
 }
 
 impl TauriBatchSink {
@@ -123,11 +129,17 @@ impl BatchSink for TauriBatchSink {
         }
     }
     fn agentic_turn(&self, model: &str, task_id: &str, step: &TrajectoryStep, is_native: bool) {
+        // Step-END host sample: whole-process RSS of the local inference server (weights +
+        // residue — never a per-task delta; see the field's contract on `TrajectoryStep`).
+        let mut step = step.clone();
+        if step.resident_bytes.is_none() {
+            step.resident_bytes = self.backends.get(model).copied().and_then(process_memory::backend_rss);
+        }
         log_emit(&self.app, EVENT_AGENTIC_STEP, AgenticStepPayload {
             model: model.into(), task_id: task_id.into(), step: step.clone(), is_native,
         });
         if let Some(path) = self.transcript(model, task_id, is_native) {
-            if let Err(e) = transcripts::append_step(&path, step) {
+            if let Err(e) = transcripts::append_step(&path, &step) {
                 Self::warn_write(model, task_id, e);
             }
         }
@@ -159,13 +171,8 @@ fn skeleton_report(collection_id: &str, targets: &[ModelTarget]) -> BatchReport 
             .map(|t| BatchColumn {
                 model: t.model.clone(),
                 backend: t.backend,
-                toolcall: None,
-                agentic: None,
-                agentic_native_fc: None,
-                error: None,
                 is_thinking: t.is_thinking,
-                cpu_offloaded: false, // stamped on the final report
-                ctx_ceiling: None,    // stamped on the final report
+                ..Default::default() // reports + placement/config facts stamped on the final report
             })
             .collect(),
     }
@@ -329,6 +336,7 @@ pub(crate) async fn run_passes(
         app: app.clone(),
         collection_id: config.collection_id.clone(),
         transcripts_dir,
+        backends: config.targets.iter().map(|t| (t.model.clone(), t.backend)).collect(),
     });
     let job_path = queue::run_path(&jobs_dir(app)?, &config.collection_id);
     let rec_path = job_path.clone();
@@ -431,14 +439,17 @@ pub(crate) async fn run_passes(
     // progressing turn is killed as a false `TurnTimeout`). Probed once per target up front (the
     // per-turn closure is sync). llama.cpp/MLX report nothing here → not offloaded. The UI reads
     // the same placement via `ollama_model_placement` to show the "running on CPU" notice.
-    let mut cpu_offload: HashMap<String, bool> = HashMap::new();
+    let mut placements: HashMap<String, ModelPlacement> = HashMap::new();
     for t in &config.targets {
         if t.backend == BackendKind::Ollama {
             if let Some(p) = probe_placement(&endpoint_for(t.backend), &t.model).await {
-                cpu_offload.insert(t.model.clone(), p.on_cpu);
+                placements.insert(t.model.clone(), p);
             }
         }
     }
+    // The per-turn closure needs only the bool (larger step timeout for a spilled model);
+    // the full placement (weights/offload bytes + claimed quant) is stamped on the report.
+    let cpu_offload: HashMap<String, bool> = placements.iter().map(|(m, p)| (m.clone(), p.on_cpu)).collect();
 
     // The hardware-adaptive `num_ctx` ceiling for THIS machine (bigger box → bigger window that
     // can hold a reasoning model's fixed per-turn budget + transcript). This is the ONLY knob
@@ -461,6 +472,9 @@ pub(crate) async fn run_passes(
     // after the run (the closure only reads via `.get()`, so a clone is faithful).
     let cpu_offload_stamp = cpu_offload.clone();
     let ctx_ceilings_stamp = ctx_ceilings.clone();
+    // The launched llama-server's KV precision — known only for a server WE spawned; an
+    // externally-started one stamps `None` (its flags are unknowable, never guessed).
+    let llama_kv_type = app.state::<LlamaServerState>().kv_cache_type();
 
     // Prompt pass — only when selected. When it's NOT, the report is the column skeleton that the
     // native aggregates merge into (a native-only run). At least one pass is guaranteed by the UI.
@@ -503,6 +517,18 @@ pub(crate) async fn run_passes(
         // honestly instead of as incapability.
         col.cpu_offloaded = cpu_offload_stamp.get(&col.model).copied().unwrap_or(false);
         col.ctx_ceiling = ctx_ceilings_stamp.get(&col.model).copied();
+        // Measured weight placement + the tag's claimed quantization (Ollama /api/ps; the
+        // Inspector's memory breakdown reads weights_vram_bytes as its constant baseline,
+        // offload_bytes as the "spilled to CPU" quantity).
+        if let Some(p) = placements.get(&col.model) {
+            col.weights_total_bytes = Some(p.total_bytes);
+            col.weights_vram_bytes = Some(p.vram_bytes);
+            col.offload_bytes = Some(p.cpu_bytes);
+            col.quantization_claimed = p.quantization_claimed.clone();
+        }
+        if col.backend == BackendKind::LlamaCpp {
+            col.kv_cache_type = llama_kv_type.clone();
+        }
     }
     report.num_ctx = config.params.as_ref().and_then(|p| p.num_ctx);
     // The batch-wide Thinking-Budget preset (reasoning scratchpad allowance) — carried to the report

@@ -28,7 +28,7 @@ impl BatchSink for CliSink {
         // Only a per-task ERROR is worth a line here — pass/fail is the verdict's job,
         // not the progress stream's (and we never fabricate a pass badge, rule 7). Redact
         // the message: a bubbled-up I/O error can embed an absolute path (rule 7f).
-        if let TaskOutcome::Error { message } = outcome {
+        if let TaskOutcome::Error { message, .. } = outcome {
             eprintln!("  ✗ {task_id}: {}", crate::redact::redact_path(message));
         }
     }

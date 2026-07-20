@@ -197,13 +197,8 @@ fn skeleton(collection_id: &str, targets: &[ModelTarget]) -> BatchReport {
             .map(|t| BatchColumn {
                 model: t.model.clone(),
                 backend: t.backend,
-                toolcall: None,
-                agentic: None,
-                agentic_native_fc: None,
-                error: None,
                 is_thinking: t.is_thinking,
-                cpu_offloaded: false,
-                ctx_ceiling: None,
+                ..Default::default()
             })
             .collect(),
     }

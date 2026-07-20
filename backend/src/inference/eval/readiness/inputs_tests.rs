@@ -51,6 +51,7 @@ fn col(passes: u32, total: u32, loops: u32, hall: u32, steps: Option<f64>) -> Ba
         is_thinking: false,
             cpu_offloaded: false,
             ctx_ceiling: None,
+            ..Default::default()
     }
 }
 
@@ -84,6 +85,7 @@ fn no_agentic_column_yields_unmeasured_pass_k_core_gate() {
         is_thinking: false,
             cpu_offloaded: false,
             ctx_ceiling: None,
+            ..Default::default()
     };
     let i = from_column(&c, None, false, CliffStatus::NotProbed);
     assert_eq!(i.pass_k, None);
@@ -217,6 +219,7 @@ fn ranking_puts_a_ready_model_first_regardless_of_column_order() {
                 is_thinking: false,
             cpu_offloaded: false,
             ctx_ceiling: None,
+            ..Default::default()
             },
             col(5, 5, 0, 0, Some(2.0)), // …a clean Ready model ("m") second.
         ],
@@ -257,7 +260,7 @@ fn pass_k_of_is_native_first_then_prompt_then_none() {
     assert_eq!(pass_k_of(&col(4, 10, 0, 0, Some(2.0))), Some(0.4));
 
     // No agentic data → None (renders N/A, never fabricated).
-    let bare = BatchColumn { model: "m".into(), backend: BackendKind::Ollama, toolcall: None, agentic: None, agentic_native_fc: None, error: None, is_thinking: false, cpu_offloaded: false, ctx_ceiling: None };
+    let bare = BatchColumn { model: "m".into(), backend: BackendKind::Ollama, toolcall: None, agentic: None, agentic_native_fc: None, error: None, is_thinking: false, cpu_offloaded: false, ctx_ceiling: None, ..Default::default() };
     assert_eq!(pass_k_of(&bare), None);
 }
 
@@ -312,6 +315,7 @@ fn assess_report_grades_clean_models_and_short_circuits_errors() {
                 is_thinking: false,
             cpu_offloaded: false,
             ctx_ceiling: None,
+            ..Default::default()
             },
         ],
     };
@@ -389,6 +393,7 @@ fn verdicts_for_column_errored_column_is_one_not_ready_row() {
         is_thinking: false,
             cpu_offloaded: false,
             ctx_ceiling: None,
+            ..Default::default()
     };
     let rows = verdicts_for_column(&c, None, false, CliffStatus::NotProbed, None, None, &general, &[], Default::default());
     assert_eq!(rows.len(), 1);
@@ -451,6 +456,7 @@ fn report_with(model: &str, backend: BackendKind, tiers: Vec<crate::inference::e
             is_thinking: false,
             cpu_offloaded: false,
             ctx_ceiling: None,
+            ..Default::default()
         }],
     }
 }

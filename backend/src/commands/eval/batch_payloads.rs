@@ -75,6 +75,7 @@ mod tests {
                 load_ms: Some(0),
                 total_ms: Some(1103),
                 output_tokens: Some(40),
+                resident_bytes: Some(7_000_000_000),
                 reasoning_tokens: None,
                 context_used: None,
                 context_window: None,
@@ -96,6 +97,7 @@ mod tests {
         assert_eq!(v["load_ms"], 0);
         assert_eq!(v["total_ms"], 1103);
         assert_eq!(v["output_tokens"], 40);
+        assert_eq!(v["resident_bytes"], 7_000_000_000u64);
         // env present and tagged.
         assert_eq!(v["env"]["kind"], "file_system");
         assert_eq!(v["env"]["op"], "read");

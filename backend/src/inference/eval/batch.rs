@@ -30,7 +30,24 @@ use tokio_util::sync::CancellationToken;
 pub enum TaskOutcome {
     Single { passed: bool, trace: TraceResult },
     Agentic { report: AgenticReport },
-    Error { message: String },
+    Error {
+        message: String,
+        /// The error was a host memory OOM (Metal/CUDA out-of-memory, Ollama OOM-kill) —
+        /// classified HERE, once, so every consumer (UI badge, ceiling suggestion) reads
+        /// the same verdict instead of re-matching strings. `#[serde(default)]` so
+        /// persisted pre-flag outcomes load as `false`.
+        #[serde(default)]
+        oom: bool,
+    },
+}
+
+/// Host memory OOM, by message. Matches the strings the local backends actually emit
+/// (Ollama/llama.cpp "out of memory", macOS Metal `kIOGPUCommandBufferCallbackErrorOutOfMemory`,
+/// the "not enough memory" copy `errors.rs` maps) — deliberately NARROW: an ambiguous
+/// infra error stays `InfraHost` without the OOM claim.
+pub fn is_oom_message(msg: &str) -> bool {
+    let low = msg.to_lowercase();
+    low.contains("out of memory") || low.contains("outofmemory") || low.contains("not enough memory")
 }
 
 /// One finished (model, task) unit — the durable result the resumable queue
@@ -92,7 +109,7 @@ fn fold_completed(
                 prompt_tokens: trace.prompt_tokens,
             });
         }
-        TaskOutcome::Error { message } => *col_error = Some(message.clone()),
+        TaskOutcome::Error { message, .. } => *col_error = Some(message.clone()),
     }
 }
 
@@ -264,7 +281,9 @@ impl AggAgentic {
 
 /// One model's row in the Matrix Scoreboard: single-turn report and/or agentic
 /// aggregate (whichever the collection contained), or the error it hit.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+/// `Default` exists so constructors can close with `..Default::default()` — a new
+/// stamped-fact field then lands everywhere without touching every literal.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct BatchColumn {
     pub model: String,
     pub backend: BackendKind,
@@ -293,6 +312,26 @@ pub struct BatchColumn {
     /// recorded / older report. `#[serde(default)]`.
     #[serde(default)]
     pub ctx_ceiling: Option<u32>,
+    /// Weight placement measured from `/api/ps` at run start (Ollama only; `None` elsewhere /
+    /// older reports). `offload_bytes` = size − size_vram — the measured CPU spill QUANTITY
+    /// behind `cpu_offloaded` (the "why 3 tok/s" answer). `weights_vram_bytes` is the constant
+    /// weights baseline the Inspector's memory breakdown stacks under the per-task KV cost.
+    #[serde(default)]
+    pub weights_total_bytes: Option<u64>,
+    #[serde(default)]
+    pub weights_vram_bytes: Option<u64>,
+    #[serde(default)]
+    pub offload_bytes: Option<u64>,
+    /// The quantization `/api/ps` CLAIMS for the loaded model (e.g. "Q4_K_M") — the tag's
+    /// assertion, never verified truth. Part of the run-config stamp so a later run-comparison
+    /// view is a view, not a migration. `None` when unreported (llama.cpp/MLX, older reports).
+    #[serde(default)]
+    pub quantization_claimed: Option<String>,
+    /// KV-cache precision the LOCAL llama-server was launched with ("f16" | "q8_0"), from the
+    /// stored `LaunchPlan`. `None` for other backends, an externally-started server (we can't
+    /// know its flags — never guess), or older reports.
+    #[serde(default)]
+    pub kv_cache_type: Option<String>,
 }
 
 /// The full batch result: one column per target model.
@@ -476,10 +515,13 @@ async fn run_one_agentic<M: ModelTurn + Send + Sync>(
             s2.agentic_turn(&model2, &task2, &step, false); // prompt pass
         }
     });
+    let started = std::time::Instant::now();
     let result = run_agentic_for(turn, task, model, &sandbox, cfg, cancel, &tx).await;
     drop(tx);
     let _ = pump.await;
-    result.map(|r| stamp_task_meta(r, task))
+    // Whole-batch wall-clock (all k runs, model + sandbox/world time) — the per-turn server
+    // timings can't provide this, they exclude everything between turns.
+    result.map(|r| stamp_task_meta(r, task).with_wall_ms(started.elapsed().as_millis() as u64))
 }
 
 /// Drive Pass^k for a task: a `generated` task builds a FRESH procedural instance
@@ -602,7 +644,7 @@ where
                     Err(e) => {
                         // Errors are NOT recorded → they re-run on resume (the backend may be back).
                         let msg = e.to_string();
-                        sink.task_done(&target.model, &task.id, &TaskOutcome::Error { message: msg.clone() }, false);
+                        sink.task_done(&target.model, &task.id, &TaskOutcome::Error { message: msg.clone(), oom: is_oom_message(&msg) }, false);
                         col_error = Some(msg);
                     }
                 }
@@ -623,7 +665,7 @@ where
                     }
                     Err(e) => {
                         let msg = e.to_string();
-                        sink.task_done(&target.model, &task.id, &TaskOutcome::Error { message: msg.clone() }, false);
+                        sink.task_done(&target.model, &task.id, &TaskOutcome::Error { message: msg.clone(), oom: is_oom_message(&msg) }, false);
                         col_error = Some(msg);
                     }
                 }
@@ -640,8 +682,8 @@ where
             agentic_native_fc: None, // filled by run_native_fc_pass when enabled
             error: col_error,
             is_thinking: target.is_thinking,
-            cpu_offloaded: false, // stamped by the command layer (needs the placement probe)
-            ctx_ceiling: None,    // stamped by the command layer (needs the hardware band)
+            // Placement/config facts are stamped by the command layer (they need the probes).
+            ..Default::default()
         });
         prev = Some((target.model.clone(), target.backend));
     }
@@ -690,8 +732,7 @@ pub fn fold_report(
                 agentic_native_fc: (!native_reports.is_empty()).then(|| agg_agentic(&native_reports, true)),
                 error: col_error,
                 is_thinking: target.is_thinking,
-                cpu_offloaded: false, // stamped by the command layer
-                ctx_ceiling: None,    // stamped by the command layer
+                ..Default::default() // placement/config facts stamped by the command layer
             }
         })
         .collect();
@@ -788,12 +829,13 @@ where
                     s2.agentic_turn(&model2, &task2, &step, true); // native pass
                 }
             });
+            let started = std::time::Instant::now();
             let result = run_agentic_for(&turn, task, &col.model, &sandbox, cfg, &cancel, &tx).await;
             drop(tx);
             let _ = pump.await;
             match result {
                 Ok(report) => {
-                    let report = stamp_task_meta(report, task);
+                    let report = stamp_task_meta(report, task).with_wall_ms(started.elapsed().as_millis() as u64);
                     let outcome = TaskOutcome::Agentic { report: report.clone() };
                     record(&CompletedUnit {
                         model: col.model.clone(),
@@ -818,7 +860,7 @@ where
                     // Stream the per-task native ERROR too (the prompt pass does on its Err arm),
                     // so the Simulator's Tool-Calling cell shows "Error" for this task, not a
                     // stale "—" until the batch finishes.
-                    sink.task_done(&col.model, &task.id, &TaskOutcome::Error { message: msg }, true);
+                    sink.task_done(&col.model, &task.id, &TaskOutcome::Error { oom: is_oom_message(&msg), message: msg }, true);
                 }
             }
         }

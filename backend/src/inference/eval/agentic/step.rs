@@ -107,6 +107,14 @@ pub struct TrajectoryStep {
     /// `reasoning_tokens`, which is only stamped for thinking models. `None` when unreported.
     #[serde(default)]
     pub output_tokens: Option<u32>,
+    /// Host-measured process RSS (bytes) of the LOCAL inference server, sampled by the batch
+    /// sink at step END — the runner never sets it (host sampling stays at the command
+    /// boundary). This is the WHOLE server process (weights + residue), never a per-task
+    /// delta, and a downstream "peak" over these is strictly "max of step-end samples", not
+    /// the true in-step peak (mid-prefill can exceed it). `None` for remote backends or when
+    /// the process isn't found — never 0.
+    #[serde(default)]
+    pub resident_bytes: Option<u64>,
     /// D9 usage accounting, populated on a `Truncated` / `ReasoningOverrun` turn so the UI can show
     /// BOTH bars and name which limit fired. `reasoning_tokens` = tokens this turn spent reasoning
     /// (≈ generated tokens when the answer was starved); `context_used`/`context_window` = how full

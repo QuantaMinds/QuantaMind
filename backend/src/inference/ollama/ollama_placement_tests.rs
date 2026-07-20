@@ -48,3 +48,15 @@ fn an_unloaded_model_returns_none() {
     assert!(parse_placement(&ps_body(9_000_000_000, 9_000_000_000), "some-other-model").is_none());
     assert!(parse_placement(r#"{"models":[]}"#, "qwen3.5:9b").is_none());
 }
+
+/// The tag's CLAIMED quantization rides along when /api/ps reports it — and the junk values
+/// Ollama emits for sideloaded GGUFs ("unknown", "") are dropped, not stamped as facts.
+#[test]
+fn quantization_claim_is_carried_and_junk_values_are_dropped() {
+    let with = r#"{"models":[{"name":"q","model":"q","size":10,"size_vram":10,"details":{"quantization_level":"Q4_K_M"}}]}"#;
+    assert_eq!(parse_placement(with, "q").unwrap().quantization_claimed.as_deref(), Some("Q4_K_M"));
+    let unknown = r#"{"models":[{"name":"q","model":"q","size":10,"size_vram":10,"details":{"quantization_level":"unknown"}}]}"#;
+    assert_eq!(parse_placement(unknown, "q").unwrap().quantization_claimed, None);
+    // No details at all (the old wire shape) still parses — placement must not regress.
+    assert_eq!(parse_placement(&ps_body(10, 10), "qwen3.5:9b").unwrap().quantization_claimed, None);
+}

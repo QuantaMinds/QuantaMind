@@ -39,6 +39,7 @@ fn report(collection_id: &str, passes: u32) -> BatchReport {
             is_thinking: false,
             cpu_offloaded: false,
             ctx_ceiling: None,
+            ..Default::default()
         }],
     }
 }

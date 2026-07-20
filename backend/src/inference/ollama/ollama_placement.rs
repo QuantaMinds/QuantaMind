@@ -12,13 +12,18 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// A loaded model's weight placement. `on_cpu` is true only for a MEANINGFUL spill (>5% on the
 /// CPU) — a few-percent rounding difference between `size` and `size_vram` is normal for a
-/// fully-resident model and must not read as "running on CPU".
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+/// fully-resident model and must not read as "running on CPU". `cpu_bytes` (= size − size_vram)
+/// is the measured spill QUANTITY — the "why 3 tok/s" answer, kept alongside the bool.
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ModelPlacement {
     pub total_bytes: u64,
     pub vram_bytes: u64,
     pub cpu_bytes: u64,
     pub on_cpu: bool,
+    /// The quantization level `/api/ps` CLAIMS for the loaded model (e.g. "Q4_K_M") — the
+    /// tag's assertion, NOT verified truth (Ollama reports a family, not the exact quant in
+    /// effect). `None` when the server omits it.
+    pub quantization_claimed: Option<String>,
 }
 
 impl ModelPlacement {
@@ -55,6 +60,14 @@ struct PsModel {
     size: u64,
     #[serde(default)]
     size_vram: u64,
+    #[serde(default)]
+    details: PsDetails,
+}
+
+#[derive(Deserialize, Default)]
+struct PsDetails {
+    #[serde(default)]
+    quantization_level: Option<String>,
 }
 
 /// Parse an `/api/ps` body for `model`'s placement. Matches on either `name` or `model` (Ollama
@@ -74,6 +87,7 @@ pub fn parse_placement(body: &str, model: &str) -> Option<ModelPlacement> {
         cpu_bytes: cpu,
         // Meaningful spill only: >5% of the weights on the CPU (cpu * 20 > total).
         on_cpu: cpu.saturating_mul(20) > m.size,
+        quantization_claimed: m.details.quantization_level.filter(|q| !q.is_empty() && q != "unknown"),
     })
 }
 

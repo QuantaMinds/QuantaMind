@@ -77,7 +77,7 @@ fn probe_readiness_reports_not_running_when_idle() {
 fn probe_readiness_matches_on_exact_model_path() {
     let child = std::process::Command::new("sleep").arg("30").spawn().expect("spawn dummy child");
     let state = LlamaServerState::default();
-    state.store(child, "/g/phi3.gguf".into(), 8192);
+    state.store(child, "/g/phi3.gguf".into(), 8192, "f16");
     assert_eq!(state.probe_readiness("/g/phi3.gguf"), LlamaProbeReadiness::Ready { ctx: 8192 });
     assert_eq!(state.probe_readiness("/g/llama3.gguf"), LlamaProbeReadiness::WrongModel);
     state.stop().expect("stop dummy child");

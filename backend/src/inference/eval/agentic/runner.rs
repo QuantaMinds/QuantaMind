@@ -603,6 +603,7 @@ async fn run_steps<M: ModelTurn>(
                         load_ms: None,
                         total_ms: None,
                         output_tokens: None,
+                        resident_bytes: None,
                         reasoning_tokens: None,
                         context_used: None,
                         context_window: None,
@@ -679,6 +680,7 @@ async fn run_steps<M: ModelTurn>(
             let _ = tx.send(TrajectoryStep {
                 run_index, step_index, raw_output: raw.clone(), injection, kind, env, cache_n, prefill_tokens, prefill_ms,
                 eval_ms, load_ms, total_ms, output_tokens: turn_output_tokens,
+                resident_bytes: None, // host sampling happens at the batch-sink boundary
                 reasoning_tokens, context_used: None, context_window: None,
                 initial_prompt: (step_index == 0).then(|| sandbox.initial_prompt.clone()),
             });
@@ -746,6 +748,7 @@ async fn run_steps<M: ModelTurn>(
                             run_index, step_index, raw_output: raw.clone(), injection: None, kind, env: EnvView::None,
                             cache_n, prefill_tokens, prefill_ms,
                             eval_ms, load_ms, total_ms, output_tokens: turn_output_tokens,
+                            resident_bytes: None, // host sampling happens at the batch-sink boundary
                             reasoning_tokens: Some(reasoning_tokens),
                             context_used: Some(context_used),
                             context_window: Some(num_ctx),
@@ -1012,6 +1015,7 @@ async fn run_steps<M: ModelTurn>(
                 load_ms: None,
                 total_ms: None,
                 output_tokens: None,
+                resident_bytes: None,
                 reasoning_tokens: None,
                 context_used: None,
                 context_window: None,
@@ -1037,6 +1041,7 @@ async fn run_steps<M: ModelTurn>(
         load_ms: None,
         total_ms: None,
         output_tokens: None,
+        resident_bytes: None,
         reasoning_tokens: None,
         context_used: None,
         context_window: None,

@@ -1,6 +1,6 @@
 use crate::commands::llama::llama_runtime::{
     bin_name, build_spawn_args, is_reachable, jinja_unsupported, plan_launch, spawn_meta, spawn_server,
-    spawn_stderr_tail, wait_until_ready, SpawnMeta, JINJA_UNSUPPORTED_MSG, PORT, PROBE_TIMEOUT_MS,
+    spawn_stderr_tail, wait_until_ready, KvType, SpawnMeta, JINJA_UNSUPPORTED_MSG, PORT, PROBE_TIMEOUT_MS,
 };
 use crate::commands::system::hardware::snapshot;
 use crate::inference::eval::readiness::hardware::hwclass::agentic_ctx_ceiling;
@@ -104,7 +104,10 @@ pub async fn start_llama_server(
     // Drain stderr so a stale-binary death (e.g. `--jinja` rejected) leaves a
     // diagnosable tail, and so the pipe never fills and wedges the child.
     let tail = child.stderr.take().map(spawn_stderr_tail);
-    state.store(child, model_path, ctx);
+    state.store(child, model_path, ctx, match plan.kv {
+        KvType::F16 => "f16",
+        KvType::Q8 => "q8_0",
+    });
     if wait_until_ready().await {
         // Ready: record the one-time spawn readout (only on success → no bogus
         // load_ms for a failed/never-ready start).

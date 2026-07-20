@@ -407,6 +407,11 @@ pub async fn run_mcp_byo_batch(
         });
 
         let emit_step = |step: TrajectoryStep| {
+            // Same step-END host RSS sample the batch sink takes (BYO bypasses TauriBatchSink).
+            let mut step = step;
+            if step.resident_bytes.is_none() {
+                step.resident_bytes = crate::commands::system::process_memory::backend_rss(backend);
+            }
             log_emit(&app, EVENT_AGENTIC_STEP, AgenticStepPayload {
                 model: model.clone(), task_id: task.name.clone(), is_native: false, step,
             });
@@ -501,6 +506,7 @@ fn byo_step(run: usize, i: usize, kind: StepKind, raw: &str, injection: Option<&
         load_ms: None,
         total_ms: None,
         output_tokens: None,
+        resident_bytes: None, // sampled at the emit site, not in this pure constructor
         reasoning_tokens: None,
         context_used: None,
         context_window: None,
@@ -529,6 +535,7 @@ fn byo_report(diag: &DiagnosticStats) -> AgenticReport {
         safety: None,
         output_tokens_total: 0,
         diagnostic: Some(diag.clone()),
+        wall_ms: None, // diagnostic adapter — not a timed Pass^k batch
     }
 }
 
@@ -589,7 +596,6 @@ fn byo_column(model: &str, backend: BackendKind, diag: &DiagnosticStats, success
         agentic_native_fc: None,
         error: None,
         is_thinking: false,
-        cpu_offloaded: false,
-        ctx_ceiling: None,
+        ..Default::default()
     }
 }

@@ -584,6 +584,7 @@ fn ollama_version_makes_a_native_garble_diagnosable_on_the_report() {
             is_thinking: false,
             cpu_offloaded: false,
             ctx_ceiling: None,
+            ..Default::default()
         }],
     };
     let round: BatchReport = serde_json::from_str(&serde_json::to_string(&report).unwrap()).unwrap();
@@ -637,6 +638,7 @@ async fn live_diag_app_native_pass_for_gemma4() {
             is_thinking: false,
             cpu_offloaded: false,
             ctx_ceiling: None,
+            ..Default::default()
         }],
     };
     let sink = Arc::new(CountingSink::default());
@@ -965,4 +967,25 @@ async fn schema_resil_live_none_iff_zero_schema_errors() {
         "prompt: schema_resilience None must mean exactly zero schema errors (got resil={:?}, errors={})",
         prompt.schema_resilience, p_err,
     );
+}
+
+/// OOM classification is deliberately narrow: the strings local backends actually emit
+/// classify true; an ambiguous infra error (5xx, dropped connection) must NOT claim OOM.
+#[test]
+fn oom_classification_matches_real_backend_strings_and_nothing_else() {
+    assert!(is_oom_message("llama runner process has terminated: CUDA error: out of memory"));
+    assert!(is_oom_message("Metal: kIOGPUCommandBufferCallbackErrorOutOfMemory"));
+    assert!(is_oom_message("Not enough memory to run this model."));
+    assert!(!is_oom_message("HTTP 500 from /api/chat"));
+    assert!(!is_oom_message("connection reset by peer"));
+    assert!(!is_oom_message("request timed out"));
+}
+
+/// `wall_ms` is a batch-layer stamp: `from_outcomes` must never fabricate one, and the
+/// builder carries the measured value onto the report (same pattern `with_tier` uses).
+#[test]
+fn wall_ms_is_stamped_by_the_builder_never_fabricated() {
+    let report = AgenticReport::from_outcomes(&[]);
+    assert_eq!(report.wall_ms, None, "no clock ran → no wall time, never a fabricated 0");
+    assert_eq!(report.with_wall_ms(1234).wall_ms, Some(1234));
 }

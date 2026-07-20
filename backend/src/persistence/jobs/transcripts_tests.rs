@@ -19,6 +19,7 @@ fn step(run_index: u32, step_index: u32, raw: &str) -> TrajectoryStep {
         load_ms: None,
         total_ms: None,
         output_tokens: None,
+        resident_bytes: None,
         reasoning_tokens: None,
         context_used: None,
         context_window: None,
@@ -37,7 +38,7 @@ fn a_transcript_round_trips_steps_then_outcome_in_order() {
     begin_task(&path).unwrap();
     append_step(&path, &step(0, 0, r#"{"name":"get_order","args":{"id":"O-1"}}"#)).unwrap();
     append_step(&path, &step(0, 1, r#"{"name":"full_refund","args":{"order_id":"O-1"}}"#)).unwrap();
-    append_outcome(&path, &TaskOutcome::Error { message: "boom".into() }).unwrap();
+    append_outcome(&path, &TaskOutcome::Error { message: "boom".into(), oom: false }).unwrap();
 
     let recs = lines(&path);
     assert_eq!(recs.len(), 3, "two steps + one outcome");

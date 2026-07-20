@@ -332,6 +332,22 @@ preset)` for a reasoning model). The runner also populates each step's `reasonin
 from the measured generated-token count on a thinking turn (not just on a `Truncated`/
 `ReasoningOverrun` turn), so the Trace Debugger can sum "how much it thought" per run.
 
+**Run-cost + config stamp (Inspector Test-run view).** `BatchColumn` additionally carries the
+measured weight placement from the same `/api/ps` probe — `weights_total_bytes` /
+`weights_vram_bytes` / `offload_bytes` (= size − size_vram, the CPU-spill QUANTITY behind the
+`cpu_offloaded` bool) — plus `quantization_claimed` (the tag's assertion from `/api/ps`
+`details.quantization_level`, junk values "unknown"/"" dropped, never verified truth) and
+`kv_cache_type` ("f16" | "q8_0" from the stored `LaunchPlan`; `None` for an externally-started
+llama-server — its flags are unknowable). `AgenticReport.wall_ms` is the batch-layer-measured
+wall clock of the whole Pass^k batch (model + sandbox/world time; per-turn server timings can't
+provide it). `TaskOutcome::Error` carries `oom: bool`, classified ONCE by `is_oom_message`
+(narrow: "out of memory"/"OutOfMemory"/"not enough memory" — an ambiguous infra error never
+claims OOM). Each streamed `TrajectoryStep` gets `resident_bytes` stamped by the batch SINK
+(`TauriBatchSink`/the BYO emit closure, via `process_memory::backend_rss`) — whole-process RSS
+of the local server at step END, `None` for remote backends; the generation layer stays
+host-free. `BatchColumn` derives `Default` so constructors close with `..Default::default()`
+and new stamped facts land everywhere without touching every literal.
+
 ### File: `mod.rs`
 - Declares `build, context, endstate, model_turn, report, runner, sandbox, spec, step`.
 
