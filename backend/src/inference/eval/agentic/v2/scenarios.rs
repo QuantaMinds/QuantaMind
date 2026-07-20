@@ -137,6 +137,49 @@ mod tests {
         }
     }
 
+    /// A glob literal segment containing an alnum_alnum snake_case token — a raw enum a
+    /// natural-language reply will never contain verbatim.
+    fn has_snake_token(seg: &str) -> bool {
+        let c: Vec<char> = seg.chars().collect();
+        c.windows(3).any(|w| w[0].is_alphanumeric() && w[1] == '_' && w[2].is_alphanumeric())
+    }
+
+    /// Customer-facing reply checkpoints must accept NATURAL phrasing: a text glob whose
+    /// segment demands a raw snake_case token (`*in_transit*`) can never be satisfied by
+    /// a truthful human reply ("your order is in transit"), so the run burns to the step
+    /// cap and the verdict false-labels a correct model InfiniteLoop / FakeDone — the
+    /// exact es_cs_check_order_status bug. Author them segmented (`*in*transit*`).
+    /// Scoped to `reply_customer` (customer-facing prose): dev-facing reporters (e.g.
+    /// coding's `reply`) legitimately require code identifiers echoed verbatim.
+    #[test]
+    fn customer_reply_globs_accept_natural_phrasing() {
+        for (id, json) in V2_SCENARIOS {
+            for t in load_v2_collection(json).unwrap() {
+                let spec = t.agentic.as_ref().unwrap();
+                let cps: Vec<&TaskCheckpoint> = match &spec.end_state {
+                    EndStateRule::RequireAll(c) | EndStateRule::RequireSequence(c) => c.iter().collect(),
+                    _ => Vec::new(),
+                };
+                for cp in cps.into_iter().filter(|cp| cp.tool == "reply_customer") {
+                    let texts: Vec<&str> = match &cp.args {
+                        Value::Object(o) => o.values().filter_map(|v| v.as_str()).collect(),
+                        Value::String(s) => vec![s.as_str()],
+                        _ => Vec::new(),
+                    };
+                    for pat in texts.into_iter().filter(|s| s.contains('*')) {
+                        for seg in pat.split('*') {
+                            assert!(
+                                !has_snake_token(seg),
+                                "{id}/{}: reply_customer glob '{pat}' demands raw token '{seg}' — a natural reply can't match; segment it (e.g. '*in*transit*')",
+                                t.id
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// A9 oracle gate: an agent that replays a task's expected_calls (substituting a
     /// wildcard-satisfying value for each `*…*` arg, and retrying through transient
     /// faults) must reach the end state on EVERY authored task — the per-collection
