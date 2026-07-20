@@ -325,6 +325,24 @@ export function ContextCliffPanel() {
         </div>
       </div>
 
+      {/* ── Equivalent CLI command — up top, right under the collection select (the same
+          placement as Run History's preview), so the command is seen before the run. ── */}
+      <div style={{ padding: "0 20px 10px" }}>
+        <CliCommandPreview
+          testId="cliff-cli-preview"
+          cmd={buildCliffCommand({
+            backend: selected?.backend ?? "ollama",
+            model: selected?.name ?? null,
+            collection: active,
+            maxTokens,
+            steps: testSteps,
+            source: preset,
+            native: method === "native_fc",
+            params: globalParams,
+          })}
+        />
+      </div>
+
       {/* ── Error (a backend failure is shown, never a silent blank chart) ── */}
       {error && (
         <div style={{ padding: "0 20px 8px" }}>
@@ -841,19 +859,6 @@ export function ContextCliffPanel() {
         >
           {running ? "■ Stop Probe" : "Execute Probe"}
         </button>
-        <CliCommandPreview
-          testId="cliff-cli-preview"
-          cmd={buildCliffCommand({
-            backend: selected?.backend ?? "ollama",
-            model: selected?.name ?? null,
-            collection: active,
-            maxTokens,
-            steps: testSteps,
-            source: preset,
-            native: method === "native_fc",
-            params: globalParams,
-          })}
-        />
       </div>
     </div>
   );

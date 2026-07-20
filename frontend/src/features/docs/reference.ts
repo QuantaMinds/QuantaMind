@@ -518,8 +518,8 @@ export const REFERENCE_SECTIONS: ReferenceSection[] = [
       },
       {
         id: "cli-doctor",
-        heading: "Workspace page ⇄ qm doctor — is anything runnable?",
-        what: "The Workspace's 'Ollama is not running' card, as a command: probes all five backends (Ollama :11434, llama.cpp :8081/:8080, MLX :8082, vLLM :8000, SGLang :30000) for reachability, served models, credentials, native tool-calling, and version.",
+        heading: "Setup ⇄ qm doctor — is anything runnable?",
+        what: "The first-run health check (the same probe behind the 'Ollama is not running' card): probes all five backends (Ollama :11434, llama.cpp :8081/:8080, MLX :8082, vLLM :8000, SGLang :30000) for reachability, served models, credentials, native tool-calling, and version.",
         why: "The first-run wall is step 1 — a backend that's up but has zero models pulled looks green everywhere else. Doctor's bar is RUNNABLE (reachable + has a model + credential OK), not merely reachable, so `qm doctor && qm run` gates correctly in scripts.",
         how: "Every failure prints the exact fix command, never runs it: a down server → '[QM-BACKEND-UNREACHABLE] … start it: ollama serve'; a reachable-but-empty server → '[QM-NO-MODELS] … ollama pull MODEL'; a rejected key → '[QM-UNAUTHORIZED] check QM_API_KEY'; a key over plain http is WITHHELD ('[QM-INSECURE-KEY]'). `--json` puts the machine-readable report alone on stdout (fix lines go to stderr, so piping to jq never breaks).",
         formula: "SYNOPSIS\n  qm doctor [--backend BACKEND] [--base URL] [--model MODEL] [--json]\n\nPLACEHOLDERS\n  BACKEND  one of: ollama | llama_cpp | mlx | vllm | sglang (omit = scan all five)\n  URL      endpoint override for the targeted backend (env QM_BASE)\n  MODEL    also probe native tool-calling for this model (env QM_MODEL)\n\nEXIT STATUS\n  0  at least one backend is RUNNABLE     3  nothing runnable\n  2  bad arguments\n\nEXAMPLES\n  qm doctor\n  qm doctor --backend ollama --model qwen2.5:3b\n  qm doctor --json | jq '.backends[0]'",
@@ -527,12 +527,40 @@ export const REFERENCE_SECTIONS: ReferenceSection[] = [
       },
       {
         id: "cli-init",
-        heading: "Workspace page ⇄ qm init — zero-config first run",
+        heading: "Setup ⇄ qm init — zero-config first run",
         what: "Auto-detects the first runnable backend, writes a non-secret `qm.json` (backend, model, collection, profile), then runs the suite — install → real verdict in one command.",
         why: "The fastest path from nothing to a verdict; afterwards a bare `qm run` needs zero flags because it reads `qm.json`.",
         how: "Detection reuses the doctor scan. If nothing is runnable it exits 3 with '[QM-NO-RUNNABLE] … run `qm doctor`'. The file never stores an API key (keys stay in env/keychain).",
         formula: "SYNOPSIS\n  qm init [--json]\n\nFILES\n  ./qm.json   { \"backend\", \"model\", \"collection\", \"profile\" } — no secrets\n\nEXIT STATUS\n  follows the verdict: 0 Ready · 10 Conditional · 20 NotReady · 3 nothing runnable\n\nEXAMPLE\n  qm init && echo \"model is agent-ready\"",
         source: "backend/src/cli/init/",
+      },
+      {
+        id: "cli-tests-map",
+        heading: "Tests page sidebar ⇄ CLI flags — every control, one flag",
+        what: "The full map from the Tests page's left sidebar to the CLI. Every control maps to exactly one flag, and the COLLECTION KIND picks the command: a built-in id runs `qm run`, a custom collection file or an MCP world file runs `qm test`.",
+        why: "The sidebar and the CLI drive the same engine with the same knobs — once you know this mapping you can reproduce any UI batch in a terminal or CI verbatim, with nothing renamed and nothing missing.",
+        how: "Three collection kinds, three examples below. Built-in: pass the id (easy-coding, medium-coding, …). Custom: export your collection to a .json file and pass its path. MCP world: pass the world .json the MCP builder authors — it is validated automatically before any model runs (see qm validate). Everything else is one flag per sidebar control.",
+        formula:
+          "UI control (sidebar)          CLI flag\n" +
+          "───────────────────────────   ──────────────────────────────────────────\n" +
+          "Collection — built-in         qm run  --collection easy-coding\n" +
+          "Collection — custom file      qm test --collection ./my_suite.json\n" +
+          "Collection — MCP world file   qm test --collection ./worlds.json\n" +
+          "Target model                  --model MODEL   (one model per CLI run)\n" +
+          "Iterations (k)                --k N\n" +
+          "Max Steps                     --max-steps N\n" +
+          "Enable Decoy Tools + count    --decoy N\n" +
+          "Native FC / Prompt-based      --mode native | prompt_based | both\n" +
+          "Thinking Budget               --thinking lean | standard | deep\n" +
+          "Tier                          --tier easy | medium | hard | extreme\n" +
+          "Global params (gear ⚙)        --temperature · --top-p · --top-k · --num-predict\n" +
+          "                              --repeat-penalty · --seed · --num-ctx\n" +
+          "\n" +
+          "EXAMPLES (copy-paste, then swap MODEL)\n" +
+          "  qm run  --backend ollama --model MODEL --collection easy-coding --k 5 --max-steps 8\n" +
+          "  qm test --backend ollama --model MODEL --collection ./my_suite.json --mode both --k 3\n" +
+          "  qm test --backend ollama --model MODEL --collection ./worlds.json   # MCP world",
+        source: "frontend/src/shared/cli/qmCommand.ts (buildRunCommand) · backend/src/cli/run/",
       },
       {
         id: "cli-run",
@@ -566,7 +594,7 @@ export const REFERENCE_SECTIONS: ReferenceSection[] = [
         heading: "Agent Report page ⇄ qm report — one run, many bars, offline",
         what: "Re-assesses a SAVED run (written by `run`/`test --save-report`) against a readiness profile — the Agent Report's verdict card, from the terminal, with no backend and no re-inference.",
         why: "Hold one measurement up to many bars in milliseconds: the same run can be Ready under a lenient dev profile and NotReady under a strict launch gate — the profile is the policy, the run is the fact.",
-        how: "`--profile` takes a built-in id or your own ReadinessProfile JSON (min_pass_k, forbid_infinite_loop, forbid_hallucinated_completion, require_native_fc, required_tier easy|medium|hard|extreme, …). Prints the same verdict card as `run`: status, pass^k, run tally, and the exact ✗/! reasons. Exits on the verdict, subject to --fail-on.",
+        how: "`--profile` takes a built-in id or your own ReadinessProfile JSON — the file carries EVERY threshold the Agent Report page shows: min_pass_k (Pass^k), forbid_infinite_loop (Infinite Loops), forbid_hallucinated_completion (Fake-Done), require_native_fc (Native FC), require_full_vram (Full VRAM), max_avg_steps (Max Steps), min_context_tokens (Min Context), max_ms_per_step (Max Latency), required_tier. The page's Equivalent-CLI preview writes that JSON for you with the exact thresholds currently active, so the CLI grades the same bar. Prints the same verdict card as `run`: status, pass^k, run tally, and the exact ✗/! reasons. Exits on the verdict, subject to --fail-on.",
         formula: "SYNOPSIS\n  qm report --report FILE [--profile PROFILE] [--fail-on POLICY]\n            [--junit PATH] [--json]\n\nPLACEHOLDERS\n  FILE     a saved raw report from `qm run … --save-report FILE`\n  PROFILE  built-in id or a ReadinessProfile .json (your own bar)\n\nEXAMPLES\n  qm run --model qwen2.5:3b --save-report run.json   # measure once\n  qm report --report run.json --profile general-agent\n  qm report --report run.json --profile ./strict.json --fail-on notready",
         source: "backend/src/cli/run/ (assess_saved)",
       },
