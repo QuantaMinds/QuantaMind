@@ -42,20 +42,29 @@ export function TaskMetricsCard({
   steps,
   cost,
   outcome,
+  native = false,
 }: {
   taskId: string;
   steps: TrajectoryStep[];
   cost: TaskCost;
   outcome: TaskOutcome | undefined;
+  /// This card shows the NATIVE tool-calling pass. Tagged, never blended with the
+  /// prompt pass — the two are different eval methods and their costs must stay
+  /// separately attributable (metric-comparability rule).
+  native?: boolean;
 }) {
   const badge = outcomeBadge(outcome);
   const wallMs = outcome?.kind === "agentic" ? outcome.report.wall_ms : null;
   const modelSteps = steps.filter((s) => s.prefill_ms != null || s.eval_ms != null);
   const maxStepMs = Math.max(1, ...modelSteps.map((s) => (s.prefill_ms ?? 0) + (s.eval_ms ?? 0)));
   return (
-    <div className="border border-slate-200 rounded-lg p-3 space-y-3" data-testid={`eval-task-card-${taskId}`}>
+    <div
+      className="border border-slate-200 rounded-lg p-3 space-y-3"
+      data-testid={`eval-task-card-${taskId}${native ? "-native" : ""}`}
+    >
       <div className="flex items-center gap-2">
         <span className="text-sm font-semibold text-slate-800">{taskId}</span>
+        {native && <span className="text-xs px-2 py-0.5 rounded-full bg-violet-100 text-violet-700">native FC</span>}
         <span className={`text-xs px-2 py-0.5 rounded-full ${badge.cls}`}>{badge.text}</span>
         <span className="ml-auto text-xs text-gray-500">
           {cost.runs} run{cost.runs === 1 ? "" : "s"} · {cost.steps} step{cost.steps === 1 ? "" : "s"}

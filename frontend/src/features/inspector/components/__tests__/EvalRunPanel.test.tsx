@@ -66,6 +66,32 @@ describe("EvalRunPanel", () => {
     expect(card.textContent).not.toContain("0 tok");
   });
 
+  it("a NATIVE-only run renders its trajectory — the live-smoke regression", () => {
+    // Reproduces the 2026-07-20 smoke finding: a native-FC run streams ONLY into the
+    // native slices; the panel showed 'Running… · 0 steps' + all-Not-available because
+    // it read the prompt slices alone. Native data must render, tagged as native.
+    useBatchStore.setState({
+      collectionId: "easy-research-search",
+      tasksByModel: { "qwen3.5:9b": ["es_rs_search_fact"] },
+      stepsByKey: {},
+      outcomeByKey: {},
+      nativeStepsByKey: {
+        [cellKey("qwen3.5:9b", "es_rs_search_fact")]: [
+          // Field values from the real on-disk transcript of that smoke run.
+          step({ prefill_tokens: 482, prefill_ms: 3947, eval_ms: 7145, load_ms: 6376, total_ms: 17701, output_tokens: 74, resident_bytes: 8_023_867_392 }),
+        ],
+      },
+      nativeOutcomeByKey: {},
+    });
+    render(<EvalRunPanel />);
+    const card = screen.getByTestId("eval-task-card-es_rs_search_fact-native");
+    expect(card.textContent).toContain("native FC");
+    expect(card.textContent).toContain("74"); // output tokens actually shown
+    expect(card.textContent).not.toContain("0 runs · 0 steps");
+    // The memory panel takes its RSS peak across BOTH passes.
+    expect(screen.getByTestId("eval-memory-panel").textContent).toContain("7.5GB");
+  });
+
   it("an OOM task error surfaces the red OOM badge and the ceiling answer block", () => {
     useBatchStore.setState({
       collectionId: "hard-support",
