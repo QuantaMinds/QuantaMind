@@ -47,7 +47,9 @@ fn concretize(v: &Value) -> Value {
     match v {
         Value::Object(o) => Value::Object(o.iter().map(|(k, x)| (k.clone(), concretize(x))).collect()),
         Value::String(s) if s.contains('*') => {
-            let lit: String = s.split('*').filter(|p| !p.is_empty()).collect();
+            // Strip a leading `~` (unordered sigil) so the concretized value is the bare
+            // tokens joined — the ordered/unordered distinction is the matcher's job.
+            let lit: String = s.trim_start_matches('~').split('*').filter(|p| !p.is_empty()).collect();
             Value::String(if lit.is_empty() { "x".into() } else { lit })
         }
         other => other.clone(),

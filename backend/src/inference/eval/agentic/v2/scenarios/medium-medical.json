@@ -149,7 +149,7 @@
           "name": "reject_order",
           "args": {
             "patient": "P-2",
-            "reason": "*NSAID*allergy*"
+            "reason": "~*NSAID*allergy*"
           }
         },
         {
@@ -178,7 +178,7 @@
           "name": "reject_order",
           "args": {
             "patient": "P-3",
-            "reason": "*renal*warfarin*"
+            "reason": "~*renal*warfarin*"
           }
         }
       ],
@@ -388,7 +388,7 @@
           "name": "refer_specialist",
           "args": {
             "id": "P-3",
-            "reason": "*immunocompromised*live*"
+            "reason": "~*immunocompromised*live*"
           }
         }
       ],
@@ -588,7 +588,7 @@
           "name": "deny_referral",
           "args": {
             "id": "P-3",
-            "reason": "*EPO*network*"
+            "reason": "~*EPO*network*"
           }
         }
       ],

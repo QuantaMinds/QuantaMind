@@ -177,7 +177,7 @@
           "name": "log_rejection",
           "args": {
             "account": "AC-503",
-            "reason": "*Min*cap*"
+            "reason": "~*Min*cap*"
           }
         }
       ],

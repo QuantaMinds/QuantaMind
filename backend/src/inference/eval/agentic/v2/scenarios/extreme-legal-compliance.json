@@ -292,7 +292,7 @@
           "args": {
             "cohort": "cohort_EU",
             "decision": "*notify*",
-            "citation": "*GDPR*72*"
+            "citation": "~*GDPR*72*"
           }
         },
         {
@@ -389,7 +389,7 @@
           "args": {
             "cohort": "cohort_US_health",
             "decision": "*dual*",
-            "citation": "*HIPAA*GDPR*"
+            "citation": "~*HIPAA*GDPR*"
           }
         },
         {
@@ -430,7 +430,7 @@
           "args": {
             "cohort": "cohort_CA",
             "decision": "*notify*",
-            "citation": "*CCPA*500*"
+            "citation": "~*CCPA*500*"
           }
         }
       ],

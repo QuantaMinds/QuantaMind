@@ -147,7 +147,7 @@
           "name": "log_decision",
           "args": {
             "customer_id": "C-402",
-            "reason": "*SF*24*"
+            "reason": "~*SF*24*"
           }
         },
         {

@@ -734,6 +734,22 @@ reached in ~3 steps. (Authoring note: v2 checkpoints should glob tolerant string
 trivial convention difference; mismatches between a scenario's world_state hints and its
 checkpoint args otherwise read as model failures.)
 
+**Ordered vs UNORDERED multi-token globs (`match.rs`).** A `*A*B*` glob is *ordered* — it
+requires literal A strictly before B, left-to-right. That's correct when the tokens have a
+canonical order (`*Min tier*cap*`, `*test_total_with_tax*`), but it false-fails a correct
+model when the required factors have **no** canonical order — two regulations, two clinical
+contraindications. Prefix the pattern with `~` to make it *unordered* (`~*HIPAA*GDPR*`):
+every `*`-token must still be present (a strict AND — never weakens the "both named" bar),
+but in any order. Proven live: on `qwen2.5:3b` a determination-citation checkpoint written
+`*HIPAA*GDPR*` scored **0/5 (InfiniteLoop)** — the model always cited "GDPR and HIPAA", the
+inverted order — while `~*HIPAA*GDPR*` scored **5/5**. `is_unordered()` gates the branch on
+the `~` prefix, so every existing `*…`/literal pattern keeps ordered semantics untouched;
+the sigil is stripped by the oracle's `concretize` helpers and skipped by the grounding
+guards (its 1-char segment is below their length floor). Applied to the 9 order-arbitrary
+reason/citation globs in medium (`~*renal*warfarin*`, `~*NSAID*allergy*`,
+`~*immunocompromised*live*`, `~*EPO*network*`, `~*SF*24*`, `~*Min*cap*`) and extreme
+(`~*HIPAA*GDPR*`, `~*GDPR*72*`, `~*CCPA*500*`).
+
 #### Cancellation
 
 **Four layers, checked from coarse to fine — Stop Batch lands as soon as the FINEST-grained
