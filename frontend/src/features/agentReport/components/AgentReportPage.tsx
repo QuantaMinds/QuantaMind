@@ -321,9 +321,12 @@ export function AgentReportPage() {
 
           </div>
 
-          {selectedProfileId && (
+          {/* The command carries the ACTIVE profile's full thresholds (via a written
+              profile.json) — a bare --profile id would grade on the CLI's built-in
+              defaults and silently diverge from an edited profile. */}
+          {activeProfile && (
             <div className="mt-2">
-              <CliCommandPreview testId="report-cli-preview" cmd={buildReportCommand({ profile: selectedProfileId })} />
+              <CliCommandPreview testId="report-cli-preview" cmd={buildReportCommand(activeProfile)} />
             </div>
           )}
 

@@ -93,10 +93,34 @@ describe("buildCliffCommand", () => {
 });
 
 describe("buildReportCommand", () => {
-  it("uses an honest run.json placeholder + the step to produce it (the UI has no path)", () => {
-    const c = buildReportCommand({ profile: "coding-agent" });
-    expect(c.command).toBe("qm report --report run.json --profile coding-agent");
+  const profile = {
+    id: "coding-agent",
+    name: "Coding Agent",
+    min_pass_k: 0.9,
+    max_avg_steps: 8,
+    max_ms_per_step: null,
+    min_context_tokens: 16000,
+    forbid_infinite_loop: true,
+    forbid_hallucinated_completion: true,
+    require_full_vram: false,
+    require_native_fc: true,
+    required_tier: "medium",
+  };
+
+  it("writes a profile.json carrying EVERY page threshold, then grades against it", () => {
+    const c = buildReportCommand(profile);
+    // The chain: write the exact thresholds → re-assess the saved run against them.
+    const m = c.command.match(/^printf '%s' '(.*)' > profile\.json && qm report --report run\.json --profile profile\.json$/);
+    expect(m).not.toBeNull();
+    // Every threshold the page shows is in the emitted JSON, verbatim.
+    expect(JSON.parse(m![1])).toEqual(profile);
     expect(c.note).toMatch(/--save-report/);
+  });
+
+  it("omits required_tier when the profile has none (old profiles stay valid)", () => {
+    const { required_tier: _drop, ...noTier } = profile;
+    const c = buildReportCommand(noTier);
+    expect(c.command).not.toContain("required_tier");
   });
 });
 

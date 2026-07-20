@@ -655,7 +655,10 @@ prompt + per-position model output, "needle at N%"). Read-out maps the verdict t
 **"Cliff detected — context-token depth not reported"** — it never falls through to a
 non-cliff message, and never substitutes a different rung's depth as if it were the
 cliff's (no fake precision). Execute is greyed without a model + tasks; while running
-it becomes Stop.
+it becomes Stop. The **Equivalent CLI command** preview (`CliCommandPreview` +
+`buildCliffCommand`) sits at the **top of the panel, right under the collection
+select** — the same placement as Run History's preview on the Audit page — so the
+`qm cliff` command is visible before the run, live-updating with every control.
 
 ### ContextCliffChart.tsx — accuracy-vs-depth (visx)
 

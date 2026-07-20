@@ -305,6 +305,10 @@ bar you name. No inference, no endpoint.
   "require_full_vram": false, "require_native_fc": false, "required_tier": "easy" }
 ```
 
+The desktop app's **Agent Report** page writes this file for you: its "Equivalent CLI command"
+preview emits a `printf '{…}' > profile.json && qm report …` chain carrying the exact thresholds
+active on the page — so the CLI verdict always matches the page, even for an edited profile.
+
 ### Example — one run, two bars
 ```
 $ qm report --report run.json --profile general-agent    # min_pass_k 0.6

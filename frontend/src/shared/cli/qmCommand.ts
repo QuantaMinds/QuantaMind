@@ -153,13 +153,47 @@ export function buildRunHistory(o: {
   };
 }
 
-/// Agent Report page ⇄ `qm report`. The UI re-assesses the last SAVED run on disk;
-/// the CLI needs that run's file, which the UI never exposes — so show an honest
-/// `<run>.json` placeholder + the step to produce it.
-export function buildReportCommand(o: { profile: string }): QmCommand {
+/// The threshold fields of a readiness profile, as the CLI's `--profile` JSON expects
+/// them (a mirror of the Rust `ReadinessProfile`; `required_tier` is optional).
+export interface ReportProfile {
+  id: string;
+  name: string;
+  min_pass_k: number;
+  max_avg_steps: number | null;
+  max_ms_per_step: number | null;
+  min_context_tokens: number | null;
+  forbid_infinite_loop: boolean;
+  forbid_hallucinated_completion: boolean;
+  require_full_vram: boolean;
+  require_native_fc: boolean;
+  required_tier?: string;
+}
+
+/// Agent Report page ⇄ `qm report`. Two honesty gaps to close: (1) the UI re-assesses
+/// the last SAVED run on disk and never exposes that file — so show an honest
+/// `run.json` placeholder + the step to produce it; (2) the page's profile may be
+/// EDITED (its Pass^k / Infinite-Loops / Fake-Done / Native-FC / Max-Steps chips),
+/// while a bare `--profile <id>` would grade on the CLI's built-in defaults — a
+/// silently different verdict. So the command writes a `profile.json` carrying the
+/// exact thresholds shown on the page, and grades against THAT.
+export function buildReportCommand(p: ReportProfile): QmCommand {
+  // Field order fixed here (not object-iteration order) so the emitted JSON is stable.
+  const json = JSON.stringify({
+    id: p.id,
+    name: p.name,
+    min_pass_k: p.min_pass_k,
+    max_avg_steps: p.max_avg_steps,
+    max_ms_per_step: p.max_ms_per_step,
+    min_context_tokens: p.min_context_tokens,
+    forbid_infinite_loop: p.forbid_infinite_loop,
+    forbid_hallucinated_completion: p.forbid_hallucinated_completion,
+    require_full_vram: p.require_full_vram,
+    require_native_fc: p.require_native_fc,
+    ...(p.required_tier != null ? { required_tier: p.required_tier } : {}),
+  });
   return {
-    command: `qm report --report run.json ${flag("profile", o.profile)}`,
-    note: "produce run.json first: qm run … --save-report run.json (the app re-assesses your last saved run).",
+    command: `printf '%s' ${shellQuote(json)} > profile.json && qm report --report run.json --profile profile.json`,
+    note: "profile.json pins every threshold shown above (pass^k, loops, fake-done, native-FC, max steps…), so the CLI grades the exact same bar as this page. Produce run.json first: qm run … --save-report run.json.",
   };
 }
 
