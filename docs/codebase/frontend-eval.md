@@ -42,8 +42,8 @@ heavy report lands once on completion. Crash-recovery (`check_unfinished_run` �
 | Panel / group | Shows | IPC command(s) | Store |
 |---|---|---|---|
 | **EvalPage** | The Eval-tab layout (Manager + Scoreboard + TraceDebugger + PerformanceMatrix) | — (orchestrates) | all four |
-| **EvalManager** | Difficulty-tier–filtered collection picker, model, editable k / maxSteps, native-FC toggle, **Thinking-Budget preset** (Lean/Standard/Deep — fixed presets, not a slider, so verdicts stay reproducible; shows the resolved per-tier token number, threaded to `run_batch_eval` as `thinkPreset` and stamped on the verdict), Run/Stop, New Collection/Import/Export/Validate | `run_batch_eval` / `stop_batch_eval` (via `useBatchRun`) | `evalRegistryStore`, `batchStore` |
-| **MatrixScoreboard** ("Simulator") | Per-task Pass/Fail/Partial table + live progress (read-only; authoring lives in the sidebar) | reads streamed events | `batchStore`, `evalRegistryStore` |
+| **EvalManager** | Difficulty-tier–filtered collection picker, model, editable k / maxSteps, native-FC toggle, **Thinking-Budget preset** (Lean/Standard/Deep — fixed presets, not a slider, so verdicts stay reproducible; shows the resolved per-tier token number, threaded to `run_batch_eval` as `thinkPreset` and stamped on the verdict), **single-task selection** (see below), Run/Stop, New Collection/Import/Export/Validate | `run_batch_eval` / `stop_batch_eval` (via `useBatchRun`) | `evalRegistryStore`, `batchStore` |
+| **MatrixScoreboard** ("Simulator") | Per-task Pass/Fail/Partial table + live progress (read-only; authoring lives in the sidebar). Scopes to a single task's row + aggregate when `runTaskId` is set | reads streamed events | `batchStore`, `evalRegistryStore` |
 | **TraceDebugger** ("Evaluator") | One (model,task) pipeline: Config→System→Stream→Verify + agentic step timeline | reads cached outcome/steps | `batchStore`, `evalRegistryStore` |
 | **PerformanceMatrix** | One row per model: Pass^k, native FC, avg-steps, effort, **Tokens/Task** (T* — total tokens ÷ completions, incl. failed-run waste; ≥ Effort), schema-resil, **context limit**, top-error. Renders **BoundaryPanel** below the matrix when the collection carries Category-K tasks | reads `report`; pre-fills cliff | `batchStore`, `cliffStore` |
 | **BoundaryPanel** *(Category K)* | Per config: resistance + over-refusal (over decisive benign runs; capability-failed runs shown as excluded; honest em-dash when an arm didn't decide), Pass/Fail/Inconclusive gate, model/config/unattributed attribution split, per-vector breakdown, and the static-set caveat (rendered prominently). Kept off the capability axis | reads `AggAgentic.boundary` off `report` | — |
@@ -294,8 +294,18 @@ events/sec; naïve `set()` per event would thrash React.
 
 **Shape.** `report` (heavy per-model Matrix, null until `batch-complete`),
 `outcomeByKey` (terminal `TaskOutcome` per `cellKey(model,taskId)`), `stepsByKey`
-(live `TrajectoryStep[]` per cell), `tasksByModel`, `progress {done,total}`,
-`flushes`, `error`, `running`, `stopping`.
+(live `TrajectoryStep[]` per cell), `tasksByModel`, `collectionId` (the run's
+collection, read off the stamped `collection_id` on the events — the Latency page's
+Test-run view binds to it), `progress {done,total}`, `flushes`, `error`, `running`,
+`stopping`.
+
+**taskCost.ts.** Pure derivation over one cell's `TrajectoryStep[]` → `TaskCost`:
+prefill/eval ms + token sums over all Pass^k runs, `cacheHitTokensTotal` (llama.cpp
+`cache_n` only — null on Ollama/MLX renders "Not available", never 0),
+`kvTokensMeasured` (picks the KV honesty tier: "computed from measured tokens" vs
+"estimated"), `peakContextTokens` (max single-run occupancy — sizes the KV headline),
+and `maxStepEndRssBytes` (max of step-END samples — NOT a true in-step peak, and
+whole-process, never a per-task delta). Every field null when nothing reported it.
 
 **`stopping`.** True from `beginStop()` until the run actually ends (`complete(...,
 final=true)` or `setError`) — a THIRD state alongside `running`, not a rename of it.
@@ -504,6 +514,16 @@ Ollama models whose `/api/show` lists the `tools` capability). The `ⓘ` on Top
 Error portals the full failure breakdown (Loop Cap / Fake Done / Bad Schema /
 Malformed). Clicking a row → `onFocusModel` (scrolls the detail panels up).
 
+**Schema-Resil. three states** (`getSchemaResilBadge`). Schema resilience is a
+recovery rate `recovered / hit` (backend `report.rs`), so it is `null` when **no
+call ever failed schema validation** — a *good* result, not a missing one. To keep
+that legible without a hover, the badge renders **`✓ clean`** (green chip + tooltip)
+when the run happened and hit zero schema errors (`schemaResilNote` is set), a real
+**percent** chip when there were errors to recover from, and only a **bare `—`** when
+the metric was genuinely *not measured* (single-turn / errored column — no note). The
+`✓ clean` label is deliberately **not** a fabricated `100%`: there was no denominator,
+so it says "clean", not a rate.
+
 ### MatrixScoreboard.tsx — the per-task table ("2. The Simulator")
 
 Per the **focused** model: an `aggregate(byKey)` helper computes pass-rate / avg-steps /
@@ -517,7 +537,10 @@ live progress bar (`progress.done/total`) and a task table follow. Each row's Re
 `Partial p/total`** ("unreliable, not a clean pass"). Row click sets `focusedTaskId` →
 drives `TraceDebugger`. Collapsible.
 Read-only — per-task Edit/Delete live in the sidebar (`EvalManager`), not here. Header
-chips echo the run shape (`Tier · K · Decoys`).
+chips echo the run shape (`Tier · K · Decoys`, plus `Task: <id>` when a single task is
+scoped). When the `runTaskId` prop is set, the whole board (rows **and** the aggregate)
+filters to that one task via `collectionTasks.filter` — a stale id not in the collection
+falls back to the full board rather than rendering blank.
 
 ---
 
@@ -557,8 +580,10 @@ The built-in collection list is **filtered to the chosen tier** (the data-source
 now inside the Collections section, still switches built-in/custom). **Clicking a collection** expands/collapses its task list beneath it (accordion,
 `expandedId` state; click also `select`s it; `collectionRow` → `renderTasks`, shown when
 `expandedId === selected`).
-Each task row reveals **Edit** (`onEditTask`) + **Delete** (`onDeleteTask`) on hover —
-wired from `EvalPage` (this replaced the scoreboard buttons and the old collection-level "Edit").
+Each task row is **click-to-select** (scopes the run to that one task — see below) and
+reveals **Edit** (`onEditTask`) + **Delete** (`onDeleteTask`) on hover — wired from `EvalPage`
+(this replaced the scoreboard buttons and the old collection-level "Edit"). The Edit/Delete
+buttons `stopPropagation` so they never toggle the selection.
 **+ New Collection** + **Import JSON/CSV** sit at the end of the collection list; Export
 is at the bottom. The Decoy control carries an `InfoButton` (`TOOL_HELP.decoys`). Run is
 disabled without a model + tasks. Delete-collection differs: presets are *hidden*
@@ -570,6 +595,27 @@ Run↔Stop via `handleRunBatch`). Stopping (`batchStore.stopping`, set the insta
 Stop is clicked) → muted, disabled **■ STOPPING…** with a "finishing the current
 step" hint, so the click has immediate visible feedback even though the backend
 may take a few seconds to actually halt (see `useBatchRun.ts` above).
+
+**Single-task runs (Built-In · Custom · MCP).** Clicking a task row in the
+sidebar **selects just that task** (`runTaskId`, owned by `EvalPage`; ◉/◯ marker,
+click again to clear back to the whole collection). With one task scoped:
+- the button reads **▶ RUN TASK** / **■ STOP TASK** (`singleTaskScope`);
+- `handleRunBatch` filters `runTasks` to `[the one task]` — the backend runs
+  exactly the tasks it's handed (`batch_cmd.rs` uses the passed `tasks`, not a
+  reload from `collection_id`), so **all other levers (k, Max Steps, decoys,
+  thinking budget, global params, model, native/prompt method) apply unchanged**;
+- the **Simulator** scopes its rows + aggregate to that task (`MatrixScoreboard`'s
+  `runTaskId` prop), the **Evaluator** previews it (`EvalPage` sets `focusedTaskId`),
+  and **Model Results** naturally shows the single-task summary (it's derived from
+  the `report`, which now covers only that task);
+- the CLI-equivalent preview is replaced by an honest note — `qm run`/`qm test`
+  run whole collections, so a single-task run is a UI-only convenience, never a
+  faked whole-collection command.
+MCP already scopes by its own highlighted task (`selectedMcpTask`); the button
+rename covers it too. A single-task selection is dropped when the collection or
+data-source changes (a different collection has different task ids). Because only
+a subset of the collection ran, `verified_collection_hash` returns `None`, so a
+single-task run is **not publishable** — correct: it isn't the whole collection.
 
 **The k pre-fill guard (EvalPage owns it).** `k` is always editable and pre-filled
 with the chosen tier's `PASS_K_BY_TIER` recommendation, but the pre-fill is a
