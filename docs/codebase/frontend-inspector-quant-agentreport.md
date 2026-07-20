@@ -60,7 +60,7 @@ Eval batch ────▶ Quant      (score: pass-rate + tool-call spread per q
 
 | Surface | Key components | IPC command(s) | State store | Backend doc |
 |---|---|---|---|---|
-| **Latency** | `InspectorPage`, `ModelTimeline`, `TtftBreakdown`, `TokenTimeline`, `LatencyHistogram`, `ColdWarmPanel`, `RegressionAlert`, `LeakBanner`, `VramBar`, `ContextBudgetBar` | `get_hardware_snapshot`, `get_loaded_models`, `history_list`, (leak) process-RSS sampler | `compareStore` (rows), `leakStore` (RSS series), reads `cliffStore` | [prompt-workspace](./backend-prompt-workspace-system.md), [compare](./backend-compare.md) |
+| **Latency** | `InspectorPage`, `LatencyTimelines` (also reused under the Analysis tab), `ModelTimeline`, `TtftBreakdown`, `TokenTimeline`, `LatencyHistogram`, `ColdWarmPanel`, `RegressionAlert`, `LeakBanner`, `VramBar`, `ContextBudgetBar` | `get_hardware_snapshot`, `get_loaded_models`, `history_list`, (leak) process-RSS sampler | `compareStore` (rows), `leakStore` (RSS series), reads `cliffStore` | [prompt-workspace](./backend-prompt-workspace-system.md), [compare](./backend-compare.md) |
 | **Quant** | `QuantPage`, `quantPick`, `recommend`, `useVramFit`, `useQuantEval`, `useQuantToolcall` | `inspect_model`, `estimate_kv_cache_bytes`, `list_evals`+`run_eval_task`, `run_toolcall_eval`, `get_hardware_snapshot` | `installedModelsStore`, `selectedModelStore`, local hook state | [eval-engine](./backend-eval-engine.md), [models-hf-gguf](./backend-models-hf-gguf.md) |
 | **Agent Report** | `AgentReportPage`, `VerdictTable`, `RecommendationBanner`, `ExecutiveVerdict`, `TierProgressionMatrix`, `FailureTaxonomy`, `EditProfileModal`, `ExportMenu`, `StatusBadge` | `assess_readiness`, `list_readiness_profiles`, `save_readiness_profile`, `get_hardware_snapshot`, `get_hardware_tier`, `save_readiness_image` | `readinessStore`, reads `evalRegistryStore` | [eval-engine](./backend-eval-engine.md) |
 | **Publish** | `PublishButton`, `PublishDialog`, `WhatsSharedPanel`, `writeupLink` | `preview_publish_payload`, `publish_to_board`, `start_login` | none (passes `verdicts` through) | [publish](./backend-publish.md) |
@@ -169,13 +169,46 @@ a run's model in `/api/ps` results tolerating the `:latest` tag both ways.
 
 ### `components/InspectorPage.tsx`
 
-Reads `compareStore.rows` (single runs are mirrored in; multi-model runs already
-multi-row), filters to rows with a non-empty `timeline`, and maps each to a
-`ModelTimeline`. Pulls `useLoadedModels` (`/api/ps` VRAM), `useRunHistory`
-(cold/warm + regression input), `useHardware` (device memory pool), and
-`useParentWidth` (chart sizing). Shows an empty state until a run or STT
-transcript exists; renders the global `LeakBanner` + an `ExportReportButton`, then
-delegates STT timing to `SttInspectorSection`.
+The **Latency** tab shell, now with a two-way SOURCE toggle:
+
+- **Workspace prompt** — the existing per-token timing of the last Workspace/Analysis
+  run (everything below, delegated to `LatencyTimelines` with `showExport`), plus
+  `SttInspectorSection` and the global `LeakBanner`.
+- **Test run** — `evalrun/EvalRunPanel` (see {#evalrun}): per-task latency/cache/memory
+  of the current Test-page batch.
+
+The page auto-switches to **Test run** ONCE per batch start (keyed on the
+not-running→running transition of `batchStore.running`, never on the value — the
+pre-fill rule — so switching back mid-run isn't clobbered). Empty states stay
+source-local: the Workspace source keeps its "run a prompt" hint; the Test source
+renders `EvalRunPanel`'s own "run a task in the Tests tab" hint.
+
+### `components/evalrun/` — the Test-run source {#evalrun}
+
+Answers **"what does this agent task cost on this box?"** per (collection, task,
+model) — the attribution triple stamped on `agentic-step`/`batch-progress` events.
+Reads ONLY `batchStore` (+ `taskCost`, see `frontend-eval.md`) — no second event
+listener; covers Built-In / Custom JSON / mcp:local / mcp:byo by construction
+(one event pipeline). Live while a run streams; holds the last in-session run
+after. Disk history (transcripts) is a recorded deferral.
+
+| File | Role |
+|---|---|
+| `EvalRunPanel.tsx` | Orchestrator: groups `stepsByKey`/`outcomeByKey` per model→task, computes `taskCost` per cell, resolves the model's backend (report column stamp, else installed-list lookup — never guessed), rolls up peak context / max RSS / total wall, finds the OOM task. |
+| `TaskMetricsCard.tsx` | Per task: outcome badge (Pass n/k, red **Out of memory** on `TaskOutcome::Error.oom`), prefill/decode/output/thinking/cache/peak-context cells (null → "Not available", never 0 — Ollama cache reuse names ollama#8008 in its hint), per-step stacked prefill/decode track, RSS line labeled *"max of step-end samples (whole process: weights + residue)"*. |
+| `MemoryEstimatePanel.tsx` | The stacked memory answer with a PROVENANCE label on every row: weights `measured (/api/ps size_vram)` + spilled-to-CPU `measured (size − size_vram)` + **KV at the run's peak** (the headline — `computed from measured tokens (llama.cpp)` vs `estimated (formula)`, `~` when `kv_estimated`, at the run's actual `kv_cache_type`) + RSS `diagnostic`. Fit verdict via `fitOfNeed(weights+KV, available)` labeled *planning estimate, not a measured OOM point*. On OOM: the actionable ceiling answer via `context_ceilings` (f16/q8_0/q4_0) — and REFUSES to suggest when dims are unreadable (a fabricated ceiling is worse than none). |
+
+### `components/timeline/LatencyTimelines.tsx` {#latencytimelines}
+
+The shared latency-metrics panel used by BOTH the **Latency** tab and, below the
+live answer, the **Analysis** tab — so the two surfaces show byte-identical
+metrics. Reads `compareStore.rows`, filters to rows with a non-empty `timeline`,
+and maps each to a `ModelTimeline`; renders `null` (host owns its empty state)
+until a run carries per-token data. Pulls `useLoadedModels` (`/api/ps` VRAM),
+`useRunHistory` (cold/warm + regression input), `useHardware` (device memory
+pool), and `useParentWidth` (chart sizing), plus the shared colour legend and a
+`Refresh VRAM` button. `active` re-reads `/api/ps` + history when its host tab is
+(re)opened; `showExport` adds the `ExportReportButton` (Latency tab only).
 
 ### `components/ModelTimeline.tsx`
 

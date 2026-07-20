@@ -80,7 +80,9 @@ describe("Top navigation layout", () => {
   it("orders Models & Downloads after Agent Report", async () => {
     render(<App />);
     await waitFor(() => expect(handlers["prompt-token"]).toBeDefined());
-    const order = ["workspace", "compare", "inspector", "eval", "audit", "agentReport", "models", "downloads", "settings", "docs"];
+    // Tests (eval) sits BEFORE Latency (inspector): the Latency page's Test-run view reads
+    // the run you just launched, so the tab order mirrors the workflow (run → inspect).
+    const order = ["workspace", "compare", "eval", "inspector", "audit", "agentReport", "models", "downloads", "settings", "docs"];
     const ids = order.map((id) => screen.getByTestId(`view-tab-${id}`));
     for (let i = 1; i < ids.length; i++) {
       expect(ids[i - 1].compareDocumentPosition(ids[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
