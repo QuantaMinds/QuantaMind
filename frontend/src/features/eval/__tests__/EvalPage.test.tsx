@@ -5,8 +5,18 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 // The scoreboard + debugger have their own suites; stub them so this stays a
 // page-composition check (3 panes mount + registry initialises).
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn().mockResolvedValue(() => {}) }));
-vi.mock("../components/scoreboard/MatrixScoreboard", () => ({ MatrixScoreboard: () => <div data-testid="matrix-scoreboard" /> }));
-vi.mock("../components/TraceDebugger", () => ({ TraceDebugger: () => <div data-testid="trace-debugger" /> }));
+// Expose the model/task the page hands each pane, so the nav-persistence tests can assert the
+// results view stays bound to the RUN (not detached to a blank model/task) across selection churn.
+vi.mock("../components/scoreboard/MatrixScoreboard", () => ({
+  MatrixScoreboard: (p: { model: string; focusedTaskId: string | null }) => (
+    <div data-testid="matrix-scoreboard" data-model={p.model} data-task={p.focusedTaskId ?? ""} />
+  ),
+}));
+vi.mock("../components/TraceDebugger", () => ({
+  TraceDebugger: (p: { model: string; taskId: string | null }) => (
+    <div data-testid="trace-debugger" data-model={p.model} data-task={p.taskId ?? ""} />
+  ),
+}));
 // Auto resolves to Medium so the k-prefill tests can exercise the Auto one-shot.
 vi.mock("../../../shared/ipc/compare/hardware", () => ({
   getHardwareTier: vi.fn().mockResolvedValue({ total_memory_bytes: 16 * 1024 ** 3, class: "Mainstream", recommended_tier: "medium" }),
@@ -18,6 +28,7 @@ import { useInstalledModelsStore } from "../../models/state/installedModelsStore
 import { useBatchStore } from "../state/batchStore";
 import { useCliffStore } from "../state/cliffStore";
 import { useBackendStore } from "../../../shared/state/backendStore";
+import { useSelectedModelStore } from "../../../shared/state/selectedModelStore";
 
 const init = vi.fn().mockResolvedValue(undefined);
 
@@ -204,5 +215,68 @@ describe("EvalPage — k pre-fill from tier (no clobber)", () => {
     const dialog = screen.getByTestId("confirm-dialog");
     expect(dialog).toBeInTheDocument();
     expect(dialog).toHaveTextContent(/copy/i); // built-in collection → editable copy
+  });
+});
+
+// The bug: while a batch is running, switching screens (which changes the GLOBAL model/backend)
+// or switching the difficulty tier detached the live Scoreboard/Trace from the run — the panes
+// re-pointed to a blank/other model+task, so "which task is running" and the live trace went blank.
+// The results view must stay bound to the run until it ends (the page's own nav-persistence law).
+describe("EvalPage — results view stays bound to a running batch (nav-persistence)", () => {
+  const select = vi.fn().mockResolvedValue(undefined);
+  beforeEach(() => {
+    select.mockClear();
+    useSelectedModelStore.setState({
+      selectedModels: [{ name: "llama3.2:1b", backend: "ollama", size_bytes: 1 }],
+    });
+    useEvalRegistryStore.setState({
+      presets: [
+        { id: "easy-coding", label: "Coding", domain: "coding", tier: "easy" },
+        { id: "hard-coding", label: "Coding", domain: "coding", tier: "hard" },
+      ],
+      collections: [],
+      selected: "easy-coding",
+      tasks: [],
+      init,
+      select,
+      isPreset: (v: string) => ["easy-coding", "hard-coding"].includes(v),
+    });
+  });
+
+  it("keeps the focused task on the LIVE task when the collection changes mid-run", async () => {
+    render(<EvalPage />);
+    // A running batch whose live activity is task t1 → the page auto-follows it into the Trace.
+    act(() => useBatchStore.setState({ running: true, live: { ...useBatchStore.getState().live, taskId: "t1" } }));
+    await waitFor(() => expect(screen.getByTestId("trace-debugger").getAttribute("data-task")).toBe("t1"));
+    // A collection change mid-run (what a tier switch triggers) must NOT null the focus.
+    act(() => useEvalRegistryStore.setState({ selected: "hard-coding" }));
+    expect(screen.getByTestId("trace-debugger").getAttribute("data-task")).toBe("t1");
+  });
+
+  it("keeps the focused model on the RUN's model when the global backend changes mid-run", async () => {
+    render(<EvalPage />);
+    await waitFor(() => expect(screen.getByTestId("matrix-scoreboard").getAttribute("data-model")).toBe("llama3.2:1b"));
+    act(() => useBatchStore.setState({ running: true }));
+    // The backend is global — this fires even from the Workspace picker while the user is away.
+    act(() => useBackendStore.setState({ selectedBackend: "llama_cpp" }));
+    expect(screen.getByTestId("matrix-scoreboard").getAttribute("data-model")).toBe("llama3.2:1b");
+  });
+
+  it("does NOT swap the selected collection when the tier changes mid-run", async () => {
+    render(<EvalPage />);
+    await screen.findByTestId("eval-manager");
+    act(() => useBatchStore.setState({ running: true }));
+    select.mockClear();
+    fireEvent.change(screen.getByTestId("eval-tier-dropdown"), { target: { value: "hard" } });
+    expect(select).not.toHaveBeenCalled();
+    expect(useEvalRegistryStore.getState().selected).toBe("easy-coding");
+  });
+
+  it("(regression) STILL clears focus + swaps collection when IDLE (the run has ended)", async () => {
+    render(<EvalPage />);
+    await waitFor(() => expect(screen.getByTestId("trace-debugger").getAttribute("data-model")).toBe("llama3.2:1b"));
+    // Idle (running=false): a tier switch is free to re-target the collection to the new tier.
+    fireEvent.change(screen.getByTestId("eval-tier-dropdown"), { target: { value: "hard" } });
+    expect(select).toHaveBeenCalledWith("hard-coding");
   });
 });

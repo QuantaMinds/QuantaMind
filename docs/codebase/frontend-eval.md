@@ -97,24 +97,33 @@ and halts everything when that context changes.
 `MatrixScoreboard` (over `TraceDebugger`) + `PerformanceMatrix`; in **edit mode**
 `CollectionEditor`. It also mounts `RunRecoveryDialog` (via `useRunRecovery`).
 
-**How / where used.** A backend OR collection switch invalidates every running
-process for the old context, so `haltOldContext` stops the batch, resets the
-batch store, and bumps the cliff generation token:
+**How / where used.** A backend OR collection switch invalidates a **completed**
+run's context, so `haltOldContext` clears a stale batch report — but **only when
+idle**. The overriding **nav-persistence law**: a selection change must NEVER
+cancel or detach an **in-flight** run. The backend/model selection is *global*
+(it also changes from the Workspace picker), so a running batch keeps streaming,
+and the results view stays bound to the RUN's model + live task:
 
 ```tsx
 const haltOldContext = () => {
-  if (useBatchStore.getState().running) void stopBatchEval();
-  useBatchStore.getState().reset();
-  useCliffStore.getState().stop();
+  if (!useBatchStore.getState().running) useBatchStore.getState().reset();
 };
-useEffect(() => { haltOldContext(); setFocusedModel(""); }, [selectedBackend]);
-useEffect(() => { haltOldContext(); setFocusedTaskId(null); }, [selectedCollection]);
+// Each detaching action is skipped while a batch runs, or the live Scoreboard/Trace
+// would blank the moment the user switches screen (global model/backend) or tier.
+useEffect(() => { haltOldContext(); if (!running()) setFocusedModel(""); }, [selectedBackend]);
+useEffect(() => { haltOldContext(); if (!running()) setFocusedTaskId(null); }, [selectedCollection]);
+useEffect(() => { if (running()) return; /* else re-target collection to the tier */ }, [effectiveTier, presets]);
 ```
 
 The eval runs **one** model, kept a valid member of the *global* selection
 (`selectedModelStore`) — no per-page picker. `focusedModel`/`focusedTaskId` drive
-which (model,task) the scoreboard/trace inspect; clicking a matrix row scrolls
-the detail panels into view.
+which (model,task) the scoreboard/trace inspect; while running, an auto-follow
+effect points them at the live task so each task's trace shows AS it runs. Because
+those focus writes and the tier→collection re-target are all gated on `!running`,
+switching screen or difficulty tier mid-run no longer strands the live view (the
+run's steps are keyed to the *starting* collection's task ids, so swapping the
+selected collection out from under it would blank the trace). Clicking a matrix
+row scrolls the detail panels into view.
 
 ### TraceDebugger.tsx — the live single-(model,task) inspector ("Evaluator")
 
