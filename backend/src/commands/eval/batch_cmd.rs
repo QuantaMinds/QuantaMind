@@ -120,6 +120,7 @@ impl TauriBatchSink {
 impl BatchSink for TauriBatchSink {
     fn task_started(&self, model: &str, task_id: &str, index: usize, total: usize, category: &str, is_native: bool) {
         log_emit(&self.app, EVENT_BATCH_PROGRESS, BatchProgress::Started {
+            collection_id: self.collection_id.clone(),
             model: model.into(), task_id: task_id.into(), index, total, category: category.into(), is_native,
         });
         if let Some(path) = self.transcript(model, task_id, is_native) {
@@ -136,6 +137,7 @@ impl BatchSink for TauriBatchSink {
             step.resident_bytes = self.backends.get(model).copied().and_then(process_memory::backend_rss);
         }
         log_emit(&self.app, EVENT_AGENTIC_STEP, AgenticStepPayload {
+            collection_id: self.collection_id.clone(),
             model: model.into(), task_id: task_id.into(), step: step.clone(), is_native,
         });
         if let Some(path) = self.transcript(model, task_id, is_native) {
@@ -146,6 +148,7 @@ impl BatchSink for TauriBatchSink {
     }
     fn task_done(&self, model: &str, task_id: &str, outcome: &TaskOutcome, is_native: bool) {
         log_emit(&self.app, EVENT_BATCH_PROGRESS, BatchProgress::Done {
+            collection_id: self.collection_id.clone(),
             model: model.into(), task_id: task_id.into(), outcome: outcome.clone(), is_native,
         });
         if let Some(path) = self.transcript(model, task_id, is_native) {

@@ -403,6 +403,7 @@ pub async fn run_mcp_byo_batch(
         }
         // A task begins — sizes the scoreboard bar + opens the (model, task) cell.
         log_emit(&app, EVENT_BATCH_PROGRESS, BatchProgress::Started {
+            collection_id: BYO_COLLECTION.to_string(),
             model: model.clone(), task_id: task.name.clone(), index: i, total, category: "mcp_byo".into(), is_native: false,
         });
 
@@ -413,6 +414,7 @@ pub async fn run_mcp_byo_batch(
                 step.resident_bytes = crate::commands::system::process_memory::backend_rss(backend);
             }
             log_emit(&app, EVENT_AGENTIC_STEP, AgenticStepPayload {
+                collection_id: BYO_COLLECTION.to_string(),
                 model: model.clone(), task_id: task.name.clone(), is_native: false, step,
             });
         };
@@ -446,6 +448,7 @@ pub async fn run_mcp_byo_batch(
         // The task's terminal outcome — a diagnostic report (schema-valid, no pass^k).
         agg = add_diag(agg, &task_diag);
         log_emit(&app, EVENT_BATCH_PROGRESS, BatchProgress::Done {
+            collection_id: BYO_COLLECTION.to_string(),
             model: model.clone(), task_id: task.name.clone(), outcome: TaskOutcome::Agentic { report: byo_report(&task_diag) }, is_native: false,
         });
     }

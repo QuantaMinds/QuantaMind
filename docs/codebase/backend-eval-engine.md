@@ -347,6 +347,10 @@ claims OOM). Each streamed `TrajectoryStep` gets `resident_bytes` stamped by the
 of the local server at step END, `None` for remote backends; the generation layer stays
 host-free. `BatchColumn` derives `Default` so constructors close with `..Default::default()`
 and new stamped facts land everywhere without touching every literal.
+Both live event payloads (`AgenticStepPayload`, `BatchProgress::Started/Done`) carry
+`collection_id`, stamped by BOTH sinks (`TauriBatchSink` and the BYO emitter) — a streamed
+step is attributable to its (collection, task, model) triple on the wire, with no
+out-of-band context; the Inspector's Test-run view keys on exactly this triple.
 
 ### File: `mod.rs`
 - Declares `build, context, endstate, model_turn, report, runner, sandbox, spec, step`.
