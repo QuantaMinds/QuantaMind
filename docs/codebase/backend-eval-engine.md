@@ -845,6 +845,16 @@ loops until the cap. Guard: `scripted_natural_route_completes_trace_root_cause` 
 the natural run-test → read → locate-fix → read → fix → rerun route reaches the end
 state.
 
+6. **Customer-facing reply globs must accept natural phrasing.** A `reply_customer`
+text checkpoint whose glob segment demands a raw snake_case token (`*in_transit*`) can
+never be satisfied by a truthful human reply ("your order is in transit"), so the run
+burns to the step cap and a CORRECT model is false-labelled InfiniteLoop / FakeDone —
+the live `es_cs_check_order_status` / `es_ec_track_shipment` bug (qwen3.5:9b, both
+paths 0/1 → 1/1 in 2 steps once segmented `*in*transit*`). World-state values keep the
+raw enum; only the answer key must tolerate prose. Dev-facing reporters (coding's
+`reply`) are exempt — code identifiers are naturally echoed verbatim. Guard:
+`customer_reply_globs_accept_natural_phrasing`.
+
 Contracts 1–4 share ONE implementation: `oracle::semantic_findings(&[ToolTask])`
 (typed `SemanticFinding { task_id, kind: OrphanEntity | AckingGetter | UnfetchedKey |
 UngroundedAnswerToken, message }` + `severity()`), which operates on the TRANSPILED

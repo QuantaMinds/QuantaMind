@@ -126,7 +126,7 @@
           "type": "call",
           "name": "reply_customer",
           "args": {
-            "text": "*in_transit*"
+            "text": "*in*transit*"
           }
         }
       ],

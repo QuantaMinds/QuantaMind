@@ -196,7 +196,7 @@
           "type": "call",
           "name": "reply_customer",
           "args": {
-            "text": "*out_for_delivery*"
+            "text": "*out*for*delivery*"
           }
         }
       ],
