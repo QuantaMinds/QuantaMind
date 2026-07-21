@@ -120,7 +120,7 @@ export const getStepTitle = (kind: string, isError: boolean, diag = false) => {
   if (kind === "schema_error") return "Schema Validation Error (Driver D)";
   if (kind === "malformed_json") return "Malformed JSON Generation";
   if (kind === "infinite_loop") return "Execution Loop Capped";
-  if (kind === "hallucinated_completion") return "Hallucinated Stop Word";
+  if (kind === "hallucinated_completion") return "Fake “Done” — Required Checkpoint Unmet";
   if (kind === "forbidden_call") return "Forbidden Action (Trap Sprung)";
   if (kind === "turn_timeout") return "Turn Timeout (Stalled Model)";
   if (kind === "reported_in_prose") return "Reported In Prose (Wrong Channel)";
@@ -813,11 +813,14 @@ export function TraceDebugger({
                                         <BudgetDiagnostic s={s} />
                                       )}
 
-                                      {/* Sandbox Intercept (if injection context present) */}
+                                      {/* Sandbox intercept, OR — for a fake-"done" — the specific
+                                          required checkpoints the model skipped (both ride `injection`). */}
                                       {s.injection && (
                                         <div style={sandboxInterceptCard}>
                                           <div style={sandboxHeader}>
-                                            Sandbox Response Injection
+                                            {s.kind === "hallucinated_completion"
+                                              ? "Why It Failed — Missing Required Checkpoint"
+                                              : "Sandbox Response Injection"}
                                           </div>
                                           <pre style={sandboxBody}>
                                             {s.injection}

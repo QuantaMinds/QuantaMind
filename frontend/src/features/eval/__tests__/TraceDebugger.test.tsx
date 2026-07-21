@@ -33,6 +33,12 @@ describe("getStepTitle", () => {
     // A real success still reads as success.
     expect(getStepTitle("unknown_kind", false)).toBe("Model Output Success");
   });
+
+  it("names the fake-done cause honestly — no misleading 'stop word' (there is no stop-word check)", () => {
+    const title = getStepTitle("hallucinated_completion", true);
+    expect(title.toLowerCase()).not.toContain("stop word");
+    expect(title.toLowerCase()).toMatch(/done|checkpoint/);
+  });
 });
 
 describe("runThinkingTokens", () => {

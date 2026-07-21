@@ -134,6 +134,31 @@ fn reported_in_prose(end_state: &EndStateRule, satisfied: &[bool], next_cp: usiz
     matches!(unsatisfied.as_slice(), [cp] if reporter_text(cp).is_some_and(|p| text_matches(p, raw)))
 }
 
+/// The required checkpoints a hallucinated "done" never satisfied — so the trace names the
+/// REAL cause (e.g. "never called check_structuring") instead of a nebulous "stop word".
+/// Deduplicated tool names (a task can require the same tool for several entities). `None`
+/// for end states without discrete tool checkpoints (RequireEndState / RequireWorldOracle /
+/// ExpectAbstainingText) or when nothing is actually outstanding.
+fn unsatisfied_checkpoints(end_state: &EndStateRule, satisfied: &[bool], next_cp: usize) -> Option<String> {
+    let cps: Vec<&TaskCheckpoint> = match end_state {
+        EndStateRule::RequireAll(cps) => cps.iter().zip(satisfied).filter(|(_, &s)| !s).map(|(c, _)| c).collect(),
+        EndStateRule::RequireSequence(cps) => cps.get(next_cp..).unwrap_or(&[]).iter().collect(),
+        EndStateRule::ExpectAbstainingText
+        | EndStateRule::RequireEndState(_)
+        | EndStateRule::RequireWorldOracle => return None,
+    };
+    if cps.is_empty() {
+        return None;
+    }
+    let mut names: Vec<String> = cps.iter().map(|c| c.tool.clone()).collect();
+    names.dedup(); // checkpoints are grouped by entity, so adjacent-dedup collapses the repeats
+    Some(format!(
+        "Declared done, but {} required checkpoint(s) were never satisfied — missing tool call(s): {}",
+        cps.len(),
+        names.join(", ")
+    ))
+}
+
 /// Pass^k inputs: how many independent runs (default 5), the per-run step cap, and
 /// the per-run semantic-recovery budget (how many schema errors a run may correct
 /// before it's scored MalformedSchema).
@@ -789,7 +814,13 @@ async fn run_steps<M: ModelTurn>(
                     } else {
                         (StepKind::HallucinatedCompletion, FailureKind::Hallucinated)
                     };
-                    send(kind, None, EnvView::None);
+                    // For a fake "done", name the checkpoints it skipped so the trace explains WHY
+                    // (the honest cause), not just "hallucinated". Only for this kind — the others
+                    // (empty/dialect/malformed) are self-describing.
+                    let note = (kind == StepKind::HallucinatedCompletion)
+                        .then(|| unsatisfied_checkpoints(&sandbox.end_state, &satisfied, next_cp))
+                        .flatten();
+                    send(kind, note, EnvView::None);
                     return Ok(RunOutcome::failure(step_index + 1, output_tokens, failure)
                         .with_schema(hit_schema_error, schema_recovered)
                         .with_unknown_tools(unknown_tools));
