@@ -1061,7 +1061,15 @@ from the weight quant. `q8_0` ≈ halves the cache (negligible quality cost, per
 slower at long context (dequant overhead). Halving the cache roughly doubles the context you hold in
 the same memory — often the only way to fit long context on limited VRAM. The **Latency tab's
 "context ceiling by KV cache precision" meters** show, per model on your machine, the largest context
-each precision holds (unified memory budgets RAM; discrete GPUs budget VRAM). Per backend: Ollama
+each precision holds. On Apple Silicon the budget is the GPU's **measured Metal working-set limit**
+(`recommendedMaxWorkingSetSize` — the ~66-75% of unified memory the GPU can actually wire down before
+allocations are rejected, raisable via `iogpu.wired_limit_mb`), **not** raw RAM; off macOS it falls
+back to a 70%-of-total heuristic, and discrete GPUs budget VRAM. Alongside the ceilings a **fit
+verdict** states whether the WEIGHTS fit under that limit at all — `Fits` / `Tight` (≥85% of the
+limit) / `SpillsToCpu` (weights alone exceed it → CPU/swap, very slow) / `Unknown` (limit unmeasured).
+This is the question a large ceiling can't answer: a 100K ceiling is meaningless if the model doesn't
+even load on the GPU. **Capacity ≠ capability** — the meter measures memory only, never speed or
+quality at that context. Per backend: Ollama
 `OLLAMA_KV_CACHE_TYPE` + `OLLAMA_FLASH_ATTENTION=1` (server-global, silently falls back to f16 on
 unsupported architectures); llama.cpp `-ctk/-ctv` (QuantaMind auto-picks `q8_0` under memory
 pressure, **never `q4_0`**); MLX's server exposes no KV-quant flag; vLLM/SGLang take
@@ -1079,8 +1087,10 @@ would actually use, and never presents a `q4_0` cache as auto-selectable.
 - **Available VRAM comes from the GPU probe.** Chain (Phase 3): NVIDIA (`nvidia-smi`) → AMD
   (`rocm-smi --showmeminfo vram --showproductname --json`) → Intel (`xpu-smi discovery -j`) →
   **Windows DXGI fallback** (`CreateDXGIFactory1 + IDXGIAdapter1::GetDesc1` — for AMD/Intel Windows
-  machines without vendor CLIs installed) → Apple Silicon (`sysctl`). Free VRAM stays **`None`** on
-  xpu-smi and DXGI (neither reports free memory, never fabricated). The readiness verdict's
+  machines without vendor CLIs installed) → Apple Silicon (`sysctl` for the chip name; the **Metal
+  API** for the GPU working-set limit, `GpuInfo::gpu_working_set_bytes` — measured, `None` when no
+  Metal device). Free VRAM stays **`None`** on xpu-smi and DXGI (neither reports free memory, never
+  fabricated). The readiness verdict's
   `require_full_vram` gate on AMD/Intel Windows now measures a real fit instead of degrading to
   "unmeasured → Conditional".
 

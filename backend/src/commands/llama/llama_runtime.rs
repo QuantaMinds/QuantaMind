@@ -228,7 +228,9 @@ pub fn spawn_meta(gguf_path: &str) -> SpawnMeta {
 pub fn hardware_ctx_ceiling(model_bytes: u64, dims: Option<KvDims>, total_bytes: u64) -> u32 {
     let Some(d) = dims else { return u32::MAX };
     let per_token = calculate_kv_cache_bytes(d.layers, d.head_count, d.head_count_kv, d.embedding_length, 1);
-    ceiling_from_per_token(model_bytes, total_bytes, per_token)
+    // The live launch path budgets on the total-RAM heuristic (no measured GPU limit here);
+    // the ceiling METERS pass the measured working set through `ctx_ceilings` instead.
+    ceiling_from_per_token(usable_memory_bytes(total_bytes, None), model_bytes, per_token)
 }
 
 /// The largest context this (machine, model) holds at each KV-cache precision —
@@ -242,32 +244,96 @@ pub struct CtxCeilings {
     pub f16: Option<u32>,
     pub q8: Option<u32>,
     pub q4: Option<u32>,
+    /// Whether the WEIGHTS fit under the GPU's hard memory limit — the question the
+    /// ceilings alone can't answer (a 100K ceiling is meaningless if the weights don't
+    /// even load on the GPU). See `FitVerdict`.
+    pub fit: FitVerdict,
 }
 
-/// Compute the three per-precision context ceilings from the model's dims and this
-/// machine's total memory. Pure (the caller supplies total memory) so it's tested
-/// without a live machine. `u32::MAX` from `ceiling_from_per_token` (unmeasurable)
+/// Whether the model's weights fit under the GPU's hard memory limit. The context ceilings
+/// say how much KV *could* fit; this says whether the model itself fits on the GPU at all —
+/// on Apple Silicon a model above the Metal working set spills to CPU/swap and crawls
+/// regardless of any ceiling. `Unknown` when the limit is unmeasured (off macOS, or no
+/// measured working set): we never fabricate a fit verdict from the total-RAM heuristic.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FitVerdict {
+    /// Weights leave real headroom under the limit for a meaningful KV cache.
+    Fits,
+    /// Weights fit but occupy ≥ `TIGHT_FIT_PCT` of the limit — little room for context.
+    Tight,
+    /// Weights alone exceed the limit — can't stay resident on the GPU (CPU spill / swap).
+    SpillsToCpu,
+    /// The GPU memory limit is unmeasured — no honest verdict possible.
+    Unknown,
+}
+
+/// Weights at or above this percent of the GPU limit ⇒ `Tight` (fits, but almost no room
+/// left for the KV cache once the model is loaded).
+const TIGHT_FIT_PCT: u64 = 85;
+
+/// Classify how the weights sit against the GPU's hard memory limit. Uses the MEASURED
+/// `working_set_bytes` only — `None` (unmeasured) or a zero model size yields `Unknown`
+/// rather than a guessed verdict. Pure.
+pub fn fit_verdict(model_bytes: u64, working_set_bytes: Option<u64>) -> FitVerdict {
+    let (Some(limit), true) = (working_set_bytes, model_bytes > 0) else {
+        return FitVerdict::Unknown;
+    };
+    if limit == 0 {
+        return FitVerdict::Unknown;
+    }
+    if model_bytes >= limit {
+        FitVerdict::SpillsToCpu
+    } else if model_bytes * 100 >= limit * TIGHT_FIT_PCT {
+        FitVerdict::Tight
+    } else {
+        FitVerdict::Fits
+    }
+}
+
+/// Compute the three per-precision context ceilings plus the weights' fit verdict, from the
+/// model's dims, this machine's total memory, and — on Apple Silicon — its MEASURED Metal
+/// working-set limit (`working_set_bytes`). The ceilings budget against
+/// `usable_memory_bytes(total, working_set)` so "fits" means fits on the GPU, not an
+/// optimistic slice of total RAM. Pure (the caller supplies the memory figures) so it's
+/// tested without a live machine. `u32::MAX` from `ceiling_from_per_token` (unmeasurable)
 /// maps to `None`.
-pub fn ctx_ceilings(model_bytes: u64, dims: KvDims, total_bytes: u64) -> CtxCeilings {
+pub fn ctx_ceilings(model_bytes: u64, dims: KvDims, total_bytes: u64, working_set_bytes: Option<u64>) -> CtxCeilings {
+    let usable = usable_memory_bytes(total_bytes, working_set_bytes);
     let ceiling_at = |p: KvPrecision| {
         let per_token = kv_cache_bytes_at(p, dims.layers, dims.head_count, dims.head_count_kv, dims.embedding_length, 1);
-        let c = ceiling_from_per_token(model_bytes, total_bytes, per_token);
+        let c = ceiling_from_per_token(usable, model_bytes, per_token);
         (c != u32::MAX).then_some(c)
     };
-    CtxCeilings { f16: ceiling_at(KvPrecision::F16), q8: ceiling_at(KvPrecision::Q8), q4: ceiling_at(KvPrecision::Q4) }
+    CtxCeilings {
+        f16: ceiling_at(KvPrecision::F16),
+        q8: ceiling_at(KvPrecision::Q8),
+        q4: ceiling_at(KvPrecision::Q4),
+        fit: fit_verdict(model_bytes, working_set_bytes),
+    }
 }
 
-/// The largest `-c` whose KV cache (at `per_token` bytes/token) fits usable RAM alongside
-/// the weights. Extracted from `hardware_ctx_ceiling` so the Q8-KV plan can pass HALF the
-/// per-token cost (a quantized cache) and get the correspondingly larger ceiling. `per_token`
-/// of 0 (unknown dims) ⇒ no clamp (`u32::MAX`), the safe direction (never silently cap an
-/// explicit window). Pure.
-fn ceiling_from_per_token(model_bytes: u64, total_bytes: u64, per_token: u64) -> u32 {
+/// The memory the GPU can actually use for the model weights + KV cache. On Apple Silicon
+/// this is the MEASURED Metal working-set limit (`GpuInfo::gpu_working_set_bytes`, ~66-75%
+/// of RAM — the point past which allocations get rejected); off macOS, or when unmeasured,
+/// it falls back to `USABLE_MEMORY_PCT` of total RAM (the conservative heuristic). Budgeting
+/// context against the measured cap makes "fits in memory" mean "fits on the GPU", not an
+/// optimistic slice of total RAM the OS would never let the GPU wire down. Pure.
+pub fn usable_memory_bytes(total_bytes: u64, working_set_bytes: Option<u64>) -> u64 {
+    working_set_bytes.unwrap_or(total_bytes / 100 * USABLE_MEMORY_PCT)
+}
+
+/// The largest `-c` whose KV cache (at `per_token` bytes/token) fits the `usable` memory
+/// budget alongside the weights. Extracted from `hardware_ctx_ceiling` so the Q8-KV plan can
+/// pass HALF the per-token cost (a quantized cache) and get the correspondingly larger ceiling.
+/// `per_token` of 0 (unknown dims) ⇒ no clamp (`u32::MAX`), the safe direction (never silently
+/// cap an explicit window). The caller supplies `usable` (from `usable_memory_bytes`) so the
+/// budget source — measured GPU limit vs total-RAM heuristic — is decided in one place. Pure.
+fn ceiling_from_per_token(usable_bytes: u64, model_bytes: u64, per_token: u64) -> u32 {
     if per_token == 0 {
         return u32::MAX;
     }
-    let usable = total_bytes / 100 * USABLE_MEMORY_PCT;
-    let budget = usable.saturating_sub(model_bytes);
+    let budget = usable_bytes.saturating_sub(model_bytes);
     let raw = (budget / per_token).min(u32::MAX as u64) as u32;
     (raw / CTX_STEP * CTX_STEP).max(MIN_CONTEXT)
 }
@@ -334,8 +400,10 @@ pub fn plan_launch(
     let (Some(mb), Some(d)) = (model_bytes, dims) else {
         return LaunchPlan { ctx: desired, flash_attn: false, kv: KvType::F16, note: None };
     };
+    // Launch path budgets on the total-RAM heuristic (no measured GPU limit threaded here yet).
+    let usable = usable_memory_bytes(total_bytes, None);
     let per_token_f16 = calculate_kv_cache_bytes(d.layers, d.head_count, d.head_count_kv, d.embedding_length, 1);
-    let f16_ceiling = ceiling_from_per_token(mb, total_bytes, per_token_f16);
+    let f16_ceiling = ceiling_from_per_token(usable, mb, per_token_f16);
     if desired <= f16_ceiling {
         // Fits at full precision — nothing to do, no message.
         return LaunchPlan { ctx: desired, flash_attn: false, kv: KvType::F16, note: None };
@@ -344,7 +412,7 @@ pub fn plan_launch(
     // Full-precision KV won't hold the desired window. Q8 halves the per-token cost
     // (kv_cache_bytes_at's exact integer divisor — bit-identical to the former `/ 2`).
     let per_token_q8 = kv_cache_bytes_at(KvPrecision::Q8, d.layers, d.head_count, d.head_count_kv, d.embedding_length, 1);
-    let q8_ceiling = ceiling_from_per_token(mb, total_bytes, per_token_q8);
+    let q8_ceiling = ceiling_from_per_token(usable, mb, per_token_q8);
     let ctx = desired.min(q8_ceiling).max(MIN_CONTEXT);
     let gb = total_bytes as f64 / 1_000_000_000.0;
     let note = Some(if ctx < desired {

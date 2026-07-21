@@ -15,6 +15,13 @@ pub struct GpuInfo {
     pub vram_free_bytes: Option<u64>,
     pub unified: bool,
     pub available: bool,
+    /// Apple Silicon only: the GPU's Metal `recommendedMaxWorkingSetSize` — the
+    /// unified memory the GPU can wire down before allocations start failing
+    /// (macOS caps this at ~66-75% of RAM; raisable via `iogpu.wired_limit_mb`).
+    /// On unified memory this — not total RAM — is the real budget for model
+    /// weights + KV cache. MEASURED via the Metal API; `None` off macOS or when no
+    /// Metal device is present (never fabricated). See `docs/reference.md`.
+    pub gpu_working_set_bytes: Option<u64>,
 }
 
 /// Parse one `nvidia-smi --query-gpu=name,memory.total,memory.free
@@ -43,6 +50,7 @@ fn nvidia() -> Option<GpuInfo> {
         vram_free_bytes: Some(free_mib * MIB),
         unified: false,
         available: true,
+        gpu_working_set_bytes: None,
     })
 }
 
@@ -88,6 +96,7 @@ fn amd() -> Option<GpuInfo> {
         vram_free_bytes: free,
         unified: false,
         available: true,
+        gpu_working_set_bytes: None,
     })
 }
 
@@ -120,6 +129,7 @@ fn intel_xpu() -> Option<GpuInfo> {
         vram_free_bytes: None,
         unified: false,
         available: true,
+        gpu_working_set_bytes: None,
     })
 }
 
@@ -155,6 +165,7 @@ fn dxgi() -> Option<GpuInfo> {
             vram_free_bytes: None,
             unified: false,
             available: true,
+            gpu_working_set_bytes: None,
         })
     }
 }
@@ -162,6 +173,18 @@ fn dxgi() -> Option<GpuInfo> {
 #[cfg(not(target_os = "windows"))]
 fn dxgi() -> Option<GpuInfo> {
     None
+}
+
+/// The GPU's Metal `recommendedMaxWorkingSetSize` (bytes) — how much unified memory
+/// the GPU can wire down before allocations start being rejected. macOS derives this
+/// from total RAM (~66-75%); it's the true ceiling for weights + KV cache on Apple
+/// Silicon, and the honest number to budget context against instead of total RAM.
+/// MEASURED via the Metal API; `None` when no Metal device is present (never guessed).
+#[cfg(target_os = "macos")]
+fn macos_working_set_bytes() -> Option<u64> {
+    let device = metal::Device::system_default()?;
+    let bytes = device.recommended_max_working_set_size();
+    (bytes > 0).then_some(bytes)
 }
 
 #[cfg(target_os = "macos")]
@@ -174,7 +197,13 @@ fn apple() -> Option<GpuInfo> {
         return None;
     }
     // Apple Silicon GPU is the same SoC; memory is unified (no separate pool).
-    Some(GpuInfo { name: Some(format!("{chip} (integrated)")), unified: true, available: true, ..Default::default() })
+    Some(GpuInfo {
+        name: Some(format!("{chip} (integrated)")),
+        unified: true,
+        available: true,
+        gpu_working_set_bytes: macos_working_set_bytes(),
+        ..Default::default()
+    })
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -279,5 +308,17 @@ mod tests {
     #[test]
     fn dxgi_never_panics() {
         let _ = dxgi();
+    }
+
+    // The Metal working-set read must return a real, sane number on Apple Silicon:
+    // present, below total RAM, and a majority of it (Apple sizes it at ~66-75%).
+    // A regression here would silently make the ceiling meters budget on nothing.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_working_set_is_measured_and_a_majority_of_total() {
+        let ws = macos_working_set_bytes().expect("Metal device present on macOS");
+        let total = sysinfo::System::new_all().total_memory();
+        assert!(ws < total, "working set {ws} must be below total RAM {total}");
+        assert!(ws * 2 > total, "working set {ws} should be a majority of total RAM {total}");
     }
 }
