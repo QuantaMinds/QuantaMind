@@ -82,13 +82,21 @@ export function MemoryEstimatePanel({
   const kvBytes = kvAll == null ? null : kvType === "q8_0" ? kvAll.q8 : kvAll.f16;
 
   const weightsVram = column?.weights_vram_bytes ?? null;
+  // The model figure, from whichever measurement this backend HAS: Ollama's resident
+  // size_vram, else the llama.cpp launch's on-disk GGUF size (no resident split exists
+  // there) — the provenance label names which one is showing.
+  const modelBytes = weightsVram ?? weightsTotal;
+  const modelProvenance =
+    weightsVram != null
+      ? "measured (/api/ps size_vram — weights + the KV/context buffer reserved at load, so it reads above the raw weight file)"
+      : "measured (GGUF size at launch — llama.cpp reports no resident/VRAM split)";
   const offload = column?.cpu_offloaded ? column?.offload_bytes ?? null : null;
   // The verdict compares the WORKLOAD (model + this run's KV) against the DEVICE POOL —
   // never against currently-available memory: with the model already resident, "available"
   // has the model's own footprint subtracted, and comparing need against it double-counts
   // the weights (it declared "Won't fit" on a run that was literally executing).
   const pool = device.totalBytes;
-  const need = weightsVram != null && kvBytes != null ? weightsVram + kvBytes : null;
+  const need = modelBytes != null && kvBytes != null ? modelBytes + kvBytes : null;
   const verdict = need != null && pool != null ? fitBadge(fitOfNeed(need, pool)) : null;
   const kvTier = kvMeasured ? "computed from measured tokens (llama.cpp)" : "estimated (formula)";
   const kvApprox = dims?.kv_estimated ? "~" : "";
@@ -99,8 +107,8 @@ export function MemoryEstimatePanel({
       <div className="text-[11px] uppercase tracking-wide text-gray-400">Memory for this run — {model}</div>
       <Row
         label="Model in memory"
-        value={weightsVram != null ? formatBytes(weightsVram) : null}
-        provenance="measured (/api/ps size_vram — weights + the KV/context buffer reserved at load, so it reads above the raw weight file)"
+        value={modelBytes != null ? formatBytes(modelBytes) : null}
+        provenance={modelProvenance}
       />
       {offload != null && offload > 0 && (
         <Row label="Spilled to CPU" value={formatBytes(offload)} provenance="measured (size − size_vram) — the slow-inference cause" />

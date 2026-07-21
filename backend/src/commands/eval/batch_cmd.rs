@@ -475,9 +475,20 @@ pub(crate) async fn run_passes(
     // after the run (the closure only reads via `.get()`, so a clone is faithful).
     let cpu_offload_stamp = cpu_offload.clone();
     let ctx_ceilings_stamp = ctx_ceilings.clone();
-    // The launched llama-server's KV precision — known only for a server WE spawned; an
+    // The launched llama-server's facts — known only for a server WE spawned; an
     // externally-started one stamps `None` (its flags are unknowable, never guessed).
-    let llama_kv_type = app.state::<LlamaServerState>().kv_cache_type();
+    // `(gguf stem, on-disk model bytes)` so the stamp below can require the running
+    // server to actually be serving the column's model before claiming anything.
+    let llama_state = app.state::<LlamaServerState>();
+    let llama_kv_type = llama_state.kv_cache_type();
+    let llama_server_model: Option<(String, Option<u64>)> = llama_state.running_summary().map(|(path, _)| {
+        let stem = std::path::Path::new(&path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default()
+            .to_string();
+        (stem, llama_state.readout().and_then(|r| r.model_bytes))
+    });
 
     // Prompt pass — only when selected. When it's NOT, the report is the column skeleton that the
     // native aggregates merge into (a native-only run). At least one pass is guaranteed by the UI.
@@ -530,7 +541,16 @@ pub(crate) async fn run_passes(
             col.quantization_claimed = p.quantization_claimed.clone();
         }
         if col.backend == BackendKind::LlamaCpp {
-            col.kv_cache_type = llama_kv_type.clone();
+            // Stamp launch facts ONLY when the running server serves THIS column's model
+            // (stem match) — never another model's bytes or flags. llama.cpp has no
+            // /api/ps: `weights_total_bytes` here is the GGUF's on-disk size from the
+            // spawn readout (no resident/VRAM split exists to report — labeled so).
+            if let Some((stem, model_bytes)) = &llama_server_model {
+                if *stem == col.model {
+                    col.kv_cache_type = llama_kv_type.clone();
+                    col.weights_total_bytes = *model_bytes;
+                }
+            }
         }
     }
     report.num_ctx = config.params.as_ref().and_then(|p| p.num_ctx);
