@@ -69,6 +69,11 @@ interface McpState {
   /// Once a task is saved, the connect/build center collapses to a compact summary
   /// (tasks live in the sidebar; Run Batch runs the world tasks).
   builderCollapsed: boolean;
+  /// Opt-in to EXECUTE a Bring-Your-Own run's tool calls against your real server.
+  /// Default OFF: real tools are deny-by-default (the model's calls are recorded
+  /// schema-valid but not run) until you explicitly approve execution for the run.
+  allowByoExecute: boolean;
+  setAllowByoExecute: (v: boolean) => void;
   setActive: (active: boolean) => void;
   addTask: (task: McpTaskDef) => void;
   removeTask: (name: string) => void;
@@ -92,7 +97,9 @@ export const useMcpStore = create<McpState>((set, get) => ({
   byoTasks: [],
   editingByo: null,
   builderCollapsed: false,
+  allowByoExecute: false,
 
+  setAllowByoExecute: (allowByoExecute) => set({ allowByoExecute }),
   setActive: (active) => set({ active }),
   addTask: (task) =>
     set((s) => ({ tasks: [...s.tasks.filter((t) => t.name !== task.name), task], builderCollapsed: true })),

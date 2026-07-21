@@ -29,11 +29,15 @@ export async function buildMcpByoTasks(tasks: McpByoTaskDef[]): Promise<ToolTask
 /// `mcp:byo`, so the Simulator / Evaluator (live trace) / Model Results light up like a
 /// Built-In run. DIAGNOSTIC only — schema-valid rate + attribution, no pass/fail verdict.
 /// Cancellable via the shared Stop button. Resolves when the run completes.
+/// `allowExecute` opts into running the model's tool calls against your REAL server.
+/// Default (false / omitted) is deny-by-default: calls are graded schema-valid but NOT
+/// executed — the safety gate for a real, side-effecting server (issue #192).
 export async function runMcpByoBatch(
   model: string,
   backend: BackendKind,
   tasks: McpByoTaskDef[],
   k?: number,
+  allowExecute?: boolean,
 ): Promise<void> {
-  await invoke("run_mcp_byo_batch", { model, backend, tasks, k });
+  await invoke("run_mcp_byo_batch", { model, backend, tasks, k, allowExecute });
 }

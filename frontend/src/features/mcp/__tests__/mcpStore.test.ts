@@ -26,7 +26,7 @@ const cfg: McpServerConfig = {
 };
 
 beforeEach(() => {
-  useMcpStore.setState({ servers: [], probes: {}, loading: false, tasks: [], byoTasks: [], editingByo: null, builderCollapsed: false });
+  useMcpStore.setState({ servers: [], probes: {}, loading: false, tasks: [], byoTasks: [], editingByo: null, builderCollapsed: false, allowByoExecute: false });
   vi.clearAllMocks();
 });
 
@@ -84,5 +84,13 @@ describe("mcpStore", () => {
     useMcpStore.getState().addByoTask({ name: "b1", instruction: "x", serverId: "fs" });
     useMcpStore.getState().removeByoTask("b1");
     expect(useMcpStore.getState().byoTasks).toEqual([]);
+  });
+
+  it("BYO tool execution is OFF by default (deny-by-default) and opt-in via the setter", () => {
+    // The security default behind issue #192: real tool calls don't execute unless the
+    // user explicitly opts in.
+    expect(useMcpStore.getState().allowByoExecute).toBe(false);
+    useMcpStore.getState().setAllowByoExecute(true);
+    expect(useMcpStore.getState().allowByoExecute).toBe(true);
   });
 });

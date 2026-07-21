@@ -181,7 +181,8 @@ export function useBatchRun() {
       useBatchStore.getState().startRun();
       try {
         const { runMcpByoBatch } = await import("../../../shared/ipc/mcp/run");
-        await runMcpByoBatch(target.model, target.backend, tasks, k);
+        const { useMcpStore } = await import("../../mcp/state/mcpStore");
+        await runMcpByoBatch(target.model, target.backend, tasks, k, useMcpStore.getState().allowByoExecute);
       } catch (e) {
         useBatchStore.getState().setError(formatIpcError(e));
       }

@@ -16,7 +16,8 @@ use crate::inference::mcp::oracle_schema::CallCheck;
 use crate::mcp::wire::{code, CallToolResult, Response, ResponsePayload};
 use serde::Serialize;
 
-/// Three-way fault attribution (plus `Success`).
+/// Three-way fault attribution (plus `Success`, and `Blocked` for a schema-valid call
+/// the deny-by-default approval gate refused to execute — never a fault of any party).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Attribution {
@@ -24,6 +25,10 @@ pub enum Attribution {
     Model,
     Config,
     Server,
+    /// The call was well-formed but NOT executed — the approval gate denied it
+    /// (real tools default to deny; the user hasn't opted into execution). Counts as
+    /// schema-valid, never as a success or a fault.
+    Blocked,
 }
 
 /// What came back on the wire for a `tools/call`.

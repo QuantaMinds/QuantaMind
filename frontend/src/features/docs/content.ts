@@ -501,6 +501,11 @@ key**. It doesn't pass or fail — it reports **"schema-valid X/Y"** (did the mo
 calls to your real tools?). Handy for smoke-testing a server; kept out of the pass-rate aggregate so
 scores are never blended.
 
+Because BYO targets a **real** server, tool calls are **deny-by-default**: they're graded but **not
+executed** until you tick **"Allow tool execution"** on the builder. That opt-in is your explicit
+approval — leave it off to inspect what the model *would* do, turn it on (against a throwaway target)
+to actually run the calls.
+
 ## 3. Run and read
 
 Pick your model and iterations (**k**) in the global header, then **Run Batch**. For each Test-World
@@ -518,9 +523,10 @@ passed. One lucky pass is not readiness; failed runs record which checks they mi
 - Seed paths are confined by \`fs_guard\` (no \`..\` escapes or symlink tricks); secrets live in the OS
   keychain, never on disk; tool definitions are hash-pinned, so a server that swaps its tools between
   runs trips the pin.
-- **Your own (Bring-Your-Own) servers are only as confined as you scope them.** A BYO run drives your
-  real server directly, with no interactive approval step — so point the filesystem server at a
-  *throwaway* directory, never your home folder.
+- **Your own (Bring-Your-Own) servers are deny-by-default.** A BYO run won't execute the model's tool
+  calls against your real server until you tick **"Allow tool execution"**. Even then, confinement is
+  only as tight as you scoped the server — so point the filesystem server at a *throwaway* directory,
+  never your home folder.
 
 ## Prove it before you trust it
 
