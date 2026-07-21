@@ -349,6 +349,62 @@ export const REFERENCE_SECTIONS: ReferenceSection[] = [
   },
 
   {
+    id: "mcp",
+    title: "MCP (real tools)",
+    blurb: "Score a model against real MCP tools — a real filesystem or SQLite DB — grading world-state, not the transcript.",
+    blocks: [
+      {
+        id: "mcp-source",
+        heading: "MCP as a Tests data source",
+        what: "A third data source on the Tests page, alongside Built-in and Custom JSON: select ◉ MCP and the center becomes the connect-and-build flow while the sidebar becomes the MCP task list — reusing the same Run Batch button, scoreboard, Simulator, and Model Results.",
+        why: "Simulated-tool tasks score the shape of a call; MCP scores the effect of it against a real server. It's the same engine and scoreboard so the two kinds of test read the same way.",
+        how: "The MCP radio flips the eval page into MCP mode (mcpStore.active). Model, iterations (k), and decoy come from the global header/Run Params, not an MCP-specific picker (decoy is forced off for MCP).",
+        source: "frontend/src/features/eval/components/manager/EvalManager.tsx · frontend/src/features/mcp/",
+      },
+      {
+        id: "mcp-connect",
+        heading: "Connect a server (stdio · probe)",
+        what: "Add an MCP server with an id, a command (default npx), and args; quick-add chips scaffold the filesystem and sqlite servers. Connect runs a probe that reports “✓ N tools discovered” or a loud red error.",
+        why: "The transport is local stdio JSON-RPC — a child process on your machine, nothing cloud-bound. Probing at setup turns a bad command or a stdout-polluting server into a preflight failure, not a mid-run one.",
+        how: "The sqlite chip auto-appends an app-managed scratch DB path; filesystem takes a directory you append. Both need Node/npx. Tool definitions are hash-pinned on first connect and re-diffed on reconnect, so a server that swaps its tools (a rug-pull) trips the pin.",
+        source: "backend/src/mcp/transport.rs · backend/src/mcp/registry.rs · frontend/src/features/mcp/components/McpConnectPanel.tsx",
+      },
+      {
+        id: "mcp-world",
+        heading: "Test World — seed → act → grade end-state",
+        what: "A guided builder whose three sections are the task: an instruction, a disposable world (temp folder with seeded files, or temp SQLite DB with setup SQL), and an answer key (files present/absent/contain, or SELECT … :: expected).",
+        why: "Grading the world's actual end-state, never the model's words, is the only reward-hacking-proof signal — a transcript that says “done” is an unverified, gameable claim.",
+        how: "Per run: seed a fresh sandbox → spawn the real server scoped to it → let the model drive the tools → grade the oracle against the end-state → tear the sandbox down. A brand-new dir/DB each run is what makes repeats independent. The verdict is strict Pass^k: ready only if EVERY run passed.",
+        source: "backend/src/inference/eval/mcp/world.rs · oracle_fs.rs · oracle_db.rs · score.rs",
+      },
+      {
+        id: "mcp-byo",
+        heading: "Bring-Your-Own (diagnostic, no answer key)",
+        what: "The second authoring door: an instruction + one connected server, with no oracle. It reports “schema-valid X/Y” — whether the model emitted well-formed calls to your real tools — never a pass/fail verdict.",
+        why: "Sometimes you just want to smoke-test a live server, not score it. Keeping BYO out of the pass-rate aggregate (blue diagnostic, never green/amber/red) means real and simulated scores are never blended.",
+        how: "Runs via run_mcp_byo_batch and lights up the same Simulator/Evaluator/Model Results with DiagnosticStats. It is single-turn and, unlike disposable worlds, drives your real server directly with no interactive approval step — so confinement is whatever you scoped the server to (e.g. the directory you passed).",
+        source: "backend/src/commands/mcp/run_cmd.rs · frontend/src/features/mcp/components/McpByoBuilder.tsx",
+      },
+      {
+        id: "mcp-safety",
+        heading: "Sandboxing, deny-by-default, and secrets",
+        what: "Disposable worlds auto-approve their tool calls (you can't gate k automated runs on human clicks); your own real tools default to deny. Seed paths are fs_guard-confined, secrets stay in the OS keychain, and untrusted server output is rendered inert.",
+        why: "A test harness that drives real tools has to be safe by construction, not by trust — the seed-path and secret rules are the same invariants the rest of the app follows.",
+        how: "fs_guard canonicalizes roots and rejects `..`/symlink escapes; seed paths must be relative (absolute/traversal rejected and redacted). Only env-var NAMES are persisted to mcp_servers.yaml; values live in the keychain. Server stderr/args pass through redact_path before any logging; servers are Tauri-managed and reaped on exit.",
+        source: "backend/src/fs_guard/mod.rs · backend/src/inference/mcp/gate.rs · backend/src/persistence/mcp/servers.rs",
+      },
+      {
+        id: "mcp-validate",
+        heading: "Validation gate (⇄ qm validate)",
+        what: "Every task is validated before it can score — on paste in the builder, and again automatically on qm run/test. The answer key must be solvable (a perfect agent passes) AND discriminating (a do-nothing agent fails); vacuous or contradictory oracles are rejected with named findings.",
+        why: "A 2026 τ-bench audit clocked a literal do-nothing agent at 38% pass^k on unvalidated tasks. A broken answer key makes every Pass^k a lie, so there's no bypass flag.",
+        how: "`qm validate --collection ./worlds.json` runs the same gate as a report: structural schema, static contradiction/vacuity checks, and (with --live) a real world spawn where a do-nothing agent must fail the real oracle. Missing npx/sqlite3 is Inconclusive with the exact install command, never a fake failure.",
+        source: "backend/src/inference/eval/mcp/validate.rs · backend/src/cli/validate.rs",
+      },
+    ],
+  },
+
+  {
     id: "audit",
     title: "Audit",
     blurb: "Regression history over time, plus the saved record of past batch runs.",
