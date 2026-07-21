@@ -248,79 +248,13 @@ self-contained and offline. `esc()` escapes every interpolated string.
 
 ---
 
-## 2. Quant (Analysis sub-tab)
+## 2. Quant — REMOVED
 
-`features/quant/` — pick one model family that has **several quants installed** and
-compare them. Quality/tool-call runs need Ollama (one llama.cpp/MLX server can't
-switch quants); size, fit, and the recommendation work on any backend.
-
-### `quantPick.ts` — grouping — **IMPORTANT**
-
-**Responsibility:** group installed models into "same base model, different
-quant" sets keyed by `family + parameter_size`. **What:** one row per
-quantization (the same quant present under two backends is deduped, first wins);
-models missing family/param-size/quant are skipped; variants sorted
-smallest-first. Pure. **Used by** `QuantPage` to populate the model dropdown.
-
-### `recommend.ts` — the recommendation logic — **IMPORTANT**
-
-**Responsibility:** recommend a quant for a use case. **How:** `fast-chat` →
-smallest (fastest) *fitting* variant; quality use cases → highest-quality fitting
-one, ranked by `quantRank` (an ordering over `Q2…Q8/BF16/F16` families). **Fit is
-KV-aware** when dims are known (base + KV cache at the chosen context, consistent
-with the table) else the file-size heuristic; honest when nothing fits or hardware
-is unknown.
-
-```ts
-const fitOf = (v) => kvBytes != null ? fitOfNeed(v.sizeBytes + kvBytes, avail)
-                                     : memoryFit(v.sizeBytes, avail);
-const fits = hw ? variants.filter((v) => fitOf(v) !== "wont-fit") : variants;
-if (hw && fits.length === 0) return { pick: null, why: `None of these quants fit your ~${formatBytes(avail)} ...` };
-const pick = [...fits].sort((a, b) => speedFirst
-  ? a.sizeBytes - b.sizeBytes : quantRank(b.quantization) - quantRank(a.quantization))[0];
-```
-
-### `useVramFit.ts` — KV-aware fit input — **IMPORTANT**
-
-**Responsibility:** fetch a model's architecture dims (`inspect_model`, Ollama
-`/api/show`) then the KV-cache bytes for the chosen context (`estimate_kv_cache_bytes`
-— the canonical Rust formula, not a JS copy). `dims`/`kvBytes` are `null` for
-non-Ollama or missing metadata → caller falls back to the file-size heuristic
-(flagged `~`). Dims are identical across a family's quants, so it fetches once for
-the group's first variant.
-
-### `useQuantEval.ts` & `useQuantToolcall.ts` — scoring — **IMPORTANT**
-
-`useQuantEval`: runs the bundled quality suite (`list_evals` → `run_eval_task` per
-variant), tallies `passed/total`; a backend error marks the variant `error`
-(never reported as `0`, which would read as all-fail). `useQuantToolcall`: runs
-the curated tool-call suite (`getBuiltinTasks` → `run_toolcall_eval`), records the
-**composite** score; a backend error stores `null` → rendered "n/a", never a
-fabricated 0. The tool-call spread is the headline differentiator between quants.
-
-### `components/QuantPage.tsx` — the page + delta math — **IMPORTANT**
-
-Orchestrates: group select, use-case select, context select (4K…128K, clamped to
-`dims.context_length`), and three actions (Run quality evals, Run tool-call evals,
-Compare in Workspace →). `predictFit(sizeBytes, kvBytes, avail)` gives per-row fit
-+ an `oom` flag that disables running an over-budget quant (only when hardware is
-actually known — unknown memory never blocks). `toolcallSpread` prints
-`"Q4_K_M 71% · Q8_0 88%"`; `toolcallDelta` computes each quant's **percentage-point
-delta vs the highest-quality scored quant** (the baseline), making lost quality
-explicit:
-
-```ts
-const base = scored.reduce((a, b) => (quantRank(b.quantization) > quantRank(a.quantization) ? b : a));
-const baseScore = scores[base.name] as number;
-for (const v of scored) if (v.name !== base.name)
-  deltas[v.name] = Math.round(((scores[v.name] as number) - baseScore) * 100);  // e.g. −17pp vs Q8_0
-```
-
-The table columns are Quant · Size · Fit (`OOM Risk` / badge, `~` = approximate) ·
-Quality (`passed/total`) · Tool-calls (`%` + `±Npp` delta). `help.ts` holds the
-page + column tooltip copy.
-
----
+The Quant sub-tab (per-family quantization comparison) was deleted with its
+feature (frontend `features/quant/`, backend `list_evals`/`run_eval_task`).
+`useVramFit` survived the removal — it moved to `shared/memory/`
+(ParamsControl + ContextCliffPanel depend on it). Right-sizing guidance lives
+in the Agent Report section below.
 
 ## 3. Agent Report
 

@@ -8,8 +8,6 @@ Cross-references:
   `run_compare`/`stop_compare`/`save_compare_report` commands and the per-model
   event stream this tab consumes.
 - **App shell / nav / stores:** [`frontend-overview.md`](./frontend-overview.md).
-- **Quant sub-tab** (lives inside this page):
-  [`frontend-inspector-quant-agentreport.md`](./frontend-inspector-quant-agentreport.md).
 - **Model picker source** (`useSelectedModelStore`, `useModelLabel`, installed
   models): [`frontend-models.md`](./frontend-models.md).
 
@@ -87,24 +85,12 @@ ExportButtons → buildReport(store+installed) → toMarkdown / toJson
 
 ## `components/` — UI
 
-### AnalysisPage.tsx — sub-tab host (IMPORTANT)
+### AnalysisPage.tsx — thin host
 
-**Responsibility.** Hosts two sub-tabs: **Analysis** (`AnalysisTab`) and
-**Quant** (`QuantPage`, from `features/quant`).
-**Why.** Quant is *one lens of analysis*, not a top-level nav item, so it was
-merged in here. The active sub-tab is purely local `useState` — nothing
-deep-links into it.
-**What/How.** Renders a `role="tablist"` nav with two buttons and switches the
-`<main>` body on `tab`. This is what the top-level "Analysis" nav entry mounts.
-Quant internals are documented separately (cross-ref above).
-
-```tsx
-type SubTab = "analysis" | "quant";
-const [tab, setTab] = useState<SubTab>("analysis");
-// …
-{tab === "analysis" && <AnalysisTab />}
-{tab === "quant" && <QuantPage />}
-```
+**Responsibility.** Mounts `AnalysisTab` for the top-level "Analysis" nav entry.
+The former **Quant** sub-tab was REMOVED with its feature (per-quant right-sizing
+guidance lives on the Agent Report page); the page is a single view again, no
+sub-tab state.
 
 ### AnalysisTab.tsx — read-only results board (IMPORTANT)
 

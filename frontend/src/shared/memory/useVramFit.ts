@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { inspectModel, estimateKvCacheBytes, type ModelDims } from "../../shared/ipc/system/inspect";
-import type { BackendKind } from "../../shared/ipc/models/storage";
+import { inspectModel, estimateKvCacheBytes, type ModelDims } from "../ipc/system/inspect";
+import type { BackendKind } from "../ipc/models/storage";
 
 /// Fetch a model's architecture dims (Ollama /api/show) and the KV-cache bytes
 /// for the chosen context length. `dims`/`kvBytes` are null when unavailable

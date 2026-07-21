@@ -68,13 +68,12 @@ beforeEach(() => {
 });
 
 describe("Top navigation layout", () => {
-  it("has no standalone Quant tab; Quant lives as a sub-tab under Analysis", async () => {
+  it("has no Quant tab anywhere — the feature was removed (right-sizing lives on Agent Report)", async () => {
     render(<App />);
     await waitFor(() => expect(handlers["prompt-token"]).toBeDefined());
     expect(screen.queryByTestId("view-tab-quant")).toBeNull();
-    // Quant is reachable as a sub-tab once the Analysis top tab is open.
     fireEvent.click(screen.getByTestId("view-tab-compare"));
-    expect(screen.getByTestId("analysis-tab-quant")).toBeInTheDocument();
+    expect(screen.queryByTestId("analysis-tab-quant")).toBeNull();
   });
 
   it("orders Models & Downloads after Agent Report", async () => {

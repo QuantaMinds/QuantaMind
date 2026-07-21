@@ -47,8 +47,6 @@ per-task/per-step progress, and is crash-resumable.
 | `run_toolcall_eval` | toolcall_cmd | single-model tool-call eval over a collection |
 | `trace_toolcall_task` / `load_toolcall_trace` | toolcall_cmd | live / cached single-task trace |
 | `get_builtin_tasks` / `list_builtin_collections` / `get_builtin_collection` | toolcall_cmd | bundled preset catalog |
-| `run_eval_task` | eval_run | one generic `EvalTask` (exact / MC / JSON-schema) |
-| `list_evals` | evals_load | bundled `*.yaml` generic evals |
 | `run_collection_matrix` / `load_collection_history` | matrix_cmd | N-model matrix + history |
 | `run_batch_eval` / `stop_batch_eval` | batch_cmd | streaming batch run + cancel |
 | `check_unfinished_run` / `resume_batch_eval` / `discard_run` | batch_cmd | crash-resume queue |
@@ -73,8 +71,8 @@ per-task/per-step progress, and is crash-resumable.
   tool-call engine — exact-match / multiple-choice / flat JSON-schema.
 - **What:** `EvalTask { id, category, prompt, scoring: Scoring }`; tagged enum
   `Scoring::{ Exact{expected}, MultipleChoice{choices,expected}, JsonSchema{required,types} }`.
-- **How/Where used:** loaded by `evals_load::load_all`, scored by `eval_score::score`,
-  run by `eval_run::run_and_score`.
+- **How/Where used:** scored by `eval_score::score`. (Its former runners — `evals_load`/`eval_run`,
+  the Quant tab's generic-YAML command pair — were deleted with that feature.)
 
 ```rust
 #[serde(tag = "method", rename_all = "snake_case")]
@@ -93,7 +91,7 @@ pub enum Scoring {
   `pub fn first_json_value(text) -> Option<Value>` (greedy balanced-brace extractor);
   privates `balanced_from`, `strip_fences`, `score_json` (flat depth-1 check),
   `first_choice` (whole-word token match), `type_matches`.
-- **How/Where used:** `eval_run::run_and_score`.
+- **How/Where used:** the STT eval scorer and tests (the quant-era `eval_run` runner was deleted).
 
 **Greedy multi-object JSON extraction with balanced-brace detection** — scans for
 the *first* `{` whose balanced slice actually parses, skipping prose braces:
