@@ -475,10 +475,15 @@ leaking.
 `useHardware` (`get_hardware_snapshot`). For each charted row, `ModelTimeline`
 calls `buildLatencyBars` (→ `TokenTimeline` + outlier count), `buildHistogram` (→
 `LatencyHistogram`), `buildTtftSegments` (→ `TtftBreakdown`), `vramUsage` (→
-`VramBar`), and feeds history to `coldWarmState`/`regressionVerdict`. Separately,
-`leakStore.sample(model)` appends an RSS reading each run; `LeakBanner` reads the
-series through `detectLeak`. `ExportReportButton` re-gathers the same inputs and
-emits a self-contained HTML report.
+`VramBar`), and feeds history to `coldWarmState`/`regressionVerdict`. The
+**System Resource Budgets** block also mounts `KvCeilingBars`: `deviceMemory(hw)`
+extracts the pool total + `unified` flag + (Apple Silicon) the measured
+`workingSetBytes` (from `gpu.gpu_working_set_bytes`); `useKvCeilings` passes that
+working set to the `context_ceilings` IPC, so the three ceilings budget against the
+GPU's real limit and the returned `fit` drives the verdict chip + GPU-addressable
+line. Separately, `leakStore.sample(model)` appends an RSS reading each run;
+`LeakBanner` reads the series through `detectLeak`. `ExportReportButton` re-gathers
+the same inputs and emits a self-contained HTML report.
 
 **(b) Quant compare → recommendation.** `QuantPage` reads installed models →
 `groupQuantVariants` → the family dropdown. For the selected group it calls

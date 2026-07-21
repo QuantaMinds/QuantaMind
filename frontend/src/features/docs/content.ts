@@ -281,7 +281,20 @@ Two different things, two different displays:
   each cached token costs, never this count.
 - **Context ceiling by KV-cache precision** — *capacity*: the largest window this machine could
   hold at each precision. **f16** is the default; **q8** ≈ 2× at negligible quality cost; **q4** ≈
-  4× with a real quality cost and often slower at long context.
+  4× with a real quality cost and often slower at long context. On **Apple Silicon** the budget is
+  the GPU's **measured Metal limit**, shown as the **GPU-addressable** line ("~11.8 GB of 16.0 GB
+  usable by the GPU") — not the whole pool, since macOS only lets the GPU wire down ~66–75% of
+  unified memory.
+- **Weights-fit chip** — right above the bars, a coloured verdict on whether the *model itself*
+  fits under that GPU limit: **✓ Fits**, **⚠ Tight** (weights leave little room for context), or
+  **✕ spills to CPU/swap** (the weights alone exceed the limit → very slow). It answers the
+  question a big ceiling can't: a 100K ceiling is meaningless if the model doesn't even load on the
+  GPU. (Off Apple Silicon, where the limit isn't measured, no chip shows — never a guess.)
+
+> [!IMPORTANT]
+> **Capacity, not capability.** These bars measure *memory only* — not speed (long context is slow
+> to prefill even when it fits), and not whether the model runs on the GPU (the fit chip answers
+> that). "Could fit in memory" is not "will run well."
 
 > [!NOTE]
 > The ceiling bars need the model's dimensions and size. For **llama.cpp**, start the server from
