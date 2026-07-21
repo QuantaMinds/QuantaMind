@@ -1,9 +1,11 @@
 use crate::inference::eval::agentic::env_view::EnvView;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// What happened on a single agent turn — drives the Trajectory Inspector's
 /// per-step rendering and its red highlights for the error kinds.
-#[derive(Serialize, Clone, Debug, PartialEq)]
+/// `Deserialize` so persisted transcripts (`agentic_transcripts/*.jsonl`) can be
+/// read back — the `qm costs` command and the app's disk history both parse them.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum StepKind {
     /// A valid call the sandbox recognized and answered.
@@ -62,7 +64,7 @@ pub enum StepKind {
 /// One turn of an agentic run, streamed to the UI as it happens. `injection` is
 /// the sandbox's text reply for this turn (`"Tool result: …"`), or `None` on a
 /// terminal turn (end-state, yield, or loop cap).
-#[derive(Serialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct TrajectoryStep {
     pub run_index: u32,
     pub step_index: u32,

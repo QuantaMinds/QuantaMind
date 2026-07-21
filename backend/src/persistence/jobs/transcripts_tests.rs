@@ -112,3 +112,49 @@ fn an_unwritable_dir_errors_instead_of_panicking() {
     assert!(begin_task(&path).is_err());
     assert!(append_step(&path, &step(0, 0, "x")).is_err());
 }
+
+/// The reader is the writer's mirror: what `append_step`/`append_outcome` wrote comes
+/// back as the same typed records, in order — the seam `qm costs` and disk history use.
+#[test]
+fn load_records_round_trips_what_the_writer_wrote() {
+    let dir = tempdir().unwrap();
+    let path = transcript_path(dir.path(), "c", "m", "t", false);
+    begin_task(&path).unwrap();
+    let s = step(0, 0, r#"{"name":"ping","args":{}}"#);
+    append_step(&path, &s).unwrap();
+    append_outcome(&path, &TaskOutcome::Error { message: "boom".into(), oom: true }).unwrap();
+
+    let recs = load_records(&path).unwrap();
+    assert_eq!(recs.len(), 2);
+    match &recs[0] {
+        TranscriptEntry::Step(read) => assert_eq!(read, &s),
+        other => panic!("first record must be the step, got {other:?}"),
+    }
+    match &recs[1] {
+        TranscriptEntry::Outcome(TaskOutcome::Error { message, oom }) => {
+            assert_eq!(message, "boom");
+            assert!(*oom);
+        }
+        other => panic!("second record must be the outcome, got {other:?}"),
+    }
+}
+
+/// A crash mid-append leaves a torn FINAL line — tolerated (completed records still
+/// load). The same garbage anywhere else is corruption and must error loudly.
+#[test]
+fn torn_final_line_is_tolerated_but_mid_file_corruption_errors() {
+    let dir = tempdir().unwrap();
+    let path = transcript_path(dir.path(), "c", "m", "torn", false);
+    begin_task(&path).unwrap();
+    append_step(&path, &step(0, 0, "{}")).unwrap();
+    // Simulate a crash mid-append: an unterminated JSON tail.
+    std::fs::OpenOptions::new().append(true).open(&path).unwrap()
+        .write_all(b"{\"step\":{\"run_index\":1,").unwrap();
+    let recs = load_records(&path).unwrap();
+    assert_eq!(recs.len(), 1, "the completed record survives; the torn tail is dropped");
+
+    let bad = transcript_path(dir.path(), "c", "m", "corrupt", false);
+    begin_task(&bad).unwrap();
+    std::fs::write(&bad, "not json at all\n{\"outcome\":{\"kind\":\"error\",\"message\":\"x\"}}\n").unwrap();
+    assert!(load_records(&bad).is_err(), "mid-file corruption must never be a silent partial read");
+}

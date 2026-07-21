@@ -26,7 +26,7 @@ use crate::commands::system::process_memory;
 use crate::inference::eval::readiness::hardware::hwclass::agentic_ctx_ceiling;
 use crate::inference::llama::llama::probe_llama_n_ctx;
 use crate::commands::llama::llama_server_types::LlamaServerState;
-use crate::inference::ollama::ollama_placement::{probe_placement, ModelPlacement};
+use crate::inference::eval::run_facts;
 use crate::inference::ollama::ollama_show::{probe_ollama_version, probe_supports_tools};
 use crate::persistence::eval_history;
 use crate::persistence::jobs::queue::{self, RunConfig};
@@ -442,14 +442,7 @@ pub(crate) async fn run_passes(
     // progressing turn is killed as a false `TurnTimeout`). Probed once per target up front (the
     // per-turn closure is sync). llama.cpp/MLX report nothing here → not offloaded. The UI reads
     // the same placement via `ollama_model_placement` to show the "running on CPU" notice.
-    let mut placements: HashMap<String, ModelPlacement> = HashMap::new();
-    for t in &config.targets {
-        if t.backend == BackendKind::Ollama {
-            if let Some(p) = probe_placement(&endpoint_for(t.backend), &t.model).await {
-                placements.insert(t.model.clone(), p);
-            }
-        }
-    }
+    let placements = run_facts::probe_placements(&config.targets, endpoint_for).await;
     // The per-turn closure needs only the bool (larger step timeout for a spilled model);
     // the full placement (weights/offload bytes + claimed quant) is stamped on the report.
     let cpu_offload: HashMap<String, bool> = placements.iter().map(|(m, p)| (m.clone(), p.on_cpu)).collect();
@@ -471,9 +464,10 @@ pub(crate) async fn run_passes(
         ctx_ceilings.insert(t.model.clone(), ceiling);
     }
     let think_preset = config.think_preset; // captured by the sync per-turn closure below
-    // The per-turn closure below MOVES the two maps; keep copies to stamp onto the report columns
-    // after the run (the closure only reads via `.get()`, so a clone is faithful).
-    let cpu_offload_stamp = cpu_offload.clone();
+    // The per-turn closure below MOVES the ceilings map; keep a copy to stamp onto the report
+    // columns after the run (the closure only reads via `.get()`, so a clone is faithful).
+    // `cpu_offloaded` needs no copy: `run_facts::stamp_placements` stamps it from the SAME
+    // placement probe the closure's bool map was derived from.
     let ctx_ceilings_stamp = ctx_ceilings.clone();
     // The launched llama-server's facts — known only for a server WE spawned; an
     // externally-started one stamps `None` (its flags are unknowable, never guessed).
@@ -521,25 +515,16 @@ pub(crate) async fn run_passes(
         skeleton_report(&config.collection_id, &config.targets)
     };
     // Merge the native aggregates (collected before the prompt pass) into its columns.
+    // Placement facts stamp via the SHARED helper (`run_facts`) — the same one the qm CLI
+    // uses, so the app's Latency view and `qm --costs` can never drift.
+    run_facts::stamp_placements(&mut report.columns, &placements);
     for col in &mut report.columns {
         if let Some(a) = native_aggs.get(&col.model) {
             col.agentic_native_fc = Some(a.clone());
         }
-        // Stamp the per-model reasoning-budget facts the run computed (the maps are keyed by model):
-        // whether Ollama spilled it onto the CPU, and the hardware-adaptive `num_ctx` ceiling it ran
-        // under. Both surface on the readiness verdict + publish payload so a slow/thinking run reads
-        // honestly instead of as incapability.
-        col.cpu_offloaded = cpu_offload_stamp.get(&col.model).copied().unwrap_or(false);
+        // Stamp the hardware-adaptive `num_ctx` ceiling this model ran under (surfaces on the
+        // readiness verdict + publish payload so a slow/thinking run reads honestly).
         col.ctx_ceiling = ctx_ceilings_stamp.get(&col.model).copied();
-        // Measured weight placement + the tag's claimed quantization (Ollama /api/ps; the
-        // Inspector's memory breakdown reads weights_vram_bytes as its constant baseline,
-        // offload_bytes as the "spilled to CPU" quantity).
-        if let Some(p) = placements.get(&col.model) {
-            col.weights_total_bytes = Some(p.total_bytes);
-            col.weights_vram_bytes = Some(p.vram_bytes);
-            col.offload_bytes = Some(p.cpu_bytes);
-            col.quantization_claimed = p.quantization_claimed.clone();
-        }
         if col.backend == BackendKind::LlamaCpp {
             // Stamp launch facts ONLY when the running server serves THIS column's model
             // (stem match) — never another model's bytes or flags. llama.cpp has no
