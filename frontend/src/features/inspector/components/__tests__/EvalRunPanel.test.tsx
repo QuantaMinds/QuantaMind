@@ -66,7 +66,7 @@ describe("EvalRunPanel", () => {
     });
     render(<EvalRunPanel />);
     const card = screen.getByTestId("eval-task-card-t1");
-    expect(card.textContent).toContain("Not available");
+    expect(card.textContent).toContain("N/A"); // the honest gap marker (restyled from "Not available")
     expect(card.textContent).not.toContain("0 tok");
   });
 
@@ -89,7 +89,7 @@ describe("EvalRunPanel", () => {
     });
     render(<EvalRunPanel />);
     const card = screen.getByTestId("eval-task-card-es_rs_search_fact-native");
-    expect(card.textContent).toContain("native FC");
+    expect(card.textContent).toContain("Native FC");
     expect(card.textContent).toContain("74"); // output tokens actually shown
     expect(card.textContent).not.toContain("0 runs · 0 steps");
     // The memory panel takes its RSS peak across BOTH passes.

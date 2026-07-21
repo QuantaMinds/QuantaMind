@@ -35,12 +35,21 @@ export function LlamaServerReadout() {
   return (
     <div
       data-testid="llama-spawn-readout"
-      className="text-xs text-gray-500 border rounded px-3 py-2 bg-gray-50"
+      className="flex items-center gap-3 text-sm text-slate-700 border border-slate-200 rounded-lg px-4 py-3 bg-white shadow-sm"
       title="llama.cpp loads the model once at server start and keeps it resident — this is a one-time startup cost, not part of each request's TTFT."
     >
-      <span className="font-semibold text-gray-600">llama.cpp server</span>
-      {size && <> · model {size}</>} · loaded in {loadS}s at startup
-      <span className="text-gray-400"> (one-time; not a per-request phase)</span>
+      <div className="flex items-center gap-2 font-medium text-slate-900">
+        <span className="relative flex h-2.5 w-2.5">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+        </span>
+        llama.cpp server
+      </div>
+      <div className="flex gap-3 text-xs font-mono bg-slate-50 px-2.5 py-1 rounded border border-slate-100">
+        {size && <span className="text-slate-600">SIZE:{size}</span>}
+        <span className="text-slate-600">LOAD:{loadS}s</span>
+      </div>
+      <span className="text-xs text-slate-400 ml-auto uppercase tracking-wider font-semibold">Ready</span>
     </div>
   );
 }

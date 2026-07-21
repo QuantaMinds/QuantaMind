@@ -36,10 +36,17 @@ export function EvalRunPanel() {
   const models = Object.keys(tasksByModel);
   if (models.length === 0) {
     return (
-      <div className="text-sm text-gray-500 border rounded p-6 text-center" data-testid="eval-run-empty">
-        Run a task or a collection in the Tests tab — its per-task latency, cache and memory
-        breakdown appears here (live while it runs). Workspace-prompt per-token timing lives
-        under the Analysis tab.
+      <div className="flex flex-col items-center justify-center p-12 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50 text-center" data-testid="eval-run-empty">
+        <div className="w-12 h-12 bg-white rounded-full shadow-sm flex items-center justify-center mb-4 border border-slate-100">
+          <svg className="w-6 h-6 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+        </div>
+        <h3 className="text-sm font-semibold text-slate-900">No telemetry data available</h3>
+        <p className="text-sm text-slate-500 max-w-sm mt-2">
+          Run a task or a collection in the Tests tab. Live latency, cache, and memory footprint metrics will appear here.
+          Workspace-prompt per-token timing lives under the Analysis tab.
+        </p>
       </div>
     );
   }
@@ -94,16 +101,20 @@ export function EvalRunPanel() {
           entries.find((e) => e.cost.contextWindow != null)?.cost.contextWindow ??
           null;
         return (
-          <div key={model} className="space-y-3" data-testid={`eval-run-model-${model}`}>
-            <div className="flex items-baseline gap-2">
-              <span className="text-sm font-semibold text-slate-800">{collectionId ?? "Test run"}</span>
-              <span className="text-xs text-gray-500">· {model}</span>
-              <InfoButton title={EVAL_RUN_HELP.page.title} body={EVAL_RUN_HELP.page.body} align="left" testId="eval-run" />
-              {running && <span className="text-xs px-2 py-0.5 rounded-full bg-sky-100 text-sky-700">running</span>}
-              <span className="ml-auto text-xs text-gray-500">
-                {taskCount} task{taskCount === 1 ? "" : "s"}
-                {wallTotal != null ? ` · ${fmtMs(wallTotal)} total wall` : ""}
-              </span>
+          <div key={model} className="space-y-4 mb-8" data-testid={`eval-run-model-${model}`}>
+            <div className="flex items-center gap-3 border-b border-slate-200 pb-3">
+              <div className="flex flex-col">
+                <div className="flex items-center gap-2">
+                  <span className="text-base font-semibold text-slate-900 tracking-tight">{collectionId ?? "Evaluation Run"}</span>
+                  {running && <span className="flex items-center gap-1.5 text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-sky-50 text-sky-600 border border-sky-100"><span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse"></span>Running</span>}
+                  <InfoButton title={EVAL_RUN_HELP.page.title} body={EVAL_RUN_HELP.page.body} align="left" testId="eval-run" />
+                </div>
+                <span className="text-sm font-mono text-slate-500 mt-0.5">{model}</span>
+              </div>
+              <div className="ml-auto flex items-center gap-4 text-xs font-mono bg-slate-50 border border-slate-100 px-3 py-1.5 rounded-md shadow-sm">
+                <span className="text-slate-600"><span className="text-slate-400">TASKS:</span> {taskCount}</span>
+                {wallTotal != null && <span className="text-slate-600"><span className="text-slate-400">WALL:</span> {fmtMs(wallTotal)}</span>}
+              </div>
             </div>
             <MemoryEstimatePanel
               model={model}
