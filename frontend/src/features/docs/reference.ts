@@ -164,6 +164,14 @@ export const REFERENCE_SECTIONS: ReferenceSection[] = [
         source: "frontend/src/features/inspector/components/ContextBudgetBar.tsx",
       },
       {
+        id: "context-ceiling",
+        heading: "Context ceiling by KV-cache precision + fit verdict",
+        what: "Three bars (f16 / q8_0 / q4_0) of the largest context this machine could hold for the model at each cache precision, plus — on Apple Silicon — a “GPU-addressable” line and a coloured weights-fit chip.",
+        why: "Capacity is not capability. A big ceiling number is meaningless if the weights don’t even fit on the GPU, and on Apple Silicon macOS only lets the GPU wire down ~66–75% of unified memory — so budgeting against the whole RAM pool over-promises. The fit chip answers the question the bars can’t.",
+        how: "Ceilings budget against the GPU’s MEASURED Metal working-set limit (recommendedMaxWorkingSetSize) on Apple Silicon — shown as “~11.8 GB of 16.0 GB usable by the GPU” — not the total pool; off macOS they fall back to a 70%-of-RAM heuristic. The fit chip reads the backend’s FitVerdict: Fits (real headroom) · Tight (weights ≥ 85% of the limit, little room for context) · spills to CPU/swap (weights alone exceed the limit → very slow). When the limit is unmeasured the chip is hidden — never guessed. The bars measure MEMORY ONLY: not prefill speed at long context, and not whether the backend launches there by default. q8 ≈ 2× f16 at negligible quality cost; q4 ≈ 4× at a real quality cost and often slower — planning info, never auto-selected.",
+        source: "frontend/src/features/inspector/components/kv/KvCeilingBars.tsx · backend/src/commands/llama/llama_runtime.rs (ctx_ceilings, FitVerdict)",
+      },
+      {
         id: "regression-export",
         heading: "Regression alert + report export",
         what: "A banner when this run is slower than recent runs, plus a button to export the full timing report.",
