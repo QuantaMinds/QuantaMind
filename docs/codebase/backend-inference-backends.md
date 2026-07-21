@@ -701,7 +701,14 @@ stderr-aware launcher where loading is slow.
   `as_dim_u64`, the GGUF reader keeping small int arrays). Total (not free) memory keeps
   the launched window a *stable* per-machine property; genuinely missing dims ⇒ **no RAM
   clamp** (`u32::MAX`) so an explicit window is never silently capped to a guess — the
-  unset default still caps at 8K via `cap_context`. `--jinja` always on; `template` is an
+  unset default still caps at 8K via `cap_context`. **Meter vs launch budget:** both go
+  through `ceiling_from_per_token(usable, …)`, but the *launch* path passes
+  `usable_memory_bytes(total, None)` (the 70% heuristic, unchanged), while the *meter* path
+  `ctx_ceilings(model_bytes, dims, total, working_set)` passes the **measured** Metal
+  working set (`GpuInfo::gpu_working_set_bytes`) on Apple Silicon — so the meters reflect
+  what actually fits on the GPU. `ctx_ceilings` also returns a `FitVerdict`
+  (`Fits`/`Tight`/`SpillsToCpu`/`Unknown` via `fit_verdict`) stating whether the weights
+  fit under that limit at all — the question a large ceiling can't answer. `--jinja` always on; `template` is an
   optional `--chat-template-file` override resolved by `llama_templates` — `None`
   ⇒ the embedded template), then **block on
   `wait_until_ready()`** (poll `/health` every 500ms ≤30s). If readiness fails,

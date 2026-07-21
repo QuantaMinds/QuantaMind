@@ -141,7 +141,7 @@ fn kv_type_maps_to_precision() {
 /// show the real stepped values, never a naive "×2/×4".
 #[test]
 fn ctx_ceilings_q8_roughly_doubles_and_q4_quadruples_f16() {
-    let c = ctx_ceilings(9_000_000_000, nineb_dims(), 16 * 1_000_000_000);
+    let c = ctx_ceilings(9_000_000_000, nineb_dims(), 16 * 1_000_000_000, None);
     assert_eq!(c.f16, Some(14_848));
     assert_eq!(c.q8, Some(29_696));
     assert_eq!(c.q4, Some(59_648));
@@ -157,8 +157,51 @@ fn ctx_ceilings_q8_roughly_doubles_and_q4_quadruples_f16() {
 #[test]
 fn ctx_ceilings_unmeasurable_dims_yield_none_never_a_clamp() {
     let bad = KvDims { layers: 36, head_count: 40, head_count_kv: 8, embedding_length: 0 };
-    let c = ctx_ceilings(9_000_000_000, bad, 16 * 1_000_000_000);
-    assert_eq!(c, CtxCeilings { f16: None, q8: None, q4: None });
+    let c = ctx_ceilings(9_000_000_000, bad, 16 * 1_000_000_000, None);
+    // 9 GB weights below the 11.2 GB (70% of 16 GB) heuristic budget, but the limit is
+    // unmeasured here (None) → fit is Unknown, never guessed from the heuristic.
+    assert_eq!(c, CtxCeilings { f16: None, q8: None, q4: None, fit: FitVerdict::Unknown });
+}
+
+/// The fit verdict classifies the WEIGHTS against the measured GPU limit — the ceilings
+/// can't. Below 85% → Fits; ≥85% but under → Tight; at/over → SpillsToCpu; unmeasured or a
+/// zero model size → Unknown (never guessed).
+#[test]
+fn fit_verdict_classifies_weights_against_the_gpu_limit() {
+    let limit = 12_000_000_000; // ~ a 16 GB Mac's Metal working set
+    assert_eq!(fit_verdict(5_000_000_000, Some(limit)), FitVerdict::Fits); // 42% — room for KV
+    assert_eq!(fit_verdict(11_000_000_000, Some(limit)), FitVerdict::Tight); // 92% — fits, no KV room
+    assert_eq!(fit_verdict(13_000_000_000, Some(limit)), FitVerdict::SpillsToCpu); // over the limit
+    assert_eq!(fit_verdict(5_000_000_000, None), FitVerdict::Unknown); // limit unmeasured
+    assert_eq!(fit_verdict(0, Some(limit)), FitVerdict::Unknown); // no model size
+}
+
+/// The 25 GB-model-on-a-32 GB-Mac trap: weights exceed the Metal working set (~24 GB), so the
+/// model spills to CPU no matter how large the raw context ceiling looks — the whole reason the
+/// verdict exists alongside the ceilings.
+#[test]
+fn ctx_ceilings_flags_the_oversized_model_that_spills_to_cpu() {
+    let working_set = 24_000_000_000; // ~75% of a 32 GB Mac
+    let c = ctx_ceilings(25_000_000_000, nineb_dims(), 32_000_000_000, Some(working_set));
+    assert_eq!(c.fit, FitVerdict::SpillsToCpu);
+}
+
+/// Budgeting against the MEASURED working set, not total×70%: a working set below the heuristic
+/// yields a smaller (more honest) ceiling than the legacy total-only path — proving the measured
+/// cap actually drives the budget.
+#[test]
+fn ctx_ceilings_budget_follows_the_measured_working_set() {
+    let (total, weights) = (16_000_000_000u64, 4_000_000_000u64);
+    let heuristic = ctx_ceilings(weights, nineb_dims(), total, None); // 70% of 16 GB = 11.2 GB
+    let measured = ctx_ceilings(weights, nineb_dims(), total, Some(10_000_000_000)); // smaller real cap
+    assert!(
+        measured.f16.unwrap() < heuristic.f16.unwrap(),
+        "a smaller measured cap must yield a smaller ceiling: {:?} vs {:?}",
+        measured.f16,
+        heuristic.f16
+    );
+    assert_eq!(heuristic.fit, FitVerdict::Unknown, "no measured limit → no fit verdict");
+    assert_eq!(measured.fit, FitVerdict::Fits, "4 GB weights well under a 10 GB limit");
 }
 
 /// Unmeasurable dims → we can't budget memory, so never fabricate a constraint: plain plan.

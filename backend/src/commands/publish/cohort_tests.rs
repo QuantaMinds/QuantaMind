@@ -28,7 +28,7 @@ fn apple_silicon_uses_chip_class_and_ram_tier() {
 
 #[test]
 fn discrete_nvidia_gpu_uses_vendor_and_name_slug() {
-    let gpu = GpuInfo { name: Some("NVIDIA GeForce RTX 4090".into()), vram_total_bytes: Some(24 * G), vram_free_bytes: None, unified: false, available: true };
+    let gpu = GpuInfo { name: Some("NVIDIA GeForce RTX 4090".into()), vram_total_bytes: Some(24 * G), vram_free_bytes: None, unified: false, available: true, gpu_working_set_bytes: None };
     let h = hw(false, "AMD Ryzen 9", "x86_64", gpu, 64);
     assert_eq!(cohort_key(&h), "nvidia/nvidia-geforce-rtx-4090/32-64gb");
 }

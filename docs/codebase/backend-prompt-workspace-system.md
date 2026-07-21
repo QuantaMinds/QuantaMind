@@ -573,9 +573,13 @@ pub struct HardwareSnapshot {
 - **Responsibility:** Best-effort GPU/VRAM probe.
 - **Why:** Cross-platform VRAM facts without fabrication; Apple Silicon has no
   separate VRAM pool (unified memory).
-- **What:** `GpuInfo { name, vram_total/free_bytes, unified, available }`;
-  `parse_nvidia_csv` (pure), `nvidia()` (runs `nvidia-smi`), `apple()` (reads the
-  chip brand, marks `unified`), `probe_gpu()` (NVIDIA → Apple → unavailable).
+- **What:** `GpuInfo { name, vram_total/free_bytes, unified, available,
+  gpu_working_set_bytes }`; `parse_nvidia_csv` (pure), `nvidia()` (runs `nvidia-smi`),
+  `apple()` (reads the chip brand, marks `unified`, and via `macos_working_set_bytes()`
+  reads the GPU's Metal `recommendedMaxWorkingSetSize` — the measured unified-memory cap
+  the GPU can wire down, ~66-75% of RAM; `None` off macOS), `probe_gpu()` (NVIDIA → Apple
+  → unavailable). `gpu_working_set_bytes` is what the context-ceiling meters budget against
+  on Apple Silicon (see `llama_runtime::usable_memory_bytes`), not raw RAM.
 - **How/Where used:** Embedded in `HardwareSnapshot.gpu`. Inline tests cover CSV
   parsing and "never panics".
 

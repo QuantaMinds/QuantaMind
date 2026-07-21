@@ -180,10 +180,12 @@ pub fn estimate_kv_cache_bytes(
 }
 
 /// The largest context this machine holds for a model at each KV-cache precision
-/// (f16 / q8_0 / q4_0) — the data behind the Latency tab's context-ceiling meters.
-/// A `null` ceiling means unmeasurable (rendered "Not available"), never a guess.
-/// The math (`ctx_ceilings`) is the SAME the llama.cpp launch planner uses, so the
-/// meters can't disagree with a real launch.
+/// (f16 / q8_0 / q4_0), plus whether the weights fit under the GPU's hard memory limit —
+/// the data behind the Latency tab's context-ceiling meters. A `null` ceiling means
+/// unmeasurable (rendered "Not available"), never a guess. `working_set_bytes` is the
+/// machine's MEASURED Metal working-set limit (from the hardware snapshot's `GpuInfo`) on
+/// Apple Silicon, `None` elsewhere; the ceilings budget against it so "fits" means fits on
+/// the GPU. Omitting it falls back to the total-RAM heuristic (unchanged legacy behavior).
 #[tauri::command]
 pub fn context_ceilings(
     layers: u64,
@@ -192,9 +194,10 @@ pub fn context_ceilings(
     embedding_length: u64,
     model_bytes: u64,
     total_bytes: u64,
+    working_set_bytes: Option<u64>,
 ) -> crate::commands::llama::llama_runtime::CtxCeilings {
     let dims = crate::commands::llama::llama_runtime::KvDims { layers, head_count, head_count_kv, embedding_length };
-    crate::commands::llama::llama_runtime::ctx_ceilings(model_bytes, dims, total_bytes)
+    crate::commands::llama::llama_runtime::ctx_ceilings(model_bytes, dims, total_bytes, working_set_bytes)
 }
 
 #[cfg(test)]
