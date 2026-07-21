@@ -34,6 +34,18 @@ describe("taskCost", () => {
     expect(cost.peakContextTokens).toBe(54); // occupancy still derivable from prefill+output
   });
 
+  it("thinking split is measured only when a step's flag says so — equality proves nothing", () => {
+    // Ollama thinking model: combined count (reasoning == output), flag absent → NOT measured.
+    const combined = taskCost([{ ...base, output_tokens: 300, reasoning_tokens: 300 }]);
+    expect(combined.thinkingSplitMeasured).toBe(false);
+    // llama.cpp tokenized split — including the truncated-mid-think edge where the measured
+    // split still equals the total; only the flag distinguishes it.
+    const measured = taskCost([{ ...base, output_tokens: 305, reasoning_tokens: 299, thinking_split_measured: true }]);
+    expect(measured.thinkingSplitMeasured).toBe(true);
+    const truncatedMidThink = taskCost([{ ...base, output_tokens: 300, reasoning_tokens: 300, thinking_split_measured: true }]);
+    expect(truncatedMidThink.thinkingSplitMeasured).toBe(true);
+  });
+
   it("no steps → all-null cost (nothing measured, nothing invented)", () => {
     const cost = taskCost([]);
     expect(cost.steps).toBe(0);
@@ -82,11 +94,14 @@ describe("agentic-step wire drift-guard", () => {
       total_ms: 1103,
       output_tokens: 40,
       resident_bytes: 7_000_000_000,
+      reasoning_tokens: 299,
+      thinking_split_measured: true,
     };
     const parsed = AgenticStepPayloadSchema.parse(wire);
     expect(parsed.collection_id).toBe("easy-coding");
     expect(parsed.eval_ms).toBe(950);
     expect(parsed.resident_bytes).toBe(7_000_000_000);
+    expect(parsed.thinking_split_measured).toBe(true);
   });
 
   it("still parses a pre-stamp event (old fixture, no collection_id / turn costs)", () => {

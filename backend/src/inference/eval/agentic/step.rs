@@ -121,6 +121,14 @@ pub struct TrajectoryStep {
     /// the context window got (`context_used ≈ context_window` ⇒ hardware-bound). `None` otherwise.
     #[serde(default)]
     pub reasoning_tokens: Option<u32>,
+    /// TRUE only when `reasoning_tokens` is a MEASURED thinking/answer split — the reasoning
+    /// channel's text tokenized with the model's own tokenizer (llama.cpp `/tokenize`).
+    /// FALSE means the value is the backend's combined generated count for a thinking model
+    /// (Ollama reports no split — the UI must show "(no split)"). A dedicated flag, not the
+    /// `reasoning == output` equality heuristic: a run truncated mid-think has a genuinely
+    /// measured split that still equals the total.
+    #[serde(default)]
+    pub thinking_split_measured: bool,
     #[serde(default)]
     pub context_used: Option<u32>,
     #[serde(default)]

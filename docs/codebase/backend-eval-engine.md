@@ -352,6 +352,20 @@ Both live event payloads (`AgenticStepPayload`, `BatchProgress::Started/Done`) c
 step is attributable to its (collection, task, model) triple on the wire, with no
 out-of-band context; the Inspector's Test-run view keys on exactly this triple.
 
+**Measured thinking/answer split (llama.cpp only).** The chat stream accumulates the raw
+`reasoning_content` text and, at turn end, tokenizes it via the server's own `POST
+/tokenize` (`add_special:false` — no BOS inflation) into `GenerateStats.thinking_tokens`;
+the runner prefers it over the combined-`eval_count` fallback and stamps
+`TrajectoryStep.thinking_split_measured` so the UI can label provenance (a dedicated flag,
+NOT the `reasoning == output` equality heuristic — a run truncated mid-think has a measured
+split that still equals the total). Reconciled live: `tokenize(reasoning) +
+tokenize(answer) = predicted_n − ~3` channel-marker/EOG tokens (1%). Ollama stays `None`:
+no tokenize endpoint (404 on 0.24.0, ollama#12030 unmerged) and streamed chunks are NOT
+tokens (measured live: 228 thinking chunks vs eval_count 300) — the combined count must
+never be relabeled as thinking. Best-effort: a failed tokenize call degrades to `None`,
+never a guess. D9's budget math stays on `eval_count` (budget consumed = ALL generated
+tokens); the split only improves what the step displays.
+
 ### File: `mod.rs`
 - Declares `build, context, endstate, model_turn, report, runner, sandbox, spec, step`.
 

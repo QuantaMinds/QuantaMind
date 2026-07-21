@@ -511,6 +511,7 @@ fn byo_step(run: usize, i: usize, kind: StepKind, raw: &str, injection: Option<&
         output_tokens: None,
         resident_bytes: None, // sampled at the emit site, not in this pure constructor
         reasoning_tokens: None,
+        thinking_split_measured: false,
         context_used: None,
         context_window: None,
         initial_prompt: initial.map(str::to_string),

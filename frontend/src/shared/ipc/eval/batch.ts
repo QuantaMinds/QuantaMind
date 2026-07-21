@@ -94,6 +94,10 @@ export const TrajectoryStepSchema = z.object({
   // (thinking-budget % vs context %) so the user can tell "raise a setting" from "buy hardware".
   // Null/absent on every other turn (and backends that don't report token counts).
   reasoning_tokens: z.number().int().nonnegative().nullable().optional(),
+  // TRUE only when reasoning_tokens is a MEASURED thinking/answer split (the reasoning
+  // channel tokenized with the model's own tokenizer — llama.cpp /tokenize). FALSE/absent ⇒
+  // the combined generated count (Ollama reports no split) → the UI shows "(no split)".
+  thinking_split_measured: z.boolean().optional(),
   context_used: z.number().int().nonnegative().nullable().optional(),
   context_window: z.number().int().nonnegative().nullable().optional(),
   // Turn-cost split (mirrors Rust `TrajectoryStep`): decode wall-clock (`eval_ms` —

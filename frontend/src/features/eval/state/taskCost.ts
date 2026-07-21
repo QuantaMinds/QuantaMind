@@ -20,6 +20,9 @@ export interface TaskCost {
   /// from measured tokens" (llama.cpp); false ⇒ "estimated" (Ollama/MLX token accounting
   /// saturates; see backend-token-accounting notes).
   kvTokensMeasured: boolean;
+  /// True iff any step's thinking count is a MEASURED channel split (llama.cpp /tokenize);
+  /// false ⇒ the combined generated count → render "(no split)", never as a measurement.
+  thinkingSplitMeasured: boolean;
   /// Peak token occupancy of a SINGLE run (max over runs of the run's last-step
   /// cache_n + prefill_tokens + output_tokens) — the tokens×bytes/token KV headline is
   /// sized from this, since each Pass^k run restarts the transcript. Null when no step
@@ -73,6 +76,7 @@ export function taskCost(steps: TrajectoryStep[]): TaskCost {
     reasoningTokensTotal: sumReported(steps, (s) => s.reasoning_tokens),
     cacheHitTokensTotal: sumReported(steps, (s) => s.cache_n),
     kvTokensMeasured: steps.some((s) => s.cache_n != null),
+    thinkingSplitMeasured: steps.some((s) => s.thinking_split_measured === true),
     peakContextTokens: peak,
     contextWindow: steps.find((s) => s.context_window != null)?.context_window ?? null,
     maxStepEndRssBytes: maxRss,

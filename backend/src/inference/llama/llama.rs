@@ -109,19 +109,25 @@ async fn stream_chat(
     // open tag: closed when the answer (`content`) starts or the stream ends. A terse model (or
     // `--reasoning-format none`) sends no `reasoning_content`, so this stays a no-op.
     let mut think_open = false;
-    loop {
+    // The raw reasoning-channel text, kept verbatim so the finished turn can be tokenized
+    // with the model's OWN tokenizer (`/tokenize`) — the only honest thinking/answer token
+    // split (streamed delta counts are NOT token counts; proven live on Ollama: 228 chunks
+    // vs eval_count 300).
+    let mut reasoning_text = String::new();
+    // Every SUCCESS exit breaks this loop with its stats so the single tail below can stamp
+    // `thinking_tokens`; a cancel still returns directly (no tokenize call on a dead turn).
+    let mut stats = 'stream: loop {
         tokio::select! {
             _ = cancel.cancelled() => return Ok(Some(GenerateStats::default())),
             piece = bytes.next() => {
-                let Some(piece) = piece else { break };
+                let Some(piece) = piece else { break 'stream chat_stats(timings) };
                 let piece = piece.map_err(|e| AppError::Inference(e.to_string()))?;
                 buf.extend_from_slice(&piece);
                 while let Some(line) = next_line(&mut buf) {
                     let payload = strip_sse(&line);
                     if payload.is_empty() { continue; }
                     if payload == b"[DONE]" {
-                        if think_open { on_token("</think>"); }
-                        return Ok(Some(chat_stats(timings)));
+                        break 'stream chat_stats(timings);
                     }
                     if payload.first() != Some(&b'{') { continue; }
                     let chunk: ChatStreamChunk = serde_json::from_slice(payload)
@@ -130,6 +136,7 @@ async fn stream_chat(
                     if let Some(choice) = chunk.choices.into_iter().next() {
                         if let Some(text) = choice.delta.reasoning_content.filter(|t| !t.is_empty()) {
                             if !think_open { on_token("<think>"); think_open = true; }
+                            reasoning_text.push_str(&text);
                             on_token(&text);
                         }
                         if let Some(text) = choice.delta.content.filter(|t| !t.is_empty()) {
@@ -138,20 +145,49 @@ async fn stream_chat(
                         }
                         if cancel.is_cancelled() { return Ok(Some(GenerateStats::default())); }
                         if choice.finish_reason.is_some() {
-                            if think_open { on_token("</think>"); }
                             // Carry "stop" vs "length" so the agentic runner can tell a real
                             // failure from a `num_predict` truncation it can retry (see runner).
                             let mut stats = chat_stats(timings);
                             stats.finish_reason = choice.finish_reason;
-                            return Ok(Some(stats));
+                            break 'stream stats;
                         }
                     }
                 }
             }
         }
+    };
+    if think_open {
+        on_token("</think>");
     }
-    if think_open { on_token("</think>"); }
-    Ok(Some(chat_stats(timings)))
+    if !reasoning_text.is_empty() {
+        stats.thinking_tokens = tokenize_count(&client, endpoint, &reasoning_text).await;
+    }
+    Ok(Some(stats))
+}
+
+/// Wire shape of llama-server `POST /tokenize` (ids only; `with_pieces` unused).
+#[derive(serde::Deserialize)]
+struct TokenizeResponse {
+    tokens: Vec<i64>,
+}
+
+/// Token count of `text` under the server's OWN tokenizer — the measured basis for the
+/// thinking/answer split. `add_special:false` is explicit so no BOS token inflates the
+/// count (reconciled live: tokenize(reasoning)+tokenize(answer) = predicted_n − ~3
+/// channel-marker/EOG tokens, 1%). Best-effort: any failure returns `None` — the UI then
+/// shows the combined count with its "(no split)" qualifier, never a fabricated number.
+async fn tokenize_count(client: &reqwest::Client, endpoint: &str, text: &str) -> Option<u32> {
+    let resp = client
+        .post(format!("{endpoint}/tokenize"))
+        .json(&serde_json::json!({ "content": text, "add_special": false }))
+        .send()
+        .await
+        .ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let body: TokenizeResponse = resp.json().await.ok()?;
+    u32::try_from(body.tokens.len()).ok()
 }
 
 /// Stats for a chat-endpoint run: llama-server's `timings` (prompt/predict ms)

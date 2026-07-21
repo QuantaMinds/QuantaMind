@@ -21,6 +21,7 @@ fn step(run_index: u32, step_index: u32, raw: &str) -> TrajectoryStep {
         output_tokens: None,
         resident_bytes: None,
         reasoning_tokens: None,
+        thinking_split_measured: false,
         context_used: None,
         context_window: None,
         initial_prompt: None,

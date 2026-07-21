@@ -1152,3 +1152,75 @@ async fn turn_costs_live_llama() {
     println!("  llama-server RSS now: {rss:?}");
     assert!(rss.is_some_and(|b| b > 0), "a running llama-server must yield a positive RSS sample");
 }
+
+// Run: cargo test --lib turn_costs_live_llama_thinking -- --ignored --nocapture
+// (llama-server on :8081 with a REASONING model, e.g. qwen3.5-9b_q4_k_m.gguf, --jinja.)
+// The measured thinking/answer split, end-to-end on a real run: every real turn of a
+// reasoning model must carry `thinking_split_measured` + a tokenized `reasoning_tokens`
+// STRICTLY below `output_tokens` on a completed turn (the answer tail + channel markers
+// account for the gap — reconciled live at ~3 tokens/turn). This is the no-fake-metrics
+// acceptance: the split comes from /tokenize over the reasoning channel, never from
+// chunk counting (chunks ≠ tokens, proven on Ollama: 228 chunks vs eval_count 300).
+#[tokio::test]
+#[ignore = "live: requires llama-server on :8081 (--jinja) with a reasoning model loaded"]
+async fn turn_costs_live_llama_thinking() {
+    use crate::inference::eval::agentic::v2::collection::load_v2_collection;
+    use crate::inference::eval::agentic::v2::scenarios::v2_json;
+
+    #[derive(Default)]
+    struct CostSink {
+        steps: Mutex<Vec<TrajectoryStep>>,
+    }
+    impl BatchSink for CostSink {
+        fn task_started(&self, _m: &str, _t: &str, _i: usize, _total: usize, _c: &str, _n: bool) {}
+        fn agentic_turn(&self, _m: &str, _t: &str, step: &TrajectoryStep, _n: bool) {
+            self.steps.lock().unwrap().push(step.clone());
+        }
+        fn task_done(&self, _m: &str, _t: &str, _o: &TaskOutcome, _n: bool) {}
+    }
+
+    let model = std::env::var("QM_LIVE_MODEL").unwrap_or_else(|_| "qwen3.5-9b_q4_k_m".into());
+    let mut tasks = load_v2_collection(v2_json("easy-coding").unwrap()).unwrap();
+    tasks.retain(|t| t.agentic.is_some());
+    tasks.truncate(1);
+    if let Some(a) = tasks[0].agentic.as_mut() {
+        a.k = Some(1);
+        a.max_steps = Some(4);
+    }
+    let targets = vec![ModelTarget { model: model.clone(), backend: BackendKind::LlamaCpp, is_thinking: true }];
+    let sink = Arc::new(CostSink::default());
+    let make = move |t: &ModelTarget| BackendTurn {
+        backend: BackendKind::LlamaCpp,
+        endpoint: "http://localhost:8081".into(),
+        model: t.model.clone(),
+        cancel: CancellationToken::new(),
+        options: None,
+        keep_alive: None,
+        is_thinking: true,
+        max_tokens: 2048, // room to finish thinking AND emit the call
+        cpu_offloaded: false,
+        ctx_ceiling: 4096,
+        stop_cache: Default::default(),
+    };
+
+    let _ = run_batch("easy-coding", &targets, &tasks, CancellationToken::new(), sink.clone(), make).await.unwrap();
+
+    let steps = sink.steps.lock().unwrap().clone();
+    assert!(!steps.is_empty());
+    println!("\n=== turn_costs_live_llama_thinking: {model}, {} steps ===", steps.len());
+    let real: Vec<_> = steps.iter().filter(|s| s.output_tokens.is_some()).collect();
+    assert!(!real.is_empty(), "at least one real model turn");
+    for s in &real {
+        println!(
+            "  r{}s{} {:?}: out={:?} thinking={:?} split_measured={} (gap = answer + ~markers)",
+            s.run_index, s.step_index, s.kind, s.output_tokens, s.reasoning_tokens, s.thinking_split_measured
+        );
+        assert!(s.thinking_split_measured, "llama.cpp reasoning turns must carry the tokenized split");
+        let (think, out) = (s.reasoning_tokens.expect("split present"), s.output_tokens.unwrap());
+        assert!(think <= out, "tokenized thinking can never exceed total generated");
+        // A completed (non-length) turn emitted a call after thinking → strict gap.
+        if s.kind != crate::inference::eval::agentic::step::StepKind::Truncated && s.kind != crate::inference::eval::agentic::step::StepKind::ReasoningOverrun {
+            assert!(think < out, "a completed turn has an answer tail: thinking {think} must be < output {out}");
+        }
+    }
+}

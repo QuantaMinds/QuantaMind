@@ -605,6 +605,7 @@ async fn run_steps<M: ModelTurn>(
                         output_tokens: None,
                         resident_bytes: None,
                         reasoning_tokens: None,
+                        thinking_split_measured: false,
                         context_used: None,
                         context_window: None,
                         initial_prompt: (step_index == 0).then(|| sandbox.initial_prompt.clone()),
@@ -670,18 +671,22 @@ async fn run_steps<M: ModelTurn>(
         let load_ms = stats.load_ms;
         let total_ms = stats.total_ms;
         let turn_output_tokens = stats.eval_count;
-        // How much this turn spent thinking: the measured generated-token count for a reasoning
-        // model (its output is dominated by the `<think>` scratchpad; the tool-call answer is a
-        // small tail). `None` for a terse model — never a fabricated 0. The trace sums this per run
-        // to show "how much it thought" to reach the result. Same measured quantity the overrun
-        // path uses below.
-        let reasoning_tokens = turn.is_thinking().then(|| stats.eval_count).flatten();
+        // How much this turn spent thinking. Best source first: the MEASURED channel split
+        // (llama.cpp — reasoning text tokenized with the model's own tokenizer; catches a
+        // reasoning model even when the thinking flag wasn't set). Fallback: the backend's
+        // combined generated count for a flagged thinking model (Ollama reports no split;
+        // its output is dominated by the scratchpad, and the UI labels it "(no split)").
+        // `None` for a terse model — never a fabricated 0.
+        let thinking_split_measured = stats.thinking_tokens.is_some();
+        let reasoning_tokens = stats
+            .thinking_tokens
+            .or_else(|| turn.is_thinking().then(|| stats.eval_count).flatten());
         let send = |kind: StepKind, injection: Option<String>, env: EnvView| {
             let _ = tx.send(TrajectoryStep {
                 run_index, step_index, raw_output: raw.clone(), injection, kind, env, cache_n, prefill_tokens, prefill_ms,
                 eval_ms, load_ms, total_ms, output_tokens: turn_output_tokens,
                 resident_bytes: None, // host sampling happens at the batch-sink boundary
-                reasoning_tokens, context_used: None, context_window: None,
+                reasoning_tokens, thinking_split_measured, context_used: None, context_window: None,
                 initial_prompt: (step_index == 0).then(|| sandbox.initial_prompt.clone()),
             });
         };
@@ -724,6 +729,9 @@ async fn run_steps<M: ModelTurn>(
                     // (reasoning-overrun → raise the preset) from HARDWARE (context-bound → bigger
                     // machine); they have OPPOSITE fixes and must never be blended (D9).
                     if stats.finish_reason.as_deref() == Some("length") {
+                        // Budget math below stays on eval_count (the BUDGET consumed is all
+                        // generated tokens); the measured split, when present, only improves
+                        // what the step DISPLAYS as thinking spend.
                         let reasoning_tokens = stats.eval_count.unwrap_or(0); // answer starved ⇒ ≈ all reasoning
                         let occupancy = stats.prompt_eval_count.unwrap_or(0).saturating_add(stats.cache_n.unwrap_or(0));
                         let context_used = occupancy.saturating_add(reasoning_tokens);
@@ -749,7 +757,8 @@ async fn run_steps<M: ModelTurn>(
                             cache_n, prefill_tokens, prefill_ms,
                             eval_ms, load_ms, total_ms, output_tokens: turn_output_tokens,
                             resident_bytes: None, // host sampling happens at the batch-sink boundary
-                            reasoning_tokens: Some(reasoning_tokens),
+                            reasoning_tokens: Some(stats.thinking_tokens.unwrap_or(reasoning_tokens)),
+                            thinking_split_measured,
                             context_used: Some(context_used),
                             context_window: Some(num_ctx),
                             initial_prompt: (step_index == 0).then(|| sandbox.initial_prompt.clone()),
@@ -1017,6 +1026,7 @@ async fn run_steps<M: ModelTurn>(
                 output_tokens: None,
                 resident_bytes: None,
                 reasoning_tokens: None,
+                thinking_split_measured: false,
                 context_used: None,
                 context_window: None,
                 initial_prompt: None, // never step 0 — stall detection needs several turns first
@@ -1043,6 +1053,7 @@ async fn run_steps<M: ModelTurn>(
         output_tokens: None,
         resident_bytes: None,
         reasoning_tokens: None,
+        thinking_split_measured: false,
         context_used: None,
         context_window: None,
         initial_prompt: None, // only reached after max_steps turns already ran

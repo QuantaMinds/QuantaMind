@@ -81,14 +81,14 @@ export function TaskMetricsCard({
           value={
             cost.reasoningTokensTotal == null
               ? null
-              : cost.reasoningTokensTotal === cost.outputTokensTotal
-                ? `${cost.reasoningTokensTotal} (no split)`
-                : String(cost.reasoningTokensTotal)
+              : cost.thinkingSplitMeasured
+                ? String(cost.reasoningTokensTotal)
+                : `${cost.reasoningTokensTotal} (no split)`
           }
           hint={
-            cost.reasoningTokensTotal != null && cost.reasoningTokensTotal === cost.outputTokensTotal
-              ? "The backend reports ONE combined generated count for a thinking model — no thinking/answer split exists (Ollama has no tokenize/split API; verified live: streamed chunks ≠ tokens). The small answer tail is included."
-              : "Measured generated tokens on thinking turns only"
+            cost.thinkingSplitMeasured
+              ? "Measured split: the reasoning channel's text tokenized with the model's own tokenizer (llama.cpp /tokenize) — channel-marker tokens (~3/turn) not included."
+              : "The backend reports ONE combined generated count for a thinking model — no thinking/answer split exists (Ollama has no tokenize/split API; verified live: streamed chunks ≠ tokens). The small answer tail is included."
           }
         />
         <Cell
