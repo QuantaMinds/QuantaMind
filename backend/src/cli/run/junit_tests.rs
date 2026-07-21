@@ -15,6 +15,7 @@ fn report_for(model: &str, verdict: serde_json::Value) -> RunReport {
         model: model.into(),
         profile_id: "general-agent".into(),
         verdicts: vec![v],
+        costs: None,
     }
 }
 

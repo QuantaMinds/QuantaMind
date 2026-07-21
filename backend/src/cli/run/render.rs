@@ -100,6 +100,91 @@ pub fn render_human(r: &RunReport) -> String {
         }
     }
     out.push_str(&format!("\nprofile: {}\n", r.profile_id));
+    if let Some(costs) = &r.costs {
+        out.push_str(&render_costs(costs));
+    }
+    out
+}
+
+/// Format ms as "1m 5s" / "3.2s" / "850ms".
+fn ms(v: u64) -> String {
+    if v >= 60_000 {
+        format!("{}m {}s", v / 60_000, (v % 60_000) / 1000)
+    } else if v >= 1000 {
+        format!("{:.1}s", v as f64 / 1000.0)
+    } else {
+        format!("{v}ms")
+    }
+}
+
+/// Adaptive byte units — a ~60MB KV cache must never render as "0.0GB" (a real
+/// number shown as zero is a fabricated zero).
+fn gb(v: u64) -> String {
+    if v >= 1_073_741_824 {
+        format!("{:.1}GB", v as f64 / 1_073_741_824.0)
+    } else if v >= 1_048_576 {
+        format!("{:.1}MB", v as f64 / 1_048_576.0)
+    } else {
+        format!("{:.1}KB", v as f64 / 1024.0)
+    }
+}
+
+fn opt<T, F: Fn(T) -> String>(v: Option<T>, f: F) -> String {
+    v.map(f).unwrap_or_else(|| "n/a".into())
+}
+
+/// The `--costs` section: per-(task, pass) cost rows + the run's memory facts — the
+/// CLI twin of the app's Latency Test-run view, same honesty rules ("n/a" = the
+/// backend reported nothing; "(no split)" = one combined thinking count; RSS is a
+/// max of step-END samples of the whole server process).
+pub fn render_costs(c: &crate::cli::run::costs::RunCosts) -> String {
+    let mut out = String::new();
+    out.push_str(&format!("\nRUN COSTS — {}\n", c.model));
+    for t in &c.tasks {
+        let think = match t.reasoning_tokens_total {
+            None => "n/a".into(),
+            Some(n) if t.thinking_split_measured => format!("{n} (tokenized split)"),
+            Some(n) => format!("{n} (no split)"),
+        };
+        out.push_str(&format!(
+            "  {} [{}]{}  runs={} steps={}  prefill={}  decode={}  out={}  think={}  cache_hits={}  peak_ctx={}  wall={}  rss_max={}\n",
+            t.task_id,
+            t.pass,
+            if t.oom { "  ✗ OUT OF MEMORY" } else { "" },
+            t.runs,
+            t.steps,
+            opt(t.prefill_ms_total, ms),
+            opt(t.eval_ms_total, ms),
+            opt(t.output_tokens_total, |v| v.to_string()),
+            think,
+            opt(t.cache_hit_tokens_total, |v| format!("{v} tok")),
+            opt(t.peak_context_tokens, |v| format!("{v} tok")),
+            opt(t.wall_ms, ms),
+            opt(t.max_step_end_rss_bytes, gb),
+        ));
+    }
+    let m = &c.memory;
+    out.push_str(&format!("  model in memory: {}  ({})\n", opt(m.model_bytes, gb), m.model_bytes_provenance));
+    if let Some(o) = m.offload_bytes {
+        out.push_str(&format!("  spilled to CPU: {} (measured, size − size_vram)\n", gb(o)));
+    }
+    if let Some(kv) = &m.kv_at_peak {
+        out.push_str(&format!(
+            "  kv cache @ peak {} tok: f16 {}{} · q8_0 {} · q4_0 {}  (formula{}; cache type is a launch setting)\n",
+            kv.peak_tokens,
+            gb(kv.f16_bytes),
+            if kv.conservative { " (~conservative)" } else { "" },
+            gb(kv.q8_0_bytes),
+            gb(kv.q4_0_bytes),
+            m.kv_cache_type.as_deref().map(|t| format!("; launched {t} KV")).unwrap_or_default(),
+        ));
+    } else {
+        out.push_str("  kv cache @ peak: n/a (model dimensions not measurable)\n");
+    }
+    if let Some(q) = &m.quantization_claimed {
+        out.push_str(&format!("  quantization (tag's claim, unverified): {q}\n"));
+    }
+    out.push_str("  rss_max = max of step-END samples of the WHOLE server process (weights + residue), never a per-task amount\n");
     out
 }
 
@@ -156,6 +241,9 @@ pub fn render_scoreboard(r: &RunReport) -> String {
         }
     }
     out.push_str(&format!("\nprofile: {}\n", r.profile_id));
+    if let Some(costs) = &r.costs {
+        out.push_str(&render_costs(costs));
+    }
     out
 }
 

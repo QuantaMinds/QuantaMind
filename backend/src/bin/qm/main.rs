@@ -206,6 +206,11 @@ struct TestArgs {
     /// Write the raw run report here for offline re-assessment (`qm report --report`).
     #[arg(long)]
     save_report: Option<PathBuf>,
+    /// Also report per-task run costs (prefill/decode split, thinking split, cache
+    /// hits, peak context, step-end RSS, KV-at-peak) — the CLI twin of the Latency
+    /// tab's Test-run view. Costs ride the JSON output too.
+    #[arg(long)]
+    costs: bool,
     /// Emit the machine-readable report as JSON on stdout.
     #[arg(long)]
     json: bool,
@@ -317,6 +322,11 @@ struct RunArgs {
     /// Write the raw run report here for offline re-assessment (`qm report --report`).
     #[arg(long)]
     save_report: Option<PathBuf>,
+    /// Also report per-task run costs (prefill/decode split, thinking split, cache
+    /// hits, peak context, step-end RSS, KV-at-peak) — the CLI twin of the Latency
+    /// tab's Test-run view. Costs ride the JSON output too.
+    #[arg(long)]
+    costs: bool,
     /// Emit the machine-readable report as JSON on stdout (progress/errors to stderr).
     #[arg(long)]
     json: bool,
@@ -601,6 +611,7 @@ async fn run_test(args: TestArgs) {
         max_steps: args.max_steps,
         decoy_tools: args.decoy,
         params: args.params.resolve(),
+        costs: args.costs,
     };
     execute(opts, args.json, FailOn::from(args.fail_on), args.junit, Render::Scoreboard).await;
 }
@@ -640,6 +651,7 @@ async fn run_suite(args: RunArgs) {
         max_steps: args.max_steps,
         decoy_tools: args.decoy,
         params: args.params.resolve(),
+        costs: args.costs,
     };
     execute(opts, args.json, FailOn::from(args.fail_on), args.junit, Render::Verdict).await;
 }
@@ -678,6 +690,7 @@ async fn run_cliff_cmd(args: CliffArgs) {
             max_steps: None,
             decoy_tools: None,
             params: None, // cliff params flow via CliffOptions below, not RunOptions
+            costs: false, // the cliff probe reports its own ladder, not run costs
         },
         max_tokens: args.max_tokens,
         steps: args.steps,
@@ -851,6 +864,7 @@ async fn run_init(args: InitArgs) {
         max_steps: None,
         decoy_tools: None,
         params: None,
+        costs: false, // the init smoke run keeps its output minimal
     };
     execute(opts, args.json, FailOn::Conditional, None, Render::Verdict).await;
 }
