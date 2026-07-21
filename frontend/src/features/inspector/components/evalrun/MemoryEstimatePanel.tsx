@@ -76,9 +76,13 @@ export function MemoryEstimatePanel({
 
   const weightsVram = column?.weights_vram_bytes ?? null;
   const offload = column?.cpu_offloaded ? column?.offload_bytes ?? null : null;
-  const avail = hw?.available_memory_bytes ?? null;
+  // The verdict compares the WORKLOAD (model + this run's KV) against the DEVICE POOL —
+  // never against currently-available memory: with the model already resident, "available"
+  // has the model's own footprint subtracted, and comparing need against it double-counts
+  // the weights (it declared "Won't fit" on a run that was literally executing).
+  const pool = device.totalBytes;
   const need = weightsVram != null && kvBytes != null ? weightsVram + kvBytes : null;
-  const verdict = need != null && avail != null ? fitBadge(fitOfNeed(need, avail)) : null;
+  const verdict = need != null && pool != null ? fitBadge(fitOfNeed(need, pool)) : null;
   const kvTier = kvMeasured ? "computed from measured tokens (llama.cpp)" : "estimated (formula)";
   const kvApprox = dims?.kv_estimated ? "~" : "";
   const budgetPct = peakTokens != null && contextWindow ? Math.round((peakTokens / contextWindow) * 100) : null;
@@ -115,7 +119,8 @@ export function MemoryEstimatePanel({
         <div className="text-sm pt-1" data-testid="eval-memory-verdict">
           <span className={`font-semibold ${verdict.cls}`}>{verdict.text}</span>{" "}
           <span className="text-[11px] text-gray-400">
-            model + KV vs {avail != null ? formatBytes(avail) : "?"} available — planning estimate, not a measured OOM point
+            model + this run's KV ({need != null ? formatBytes(need) : "?"}) vs the {pool != null ? formatBytes(pool) : "?"}{" "}
+            {device.unified ? "unified-memory" : "VRAM"} pool — planning estimate ("Tight" above 70% of the pool), not a measured OOM point
           </span>
         </div>
       )}

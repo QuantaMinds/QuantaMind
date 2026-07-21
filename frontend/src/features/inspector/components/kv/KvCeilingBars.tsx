@@ -134,7 +134,9 @@ export function KvCeilingBars({
       <CeilingRow label="q8" ceiling={ceilings.q8} scaleMax={scaleMax} cliff={cliff} modelMax={modelMax} accent="text-blue-600" />
       <CeilingRow label="q4" ceiling={ceilings.q4} scaleMax={scaleMax} cliff={cliff} modelMax={modelMax} accent="text-amber-600" />
       <div className="text-[10px] text-gray-500 leading-snug pt-0.5">
-        How much context fits in {memWord} at each cache precision. q8_0 ≈ 2× f16 at negligible quality cost;
+        CAPACITY meters, not usage: each bar is the LARGEST context {memWord} could hold for this
+        model at that cache precision (bar length is relative to the biggest of the three) — what a
+        run actually used is the separate context-window-budget line. q8_0 ≈ 2× f16 at negligible quality cost;
         q4_0 ≈ 4× but with a real quality cost <span className="text-amber-600">and can be much slower at long context</span> —
         a planning estimate, QuantaMind never auto-launches a q4_0 cache.
       </div>
