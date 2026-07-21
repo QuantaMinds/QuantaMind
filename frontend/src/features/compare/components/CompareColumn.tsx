@@ -39,7 +39,7 @@ export function CompareColumn({ row }: Props) {
   return (
     <div
       data-testid={`compare-column-${row.model}`}
-      className="border border-gray-100 rounded-lg p-3 flex flex-col gap-2 min-w-[300px] max-w-[500px] flex-1 bg-gray-50 font-mono"
+      className="border border-gray-100 rounded-lg p-3 flex flex-col gap-2 min-w-[380px] max-w-[820px] flex-1 bg-gray-50 font-mono"
     >
       <div className="flex items-center justify-between gap-4 border-b border-gray-100 pb-1.5">
         <span className="text-xs font-bold text-gray-700 break-all">{label(row.model)}</span>
@@ -53,7 +53,7 @@ export function CompareColumn({ row }: Props) {
       {row.status === "loading" && !row.output ? (
         <div
           data-testid={`compare-loading-${row.model}`}
-          className="flex items-center gap-2 text-xs text-gray-500 bg-gray-100 border border-gray-100 rounded p-2.5 min-h-[90px] select-none"
+          className="flex items-center gap-2 text-xs text-gray-500 bg-gray-100 border border-gray-100 rounded p-2.5 min-h-[280px] select-none"
         >
           <span aria-hidden className="inline-block w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
           <span>Loading model… (up to 30s)</span>
@@ -61,7 +61,7 @@ export function CompareColumn({ row }: Props) {
       ) : (
         <pre
           data-testid={`compare-output-${row.model}`}
-          className="text-xs whitespace-pre-wrap break-words font-mono bg-gray-100 border border-gray-100 rounded p-2.5 min-h-[90px] max-h-[220px] overflow-auto text-gray-900"
+          className="text-xs whitespace-pre-wrap break-words font-mono bg-gray-100 border border-gray-100 rounded p-2.5 min-h-[280px] max-h-[60vh] overflow-auto text-gray-900"
         >
           {row.output || (row.status === "pending" ? "" : " ")}
         </pre>
