@@ -20,6 +20,7 @@ Benchmark any **Ollama**, **llama.cpp**, or **MLX** model for *agentic readiness
 
 [![Repo](https://img.shields.io/badge/GitHub-QuantaMinds%2FQuantaMind-181717?logo=github)](https://github.com/QuantaMinds/QuantaMind)
 [![Website](https://img.shields.io/badge/Website-quantamind.co-2563EB?logo=googlechrome&logoColor=white)](https://quantamind.co/)
+[![Discord](https://img.shields.io/badge/Website-quantamind.co-2563EB?logo=googlechrome&logoColor=white)](https://discord.gg/6CjSJyZTfG)
 
 <br/>
 
