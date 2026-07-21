@@ -332,7 +332,11 @@ Contributions welcome. The engineering principles are non-negotiable — start w
 - **Schema validation at every IPC boundary** — Zod on TS, serde + `validator` on Rust; malformed payloads rejected with typed errors.
 
 Found a vulnerability? Please open a [private security advisory](https://github.com/QuantaMinds/QuantaMind/security/advisories/new) instead of a public issue.
+---
+### Community
 
+- [Discord](https://discord.gg/6CjSJyZTfG)
+- [𝕏 (Twitter)](https://x.com/QuantaMind_2025)
 ---
 
 ## FAQ
