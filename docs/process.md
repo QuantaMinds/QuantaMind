@@ -787,6 +787,20 @@ out of v1 scope:
   test task RELIABILITY at q8_0/q4_0 KV (key-cache quant degrades quality; value-
   cache tolerates it — a known silent-failure source), not just use KV-quant as
   the OOM remedy. Must carry the mode flag per the metric-comparability rule.
+- **True thinking/answer token split.** Researched + live-verified 2026-07-20:
+  no backend reports it. Ollama gives one combined `eval_count`; streamed chunk
+  counting is NOT a token count (measured live: 228 thinking chunks vs
+  eval_count 300 — the parser batches text and swallows template tokens); Ollama
+  has no `/api/tokenize` (404 on 0.24.0; ollama#12030 unmerged). The honest
+  recipe when available: llama.cpp DOES ship `/tokenize` — collect the chat
+  stream's `reasoning_content` text separately (already parsed in `llama_wire`)
+  and tokenize each channel with the model's own tokenizer, labeled "tokenized,
+  excludes channel-marker tokens". For Ollama, blocked until #12030 merges (then
+  same recipe on the separated `thinking` text). Until then the UI shows the
+  combined count with an explicit "(no split)" qualifier.
+- **Ollama cache-reuse count** stays "Not available": ollama#8008 open, and
+  Ollama Cloud reports cached_tokens=0 even where caching occurs (ollama#15758,
+  April 2026) — a reported-zero there is not a measurement either.
 - **Forced-OOM live acceptance run.** The OOM classifier (`is_oom_message`) is
   unit-tested against the real backend strings; deliberately NOT exercised by
   forcing a live host OOM (destabilizes the machine for no new information). If a

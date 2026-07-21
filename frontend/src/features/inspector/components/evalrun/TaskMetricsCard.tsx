@@ -76,7 +76,21 @@ export function TaskMetricsCard({
         <Cell label="Prefill" value={cost.prefillMsTotal != null ? fmtMs(cost.prefillMsTotal) : null} hint="Prompt processing across all runs (server-reported)" />
         <Cell label="Decode" value={cost.evalMsTotal != null ? fmtMs(cost.evalMsTotal) : null} hint="Token generation across all runs (server-reported)" />
         <Cell label="Output tokens" value={cost.outputTokensTotal != null ? String(cost.outputTokensTotal) : null} />
-        <Cell label="Thinking tokens" value={cost.reasoningTokensTotal != null ? String(cost.reasoningTokensTotal) : null} hint="Measured generated tokens on thinking turns only" />
+        <Cell
+          label="Thinking tokens"
+          value={
+            cost.reasoningTokensTotal == null
+              ? null
+              : cost.reasoningTokensTotal === cost.outputTokensTotal
+                ? `${cost.reasoningTokensTotal} (no split)`
+                : String(cost.reasoningTokensTotal)
+          }
+          hint={
+            cost.reasoningTokensTotal != null && cost.reasoningTokensTotal === cost.outputTokensTotal
+              ? "The backend reports ONE combined generated count for a thinking model — no thinking/answer split exists (Ollama has no tokenize/split API; verified live: streamed chunks ≠ tokens). The small answer tail is included."
+              : "Measured generated tokens on thinking turns only"
+          }
+        />
         <Cell
           label="Cache hits"
           value={cost.cacheHitTokensTotal != null ? `${cost.cacheHitTokensTotal} tok` : null}
