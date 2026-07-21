@@ -25,7 +25,7 @@ fn unit(task: &str, native: bool) -> CompletedUnit {
         model: "qwen".into(),
         task_id: task.into(),
         category: "agentic".into(),
-        outcome: TaskOutcome::Error { message: "boom".into() },
+        outcome: TaskOutcome::Error { message: "boom".into(), oom: false },
         is_native: native,
     }
 }

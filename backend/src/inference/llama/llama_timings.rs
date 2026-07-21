@@ -42,6 +42,9 @@ impl Timings {
             cache_n: self.cache_n,
             finish_reason,
             native_tool_calls: None, // only `NativeToolTurn` asks the native tool API
+            // Stamped by the streaming caller AFTER the turn (it holds the accumulated
+            // reasoning text and tokenizes it via /tokenize) — timings can't know it.
+            thinking_tokens: None,
         }
     }
 }

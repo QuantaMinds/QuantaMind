@@ -332,6 +332,40 @@ preset)` for a reasoning model). The runner also populates each step's `reasonin
 from the measured generated-token count on a thinking turn (not just on a `Truncated`/
 `ReasoningOverrun` turn), so the Trace Debugger can sum "how much it thought" per run.
 
+**Run-cost + config stamp (Inspector Test-run view).** `BatchColumn` additionally carries the
+measured weight placement from the same `/api/ps` probe — `weights_total_bytes` /
+`weights_vram_bytes` / `offload_bytes` (= size − size_vram, the CPU-spill QUANTITY behind the
+`cpu_offloaded` bool) — plus `quantization_claimed` (the tag's assertion from `/api/ps`
+`details.quantization_level`, junk values "unknown"/"" dropped, never verified truth) and
+`kv_cache_type` ("f16" | "q8_0" from the stored `LaunchPlan`; `None` for an externally-started
+llama-server — its flags are unknowable). `AgenticReport.wall_ms` is the batch-layer-measured
+wall clock of the whole Pass^k batch (model + sandbox/world time; per-turn server timings can't
+provide it). `TaskOutcome::Error` carries `oom: bool`, classified ONCE by `is_oom_message`
+(narrow: "out of memory"/"OutOfMemory"/"not enough memory" — an ambiguous infra error never
+claims OOM). Each streamed `TrajectoryStep` gets `resident_bytes` stamped by the batch SINK
+(`TauriBatchSink`/the BYO emit closure, via `process_memory::backend_rss`) — whole-process RSS
+of the local server at step END, `None` for remote backends; the generation layer stays
+host-free. `BatchColumn` derives `Default` so constructors close with `..Default::default()`
+and new stamped facts land everywhere without touching every literal.
+Both live event payloads (`AgenticStepPayload`, `BatchProgress::Started/Done`) carry
+`collection_id`, stamped by BOTH sinks (`TauriBatchSink` and the BYO emitter) — a streamed
+step is attributable to its (collection, task, model) triple on the wire, with no
+out-of-band context; the Inspector's Test-run view keys on exactly this triple.
+
+**Measured thinking/answer split (llama.cpp only).** The chat stream accumulates the raw
+`reasoning_content` text and, at turn end, tokenizes it via the server's own `POST
+/tokenize` (`add_special:false` — no BOS inflation) into `GenerateStats.thinking_tokens`;
+the runner prefers it over the combined-`eval_count` fallback and stamps
+`TrajectoryStep.thinking_split_measured` so the UI can label provenance (a dedicated flag,
+NOT the `reasoning == output` equality heuristic — a run truncated mid-think has a measured
+split that still equals the total). Reconciled live: `tokenize(reasoning) +
+tokenize(answer) = predicted_n − ~3` channel-marker/EOG tokens (1%). Ollama stays `None`:
+no tokenize endpoint (404 on 0.24.0, ollama#12030 unmerged) and streamed chunks are NOT
+tokens (measured live: 228 thinking chunks vs eval_count 300) — the combined count must
+never be relabeled as thinking. Best-effort: a failed tokenize call degrades to `None`,
+never a guess. D9's budget math stays on `eval_count` (budget consumed = ALL generated
+tokens); the split only improves what the step displays.
+
 ### File: `mod.rs`
 - Declares `build, context, endstate, model_turn, report, runner, sandbox, spec, step`.
 
@@ -563,6 +597,12 @@ value above.
   ReportedInProse, ForeignDialect, EmptyOutput, Truncated, ReasoningOverrun}`;
   `TrajectoryStep{run_index, step_index, raw_output, injection, kind, …, reasoning_tokens,
   context_used, context_window, initial_prompt}` (the D9 trio drives the two-bar diagnostic).
+  Turn-cost fields `eval_ms` / `load_ms` / `total_ms` / `output_tokens` carry the rest of the
+  per-turn `GenerateStats` (decode wall-clock, load charged to the turn, server total, generated
+  count for EVERY model — not just thinking) so the Inspector's Test-run latency view gets the
+  full prefill/decode split; previously these were read-and-discarded at the runner. All
+  `Option` — `None` means the backend didn't report it (never a fabricated 0) or the step is
+  synthetic (timeout/stall terminals).
   `ReportedInProse` (G3) = did all the work but answered in plain text instead of the
   required reporter tool (content-correct, wrong-channel); the UI renders it TEAL — the
   mildest failure, distinct from a hard red fail.

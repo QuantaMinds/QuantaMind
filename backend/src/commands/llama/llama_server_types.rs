@@ -42,6 +42,10 @@ struct RunningServer {
     /// so a request for a different window must relaunch — tracked here so
     /// `is_current` can tell "same model, new context" apart from a no-op start.
     ctx: u32,
+    /// KV-cache precision from the `LaunchPlan` ("f16" | "q8_0") — stamped onto batch
+    /// reports as run config. Only OUR spawn knows this; an externally-started server
+    /// never reaches `store`, so the stamp stays `None` there (never guessed).
+    kv_cache_type: &'static str,
     readout: Option<SpawnReadout>,
 }
 
@@ -95,8 +99,14 @@ impl LlamaServerState {
         self.inner.lock_recover().as_ref().map(|s| (s.model_path.clone(), s.ctx))
     }
 
-    pub fn store(&self, child: Child, model_path: String, ctx: u32) {
-        *self.inner.lock_recover() = Some(RunningServer { child, model_path, ctx, readout: None });
+    pub fn store(&self, child: Child, model_path: String, ctx: u32, kv_cache_type: &'static str) {
+        *self.inner.lock_recover() = Some(RunningServer { child, model_path, ctx, kv_cache_type, readout: None });
+    }
+
+    /// The running server's launched KV-cache precision ("f16" | "q8_0"), or `None` when no
+    /// server WE spawned is up (an external server's flags are unknowable — never guessed).
+    pub fn kv_cache_type(&self) -> Option<String> {
+        self.inner.lock_recover().as_ref().map(|s| s.kv_cache_type.to_string())
     }
 
     /// Record the spawn readout once the server is ready. No-op if nothing is

@@ -97,6 +97,10 @@ impl ChatResponse {
             load_ms: self.load_duration.map(ns_to_ms),
             total_ms: self.total_duration.map(ns_to_ms),
             cache_n: None, // Ollama's /api/chat reports no prompt-cache count
+            // No tokenize endpoint on Ollama (404 on 0.24.0; ollama#12030 unmerged), so the
+            // thinking/answer split is unmeasurable — the combined eval_count must never be
+            // relabeled as thinking. Flips to the /tokenize recipe when upstream ships it.
+            thinking_tokens: None,
             finish_reason: self.done_reason.clone(), // "stop" | "length"
             // Set by `NativeToolTurn` from the parsed result, not here: this is the wire
             // decoder, and it is shared by paths that never asked the native tool API.

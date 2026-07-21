@@ -234,6 +234,7 @@ qm run [--backend <kind>] [--model <name>] [--collection easy-coding] [--profile
 | `--thinking <t>` | Reasoning-scratchpad budget: `lean` (off) / `standard` / `deep`. `standard`/`deep` are checked to actually take effect (Ollama: model capability via `/api/show`; llama.cpp/MLX/remote: a live probe for `reasoning_content`) — if reasoning won't happen, the run stops with a clear fix instead of silently behaving like `lean`. | `lean` |
 | `--k <n>` | Override the **strict pass^k** run count (all `k` runs must pass). Higher = stricter. | the tier's default |
 | `--fail-on <policy>` | Which verdict fails the *process*: `conditional` (Conditional→10), `notready` (Conditional tolerated→0), `never` (advisory→0). | `conditional` |
+| `--costs` | Also report **per-task run costs** — the CLI twin of the app's Latency → Test-run view. Per (task, pass): prefill/decode wall-clock, output + thinking tokens (`(no split)` on Ollama, a tokenized split on llama.cpp), measured cache hits (llama.cpp only — Ollama reports none, shown `n/a`), peak context, task wall clock, and max step-end RSS of the server process. Plus the run's memory facts: model-in-memory (with its provenance), KV cache at the run's peak at f16/q8_0/q4_0, and the tag's claimed quantization. Rides `--json` as a `costs` object — `null` always means *not measured*, never zero. Samples host RSS once per turn. | off |
 | `--json` | Emit the report as JSON on stdout (progress/notes to stderr). | off |
 
 **Exit:** the verdict — `0` Ready · `10` Conditional · `20` NotReady — subject to `--fail-on`. An
@@ -320,7 +321,7 @@ of the two JSON shapes first. (`qm run --collection <file>` accepts a file too; 
 both modes and prints the scoreboard.)
 
 Flags mirror [`run`](#run--the-readiness-verdict) (`--tier`/`--thinking`/`--k`/`--fail-on`/`--junit`/
-`--json`); `--mode` defaults to `both`. Exit codes are the same contract.
+`--json`/`--costs`); `--mode` defaults to `both`. Exit codes are the same contract.
 
 ### Example
 ```
@@ -339,6 +340,21 @@ profile: general-agent
 The scoreboard makes the native-vs-prompt split obvious — here the 3B's native tool-calling reports in
 prose while its prompt-based path passes. A bad/missing/malformed file exits `2` with a clear
 `[QM-BAD-COLLECTION]` (the path is redacted per rule 7f).
+
+## `costs` — the last run's per-task costs, from disk
+
+```
+qm costs <collection> [--data-dir <path>] [--json]
+```
+
+Reads the **last persisted run** of a collection from the desktop app's stores
+(`agentic_transcripts/` + `batch_reports/`, latest-batch retention) and prints the same per-task
+cost rows as `run --costs` — no model run, no server needed. Use it to inspect a run after the
+fact or pull costs as a CI artifact. Task/model names are the *sanitized transcript stems* (the
+original ids aren't recorded in the filenames — they're printed as-is, never guessed back).
+Memory facts appear when the saved batch report carries them (a GUI run stamps placement/launch
+facts); the KV-at-peak figure needs a live dim-probe and is `n/a` offline. Exit `2` when the
+collection has no persisted run.
 
 ## `report` — re-assess a saved run, offline
 

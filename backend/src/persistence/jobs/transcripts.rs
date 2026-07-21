@@ -3,7 +3,7 @@ use crate::inference::eval::agentic::step::TrajectoryStep;
 use crate::inference::eval::batch::TaskOutcome;
 use crate::persistence::at_rest::{at_rest, AtRest};
 use crate::persistence::readiness::safe_filename::safe_filename;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -18,6 +18,43 @@ pub const MAX_READ_BYTES: u64 = 32 * 1024 * 1024;
 enum TranscriptRecord<'a> {
     Step(&'a TrajectoryStep),
     Outcome(&'a TaskOutcome),
+}
+
+/// The OWNED mirror of `TranscriptRecord` for reading a transcript back —
+/// `qm costs` and the app's disk history parse persisted runs through this.
+/// Kept byte-compatible with the writer by the round-trip test.
+#[derive(Deserialize, Clone, Debug)]
+#[serde(rename_all = "snake_case")]
+pub enum TranscriptEntry {
+    Step(TrajectoryStep),
+    Outcome(TaskOutcome),
+}
+
+/// Parse a transcript file into its records. A torn FINAL line is tolerated (a
+/// crash mid-append leaves one — the completed records before it are still
+/// good); a malformed line anywhere ELSE is corruption and errors loudly, never
+/// a silent partial read (docs/architecture.md#robustness).
+pub fn load_records(path: &Path) -> AppResult<Vec<TranscriptEntry>> {
+    let text = read(path)?;
+    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    let mut out = Vec::with_capacity(lines.len());
+    for (i, line) in lines.iter().enumerate() {
+        match serde_json::from_str::<TranscriptEntry>(line) {
+            Ok(rec) => out.push(rec),
+            Err(e) if i + 1 == lines.len() => {
+                println!("[transcripts] WARN: dropping torn final line of {} ({e})", path.display());
+                break;
+            }
+            Err(e) => {
+                return Err(AppError::Internal(format!(
+                    "corrupt transcript {} at line {}: {e}",
+                    path.display(),
+                    i + 1
+                )))
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// The transcript path for one (collection, model, task, pass):

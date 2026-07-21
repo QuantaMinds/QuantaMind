@@ -60,7 +60,7 @@ Eval batch ────▶ Quant      (score: pass-rate + tool-call spread per q
 
 | Surface | Key components | IPC command(s) | State store | Backend doc |
 |---|---|---|---|---|
-| **Latency** | `InspectorPage`, `ModelTimeline`, `TtftBreakdown`, `TokenTimeline`, `LatencyHistogram`, `ColdWarmPanel`, `RegressionAlert`, `LeakBanner`, `VramBar`, `ContextBudgetBar` | `get_hardware_snapshot`, `get_loaded_models`, `history_list`, (leak) process-RSS sampler | `compareStore` (rows), `leakStore` (RSS series), reads `cliffStore` | [prompt-workspace](./backend-prompt-workspace-system.md), [compare](./backend-compare.md) |
+| **Latency** | `InspectorPage`, `LatencyTimelines` (also reused under the Analysis tab), `ModelTimeline`, `TtftBreakdown`, `TokenTimeline`, `LatencyHistogram`, `ColdWarmPanel`, `RegressionAlert`, `LeakBanner`, `VramBar`, `ContextBudgetBar` | `get_hardware_snapshot`, `get_loaded_models`, `history_list`, (leak) process-RSS sampler | `compareStore` (rows), `leakStore` (RSS series), reads `cliffStore` | [prompt-workspace](./backend-prompt-workspace-system.md), [compare](./backend-compare.md) |
 | **Quant** | `QuantPage`, `quantPick`, `recommend`, `useVramFit`, `useQuantEval`, `useQuantToolcall` | `inspect_model`, `estimate_kv_cache_bytes`, `list_evals`+`run_eval_task`, `run_toolcall_eval`, `get_hardware_snapshot` | `installedModelsStore`, `selectedModelStore`, local hook state | [eval-engine](./backend-eval-engine.md), [models-hf-gguf](./backend-models-hf-gguf.md) |
 | **Agent Report** | `AgentReportPage`, `VerdictTable`, `RecommendationBanner`, `ExecutiveVerdict`, `TierProgressionMatrix`, `FailureTaxonomy`, `EditProfileModal`, `ExportMenu`, `StatusBadge` | `assess_readiness`, `list_readiness_profiles`, `save_readiness_profile`, `get_hardware_snapshot`, `get_hardware_tier`, `save_readiness_image` | `readinessStore`, reads `evalRegistryStore` | [eval-engine](./backend-eval-engine.md) |
 | **Publish** | `PublishButton`, `PublishDialog`, `WhatsSharedPanel`, `writeupLink` | `preview_publish_payload`, `publish_to_board`, `start_login` | none (passes `verdicts` through) | [publish](./backend-publish.md) |
@@ -169,13 +169,41 @@ a run's model in `/api/ps` results tolerating the `:latest` tag both ways.
 
 ### `components/InspectorPage.tsx`
 
-Reads `compareStore.rows` (single runs are mirrored in; multi-model runs already
-multi-row), filters to rows with a non-empty `timeline`, and maps each to a
-`ModelTimeline`. Pulls `useLoadedModels` (`/api/ps` VRAM), `useRunHistory`
-(cold/warm + regression input), `useHardware` (device memory pool), and
-`useParentWidth` (chart sizing). Shows an empty state until a run or STT
-transcript exists; renders the global `LeakBanner` + an `ExportReportButton`, then
-delegates STT timing to `SttInspectorSection`.
+The **Latency** tab shell — the TEST-RUN cost page. Renders `LlamaServerReadout`,
+`LeakBanner`, `evalrun/EvalRunPanel` (see {#evalrun}) and `SttInspectorSection`.
+Workspace-prompt per-token timing moved WHOLLY under the **Analysis** tab, which
+renders the identical `LatencyTimelines` below each answer (now with `showExport`,
+so the latency report exports from where its panels live) — one surface per
+question, no duplicate. The brief two-source toggle that predated this was removed
+the same day it shipped (user call: Latency = what did my test run cost).
+
+### `components/evalrun/` — the Test-run source {#evalrun}
+
+Answers **"what does this agent task cost on this box?"** per (collection, task,
+model) — the attribution triple stamped on `agentic-step`/`batch-progress` events.
+Reads ONLY `batchStore` (+ `taskCost`, see `frontend-eval.md`) — no second event
+listener; covers Built-In / Custom JSON / mcp:local / mcp:byo by construction
+(one event pipeline). Live while a run streams; holds the last in-session run
+after. Disk history (transcripts) is a recorded deferral.
+
+| File | Role |
+|---|---|
+| `evalRunHelp.tsx` | One source of truth for the view's InfoButton copy (page / memory panel / task card) — every explanation names the metric's provenance tier; the user-facing glossary lives in the Docs tab's "Latency & memory of a Test run" page (`docs/content.ts`). |
+| `EvalRunPanel.tsx` | Orchestrator: groups BOTH passes per model→task — prompt (`stepsByKey`/`outcomeByKey`) and native (`nativeStepsByKey`/`nativeOutcomeByKey`) render as separate cards (native tagged `native FC`; different eval methods, costs never blended per the comparability rule) — computes `taskCost` per cell, resolves the model's backend (report column stamp, else installed-list lookup — never guessed), rolls up peak context / max RSS across both passes, finds the OOM task. A native-only run MUST surface its trajectory (the 2026-07-20 smoke regression). |
+| `TaskMetricsCard.tsx` | Per task: outcome badge (Pass n/k, red **Out of memory** on `TaskOutcome::Error.oom`), prefill/decode/output/thinking/cache/peak-context cells (null → "Not available", never 0 — Ollama cache reuse names ollama#8008 in its hint), per-step stacked prefill/decode track, RSS line labeled *"max of step-end samples (whole process: weights + residue)"*. |
+| `MemoryEstimatePanel.tsx` | The stacked memory answer with a PROVENANCE label on every row: **Model in memory** `measured (/api/ps size_vram — weights + the KV/context buffer Ollama reserves at load, so it reads ABOVE the raw weight file)` + spilled-to-CPU `measured (size − size_vram)` + **KV at the run's peak** (the headline — `computed from measured tokens (llama.cpp)` vs `estimated (formula)`, `~` when `kv_estimated`, at the run's actual `kv_cache_type`) + RSS `diagnostic` (GPU-wired buffers may not appear in RSS — it can legitimately read BELOW the model's in-memory size). Adds the run's **context-window budget** line (peak single-run tokens / the window the run launched with: `ctx_ceiling` → report `num_ctx` → a truncated step's `context_window`, never guessed) and the shared `KvCeilingBars` (f16/q8_0/q4_0) on the run's model. Fit verdict via `fitOfNeed(model+KV, available)` labeled *planning estimate*. On OOM: the actionable ceiling answer from `useKvCeilings` — REFUSES to suggest when dims are unreadable. Data flows through the SAME hooks as the workspace meters (`useKvCeilings`/`useHardware`, cancel-on-cleanup, NO one-shot ref guards — StrictMode's dev double-mount starved the earlier bespoke fetch into permanent "Not available"). |
+
+### `components/timeline/LatencyTimelines.tsx` {#latencytimelines}
+
+The shared latency-metrics panel used by BOTH the **Latency** tab and, below the
+live answer, the **Analysis** tab — so the two surfaces show byte-identical
+metrics. Reads `compareStore.rows`, filters to rows with a non-empty `timeline`,
+and maps each to a `ModelTimeline`; renders `null` (host owns its empty state)
+until a run carries per-token data. Pulls `useLoadedModels` (`/api/ps` VRAM),
+`useRunHistory` (cold/warm + regression input), `useHardware` (device memory
+pool), and `useParentWidth` (chart sizing), plus the shared colour legend and a
+`Refresh VRAM` button. `active` re-reads `/api/ps` + history when its host tab is
+(re)opened; `showExport` adds the `ExportReportButton` (Latency tab only).
 
 ### `components/ModelTimeline.tsx`
 

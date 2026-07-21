@@ -39,6 +39,9 @@ enum Command {
     Run(RunArgs),
     /// Auto-detect a backend, write qm.json, and run the suite (zero config).
     Init(InitArgs),
+    /// Last persisted run's per-task costs (latency/cache/memory), read from the
+    /// desktop app's stores — no model run. Run costs live with `run/test --costs`.
+    Costs(CostsArgs),
     /// Run a custom collection FILE → a per-mode scoreboard + verdict.
     Test(TestArgs),
     /// Re-assess a saved run against a readiness profile, offline (no backend).
@@ -142,6 +145,18 @@ impl From<SourceArg> for CliffSource {
 }
 
 #[derive(clap::Args)]
+struct CostsArgs {
+    /// The collection id whose last run to read (as shown in the app / `qm run`).
+    collection: String,
+    /// Override the desktop app's data directory (default: the platform app-config dir).
+    #[arg(long)]
+    data_dir: Option<PathBuf>,
+    /// Emit the machine-readable costs as JSON on stdout.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(clap::Args)]
 struct ReportArgs {
     /// A saved run report (from `run`/`test --save-report`).
     #[arg(long)]
@@ -206,6 +221,11 @@ struct TestArgs {
     /// Write the raw run report here for offline re-assessment (`qm report --report`).
     #[arg(long)]
     save_report: Option<PathBuf>,
+    /// Also report per-task run costs (prefill/decode split, thinking split, cache
+    /// hits, peak context, step-end RSS, KV-at-peak) — the CLI twin of the Latency
+    /// tab's Test-run view. Costs ride the JSON output too.
+    #[arg(long)]
+    costs: bool,
     /// Emit the machine-readable report as JSON on stdout.
     #[arg(long)]
     json: bool,
@@ -317,6 +337,11 @@ struct RunArgs {
     /// Write the raw run report here for offline re-assessment (`qm report --report`).
     #[arg(long)]
     save_report: Option<PathBuf>,
+    /// Also report per-task run costs (prefill/decode split, thinking split, cache
+    /// hits, peak context, step-end RSS, KV-at-peak) — the CLI twin of the Latency
+    /// tab's Test-run view. Costs ride the JSON output too.
+    #[arg(long)]
+    costs: bool,
     /// Emit the machine-readable report as JSON on stdout (progress/errors to stderr).
     #[arg(long)]
     json: bool,
@@ -455,9 +480,42 @@ async fn main() {
         Command::Init(args) => run_init(args).await,
         Command::Test(args) => run_test(args).await,
         Command::Report(args) => run_report(args),
+        Command::Costs(args) => run_costs_cmd(args),
         Command::Cliff(args) => run_cliff_cmd(args).await,
         Command::Validate(args) => run_validate_cmd(args).await,
         Command::Prompt(args) => run_prompt_cmd(args).await,
+    }
+}
+
+/// `qm costs` — the last persisted run's per-task costs, read from the desktop app's
+/// stores (latest-batch retention). Labels are the SANITIZED transcript stems — the
+/// original ids aren't recorded in the filenames, and we never "un-sanitize" by guess.
+fn run_costs_cmd(args: CostsArgs) {
+    let Some(dir) = args.data_dir.or_else(quantamind_lib::cli::costs::default_data_dir) else {
+        eprintln!("[QM-NO-DATA-DIR] couldn't resolve the app data dir — pass --data-dir");
+        std::process::exit(2);
+    };
+    match quantamind_lib::cli::costs::load_collection_costs(&dir, &args.collection) {
+        Ok(runs) => {
+            if args.json {
+                match serde_json::to_string_pretty(&runs) {
+                    Ok(s) => println!("{s}"),
+                    Err(e) => {
+                        eprintln!("[QM-INTERNAL] {e}");
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                eprintln!("(last persisted run of '{}'; names are sanitized transcript stems)", args.collection);
+                for r in &runs {
+                    print!("{}", run::render::render_costs(r));
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("[QM-NO-RUN] {}", redact_path(&e.to_string()));
+            std::process::exit(2);
+        }
     }
 }
 
@@ -601,6 +659,7 @@ async fn run_test(args: TestArgs) {
         max_steps: args.max_steps,
         decoy_tools: args.decoy,
         params: args.params.resolve(),
+        costs: args.costs,
     };
     execute(opts, args.json, FailOn::from(args.fail_on), args.junit, Render::Scoreboard).await;
 }
@@ -640,6 +699,7 @@ async fn run_suite(args: RunArgs) {
         max_steps: args.max_steps,
         decoy_tools: args.decoy,
         params: args.params.resolve(),
+        costs: args.costs,
     };
     execute(opts, args.json, FailOn::from(args.fail_on), args.junit, Render::Verdict).await;
 }
@@ -678,6 +738,7 @@ async fn run_cliff_cmd(args: CliffArgs) {
             max_steps: None,
             decoy_tools: None,
             params: None, // cliff params flow via CliffOptions below, not RunOptions
+            costs: false, // the cliff probe reports its own ladder, not run costs
         },
         max_tokens: args.max_tokens,
         steps: args.steps,
@@ -851,6 +912,7 @@ async fn run_init(args: InitArgs) {
         max_steps: None,
         decoy_tools: None,
         params: None,
+        costs: false, // the init smoke run keeps its output minimal
     };
     execute(opts, args.json, FailOn::Conditional, None, Render::Verdict).await;
 }

@@ -9,6 +9,7 @@
 //! `#[tauri::command]`s. The GUI keeps its own commands under `commands/`.
 
 pub mod cliff;
+pub mod costs;
 pub mod doctor;
 pub mod init;
 pub mod prompt;

@@ -403,11 +403,18 @@ pub async fn run_mcp_byo_batch(
         }
         // A task begins — sizes the scoreboard bar + opens the (model, task) cell.
         log_emit(&app, EVENT_BATCH_PROGRESS, BatchProgress::Started {
+            collection_id: BYO_COLLECTION.to_string(),
             model: model.clone(), task_id: task.name.clone(), index: i, total, category: "mcp_byo".into(), is_native: false,
         });
 
         let emit_step = |step: TrajectoryStep| {
+            // Same step-END host RSS sample the batch sink takes (BYO bypasses TauriBatchSink).
+            let mut step = step;
+            if step.resident_bytes.is_none() {
+                step.resident_bytes = crate::commands::system::process_memory::backend_rss(backend);
+            }
             log_emit(&app, EVENT_AGENTIC_STEP, AgenticStepPayload {
+                collection_id: BYO_COLLECTION.to_string(),
                 model: model.clone(), task_id: task.name.clone(), is_native: false, step,
             });
         };
@@ -441,6 +448,7 @@ pub async fn run_mcp_byo_batch(
         // The task's terminal outcome — a diagnostic report (schema-valid, no pass^k).
         agg = add_diag(agg, &task_diag);
         log_emit(&app, EVENT_BATCH_PROGRESS, BatchProgress::Done {
+            collection_id: BYO_COLLECTION.to_string(),
             model: model.clone(), task_id: task.name.clone(), outcome: TaskOutcome::Agentic { report: byo_report(&task_diag) }, is_native: false,
         });
     }
@@ -497,7 +505,13 @@ fn byo_step(run: usize, i: usize, kind: StepKind, raw: &str, injection: Option<&
         cache_n: None,
         prefill_tokens: None,
         prefill_ms: None,
+        eval_ms: None,
+        load_ms: None,
+        total_ms: None,
+        output_tokens: None,
+        resident_bytes: None, // sampled at the emit site, not in this pure constructor
         reasoning_tokens: None,
+        thinking_split_measured: false,
         context_used: None,
         context_window: None,
         initial_prompt: initial.map(str::to_string),
@@ -525,6 +539,7 @@ fn byo_report(diag: &DiagnosticStats) -> AgenticReport {
         safety: None,
         output_tokens_total: 0,
         diagnostic: Some(diag.clone()),
+        wall_ms: None, // diagnostic adapter — not a timed Pass^k batch
     }
 }
 
@@ -585,7 +600,6 @@ fn byo_column(model: &str, backend: BackendKind, diag: &DiagnosticStats, success
         agentic_native_fc: None,
         error: None,
         is_thinking: false,
-        cpu_offloaded: false,
-        ctx_ceiling: None,
+        ..Default::default()
     }
 }

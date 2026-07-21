@@ -448,6 +448,12 @@ pub struct AgenticReport {
     pub native_structured_calls: Option<u32>,
     #[serde(default)]
     pub native_salvaged_calls: Option<u32>,
+    /// Wall-clock for this task's WHOLE Pass^k batch (all runs, model + sandbox/world time),
+    /// measured by the batch layer around the run — not derivable from the per-turn server
+    /// timings (those exclude sandbox/MCP time). `None` on older reports / the BYO adapter.
+    /// `#[serde(default)]` so persisted reports load.
+    #[serde(default)]
+    pub wall_ms: Option<u64>,
 }
 
 impl AgenticReport {
@@ -517,6 +523,7 @@ impl AgenticReport {
             safety: None, // stamped by the batch layer via with_safety (it holds the ToolTask)
             output_tokens_total,
             diagnostic: None, // set only by the BYO adapter; never from real run outcomes
+            wall_ms: None,    // stamped by the batch layer via with_wall_ms (it holds the clock)
         }
     }
 
@@ -532,6 +539,13 @@ impl AgenticReport {
     /// `from_outcomes` and its tests stay unchanged). Called by the batch runner.
     pub fn with_tier(mut self, tier: Tier) -> Self {
         self.tier = tier;
+        self
+    }
+
+    /// Stamp the measured wall-clock of the whole Pass^k batch (builder form, same
+    /// pattern as `with_tier`). Called by the batch layer, which holds the clock.
+    pub fn with_wall_ms(mut self, wall_ms: u64) -> Self {
+        self.wall_ms = Some(wall_ms);
         self
     }
 

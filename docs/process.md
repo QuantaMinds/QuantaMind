@@ -768,6 +768,43 @@ Parking lot for ideas, libraries, and changes deliberately deferred. Nothing
 here is in the current phase — see [Phase roadmap](#phase-roadmap). If something
 here becomes relevant, move it into a phase plan first.
 
+### Latency⇢Tests link: deferred follow-ups
+
+From the inspector↔eval latency-link work (plan-reviewed 2026-07-20), deliberately
+out of v1 scope:
+
+- **Run-history store / side-by-side run comparison.** v1 keeps latest-run-per-
+  collection retention (in-session `batchStore` + latest transcripts). The config
+  stamp on `BatchColumn` (`quantization_claimed`, `kv_cache_type`, `num_ctx`,
+  `think_preset`, placement bytes) exists precisely so comparison later is a VIEW,
+  not a data migration. Includes a disk-transcript loader command for post-restart
+  history.
+- **"Measured" KV tier.** llama.cpp `/metrics` removed its KV-usage gauges;
+  re-adding is open upstream (ggml-org/llama.cpp#23632, version-dependent in
+  wrappers). If it ships, upgrade the llama.cpp tier from "computed from measured
+  tokens" to "measured" — never assume it's present.
+- **KV-cache quantization as a first-class eval dimension.** Users will want to
+  test task RELIABILITY at q8_0/q4_0 KV (key-cache quant degrades quality; value-
+  cache tolerates it — a known silent-failure source), not just use KV-quant as
+  the OOM remedy. Must carry the mode flag per the metric-comparability rule.
+- **True thinking/answer token split — llama.cpp arm IMPLEMENTED (2026-07-20).**
+  The chat stream tokenizes its accumulated `reasoning_content` via the server's
+  `/tokenize` (reconciled live: split + answer = predicted_n − ~3 marker tokens,
+  1%); `thinking_split_measured` carries provenance to the UI. Remaining: the
+  OLLAMA arm is blocked upstream — no `/api/tokenize` (404 on 0.24.0;
+  ollama#12030 unmerged), one combined `eval_count`, and streamed chunk counting
+  is NOT a token count (measured live: 228 thinking chunks vs eval_count 300).
+  When #12030 merges, flip `ollama_chat`/`ollama_wire`'s `thinking_tokens: None`
+  to the same recipe over the separated `thinking` text. Until then Ollama shows
+  the combined count with the "(no split)" qualifier.
+- **Ollama cache-reuse count** stays "Not available": ollama#8008 open, and
+  Ollama Cloud reports cached_tokens=0 even where caching occurs (ollama#15758,
+  April 2026) — a reported-zero there is not a measurement either.
+- **Forced-OOM live acceptance run.** The OOM classifier (`is_oom_message`) is
+  unit-tested against the real backend strings; deliberately NOT exercised by
+  forcing a live host OOM (destabilizes the machine for no new information). If a
+  real OOM occurs in normal use, the task badge + ceiling answer are the live test.
+
 ### World-state eval: deferred hardening
 
 Follow-ups to the answer-key guardrails work (RESERVED extension + shared

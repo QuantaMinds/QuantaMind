@@ -94,8 +94,25 @@ export const TrajectoryStepSchema = z.object({
   // (thinking-budget % vs context %) so the user can tell "raise a setting" from "buy hardware".
   // Null/absent on every other turn (and backends that don't report token counts).
   reasoning_tokens: z.number().int().nonnegative().nullable().optional(),
+  // TRUE only when reasoning_tokens is a MEASURED thinking/answer split (the reasoning
+  // channel tokenized with the model's own tokenizer — llama.cpp /tokenize). FALSE/absent ⇒
+  // the combined generated count (Ollama reports no split) → the UI shows "(no split)".
+  thinking_split_measured: z.boolean().optional(),
   context_used: z.number().int().nonnegative().nullable().optional(),
   context_window: z.number().int().nonnegative().nullable().optional(),
+  // Turn-cost split (mirrors Rust `TrajectoryStep`): decode wall-clock (`eval_ms` —
+  // llama.cpp `predicted_ms` / Ollama `eval_duration`), load charged to the turn, server
+  // total, and tokens generated for EVERY model (`output_tokens`, unlike the thinking-only
+  // `reasoning_tokens`). Null/absent = the backend didn't report it (never a fabricated 0)
+  // or a pre-this-change transcript.
+  eval_ms: z.number().int().nonnegative().nullable().optional(),
+  load_ms: z.number().int().nonnegative().nullable().optional(),
+  total_ms: z.number().int().nonnegative().nullable().optional(),
+  output_tokens: z.number().int().nonnegative().nullable().optional(),
+  // Step-END host RSS of the LOCAL inference server (whole process: weights + residue —
+  // never a per-task delta; a max over these is "max of step-end samples", not a true
+  // in-step peak). Null/absent for remote backends / unknown process / old transcripts.
+  resident_bytes: z.number().int().nonnegative().nullable().optional(),
   // The REAL per-run prompt, present only on step 0 of a run (null/absent every other step).
   // A generated task's entity ids are re-randomized per Pass^k run (see generator::instantiate),
   // so this is the one place the model's ACTUAL prompt is available — agenticPrompt.ts's
@@ -271,6 +288,9 @@ export const AgenticReportSchema = z.object({
   // the backend calls "a result worth showing, not hiding".
   native_structured_calls: z.number().int().nullish(),
   native_salvaged_calls: z.number().int().nullish(),
+  // Measured wall-clock of the WHOLE Pass^k batch (model + sandbox/world time), stamped by
+  // the batch layer. Nullish: older reports and the BYO diagnostic adapter never carry it.
+  wall_ms: z.number().int().nonnegative().nullish(),
 });
 export type AgenticReport = z.infer<typeof AgenticReportSchema>;
 
@@ -349,6 +369,20 @@ export const BatchColumnSchema = z.object({
   // Reasoning model: its effort (output tokens) is higher by design and must not be
   // ranked against terse models. Optional so older reports parse (absent = false).
   is_thinking: z.boolean().optional(),
+  // Run-context facts stamped by the command layer (all optional/nullish — older reports
+  // and non-Ollama backends omit them). The Inspector's Test-run view reads these.
+  cpu_offloaded: z.boolean().optional(),
+  ctx_ceiling: z.number().int().nullish(),
+  // Measured weight placement (/api/ps): total vs VRAM-resident, and the CPU-spill
+  // QUANTITY offload_bytes = size − size_vram (shown as "X GB spilled to CPU").
+  weights_total_bytes: z.number().int().nonnegative().nullish(),
+  weights_vram_bytes: z.number().int().nonnegative().nullish(),
+  offload_bytes: z.number().int().nonnegative().nullish(),
+  // The tag's CLAIMED quantization (/api/ps details) — label as a claim, never verified.
+  quantization_claimed: z.string().nullish(),
+  // KV precision the LOCAL llama-server launched with ("f16" | "q8_0"); null for other
+  // backends / an externally-started server (flags unknowable — never guessed).
+  kv_cache_type: z.string().nullish(),
 });
 export type BatchColumn = z.infer<typeof BatchColumnSchema>;
 
@@ -374,7 +408,14 @@ export type BatchReport = z.infer<typeof BatchReportSchema>;
 export const TaskOutcomeSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("single"), passed: z.boolean(), trace: TraceResultSchema }),
   z.object({ kind: z.literal("agentic"), report: AgenticReportSchema }),
-  z.object({ kind: z.literal("error"), message: z.string() }),
+  z.object({
+    kind: z.literal("error"),
+    message: z.string(),
+    // Host memory OOM, classified ONCE in Rust (`is_oom_message`) — every consumer (badge,
+    // ceiling suggestion) reads this verdict, never re-matches strings. Optional: pre-flag
+    // outcomes and old fixtures parse as not-OOM.
+    oom: z.boolean().optional(),
+  }),
 ]);
 export type TaskOutcome = z.infer<typeof TaskOutcomeSchema>;
 
@@ -382,6 +423,9 @@ export type TaskOutcome = z.infer<typeof TaskOutcomeSchema>;
 export const BatchProgressSchema = z.discriminatedUnion("phase", [
   z.object({
     phase: z.literal("started"),
+    // The run's collection — completes the (collection, task, model) attribution triple the
+    // Inspector's Test-run view keys on. Optional so pre-stamp events/fixtures parse.
+    collection_id: z.string().optional(),
     model: z.string(),
     task_id: z.string(),
     index: z.number().int(),
@@ -393,6 +437,7 @@ export const BatchProgressSchema = z.discriminatedUnion("phase", [
   }),
   z.object({
     phase: z.literal("done"),
+    collection_id: z.string().optional(),
     model: z.string(),
     task_id: z.string(),
     outcome: TaskOutcomeSchema,
@@ -406,6 +451,9 @@ export type BatchProgress = z.infer<typeof BatchProgressSchema>;
 /// it — the native function-calling pass (`is_native`) or the prompt pass. The Evaluator shows
 /// the two trajectories separately. `default(false)` so pre-native-streaming events parse.
 export const AgenticStepPayloadSchema = TrajectoryStepSchema.extend({
+  // Completes the on-wire attribution triple (collection, task, model). Optional so
+  // pre-stamp events + test fixtures parse.
+  collection_id: z.string().optional(),
   model: z.string(),
   task_id: z.string(),
   // Optional so pre-native-streaming events + test fixtures parse; absent ⇒ prompt pass.

@@ -1,9 +1,11 @@
 use crate::inference::eval::agentic::env_view::EnvView;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// What happened on a single agent turn — drives the Trajectory Inspector's
 /// per-step rendering and its red highlights for the error kinds.
-#[derive(Serialize, Clone, Debug, PartialEq)]
+/// `Deserialize` so persisted transcripts (`agentic_transcripts/*.jsonl`) can be
+/// read back — the `qm costs` command and the app's disk history both parse them.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum StepKind {
     /// A valid call the sandbox recognized and answered.
@@ -62,7 +64,7 @@ pub enum StepKind {
 /// One turn of an agentic run, streamed to the UI as it happens. `injection` is
 /// the sandbox's text reply for this turn (`"Tool result: …"`), or `None` on a
 /// terminal turn (end-state, yield, or loop cap).
-#[derive(Serialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct TrajectoryStep {
     pub run_index: u32,
     pub step_index: u32,
@@ -90,12 +92,45 @@ pub struct TrajectoryStep {
     /// cache bust re-incurs. `None` when the backend doesn't report it / no model response.
     #[serde(default)]
     pub prefill_ms: Option<u64>,
+    /// Wall-clock spent DECODING this turn (llama.cpp `timings.predicted_ms`, Ollama
+    /// `eval_duration`). With `prefill_ms` this is the per-turn prefill/decode split the
+    /// Latency view charts. `None` when unreported / no model response.
+    #[serde(default)]
+    pub eval_ms: Option<u64>,
+    /// Model-load time the server charged to THIS turn (Ollama `load_duration`; a warm turn
+    /// reports ~0, a cold first turn the real load). `None` on backends that don't report it.
+    #[serde(default)]
+    pub load_ms: Option<u64>,
+    /// Server-reported wall-clock for the whole turn (Ollama `total_duration`). NOT the sum of
+    /// the parts — includes queueing/tokenize. `None` on backends that don't report it.
+    #[serde(default)]
+    pub total_ms: Option<u64>,
+    /// Tokens GENERATED this turn (`eval_count`/`predicted_n`) for every model — unlike
+    /// `reasoning_tokens`, which is only stamped for thinking models. `None` when unreported.
+    #[serde(default)]
+    pub output_tokens: Option<u32>,
+    /// Host-measured process RSS (bytes) of the LOCAL inference server, sampled by the batch
+    /// sink at step END — the runner never sets it (host sampling stays at the command
+    /// boundary). This is the WHOLE server process (weights + residue), never a per-task
+    /// delta, and a downstream "peak" over these is strictly "max of step-end samples", not
+    /// the true in-step peak (mid-prefill can exceed it). `None` for remote backends or when
+    /// the process isn't found — never 0.
+    #[serde(default)]
+    pub resident_bytes: Option<u64>,
     /// D9 usage accounting, populated on a `Truncated` / `ReasoningOverrun` turn so the UI can show
     /// BOTH bars and name which limit fired. `reasoning_tokens` = tokens this turn spent reasoning
     /// (≈ generated tokens when the answer was starved); `context_used`/`context_window` = how full
     /// the context window got (`context_used ≈ context_window` ⇒ hardware-bound). `None` otherwise.
     #[serde(default)]
     pub reasoning_tokens: Option<u32>,
+    /// TRUE only when `reasoning_tokens` is a MEASURED thinking/answer split — the reasoning
+    /// channel's text tokenized with the model's own tokenizer (llama.cpp `/tokenize`).
+    /// FALSE means the value is the backend's combined generated count for a thinking model
+    /// (Ollama reports no split — the UI must show "(no split)"). A dedicated flag, not the
+    /// `reasoning == output` equality heuristic: a run truncated mid-think has a genuinely
+    /// measured split that still equals the total.
+    #[serde(default)]
+    pub thinking_split_measured: bool,
     #[serde(default)]
     pub context_used: Option<u32>,
     #[serde(default)]

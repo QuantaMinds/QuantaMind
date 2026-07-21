@@ -44,6 +44,14 @@ pub struct GenerateStats {
     /// record indistinguishable from a measured zero, and relabelling those would be
     /// fabricating a measurement we never took.
     pub native_tool_calls: Option<u32>,
+    /// Tokens of THIS turn's reasoning channel, tokenized with the model's OWN tokenizer
+    /// (llama-server `/tokenize` over the accumulated `reasoning_content` text,
+    /// `add_special:false`). Excludes the channel-marker/EOG tokens, so
+    /// `thinking + answer ≈ eval_count − ~3` (reconciled live within 1%). `None` when the
+    /// backend can't measure it: Ollama has no tokenize endpoint (404 on 0.24.0,
+    /// ollama#12030 unmerged — its combined `eval_count` must NOT be relabeled as
+    /// thinking), a terse model emits no reasoning channel, or the tokenize call failed.
+    pub thinking_tokens: Option<u32>,
 }
 
 /// Nanoseconds → whole milliseconds (Ollama reports ns durations).

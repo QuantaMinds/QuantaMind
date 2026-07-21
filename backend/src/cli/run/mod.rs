@@ -7,6 +7,7 @@
 //! no-hardware verdict path). Nothing new in the eval engine — this is wiring.
 
 pub mod config;
+pub mod costs;
 pub mod junit;
 pub mod render;
 pub mod sink;
@@ -86,6 +87,10 @@ pub struct RunOptions {
     /// `merge_eval_options`), so `qm run --temperature 0.7` matches the GUI's
     /// "run with my params" behavior.
     pub params: Option<crate::persistence::prompts::schema::InferenceParams>,
+    /// Capture + report per-task run costs (prefill/decode split, thinking split,
+    /// cache hits, peak context, step-end RSS, KV-at-peak) — the CLI twin of the
+    /// app's Latency Test-run view. Off by default: it samples host RSS per turn.
+    pub costs: bool,
 }
 
 /// What a run produced. The bin maps each variant to the documented exit code.
@@ -127,6 +132,10 @@ pub struct RunReport {
     pub profile_id: String,
     /// One row per measured path (native_fc and/or prompt_based).
     pub verdicts: Vec<ModelVerdict>,
+    /// Per-task run costs — present only when `--costs` captured them. Omitted from
+    /// JSON entirely otherwise (absent ≠ an empty measurement).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub costs: Option<costs::RunCosts>,
 }
 
 impl RunReport {
@@ -197,13 +206,8 @@ fn skeleton(collection_id: &str, targets: &[ModelTarget]) -> BatchReport {
             .map(|t| BatchColumn {
                 model: t.model.clone(),
                 backend: t.backend,
-                toolcall: None,
-                agentic: None,
-                agentic_native_fc: None,
-                error: None,
                 is_thinking: t.is_thinking,
-                cpu_offloaded: false,
-                ctx_ceiling: None,
+                ..Default::default()
             })
             .collect(),
     }
@@ -422,7 +426,13 @@ pub async fn run_suite(opts: RunOptions) -> AppResult<RunOutcome> {
     let tier = opts.tier.unwrap_or_else(|| effective_tier(&tasks));
     let targets = vec![ModelTarget { model: opts.model.clone(), backend: opts.backend, is_thinking }];
     let cancel = CancellationToken::new();
-    let sink: Arc<dyn BatchSink> = Arc::new(sink::CliSink::new(tasks.len()));
+    // Kept concrete so `--costs` can read the captured turns back after the run.
+    let cli_sink = Arc::new(if opts.costs {
+        sink::CliSink::capturing(tasks.len(), opts.backend)
+    } else {
+        sink::CliSink::new(tasks.len())
+    });
+    let sink: Arc<dyn BatchSink> = cli_sink.clone();
 
     // Native eligibility (Ollama /api/show tools; llama.cpp --jinja; MLX has none).
     let mut supported: HashSet<String> = HashSet::new();
@@ -501,6 +511,13 @@ pub async fn run_suite(opts: RunOptions) -> AppResult<RunOutcome> {
         }
     }
     report.think_preset = Some(preset);
+    // Stamp the measured placement facts via the SHARED helper — the same one the GUI's
+    // batch command uses, so `qm --costs` and the app's Latency view can never drift.
+    // (llama-server launch facts stay unstamped here: the CLI never spawns servers, and
+    // an externally managed server's flags are unknowable — never guessed.)
+    let ep_probe = ep.clone();
+    let placements = crate::inference::eval::run_facts::probe_placements(&targets, move |_| ep_probe.clone()).await;
+    crate::inference::eval::run_facts::stamp_placements(&mut report.columns, &placements);
 
     // Persist the raw BatchReport if asked (for offline `qm report --report`). Saved
     // even for an errored/inconclusive run — the raw evidence is still worth keeping.
@@ -525,6 +542,22 @@ pub async fn run_suite(opts: RunOptions) -> AppResult<RunOutcome> {
         return Ok(RunOutcome::Inconclusive { reason: "the run produced no measured trials".into() });
     }
 
+    // Per-task run costs (`--costs`): assemble from the sink's captured turns + the
+    // stamped column, with KV-at-peak from the model's dims (Ollama /api/show; other
+    // backends can't be dim-probed by model name → the KV figure stays None, honestly).
+    let costs = if opts.costs {
+        let dims = match opts.backend {
+            BackendKind::Ollama => crate::commands::models::model_inspect::fetch_dims(&opts.model)
+                .await
+                .map(|d| (d.layers, d.head_count, d.head_count_kv, d.embedding_length, d.kv_estimated)),
+            _ => None,
+        };
+        let column = report.columns.iter().find(|c| c.model == opts.model);
+        Some(costs::assemble(&opts.model, &cli_sink.captured_steps(), &cli_sink.captured_outcomes(), column, dims))
+    } else {
+        None
+    };
+
     Ok(RunOutcome::Ran(RunReport {
         // Display the collection by its basename, never the full path (rule 7f — no
         // absolute path / machine info in output).
@@ -533,6 +566,7 @@ pub async fn run_suite(opts: RunOptions) -> AppResult<RunOutcome> {
         model: opts.model,
         profile_id: opts.profile_id,
         verdicts,
+        costs,
     }))
 }
 
@@ -584,6 +618,7 @@ pub fn assess_saved(report_path: &str, profile_spec: &str) -> ReportOutcome {
         model: first.map(|c| c.model.clone()).unwrap_or_default(),
         profile_id: profile.id.clone(),
         verdicts,
+        costs: None, // an offline re-assessment has no captured turns to cost
     })
 }
 

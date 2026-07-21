@@ -41,16 +41,16 @@ beforeEach(() => {
 });
 
 describe("Inspector STT wiring", () => {
-  it("shows the empty state when neither an LLM run nor a transcript exists", () => {
+  it("shows the Test-run empty hint (no STT section) when nothing has run", () => {
+    // The Latency page is Test-run-only now; its empty state comes from EvalRunPanel.
     render(<InspectorPage />);
-    expect(screen.getByTestId("inspector-empty")).toBeInTheDocument();
+    expect(screen.getByTestId("eval-run-empty")).toBeInTheDocument();
     expect(screen.queryByTestId("stt-inspector-section")).toBeNull();
   });
 
-  it("renders the STT section (and no LLM empty state) after a transcription", () => {
+  it("renders the STT section after a transcription", () => {
     useSttResultStore.setState({ result: TRANSCRIPT });
     render(<InspectorPage />);
-    expect(screen.queryByTestId("inspector-empty")).toBeNull();
     expect(screen.getByTestId("stt-inspector-section")).toBeInTheDocument();
     expect(screen.getByTestId("stt-phase-bar")).toBeInTheDocument();
     expect(screen.getByTestId("confidence-timeline")).toBeInTheDocument();
