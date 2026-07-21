@@ -114,8 +114,12 @@ scope here).
 **Why.** Selection and running are elsewhere; this is the pure *view* of
 `store.rows`.
 **What/How.** Subscribes to `rows`. Empty state (`rows.length === 0` and no STT)
-shows guidance. Otherwise maps `rows → CompareColumn`, then `MetricsChart`,
-`CompareDiff`, `ExportButtons`.
+shows guidance. Otherwise maps `rows → CompareColumn`, then — directly below the
+live answers — the full per-token latency metrics (`LatencyTimelines`, the same
+panels the **Latency** tab renders; see [frontend-inspector-quant-agentreport](./frontend-inspector-quant-agentreport.md#latencytimelines)),
+then `MetricsChart`, `CompareDiff`, `ExportButtons`. `LatencyTimelines` renders
+nothing until a run carries a `timeline`, so runs without per-token data are
+unaffected.
 
 ```tsx
 const rows = useCompareStore((s) => s.rows);
@@ -123,6 +127,7 @@ const rows = useCompareStore((s) => s.rows);
 <div className="flex gap-2 overflow-x-auto" data-testid="compare-columns">
   {rows.map((r) => <CompareColumn key={r.model} row={r} />)}
 </div>
+<LatencyTimelines active={topView === "compare"} />  {/* full Latency metrics under the answer */}
 <MetricsChart /> <CompareDiff /> <ExportButtons />
 ```
 

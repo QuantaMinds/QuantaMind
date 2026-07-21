@@ -82,15 +82,24 @@ function getPassKBadge(val: string) {
 
 function getSchemaResilBadge(val: string, note?: string) {
   if (val === "—") {
-    // A dash reads as "blank/broken" without help text. `note` is set ONLY when the run
-    // actually happened and hit zero schema errors — so hovering explains it's a good result,
-    // while a dash that just means "not measured" stays an unadorned, un-explained dash.
+    // `note` set ⇒ the run happened and hit ZERO schema errors — a GOOD result, not a missing
+    // one. Show it as an explicit "✓ clean" chip so it reads as measured-and-fine WITHOUT a
+    // hover, instead of a bare dash that looks broken. NOT a fabricated "100%": there was no
+    // denominator (no error to recover from), so we say "clean", not a rate. A dash that just
+    // means "not measured" (single-turn / errored column) stays an unadorned, un-explained dash.
+    if (note) {
+      return (
+        <span
+          style={{ ...badgeStyle, background: "#f0fdf4", border: "1px solid #bbf7d0", color: "#15803d", cursor: "help", textTransform: "none" }}
+          title={note}
+          data-testid="schema-resil-clean"
+        >
+          ✓ clean
+        </span>
+      );
+    }
     return (
-      <span
-        style={{ color: "#94a3b8", fontStyle: "italic", cursor: note ? "help" : "default" }}
-        title={note}
-        data-testid={note ? "schema-resil-clean" : undefined}
-      >
+      <span style={{ color: "#94a3b8", fontStyle: "italic" }} title="Not measured for this run (no agentic pass, or the column errored).">
         —
       </span>
     );

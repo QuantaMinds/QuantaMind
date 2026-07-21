@@ -103,6 +103,27 @@ describe("MatrixScoreboard (Simulator) data flow", () => {
     expect(screen.getByTestId("scoreboard-run-chips")).toHaveTextContent("Decoys: off");
   });
 
+  it("scopes the board to a single task when runTaskId is set (only that row + a Task chip)", () => {
+    const second: ToolTask = { ...task, id: "forecast" };
+    useEvalRegistryStore.setState({ tasks: [task, second] });
+    // No filter → both rows render.
+    const { rerender } = render(<MatrixScoreboard model={MODEL} k={1} maxSteps={8} focusedTaskId={null} setFocusedTaskId={() => {}} focusedPass="prompt" setFocusedPass={() => {}} />);
+    expect(screen.getByTestId("scoreboard-row-weather")).toBeInTheDocument();
+    expect(screen.getByTestId("scoreboard-row-forecast")).toBeInTheDocument();
+    // Scoped to "weather" → only that row, and the header names the single-task scope.
+    rerender(<MatrixScoreboard model={MODEL} k={1} maxSteps={8} focusedTaskId={"weather"} setFocusedTaskId={() => {}} focusedPass="prompt" setFocusedPass={() => {}} runTaskId="weather" />);
+    expect(screen.getByTestId("scoreboard-row-weather")).toBeInTheDocument();
+    expect(screen.queryByTestId("scoreboard-row-forecast")).toBeNull();
+    expect(screen.getByTestId("scoreboard-single-task")).toHaveTextContent("Task: weather");
+  });
+
+  it("ignores a stale runTaskId not in this collection (shows the collection, not a blank board)", () => {
+    useEvalRegistryStore.setState({ tasks: [task] });
+    render(<MatrixScoreboard model={MODEL} k={1} maxSteps={8} focusedTaskId={null} setFocusedTaskId={() => {}} focusedPass="prompt" setFocusedPass={() => {}} runTaskId="ghost" />);
+    expect(screen.getByTestId("scoreboard-row-weather")).toBeInTheDocument();
+    expect(screen.queryByTestId("scoreboard-single-task")).toBeNull();
+  });
+
   it("shows a separate Native column from a native task_done and opens the native trace on click", () => {
     const s = useBatchStore.getState();
     s.startRun();

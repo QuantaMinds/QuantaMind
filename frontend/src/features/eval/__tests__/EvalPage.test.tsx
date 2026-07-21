@@ -8,8 +8,8 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn().mockResolvedValue(() =
 // Expose the model/task the page hands each pane, so the nav-persistence tests can assert the
 // results view stays bound to the RUN (not detached to a blank model/task) across selection churn.
 vi.mock("../components/scoreboard/MatrixScoreboard", () => ({
-  MatrixScoreboard: (p: { model: string; focusedTaskId: string | null }) => (
-    <div data-testid="matrix-scoreboard" data-model={p.model} data-task={p.focusedTaskId ?? ""} />
+  MatrixScoreboard: (p: { model: string; focusedTaskId: string | null; runTaskId?: string | null }) => (
+    <div data-testid="matrix-scoreboard" data-model={p.model} data-task={p.focusedTaskId ?? ""} data-runtask={p.runTaskId ?? ""} />
   ),
 }));
 vi.mock("../components/TraceDebugger", () => ({
@@ -278,5 +278,40 @@ describe("EvalPage — results view stays bound to a running batch (nav-persiste
     // Idle (running=false): a tier switch is free to re-target the collection to the new tier.
     fireEvent.change(screen.getByTestId("eval-tier-dropdown"), { target: { value: "hard" } });
     expect(select).toHaveBeenCalledWith("hard-coding");
+  });
+});
+
+// Single-task run scope: selecting one task in the sidebar threads a `runTaskId` to the Simulator
+// (which scopes its rows) and previews it in the Evaluator; a collection change drops the scope.
+describe("EvalPage — single-task run scope", () => {
+  const select = vi.fn().mockResolvedValue(undefined);
+  beforeEach(() => {
+    select.mockClear();
+    useSelectedModelStore.setState({ selectedModels: [{ name: "llama3.2:1b", backend: "ollama", size_bytes: 1 }] });
+    // Tier "medium" so it survives the Built-in list's tier filter (hwTier mock → medium).
+    useEvalRegistryStore.setState({
+      presets: [{ id: "med-coding", label: "Coding", domain: "coding", tier: "medium" }],
+      collections: [], selected: "med-coding",
+      tasks: [{ id: "t1", category: "single", prompt: "p", tools: [{ name: "x", description: "", parameters: { type: "object", properties: {} } }], expected: { type: "call", name: "x", args: {} } }] as never,
+      init, select, isPreset: (v: string) => v === "med-coding",
+    });
+  });
+
+  it("selecting a task threads runTaskId to the Simulator and previews it in the Evaluator", async () => {
+    render(<EvalPage />);
+    // Expand the collection's task list, then click the task to select it.
+    fireEvent.click(await screen.findByTestId("eval-collection-item-med-coding"));
+    fireEvent.click(await screen.findByTestId("eval-task-row-t1"));
+    expect(screen.getByTestId("matrix-scoreboard").getAttribute("data-runtask")).toBe("t1");
+    expect(screen.getByTestId("trace-debugger").getAttribute("data-task")).toBe("t1");
+  });
+
+  it("drops the single-task scope when the collection changes (no stale id leaks across collections)", async () => {
+    render(<EvalPage />);
+    fireEvent.click(await screen.findByTestId("eval-collection-item-med-coding"));
+    fireEvent.click(await screen.findByTestId("eval-task-row-t1"));
+    expect(screen.getByTestId("matrix-scoreboard").getAttribute("data-runtask")).toBe("t1");
+    act(() => useEvalRegistryStore.setState({ selected: "other-coding" }));
+    expect(screen.getByTestId("matrix-scoreboard").getAttribute("data-runtask")).toBe("");
   });
 });

@@ -288,14 +288,16 @@ describe("PerformanceMatrix", () => {
     expect(screen.queryByTestId("matrix-native-row-qwen")).toBeNull();
   });
 
-  it("Schema-Resil. '—' explains itself when the run was CLEAN (ran, zero schema errors)", () => {
+  it("Schema-Resil. clean run renders an explicit '✓ clean' chip (not a bare dash) with the tooltip", () => {
     // qwen has an agentic aggregate with schema_resilience: null — the honest "no malformed
-    // calls, nothing to recover from" case. Its dash must carry the explanatory tooltip so it
-    // reads as a good result, not a blank/broken cell.
+    // calls, nothing to recover from" case. It must read as a good result AT A GLANCE (no hover
+    // needed): a "✓ clean" chip carrying the explanatory tooltip, never a blank/broken-looking cell.
     useBatchStore.setState({ report });
     render(<PerformanceMatrix focusedModel="qwen" onFocusModel={() => {}} />);
     const clean = screen.getAllByTestId("schema-resil-clean");
     expect(clean.length).toBeGreaterThan(0);
+    expect(clean[0]).toHaveTextContent("clean"); // visible label, not a mystery "—"
+    expect(clean[0]).not.toHaveTextContent("100%"); // honest: no fabricated rate (there was no denominator)
     expect(clean[0]).toHaveAttribute("title", expect.stringMatching(/No schema errors/i));
   });
 

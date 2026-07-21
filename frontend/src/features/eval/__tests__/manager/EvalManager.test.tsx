@@ -392,6 +392,55 @@ describe("EvalManager Sidebar Controls", () => {
     expect(screen.getByTestId("eval-hw-hint")).toHaveTextContent("HW: 16GB RAM · Mainstream · Medium recommended");
   });
 
+  it("clicking a task row selects it (Run Task scope); clicking the selected row clears it", () => {
+    const setRunTaskId = vi.fn();
+    const { rerender } = render(<EvalManager {...props({ setRunTaskId })} />);
+    fireEvent.click(screen.getByTestId("eval-collection-item-easy-coding")); // expand the task list
+    fireEvent.click(screen.getByTestId("eval-task-row-w"));
+    expect(setRunTaskId).toHaveBeenCalledWith("w");
+    // When it's already the selection, clicking again clears back to the whole collection.
+    // (The list stays expanded across the rerender — don't re-toggle the collection.)
+    setRunTaskId.mockClear();
+    rerender(<EvalManager {...props({ setRunTaskId, runTaskId: "w" })} />);
+    fireEvent.click(screen.getByTestId("eval-task-row-w"));
+    expect(setRunTaskId).toHaveBeenCalledWith(null);
+  });
+
+  it("with a task selected, the button reads RUN TASK and the run is scoped to just that task", async () => {
+    vi.mocked(runBatchEval).mockResolvedValue({ collection_id: "easy-coding", columns: [] });
+    const w2 = { ...(sampleTasks[0] as Record<string, unknown>), id: "w2" } as never;
+    useEvalRegistryStore.setState({
+      presets: [{ id: "easy-coding", label: "Coding", domain: "coding", tier: "easy" }],
+      collections: [], selected: "easy-coding", tasks: [sampleTasks[0], w2], init, select, importFile,
+    });
+    render(<EvalManager {...props({ runTaskId: "w2", promptBased: undefined })} />);
+    const runBtn = screen.getByTestId("eval-run-all");
+    expect(runBtn).toHaveTextContent("RUN TASK");
+    fireEvent.click(runBtn);
+    await waitFor(() => expect(runBatchEval).toHaveBeenCalled());
+    // The tasks array (3rd arg) carries ONLY the selected task, not the whole collection.
+    expect(vi.mocked(runBatchEval).mock.calls[0][2]).toEqual([w2]);
+  });
+
+  it("a single-task run still honors BOTH calling methods when both are ticked", async () => {
+    vi.mocked(runBatchEval).mockResolvedValue({ collection_id: "easy-coding", columns: [] });
+    const w2 = { ...(sampleTasks[0] as Record<string, unknown>), id: "w2" } as never;
+    useEvalRegistryStore.setState({
+      presets: [{ id: "easy-coding", label: "Coding", domain: "coding", tier: "easy" }],
+      collections: [], selected: "easy-coding", tasks: [sampleTasks[0], w2], init, select, importFile,
+    });
+    render(<EvalManager {...props({ runTaskId: "w" })} />);
+    fireEvent.click(screen.getByTestId("eval-method-prompt")); // turn Prompt-based ON (native already on)
+    fireEvent.click(screen.getByTestId("eval-run-all"));
+    await waitFor(() => expect(runBatchEval).toHaveBeenCalled());
+    const call = vi.mocked(runBatchEval).mock.calls[0];
+    expect(call[2]).toEqual([sampleTasks[0]]); // only the selected task
+    expect(call[7]).toBe(true); // runNativeFc
+    expect(call[10]).toBe(true); // runPromptBased
+    // A single-task run is UI-only → the CLI-equivalent is a note, not a command.
+    expect(screen.getByTestId("eval-cli-single-task-note")).toBeInTheDocument();
+  });
+
   it("flows the decoy budget into the run only when enabled", async () => {
     useParamsStore.setState({ globalParams: {} });
     vi.mocked(runBatchEval).mockResolvedValue({ collection_id: "easy-coding", columns: [] });
