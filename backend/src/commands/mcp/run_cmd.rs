@@ -26,6 +26,7 @@ use crate::inference::eval::mcp::score::{score_db_task, score_fs_task, DbTask, M
 use crate::inference::eval::mcp::world::{DbSeed, FsSeed};
 use crate::inference::mcp::agent::BackendDriver;
 use crate::inference::mcp::bridge::{self, mcp_tools_to_native};
+use crate::inference::mcp::gate::{gate_decision, Decision, GatePolicy, PendingCall};
 use crate::inference::mcp::oracle_error::Attribution;
 use crate::inference::mcp::oracle_schema::{check_call, CallCheck};
 use crate::mcp::registry::split_namespaced;
@@ -254,6 +255,7 @@ async fn run_byo_inner(
     backend: BackendKind,
     server_id: &str,
     instruction: &str,
+    allow_execute: bool,
 ) -> AppResult<ByoRunResult> {
     let endpoint = resolve_backend(backend)?;
     let cfg = load(&registry_path(app)?)?
@@ -293,10 +295,35 @@ async fn run_byo_inner(
             CallCheck::Invalid(v) => (Attribution::Model, v.join("; ")),
             CallCheck::Valid => {
                 let bare = split_namespaced(&call.name).map(|(_, t)| t).unwrap_or(call.name.as_str());
-                match client.call_tool(bare, call.args.clone()).await {
-                    Ok(res) if res.is_error() => (Attribution::Server, format!("tool reported an error: {}", result_text(&res))),
-                    Ok(res) => (Attribution::Success, result_text(&res)),
-                    Err(e) => (Attribution::Config, e.friendly()),
+                // The user's OWN server is real, not a disposable sandbox — so it's fail-closed:
+                // a well-formed call still needs an explicit approval before it executes. The
+                // per-run "Allow tool execution" opt-in IS that approval; without it the gate
+                // denies and the call is recorded schema-valid-but-not-run. `trusted_server` is
+                // false (a configured server carries no verified trust yet), so a poisoned
+                // `readOnlyHint` can't self-approve a write.
+                let read_only = tools
+                    .iter()
+                    .find(|t| t.name == bare)
+                    .and_then(|t| t.annotations.as_ref())
+                    .and_then(|a| a.read_only_hint)
+                    .unwrap_or(false);
+                let pending = PendingCall {
+                    server_id: server_id.to_string(),
+                    tool: bare.to_string(),
+                    read_only,
+                    trusted_server: false,
+                    args: call.args.clone(),
+                };
+                match byo_gate_decision(allow_execute, &pending) {
+                    Decision::Deny => (
+                        Attribution::Blocked,
+                        "blocked — real tool calls are denied by default; enable \u{201C}Allow tool execution\u{201D} to run them".to_string(),
+                    ),
+                    Decision::Approve => match client.call_tool(bare, call.args.clone()).await {
+                        Ok(res) if res.is_error() => (Attribution::Server, format!("tool reported an error: {}", result_text(&res))),
+                        Ok(res) => (Attribution::Success, result_text(&res)),
+                        Err(e) => (Attribution::Config, e.friendly()),
+                    },
                 }
             }
         };
@@ -308,6 +335,8 @@ async fn run_byo_inner(
             Attribution::Config => out.config_faults += 1,
             Attribution::Server => out.server_faults += 1,
             Attribution::Success => out.successes += 1,
+            // Schema-valid but not executed — neither a success nor a fault of any party.
+            Attribution::Blocked => {}
         }
         let args = call.args.to_string().chars().take(200).collect::<String>();
         out.calls.push(ByoCall { tool: call.name.clone(), schema_valid: check.is_valid(), attribution, detail, args });
@@ -327,9 +356,10 @@ pub async fn run_mcp_byo(
     server_id: String,
     instruction: String,
     max_steps: Option<u32>,
+    allow_execute: Option<bool>,
 ) -> Result<ByoRunResult, AppError> {
     let _ = max_steps; // single-turn grading for now
-    Ok(run_byo_inner(&app, &model, backend, &server_id, &instruction).await?)
+    Ok(run_byo_inner(&app, &model, backend, &server_id, &instruction, allow_execute.unwrap_or(false)).await?)
 }
 
 /// The StepKind that honestly describes a graded call, so the Evaluator's trace
@@ -337,11 +367,21 @@ pub async fn run_mcp_byo(
 /// turn, a Server/Config fault as a tool error, a Success as a clean tool call).
 fn step_kind_for(c: &ByoCall) -> StepKind {
     match c.attribution {
-        Attribution::Success => StepKind::ToolCall,
+        // A blocked call was a valid tool call that simply didn't run — show it as a
+        // tool call (its detail explains the gate denial), not an error.
+        Attribution::Success | Attribution::Blocked => StepKind::ToolCall,
         Attribution::Model if c.detail.contains("hallucinated") => StepKind::UnknownTool,
         Attribution::Model => StepKind::SchemaError,
         Attribution::Server | Attribution::Config => StepKind::ToolError,
     }
+}
+
+/// The approval decision for one BYO tool call. The user's own server is real (not a
+/// disposable sandbox) and carries no verified trust, so it is **deny-by-default**: the
+/// per-run `allow_execute` opt-in is the ONLY approval source. Pure, so the security
+/// contract — no execution without an explicit opt-in — is unit-tested without a live server.
+fn byo_gate_decision(allow_execute: bool, pending: &PendingCall) -> Decision {
+    gate_decision(GatePolicy::DenyByDefault, pending, allow_execute.then_some(Decision::Approve))
 }
 
 /// One BYO task: which connected server + what the model should do. Diagnostic only
@@ -391,7 +431,9 @@ pub async fn run_mcp_byo_batch(
     backend: BackendKind,
     tasks: Vec<ByoTaskSpec>,
     k: Option<u32>,
+    allow_execute: Option<bool>,
 ) -> Result<(), AppError> {
+    let allow_execute = allow_execute.unwrap_or(false);
     let cancel = state.begin();
     let total = tasks.len();
     let runs = k.unwrap_or(1).max(1);
@@ -427,7 +469,7 @@ pub async fn run_mcp_byo_batch(
             // Race the (slow) model + tool run against the Stop button. Dropping the future on
             // cancel also drops the MCP client → its Drop kills the server (no orphan).
             let out = tokio::select! {
-                r = run_byo_inner(&app, &model, backend, &task.server_id, &task.instruction) => r?,
+                r = run_byo_inner(&app, &model, backend, &task.server_id, &task.instruction, allow_execute) => r?,
                 _ = cancel.cancelled() => break 'tasks,
             };
 
@@ -567,6 +609,29 @@ mod byo_report_tests {
         let ag = col.agentic.expect("BYO column has an agentic aggregate");
         assert!(ag.diagnostic.is_some(), "the aggregate carries the diagnostic");
         assert_eq!(ag.pass_k(), None, "tasks_total=0 → Model Results shows no pass^k for BYO");
+    }
+
+    fn pending(read_only: bool) -> PendingCall {
+        PendingCall {
+            server_id: "s".into(),
+            tool: "write_file".into(),
+            read_only,
+            trusted_server: false,
+            args: serde_json::json!({ "path": "x.txt" }),
+        }
+    }
+
+    /// The security contract behind issue #192: a BYO tool call against the user's own
+    /// (real) server is DENIED unless the user explicitly opted into execution — even a
+    /// tool that claims to be read-only, because the server carries no verified trust
+    /// (a poisoned `readOnlyHint` must not self-approve).
+    #[test]
+    fn byo_calls_are_denied_without_the_execute_opt_in() {
+        // Default (no opt-in) → deny, whatever the tool claims.
+        assert_eq!(byo_gate_decision(false, &pending(false)), Decision::Deny, "write denied by default");
+        assert_eq!(byo_gate_decision(false, &pending(true)), Decision::Deny, "read-only claim can't self-approve on an untrusted server");
+        // Explicit opt-in → approve (the opt-in IS the required approval).
+        assert_eq!(byo_gate_decision(true, &pending(false)), Decision::Approve, "opt-in approves execution");
     }
 }
 

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { McpConnectPanel } from "./McpConnectPanel";
 import { McpTaskBuilder } from "./McpTaskBuilder";
-import { McpByoBuilder } from "./McpByoBuilder";
+import { McpByoBuilder, ByoExecuteToggle } from "./McpByoBuilder";
 import { useMcpStore } from "../state/mcpStore";
 import { useSelectedModelStore } from "../../../shared/state/selectedModelStore";
 
@@ -30,8 +30,14 @@ export function McpCenterPanel() {
   const total = taskCount + byoCount;
   // Collapsed with tasks saved: render nothing here so the result panels (and the sidebar's
   // task list + "+ Add MCP task") own the screen. The old "N tasks saved" banner was redundant.
+  // Exception: when BYO tasks exist, keep the "Allow tool execution" opt-in reachable at run
+  // time — otherwise the deny-by-default gate (issue #192) can't be approved after collapse.
   if (collapsed && total > 0) {
-    return null;
+    return byoCount > 0 ? (
+      <div className="mb-2" data-testid="byo-execute-collapsed">
+        <ByoExecuteToggle />
+      </div>
+    ) : null;
   }
 
   return (

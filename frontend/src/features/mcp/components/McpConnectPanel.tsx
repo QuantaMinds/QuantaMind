@@ -31,7 +31,7 @@ function ServerList({
   onRemove: (id: string) => void;
 }) {
   if (servers.length === 0) {
-    return <p className="text-sm opacity-60">No MCP servers yet — add one below or upload an mcp.json.</p>;
+    return <p className="text-sm opacity-60">No MCP servers yet — add one below.</p>;
   }
   return (
     <ul className="flex flex-col gap-2">

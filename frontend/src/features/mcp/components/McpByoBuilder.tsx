@@ -66,6 +66,7 @@ export function McpByoBuilder() {
         <div className="text-xs opacity-50">
           No answer key → diagnostic only: schema-valid rate + model/config/server attribution + live trace. No pass/fail.
         </div>
+        <ByoExecuteToggle />
       </div>
 
       <div className="flex items-center gap-3">
@@ -86,5 +87,29 @@ export function McpByoBuilder() {
         )}
       </div>
     </div>
+  );
+}
+
+/// The run-level safety opt-in for Bring-Your-Own runs. Real tools are deny-by-default;
+/// this is the explicit approval that lets the model's calls actually execute. Shown both
+/// in the builder AND in the collapsed run view (issue #192) so it's reachable at run time.
+export function ByoExecuteToggle() {
+  const allowByoExecute = useMcpStore((s) => s.allowByoExecute);
+  const setAllowByoExecute = useMcpStore((s) => s.setAllowByoExecute);
+  return (
+    <label className="flex items-start gap-2 rounded border border-amber-500/40 bg-amber-500/5 p-2 text-xs">
+      <input
+        type="checkbox"
+        className="mt-0.5"
+        checked={allowByoExecute}
+        onChange={(e) => setAllowByoExecute(e.target.checked)}
+        data-testid="byo-allow-execute"
+      />
+      <span>
+        <span className="font-semibold text-amber-300">Allow tool execution</span> — run the model's calls against your{" "}
+        <em>real</em> server. Off by default: calls are graded but <em>not run</em>. Only enable for a server you've
+        scoped to a throwaway target (e.g. a disposable directory), since the model's calls will actually execute.
+      </span>
+    </label>
   );
 }

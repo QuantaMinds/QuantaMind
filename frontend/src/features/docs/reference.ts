@@ -382,7 +382,7 @@ export const REFERENCE_SECTIONS: ReferenceSection[] = [
         heading: "Bring-Your-Own (diagnostic, no answer key)",
         what: "The second authoring door: an instruction + one connected server, with no oracle. It reports “schema-valid X/Y” — whether the model emitted well-formed calls to your real tools — never a pass/fail verdict.",
         why: "Sometimes you just want to smoke-test a live server, not score it. Keeping BYO out of the pass-rate aggregate (blue diagnostic, never green/amber/red) means real and simulated scores are never blended.",
-        how: "Runs via run_mcp_byo_batch and lights up the same Simulator/Evaluator/Model Results with DiagnosticStats. It is single-turn and, unlike disposable worlds, drives your real server directly with no interactive approval step — so confinement is whatever you scoped the server to (e.g. the directory you passed).",
+        how: "Runs via run_mcp_byo_batch and lights up the same Simulator/Evaluator/Model Results with DiagnosticStats. Unlike disposable worlds, it targets your REAL server, so it's fail-closed: tool calls are deny-by-default (graded schema-valid but NOT executed) until you tick “Allow tool execution” for the run — that opt-in is the explicit approval the gate requires. Even then, confinement is whatever you scoped the server to (e.g. the directory you passed).",
         source: "backend/src/commands/mcp/run_cmd.rs · frontend/src/features/mcp/components/McpByoBuilder.tsx",
       },
       {
