@@ -2,6 +2,8 @@ import { cellKey, useBatchStore } from "../../../eval/state/batchStore";
 import { taskCost, type TaskCost } from "../../../eval/state/taskCost";
 import { useInstalledModelsStore } from "../../../models/state/installedModelsStore";
 import type { TaskOutcome, TrajectoryStep } from "../../../../shared/ipc/eval/batch";
+import { InfoButton } from "../../../../shared/ui/InfoButton";
+import { EVAL_RUN_HELP } from "./evalRunHelp";
 import { fmtMs, TaskMetricsCard } from "./TaskMetricsCard";
 import { MemoryEstimatePanel } from "./MemoryEstimatePanel";
 
@@ -96,6 +98,7 @@ export function EvalRunPanel() {
             <div className="flex items-baseline gap-2">
               <span className="text-sm font-semibold text-slate-800">{collectionId ?? "Test run"}</span>
               <span className="text-xs text-gray-500">· {model}</span>
+              <InfoButton title={EVAL_RUN_HELP.page.title} body={EVAL_RUN_HELP.page.body} align="left" testId="eval-run" />
               {running && <span className="text-xs px-2 py-0.5 rounded-full bg-sky-100 text-sky-700">running</span>}
               <span className="ml-auto text-xs text-gray-500">
                 {taskCount} task{taskCount === 1 ? "" : "s"}

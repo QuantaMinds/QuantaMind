@@ -51,6 +51,10 @@ describe("EvalRunPanel", () => {
     expect(screen.getByText("easy-coding")).toBeInTheDocument();
     expect(screen.getByTestId("eval-task-card-t1")).toBeInTheDocument();
     expect(screen.getByText("60 tok")).toBeInTheDocument(); // measured cache hits
+    // Every surface explains itself: page-, memory- and card-level info buttons.
+    expect(screen.getByTestId("info-eval-run")).toBeInTheDocument();
+    expect(screen.getByTestId("info-eval-memory")).toBeInTheDocument();
+    expect(screen.getByTestId("info-task-metrics-t1")).toBeInTheDocument();
   });
 
   it("an Ollama run shows Not available for cache — never a fabricated 0", () => {

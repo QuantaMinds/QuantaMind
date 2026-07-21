@@ -1,6 +1,8 @@
 import type { TaskOutcome, TrajectoryStep } from "../../../../shared/ipc/eval/batch";
 import type { TaskCost } from "../../../eval/state/taskCost";
 import { formatBytes, formatDuration } from "../../../../shared/format/bytes";
+import { InfoButton } from "../../../../shared/ui/InfoButton";
+import { EVAL_RUN_HELP } from "./evalRunHelp";
 
 export const fmtMs = (ms: number) => (ms >= 1000 ? formatDuration(ms / 1000) : `${Math.round(ms)}ms`);
 
@@ -66,6 +68,7 @@ export function TaskMetricsCard({
         <span className="text-sm font-semibold text-slate-800">{taskId}</span>
         {native && <span className="text-xs px-2 py-0.5 rounded-full bg-violet-100 text-violet-700">native FC</span>}
         <span className={`text-xs px-2 py-0.5 rounded-full ${badge.cls}`}>{badge.text}</span>
+        <InfoButton title={EVAL_RUN_HELP.taskCard.title} body={EVAL_RUN_HELP.taskCard.body} align="left" testId={`task-metrics-${taskId}`} />
         <span className="ml-auto text-xs text-gray-500">
           {cost.runs} run{cost.runs === 1 ? "" : "s"} · {cost.steps} step{cost.steps === 1 ? "" : "s"}
           {wallMs != null ? ` · ${fmtMs(wallMs)} wall` : ""}

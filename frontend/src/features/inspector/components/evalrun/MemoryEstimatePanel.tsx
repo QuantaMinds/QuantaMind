@@ -7,6 +7,8 @@ import { fitOfNeed, fitBadge } from "../../../models/fit";
 import { deviceMemory, useHardware } from "../../hooks/useHardware";
 import { useKvCeilings } from "../../hooks/useKvCeilings";
 import { KvCeilingBars } from "../kv/KvCeilingBars";
+import { InfoButton } from "../../../../shared/ui/InfoButton";
+import { EVAL_RUN_HELP } from "./evalRunHelp";
 
 /// A row of the stacked memory breakdown. Provenance is part of the row, not decoration:
 /// every number names how it was obtained (measured / computed from measured tokens /
@@ -104,7 +106,10 @@ export function MemoryEstimatePanel({
 
   return (
     <div className="border border-slate-200 rounded-lg p-3 space-y-1.5" data-testid="eval-memory-panel">
-      <div className="text-[11px] uppercase tracking-wide text-gray-400">Memory for this run — {model}</div>
+      <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-gray-400">
+        Memory for this run — {model}
+        <InfoButton title={EVAL_RUN_HELP.memory.title} body={EVAL_RUN_HELP.memory.body} align="left" testId="eval-memory" />
+      </div>
       <Row
         label="Model in memory"
         value={modelBytes != null ? formatBytes(modelBytes) : null}

@@ -230,34 +230,63 @@ you'll see a hint to assess another.
 `.trim();
 
 const latency = `
-# Latency & context
+# Latency & memory of a Test run
 
-The **Latency** tab (also called the Inspector) shows how *fast* a model runs and how much *context*
-it can hold on your machine.
+The **Latency** tab answers one question: **what did the run you launched on the Tests tab cost on
+this machine** — per task, live while it streams. (Workspace-prompt per-token timing — TTFT,
+token-gap charts — lives under **Analysis**, right below each answer.)
 
-## Token timing
+A rule the whole page follows: every number names how it was obtained — *measured*, *computed from
+measured tokens*, *estimated (formula)*, or the model tag's unverified *claim*. Anything the backend
+doesn't report shows **"Not available"**, never a guessed value.
 
-For each charted run you get time-to-first-token, per-token latency, and a histogram — so you can
-see not just the average speed but its consistency.
+## Per-task cards
 
-## VRAM / unified memory
+Each task gets a card per **pass** — **native FC** (the model's tool-calling API) and prompt-based
+are different eval methods, so their costs are shown separately, never blended.
 
-The **VRAM bar** shows the loaded model's footprint against your device's memory
-("6.6 GB in unified memory of 16.0 GB"). It needs the model actually loaded in the running server;
-if it isn't, you'll see "load the model to measure".
+- **Prefill / Decode** — server-reported time reading the prompt vs generating tokens, summed over
+  all Pass^k runs. The little bar track shows the same split per step.
+- **Output tokens** — tokens generated across all runs.
+- **Thinking tokens** — on **llama.cpp**, a *measured* split: the reasoning channel tokenized with
+  the model's own tokenizer. On **Ollama** the API reports one combined count, shown as
+  "*(no split)*" — no honest split exists there today.
+- **Cache hits** — prompt tokens served from the server's prefix cache instead of recomputed.
+  Measured on **llama.cpp** (it's why steps after the first take ~1s); **Ollama** reports no such
+  count → "Not available".
+- **Peak context** — the fullest a single run's window got. Cache-hit totals can exceed it: hits
+  accumulate across runs, the peak is one moment.
+- **Wall** — the task's whole Pass^k batch on a real clock, including time between turns.
 
-## Context ceiling by KV-cache precision
+## Memory for this run
 
-This estimates how much **context** fits in memory at three KV-cache precisions:
+- **Model in memory** — Ollama: resident size from /api/ps (weights **plus** the context buffer it
+  reserves at load — that's why it reads above the raw weight file). llama.cpp: the GGUF's size at
+  launch (it reports no resident split).
+- **KV cache at this run's peak** — the headline: what *this* run's deepest context cost, with the
+  same tokens priced at f16 / q8_0 / q4_0 underneath (cache precision is a *launch* setting).
+- **Server process RSS** — a diagnostic: the server process's resident RAM at step end. Whole
+  process (weights + leftovers), and GPU-wired buffers may be missing — so it can legitimately read
+  *below* the model's in-memory size.
+- **Fit verdict** — model + this run's KV vs your device's memory pool ("Tight" above 70%). A
+  planning estimate, not a measured OOM point. If a task actually dies of out-of-memory, the panel
+  names it and computes the context ceilings (f16/q8_0/q4_0 KV) that would fit instead.
 
-- **f16** — full precision (the default).
-- **q8** — roughly 2× the context at negligible quality cost.
-- **q4** — roughly 4× the context, but with a real quality cost and often slower at long context.
+## Context: usage vs capacity
+
+Two different things, two different displays:
+
+- **Context window budget** ("757 / 16384 ctx (5%)") — *usage*: the peak tokens of a single run vs
+  the window the run launched with. Tokens are precision-independent — f16/q8/q4 change the *bytes*
+  each cached token costs, never this count.
+- **Context ceiling by KV-cache precision** — *capacity*: the largest window this machine could
+  hold at each precision. **f16** is the default; **q8** ≈ 2× at negligible quality cost; **q4** ≈
+  4× with a real quality cost and often slower at long context.
 
 > [!NOTE]
-> These bars need the model's dimensions. For **llama.cpp** they come from the GGUF header (with the
-> model loaded); for **Ollama** from the model's reported metadata. If a bar says "Not available",
-> load the model in the selected backend first.
+> The ceiling bars need the model's dimensions and size. For **llama.cpp**, start the server from
+> the app (an externally started one can't report its launch settings); for **Ollama** they come
+> from the model's reported metadata.
 
 ## Next steps
 
@@ -329,7 +358,7 @@ export const DOC_SECTIONS: DocSection[] = [
       { id: "adding-models", title: "Adding models", description: "Install and download models per backend.", body: addingModels },
       { id: "first-test", title: "Running your first test", description: "Run and read an evaluation.", body: firstTest },
       { id: "agent-report", title: "Reading the Agent Report", description: "Turn scores into a readiness verdict.", body: agentReport },
-      { id: "latency", title: "Latency & context", description: "Speed, VRAM, and context ceilings.", body: latency },
+      { id: "latency", title: "Latency & memory of a Test run", description: "What a test run cost: per-task speed, cache, KV memory, and context ceilings.", body: latency },
     ],
   },
   {
