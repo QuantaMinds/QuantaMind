@@ -55,24 +55,31 @@ export function MemoryEstimatePanel({
   const weightsTotal = column?.weights_total_bytes ?? null;
   // Same fetch pattern as the workspace KV meters (cancel-on-cleanup, refetch on remount).
   const { dims, ceilings } = useKvCeilings(model, backend, weightsTotal, hw?.total_memory_bytes);
-  const [kvBytes, setKvBytes] = useState<number | null>(null);
+  const [kvAll, setKvAll] = useState<{ f16: number; q8: number; q4: number } | null>(null);
 
-  // KV bytes at the run's peak token occupancy, at the KV precision the run actually used
-  // (llama-server q8_0 when launched that way; f16 otherwise). Recomputed as the peak grows.
+  // KV bytes at the run's peak token occupancy, at ALL three cache precisions — the same
+  // canonical Rust formula each time (exact integer scaling; never halved in JS). The
+  // headline shows the precision the run actually used; the sub-line shows what the SAME
+  // tokens would cost at the others (the "would a quantized cache save me?" decision).
   const kvType = column?.kv_cache_type === "q8_0" ? "q8_0" : undefined;
   useEffect(() => {
     let cancelled = false;
     if (!dims || peakTokens == null || peakTokens === 0) {
-      setKvBytes(null);
+      setKvAll(null);
       return;
     }
-    estimateKvCacheBytes(dims, peakTokens, kvType)
-      .then((b) => !cancelled && setKvBytes(b))
-      .catch(() => !cancelled && setKvBytes(null));
+    Promise.all([
+      estimateKvCacheBytes(dims, peakTokens, "f16"),
+      estimateKvCacheBytes(dims, peakTokens, "q8_0"),
+      estimateKvCacheBytes(dims, peakTokens, "q4_0"),
+    ])
+      .then(([f16, q8, q4]) => !cancelled && setKvAll({ f16, q8, q4 }))
+      .catch(() => !cancelled && setKvAll(null));
     return () => {
       cancelled = true;
     };
-  }, [dims, peakTokens, kvType]);
+  }, [dims, peakTokens]);
+  const kvBytes = kvAll == null ? null : kvType === "q8_0" ? kvAll.q8 : kvAll.f16;
 
   const weightsVram = column?.weights_vram_bytes ?? null;
   const offload = column?.cpu_offloaded ? column?.offload_bytes ?? null : null;
@@ -108,6 +115,13 @@ export function MemoryEstimatePanel({
         }`}
         strong
       />
+      {kvAll != null && (
+        <div className="text-[11px] text-gray-500 pl-2" data-testid="eval-kv-precisions">
+          same {peakTokens} tokens by cache precision: f16 {kvApprox}{formatBytes(kvAll.f16)} · q8_0 {kvApprox}
+          {formatBytes(kvAll.q8)} · q4_0 {kvApprox}{formatBytes(kvAll.q4)} — cache type is a LAUNCH setting (q4_0 has a
+          real quality cost; see the ceiling meters below)
+        </div>
+      )}
       <Row
         label="Server process RSS"
         value={maxRssBytes != null ? formatBytes(maxRssBytes) : null}
