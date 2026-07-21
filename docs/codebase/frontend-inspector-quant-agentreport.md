@@ -169,19 +169,13 @@ a run's model in `/api/ps` results tolerating the `:latest` tag both ways.
 
 ### `components/InspectorPage.tsx`
 
-The **Latency** tab shell, now with a two-way SOURCE toggle:
-
-- **Workspace prompt** — the existing per-token timing of the last Workspace/Analysis
-  run (everything below, delegated to `LatencyTimelines` with `showExport`), plus
-  `SttInspectorSection` and the global `LeakBanner`.
-- **Test run** — `evalrun/EvalRunPanel` (see {#evalrun}): per-task latency/cache/memory
-  of the current Test-page batch.
-
-The page auto-switches to **Test run** ONCE per batch start (keyed on the
-not-running→running transition of `batchStore.running`, never on the value — the
-pre-fill rule — so switching back mid-run isn't clobbered). Empty states stay
-source-local: the Workspace source keeps its "run a prompt" hint; the Test source
-renders `EvalRunPanel`'s own "run a task in the Tests tab" hint.
+The **Latency** tab shell — the TEST-RUN cost page. Renders `LlamaServerReadout`,
+`LeakBanner`, `evalrun/EvalRunPanel` (see {#evalrun}) and `SttInspectorSection`.
+Workspace-prompt per-token timing moved WHOLLY under the **Analysis** tab, which
+renders the identical `LatencyTimelines` below each answer (now with `showExport`,
+so the latency report exports from where its panels live) — one surface per
+question, no duplicate. The brief two-source toggle that predated this was removed
+the same day it shipped (user call: Latency = what did my test run cost).
 
 ### `components/evalrun/` — the Test-run source {#evalrun}
 
@@ -196,7 +190,7 @@ after. Disk history (transcripts) is a recorded deferral.
 |---|---|
 | `EvalRunPanel.tsx` | Orchestrator: groups BOTH passes per model→task — prompt (`stepsByKey`/`outcomeByKey`) and native (`nativeStepsByKey`/`nativeOutcomeByKey`) render as separate cards (native tagged `native FC`; different eval methods, costs never blended per the comparability rule) — computes `taskCost` per cell, resolves the model's backend (report column stamp, else installed-list lookup — never guessed), rolls up peak context / max RSS across both passes, finds the OOM task. A native-only run MUST surface its trajectory (the 2026-07-20 smoke regression). |
 | `TaskMetricsCard.tsx` | Per task: outcome badge (Pass n/k, red **Out of memory** on `TaskOutcome::Error.oom`), prefill/decode/output/thinking/cache/peak-context cells (null → "Not available", never 0 — Ollama cache reuse names ollama#8008 in its hint), per-step stacked prefill/decode track, RSS line labeled *"max of step-end samples (whole process: weights + residue)"*. |
-| `MemoryEstimatePanel.tsx` | The stacked memory answer with a PROVENANCE label on every row: weights `measured (/api/ps size_vram)` + spilled-to-CPU `measured (size − size_vram)` + **KV at the run's peak** (the headline — `computed from measured tokens (llama.cpp)` vs `estimated (formula)`, `~` when `kv_estimated`, at the run's actual `kv_cache_type`) + RSS `diagnostic`. Fit verdict via `fitOfNeed(weights+KV, available)` labeled *planning estimate, not a measured OOM point*. On OOM: the actionable ceiling answer via `context_ceilings` (f16/q8_0/q4_0) — and REFUSES to suggest when dims are unreadable (a fabricated ceiling is worse than none). |
+| `MemoryEstimatePanel.tsx` | The stacked memory answer with a PROVENANCE label on every row: **Model in memory** `measured (/api/ps size_vram — weights + the KV/context buffer Ollama reserves at load, so it reads ABOVE the raw weight file)` + spilled-to-CPU `measured (size − size_vram)` + **KV at the run's peak** (the headline — `computed from measured tokens (llama.cpp)` vs `estimated (formula)`, `~` when `kv_estimated`, at the run's actual `kv_cache_type`) + RSS `diagnostic` (GPU-wired buffers may not appear in RSS — it can legitimately read BELOW the model's in-memory size). Adds the run's **context-window budget** line (peak single-run tokens / the window the run launched with: `ctx_ceiling` → report `num_ctx` → a truncated step's `context_window`, never guessed) and the shared `KvCeilingBars` (f16/q8_0/q4_0) on the run's model. Fit verdict via `fitOfNeed(model+KV, available)` labeled *planning estimate*. On OOM: the actionable ceiling answer from `useKvCeilings` — REFUSES to suggest when dims are unreadable. Data flows through the SAME hooks as the workspace meters (`useKvCeilings`/`useHardware`, cancel-on-cleanup, NO one-shot ref guards — StrictMode's dev double-mount starved the earlier bespoke fetch into permanent "Not available"). |
 
 ### `components/timeline/LatencyTimelines.tsx` {#latencytimelines}
 

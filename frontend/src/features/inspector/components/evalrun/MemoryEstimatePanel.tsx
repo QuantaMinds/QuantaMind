@@ -1,16 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { BatchColumn } from "../../../../shared/ipc/eval/batch";
 import type { BackendKind } from "../../../../shared/ipc/models/storage";
-import {
-  contextCeilings,
-  estimateKvCacheBytes,
-  inspectModel,
-  type CtxCeilings,
-  type ModelDims,
-} from "../../../../shared/ipc/system/inspect";
-import { getHardwareSnapshot, type HardwareSnapshot } from "../../../../shared/ipc/compare/hardware";
+import { estimateKvCacheBytes } from "../../../../shared/ipc/system/inspect";
 import { formatBytes } from "../../../../shared/format/bytes";
 import { fitOfNeed, fitBadge } from "../../../models/fit";
+import { deviceMemory, useHardware } from "../../hooks/useHardware";
+import { useKvCeilings } from "../../hooks/useKvCeilings";
+import { KvCeilingBars } from "../kv/KvCeilingBars";
 
 /// A row of the stacked memory breakdown. Provenance is part of the row, not decoration:
 /// every number names how it was obtained (measured / computed from measured tokens /
@@ -27,15 +23,18 @@ function Row({ label, value, provenance, strong }: { label: string; value: strin
   );
 }
 
-/// "How much memory does this agent task cost on this box?" — weights (constant baseline)
-/// + KV for THIS run (the per-task headline) + process RSS (diagnostic only). The headline
-/// is never process RSS: RSS includes weights + residue and would answer a different
-/// question than the one asked.
+/// "How much memory does this agent task cost on this box?" — model footprint (constant
+/// baseline) + KV for THIS run (the per-task headline) + process RSS (diagnostic only).
+/// The headline is never process RSS: RSS includes weights + residue and would answer a
+/// different question than the one asked. Data flows through the SAME hooks the workspace
+/// meters use (`useKvCeilings`/`useHardware` — no one-shot ref guards; StrictMode's dev
+/// double-mount silently starved the previous bespoke fetch).
 export function MemoryEstimatePanel({
   model,
   backend,
   column,
   peakTokens,
+  contextWindow,
   kvMeasured,
   maxRssBytes,
   oomTaskId,
@@ -44,59 +43,36 @@ export function MemoryEstimatePanel({
   backend: BackendKind | undefined;
   column: BatchColumn | undefined;
   peakTokens: number | null;
+  /// The window the run ACTUALLY ran under (column ctx_ceiling, else the report's num_ctx,
+  /// else a truncated step's context_window) — the denominator of the budget line.
+  contextWindow: number | null;
   kvMeasured: boolean;
   maxRssBytes: number | null;
   oomTaskId: string | null;
 }) {
-  const [dims, setDims] = useState<ModelDims | null>(null);
+  const hw = useHardware();
+  const device = deviceMemory(hw);
+  const weightsTotal = column?.weights_total_bytes ?? null;
+  // Same fetch pattern as the workspace KV meters (cancel-on-cleanup, refetch on remount).
+  const { dims, ceilings } = useKvCeilings(model, backend, weightsTotal, hw?.total_memory_bytes);
   const [kvBytes, setKvBytes] = useState<number | null>(null);
-  const [hw, setHw] = useState<HardwareSnapshot | null>(null);
-  const [ceilings, setCeilings] = useState<CtxCeilings | null>(null);
-  // One-shot per (model, backend): dims/hardware don't change mid-run.
-  const fetchedFor = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (!backend) return; // backend unknown → never guess a dims source
-    const key = `${model}\0${backend}`;
-    if (fetchedFor.current === key) return;
-    fetchedFor.current = key;
-    let alive = true;
-    void getHardwareSnapshot().then((s) => alive && setHw(s)).catch(() => {});
-    void inspectModel(model, backend)
-      .then((m) => alive && setDims(m.dims))
-      .catch(() => alive && setDims(null));
-    return () => {
-      alive = false;
-    };
-  }, [model, backend]);
 
   // KV bytes at the run's peak token occupancy, at the KV precision the run actually used
-  // (llama-server q8_0 when launched that way; f16 otherwise). Recomputed when the peak grows.
+  // (llama-server q8_0 when launched that way; f16 otherwise). Recomputed as the peak grows.
+  const kvType = column?.kv_cache_type === "q8_0" ? "q8_0" : undefined;
   useEffect(() => {
-    if (!dims || peakTokens == null || peakTokens === 0) return;
-    let alive = true;
-    const precision = column?.kv_cache_type === "q8_0" ? "q8_0" : undefined;
-    void estimateKvCacheBytes(dims, peakTokens, precision)
-      .then((b) => alive && setKvBytes(b))
-      .catch(() => {});
+    let cancelled = false;
+    if (!dims || peakTokens == null || peakTokens === 0) {
+      setKvBytes(null);
+      return;
+    }
+    estimateKvCacheBytes(dims, peakTokens, kvType)
+      .then((b) => !cancelled && setKvBytes(b))
+      .catch(() => !cancelled && setKvBytes(null));
     return () => {
-      alive = false;
+      cancelled = true;
     };
-  }, [dims, peakTokens, column?.kv_cache_type]);
-
-  // The actionable OOM answer — only when an OOM actually happened AND dims are known
-  // (no dims → no suggestion; a fabricated ceiling is worse than none).
-  const weightsTotal = column?.weights_total_bytes ?? null;
-  useEffect(() => {
-    if (!dims || !hw || oomTaskId == null || weightsTotal == null) return;
-    let alive = true;
-    void contextCeilings(dims, weightsTotal, hw.total_memory_bytes)
-      .then((c) => alive && setCeilings(c))
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, [dims, hw, oomTaskId, weightsTotal]);
+  }, [dims, peakTokens, kvType]);
 
   const weightsVram = column?.weights_vram_bytes ?? null;
   const offload = column?.cpu_offloaded ? column?.offload_bytes ?? null : null;
@@ -105,14 +81,15 @@ export function MemoryEstimatePanel({
   const verdict = need != null && avail != null ? fitBadge(fitOfNeed(need, avail)) : null;
   const kvTier = kvMeasured ? "computed from measured tokens (llama.cpp)" : "estimated (formula)";
   const kvApprox = dims?.kv_estimated ? "~" : "";
+  const budgetPct = peakTokens != null && contextWindow ? Math.round((peakTokens / contextWindow) * 100) : null;
 
   return (
     <div className="border border-slate-200 rounded-lg p-3 space-y-1.5" data-testid="eval-memory-panel">
       <div className="text-[11px] uppercase tracking-wide text-gray-400">Memory for this run — {model}</div>
       <Row
-        label="Weights in memory"
+        label="Model in memory"
         value={weightsVram != null ? formatBytes(weightsVram) : null}
-        provenance="measured (/api/ps size_vram)"
+        provenance="measured (/api/ps size_vram — weights + the KV/context buffer reserved at load, so it reads above the raw weight file)"
       />
       {offload != null && offload > 0 && (
         <Row label="Spilled to CPU" value={formatBytes(offload)} provenance="measured (size − size_vram) — the slow-inference cause" />
@@ -126,19 +103,34 @@ export function MemoryEstimatePanel({
       <Row
         label="Server process RSS"
         value={maxRssBytes != null ? formatBytes(maxRssBytes) : null}
-        provenance="diagnostic — max of step-end samples; includes weights + residue, never a per-task amount"
+        provenance="diagnostic — max of step-end samples; whole process, and GPU-wired buffers may not appear here (it can read BELOW the model's in-memory size)"
       />
+      {peakTokens != null && contextWindow != null && (
+        <div className="text-[11px] font-mono text-gray-600 pt-1" data-testid="eval-ctx-budget">
+          <span className="text-gray-500 font-semibold tracking-wider text-[10px] uppercase">Context window budget </span>
+          {peakTokens} / {contextWindow} ctx{budgetPct != null ? ` (${budgetPct}%)` : ""} — peak of a single run vs the window this run launched with
+        </div>
+      )}
       {verdict && (
         <div className="text-sm pt-1" data-testid="eval-memory-verdict">
           <span className={`font-semibold ${verdict.cls}`}>{verdict.text}</span>{" "}
           <span className="text-[11px] text-gray-400">
-            weights + KV vs {avail != null ? formatBytes(avail) : "?"} available — planning estimate, not a measured OOM point
+            model + KV vs {avail != null ? formatBytes(avail) : "?"} available — planning estimate, not a measured OOM point
           </span>
         </div>
       )}
       {column?.quantization_claimed && (
         <div className="text-[11px] text-gray-400">Quantization (tag's claim, unverified): {column.quantization_claimed}</div>
       )}
+      <div className="pt-1">
+        <KvCeilingBars
+          modelName={model}
+          backend={backend}
+          modelBytes={weightsTotal}
+          totalBytes={device.totalBytes}
+          unified={device.unified}
+        />
+      </div>
       {oomTaskId != null && (
         <div className="text-sm text-red-700 bg-red-50 rounded p-2 mt-1" data-testid="eval-oom-answer">
           <div className="font-semibold">Out of memory during “{oomTaskId}”.</div>

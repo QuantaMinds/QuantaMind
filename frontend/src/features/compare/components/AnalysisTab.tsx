@@ -1,8 +1,10 @@
 import { useCompareStore } from "../state/compareStore";
+import { useNavStore } from "../../../shared/state/navStore";
 import { CompareColumn } from "./CompareColumn";
 import { MetricsChart } from "./MetricsChart";
 import { CompareDiff } from "./CompareDiff";
 import { ExportButtons } from "./ExportButtons";
+import { LatencyTimelines } from "../../inspector/components/timeline/LatencyTimelines";
 import { SttAnalysisSection } from "../../sttInspector/components/SttAnalysisSection";
 import { useSttResultStore } from "../../sttInspector/state/sttResultStore";
 
@@ -11,6 +13,7 @@ import { useSttResultStore } from "../../sttInspector/state/sttResultStore";
 /// running live in the global header and the Workspace.
 export function AnalysisTab() {
   const rows = useCompareStore((s) => s.rows);
+  const topView = useNavStore((s) => s.topView);
   const hasStt = useSttResultStore((s) => s.result != null);
 
   if (rows.length === 0 && !hasStt) {
@@ -34,6 +37,11 @@ export function AnalysisTab() {
           <div className="flex gap-2 overflow-x-auto" data-testid="compare-columns">
             {rows.map((r) => <CompareColumn key={r.model} row={r} />)}
           </div>
+          {/* Full per-token latency metrics for each answer above — the same panels the
+              Latency (Inspector) tab shows, rendered here so they sit under the live answer. */}
+          {/* showExport moved here when the Latency tab became Test-run-only — the
+              workspace latency report exports from where its panels now live. */}
+          <LatencyTimelines active={topView === "compare"} showExport />
           <MetricsChart />
           <CompareDiff />
           <ExportButtons />

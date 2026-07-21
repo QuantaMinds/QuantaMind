@@ -2,51 +2,53 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 
 vi.mock("../../../../shared/ipc/system/vram", () => ({ loadedModels: vi.fn().mockResolvedValue([]) }));
+vi.mock("../../../../shared/ipc/system/inspect", () => ({
+  inspectModel: vi.fn().mockResolvedValue({ dims: null }),
+  estimateKvCacheBytes: vi.fn().mockResolvedValue(0),
+  contextCeilings: vi.fn().mockResolvedValue({ f16: null, q8: null, q4: null }),
+}));
+vi.mock("../../../../shared/ipc/compare/hardware", () => ({
+  getHardwareSnapshot: vi.fn().mockResolvedValue(null),
+}));
 
 import { InspectorPage } from "../InspectorPage";
-import { useCompareStore } from "../../../compare/state/compareStore";
-import type { CompareRow } from "../../../compare/state/compareRow";
-import type { TokenTiming } from "../../../../shared/ipc/events/events";
+import { useBatchStore, cellKey } from "../../../eval/state/batchStore";
+import type { TrajectoryStep } from "../../../../shared/ipc/eval/batch";
 
-const tl = (n: number): TokenTiming[] =>
-  Array.from({ length: n }, (_, i) => ({ text: `t${i}`, t_ms: i * 10, n: i + 1 }));
-
-const doneRow = (model: string, n: number): CompareRow => ({
-  model, modelId: null, status: "done", output: "x",
-  metrics: { ttft_ms: 10, tokens_per_sec: 50, token_count: n, timeline: tl(n) },
-  error: null, startedAt: null, endedAt: null,
+const step = (over: Partial<TrajectoryStep>): TrajectoryStep => ({
+  run_index: 0,
+  step_index: 0,
+  raw_output: "{}",
+  injection: null,
+  kind: "tool_call",
+  ...over,
 });
 
-beforeEach(() => {
-  useCompareStore.setState({ rows: [] });
-});
+beforeEach(() => useBatchStore.getState().reset());
 
+/// The Latency page is the TEST-RUN cost page — workspace per-token timing moved wholly
+/// under the Analysis tab (LatencyTimelines renders there with showExport).
 describe("InspectorPage", () => {
-  it("shows the empty state with no charted rows", () => {
+  it("shows the Test-run hint when no batch has streamed, and points to Analysis for workspace timing", () => {
     render(<InspectorPage />);
-    expect(screen.getByTestId("inspector-empty")).toBeInTheDocument();
+    const empty = screen.getByTestId("eval-run-empty");
+    expect(empty).toBeInTheDocument();
+    expect(empty.textContent).toContain("Analysis");
+    // The old workspace source is gone from this page.
+    expect(screen.queryByTestId("latency-source-toggle")).toBeNull();
+    expect(screen.queryByTestId("latency-timelines")).toBeNull();
   });
 
-  it("renders one labeled chart for a single run", () => {
-    useCompareStore.setState({ rows: [doneRow("llama3.2:1b", 4)] });
+  it("renders the per-task run breakdown when a batch has streamed", () => {
+    useBatchStore.setState({
+      collectionId: "easy-coding",
+      tasksByModel: { m: ["t1"] },
+      stepsByKey: { [cellKey("m", "t1")]: [step({ prefill_ms: 10, eval_ms: 20, output_tokens: 5, prefill_tokens: 30 })] },
+      outcomeByKey: {},
+    });
     render(<InspectorPage />);
-    expect(screen.getByTestId("model-timeline-llama3.2:1b")).toBeInTheDocument();
-    expect(screen.getByText("llama3.2:1b")).toBeInTheDocument();
-    expect(screen.getAllByTestId("token-timeline")).toHaveLength(1);
-  });
-
-  it("renders one chart per model for a multi-model run, each named", () => {
-    useCompareStore.setState({ rows: [doneRow("a", 3), doneRow("b", 5)] });
-    render(<InspectorPage />);
-    expect(screen.getByTestId("model-timeline-a")).toBeInTheDocument();
-    expect(screen.getByTestId("model-timeline-b")).toBeInTheDocument();
-    expect(screen.getAllByTestId("token-timeline")).toHaveLength(2);
-  });
-
-  it("skips rows without a timeline", () => {
-    const noTl: CompareRow = { ...doneRow("a", 0), metrics: { ttft_ms: 1, tokens_per_sec: 1, token_count: 0, timeline: [] } };
-    useCompareStore.setState({ rows: [noTl] });
-    render(<InspectorPage />);
-    expect(screen.getByTestId("inspector-empty")).toBeInTheDocument();
+    expect(screen.getByTestId("eval-run-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("eval-task-card-t1")).toBeInTheDocument();
+    expect(screen.getByTestId("eval-memory-panel")).toBeInTheDocument();
   });
 });

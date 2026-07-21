@@ -36,7 +36,8 @@ export function EvalRunPanel() {
     return (
       <div className="text-sm text-gray-500 border rounded p-6 text-center" data-testid="eval-run-empty">
         Run a task or a collection in the Tests tab — its per-task latency, cache and memory
-        breakdown appears here (live while it runs).
+        breakdown appears here (live while it runs). Workspace-prompt per-token timing lives
+        under the Analysis tab.
       </div>
     );
   }
@@ -83,6 +84,13 @@ export function EvalRunPanel() {
           return w != null ? (acc ?? 0) + w : acc;
         }, null);
         const taskCount = (tasksByModel[model] ?? []).length;
+        // The window this run ACTUALLY launched with: the per-model ceiling stamp, else the
+        // report-wide num_ctx, else a truncated step's own context_window. Never guessed.
+        const contextWindow =
+          column?.ctx_ceiling ??
+          report?.num_ctx ??
+          entries.find((e) => e.cost.contextWindow != null)?.cost.contextWindow ??
+          null;
         return (
           <div key={model} className="space-y-3" data-testid={`eval-run-model-${model}`}>
             <div className="flex items-baseline gap-2">
@@ -99,6 +107,7 @@ export function EvalRunPanel() {
               backend={backend}
               column={column}
               peakTokens={peakTokens}
+              contextWindow={contextWindow}
               kvMeasured={kvMeasured}
               maxRssBytes={maxRss}
               oomTaskId={oomTaskId}
