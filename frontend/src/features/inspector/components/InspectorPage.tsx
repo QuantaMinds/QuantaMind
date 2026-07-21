@@ -12,11 +12,20 @@ import { useParentWidth } from "../hooks/useParentWidth";
 export function InspectorPage() {
   const [ref, width] = useParentWidth<HTMLDivElement>();
   return (
-    <div className="space-y-4" data-testid="inspector" ref={ref}>
-      <LlamaServerReadout />
-      <LeakBanner />
-      <EvalRunPanel />
-      <SttInspectorSection width={width} />
+    <div className="flex flex-col h-full bg-white text-slate-900" data-testid="inspector" ref={ref}>
+      {/* Header section for the dashboard */}
+      <div className="px-6 py-5 border-b border-slate-200 bg-slate-50 flex-none">
+        <h1 className="text-xl font-semibold tracking-tight text-slate-900">Infrastructure \u0026 Latency</h1>
+        <p className="text-sm text-slate-500 mt-1">Live hardware telemetry and performance metrics for your local LLM \u0026 GPU cluster.</p>
+      </div>
+      
+      {/* Scrollable content area */}
+      <div className="flex-1 overflow-y-auto px-6 py-6 space-y-8">
+        <LlamaServerReadout />
+        <LeakBanner />
+        <EvalRunPanel />
+        <SttInspectorSection width={width} />
+      </div>
     </div>
   );
 }

@@ -19,8 +19,13 @@ describe("LlamaServerReadout", () => {
     vi.mocked(llamaServerInfo).mockResolvedValue({ model_bytes: 4_600_000_000, load_ms: 7000 });
     render(<LlamaServerReadout />);
     await waitFor(() => expect(screen.getByTestId("llama-spawn-readout")).toBeInTheDocument());
-    expect(screen.getByTestId("llama-spawn-readout")).toHaveTextContent(/loaded in 7\.0s at startup/);
-    expect(screen.getByTestId("llama-spawn-readout")).toHaveTextContent(/not a per-request phase/);
+    // Restyled as status chips: the SAME facts (size, one-time load) in mono-chip form.
+    const readout = screen.getByTestId("llama-spawn-readout");
+    expect(readout).toHaveTextContent(/SIZE:4\.3GB/);
+    expect(readout).toHaveTextContent(/LOAD:7\.0s/);
+    expect(readout).toHaveTextContent(/Ready/);
+    // The one-time-not-per-request claim moved to the hover title — still present.
+    expect(readout).toHaveAttribute("title", expect.stringContaining("one-time startup cost"));
   });
 
   it("renders nothing for Ollama (no fabricated llama readout)", () => {

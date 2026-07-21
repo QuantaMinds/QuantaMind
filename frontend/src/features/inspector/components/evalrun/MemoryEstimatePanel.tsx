@@ -15,12 +15,14 @@ import { EVAL_RUN_HELP } from "./evalRunHelp";
 /// estimated / claimed) — the review rule this panel exists to enforce.
 function Row({ label, value, provenance, strong }: { label: string; value: string | null; provenance: string; strong?: boolean }) {
   return (
-    <div className="flex items-baseline gap-2">
-      <span className={strong ? "text-sm font-semibold text-slate-800" : "text-sm text-slate-700"}>{label}</span>
-      <span className={`text-sm ${value == null ? "text-gray-400" : strong ? "font-semibold text-slate-900" : "text-slate-800"}`}>
-        {value ?? "Not available"}
+    <div className="flex flex-col sm:flex-row sm:items-baseline justify-between py-2 border-b border-slate-100 last:border-0 gap-1 sm:gap-4">
+      <div className="flex flex-col">
+        <span className={strong ? "text-sm font-semibold text-slate-900" : "text-sm font-medium text-slate-700"}>{label}</span>
+        <span className="text-[10px] uppercase tracking-wider text-slate-400 font-medium">{provenance}</span>
+      </div>
+      <span className={`text-sm font-mono ${value == null ? "text-slate-400" : strong ? "font-bold text-indigo-600" : "text-slate-700"}`}>
+        {value ?? "N/A"}
       </span>
-      <span className="text-[11px] text-gray-400">{provenance}</span>
     </div>
   );
 }
@@ -105,11 +107,17 @@ export function MemoryEstimatePanel({
   const budgetPct = peakTokens != null && contextWindow ? Math.round((peakTokens / contextWindow) * 100) : null;
 
   return (
-    <div className="border border-slate-200 rounded-lg p-3 space-y-1.5" data-testid="eval-memory-panel">
-      <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-gray-400">
-        Memory for this run — {model}
-        <InfoButton title={EVAL_RUN_HELP.memory.title} body={EVAL_RUN_HELP.memory.body} align="left" testId="eval-memory" />
+    <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden mb-6" data-testid="eval-memory-panel">
+      <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border-b border-slate-200">
+        <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-600">
+          <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m14-6h2m-2 6h2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
+          </svg>
+          Hardware Footprint <span className="text-slate-400 font-mono font-normal normal-case">— {model}</span>
+        </div>
+        <InfoButton title={EVAL_RUN_HELP.memory.title} body={EVAL_RUN_HELP.memory.body} align="right" testId="eval-memory" />
       </div>
+      <div className="p-4 space-y-1">
       <Row
         label="Model in memory"
         value={modelBytes != null ? formatBytes(modelBytes) : null}
@@ -141,10 +149,15 @@ export function MemoryEstimatePanel({
         provenance="diagnostic — max of step-end samples; whole process, and GPU-wired buffers may not appear here (it can read BELOW the model's in-memory size)"
       />
       {peakTokens != null && contextWindow != null && (
-        <div className="text-[11px] font-mono text-gray-600 pt-1" data-testid="eval-ctx-budget">
-          <span className="text-gray-500 font-semibold tracking-wider text-[10px] uppercase">Context window budget </span>
-          {peakTokens} / {contextWindow} ctx{budgetPct != null ? ` (${budgetPct}%)` : ""} — peak of a single run vs the window this
-          run launched with. Tokens, so precision-independent: f16/q8/q4 change the BYTES per cached token, never this count.
+        <div className="mt-3 p-3 bg-slate-50 rounded-lg border border-slate-100 flex items-center justify-between" data-testid="eval-ctx-budget">
+          <div className="flex flex-col">
+            <span className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Context Window Budget</span>
+            <span className="text-xs text-slate-500 mt-0.5">Peak tokens vs launched window. (Precision-independent)</span>
+          </div>
+          <div className="text-sm font-mono font-semibold text-slate-700">
+            {peakTokens} <span className="text-slate-400 font-normal">/ {contextWindow} ctx</span>
+            {budgetPct != null && <span className="ml-2 text-indigo-600 bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded">{budgetPct}%</span>}
+          </div>
         </div>
       )}
       {verdict && (
@@ -169,22 +182,33 @@ export function MemoryEstimatePanel({
         />
       </div>
       {oomTaskId != null && (
-        <div className="text-sm text-red-700 bg-red-50 rounded p-2 mt-1" data-testid="eval-oom-answer">
-          <div className="font-semibold">Out of memory during “{oomTaskId}”.</div>
+        <div className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-lg p-3 mt-3 shadow-sm" data-testid="eval-oom-answer">
+          <div className="font-semibold flex items-center gap-2">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            Out of memory during \u201C{oomTaskId}\u201D.
+          </div>
+          <div className="mt-2 text-rose-600/90 pl-6">
           {ceilings ? (
-            <div>
-              Fits on this machine at context ≤ {ceilings.f16 ?? "—"} (f16 KV)
-              {ceilings.q8 != null ? ` · ≤ ${ceilings.q8} (q8_0 KV)` : ""}
-              {ceilings.q4 != null ? ` · ≤ ${ceilings.q4} (q4_0 KV)` : ""}
-              {dims?.kv_estimated ? " — conservative estimate (model didn't report kv heads)" : ""}
+            <div className="space-y-1">
+              <div>Fits on this machine at context:</div>
+              <ul className="list-disc list-inside font-mono text-xs">
+                <li>≤ {ceilings.f16 ?? "—"} <span className="text-rose-500">(f16 KV)</span></li>
+                {ceilings.q8 != null && <li>≤ {ceilings.q8} <span className="text-rose-500">(q8_0 KV)</span></li>}
+                {ceilings.q4 != null && <li>≤ {ceilings.q4} <span className="text-rose-500">(q4_0 KV)</span></li>}
+              </ul>
+              {dims?.kv_estimated && <div className="mt-1 text-[11px] italic">— conservative estimate (model didn't report kv heads)</div>}
             </div>
           ) : (
-            <div className="text-red-600/80">
+            <div>
               No safe-context suggestion: the model's dimensions aren't readable, and a guessed ceiling would be worse than none.
             </div>
           )}
+          </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

@@ -26,16 +26,21 @@ export function SttInspectorSection({ width }: { width: number }) {
   const chartWidth = Math.max(320, width);
 
   return (
-    <section className="space-y-3 border rounded-lg p-4" data-testid="stt-inspector-section">
-      <div className="flex items-center justify-between">
-        <div className="text-sm font-semibold text-gray-800">
-          Whisper.cpp transcript · <span className="font-mono text-gray-500">{t.model}</span>
+    <section className="bg-white space-y-5 border border-slate-200 rounded-xl p-5 shadow-sm" data-testid="stt-inspector-section">
+      <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div className="flex items-center gap-2">
+          <svg className="w-5 h-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+          </svg>
+          <div className="text-base font-semibold text-slate-900 tracking-tight">
+            Whisper.cpp STT Pipeline <span className="font-mono text-slate-400 font-normal ml-2 text-sm">— {t.model}</span>
+          </div>
         </div>
-        <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-500">
-          <span className="text-gray-400">Segments:</span>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs font-medium text-slate-600 bg-slate-50 px-3 py-1.5 rounded-md border border-slate-100 shadow-sm">
+          <span className="text-slate-400 uppercase tracking-wider text-[10px] font-bold self-center">Segments</span>
           {LEGEND.map((l) => (
-            <span key={l.kind} className="flex items-center gap-1">
-              <span className="inline-block h-2 w-2 rounded-sm" style={{ background: SEG_COLOR[l.kind] }} />
+            <span key={l.kind} className="flex items-center gap-1.5">
+              <span className="inline-block h-2 w-2 rounded-full shadow-sm" style={{ background: SEG_COLOR[l.kind] }} />
               {l.label}
             </span>
           ))}

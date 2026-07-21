@@ -9,10 +9,10 @@ export const fmtMs = (ms: number) => (ms >= 1000 ? formatDuration(ms / 1000) : `
 /// A nullable metric cell: the value or an honest "Not available" — never a fabricated 0.
 function Cell({ label, value, hint }: { label: string; value: string | null; hint?: string }) {
   return (
-    <div>
-      <div className="text-[11px] uppercase tracking-wide text-gray-400">{label}</div>
-      <div className={value == null ? "text-sm text-gray-400" : "text-sm font-medium text-slate-800"} title={hint}>
-        {value ?? "Not available"}
+    <div className="flex flex-col bg-slate-50 border border-slate-100 rounded-lg p-3">
+      <div className="text-[10px] uppercase font-bold tracking-wider text-slate-500 mb-1">{label}</div>
+      <div className={value == null ? "text-sm font-mono text-slate-400" : "text-sm font-mono font-semibold text-slate-800"} title={hint}>
+        {value ?? "N/A"}
       </div>
     </div>
   );
@@ -61,18 +61,19 @@ export function TaskMetricsCard({
   const maxStepMs = Math.max(1, ...modelSteps.map((s) => (s.prefill_ms ?? 0) + (s.eval_ms ?? 0)));
   return (
     <div
-      className="border border-slate-200 rounded-lg p-3 space-y-3"
+      className="bg-white border border-slate-200 rounded-xl p-4 space-y-4 shadow-sm"
       data-testid={`eval-task-card-${taskId}${native ? "-native" : ""}`}
     >
-      <div className="flex items-center gap-2">
-        <span className="text-sm font-semibold text-slate-800">{taskId}</span>
-        {native && <span className="text-xs px-2 py-0.5 rounded-full bg-violet-100 text-violet-700">native FC</span>}
-        <span className={`text-xs px-2 py-0.5 rounded-full ${badge.cls}`}>{badge.text}</span>
+      <div className="flex items-center gap-3">
+        <span className="text-base font-semibold text-slate-900">{taskId}</span>
+        {native && <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-violet-50 text-violet-600 border border-violet-100">Native FC</span>}
+        <span className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded border border-current ${badge.cls.replace('bg-', 'bg-opacity-20 bg-')}`}>{badge.text}</span>
         <InfoButton title={EVAL_RUN_HELP.taskCard.title} body={EVAL_RUN_HELP.taskCard.body} align="left" testId={`task-metrics-${taskId}`} />
-        <span className="ml-auto text-xs text-gray-500">
-          {cost.runs} run{cost.runs === 1 ? "" : "s"} · {cost.steps} step{cost.steps === 1 ? "" : "s"}
-          {wallMs != null ? ` · ${fmtMs(wallMs)} wall` : ""}
-        </span>
+        <div className="ml-auto flex items-center gap-2 text-xs font-mono text-slate-500">
+          <span className="bg-slate-50 px-2 py-1 rounded border border-slate-100">{cost.runs} run{cost.runs === 1 ? "" : "s"}</span>
+          <span className="bg-slate-50 px-2 py-1 rounded border border-slate-100">{cost.steps} step{cost.steps === 1 ? "" : "s"}</span>
+          {wallMs != null && <span className="bg-slate-50 px-2 py-1 rounded border border-slate-100 font-semibold text-slate-700">{fmtMs(wallMs)} wall</span>}
+        </div>
       </div>
 
       <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
@@ -111,24 +112,24 @@ export function TaskMetricsCard({
       </div>
 
       {modelSteps.length > 0 && (
-        <div className="space-y-1" data-testid={`eval-task-steps-${taskId}`}>
+        <div className="space-y-1.5 pt-2" data-testid={`eval-task-steps-${taskId}`}>
           {modelSteps.map((s) => {
             const prefill = s.prefill_ms ?? 0;
             const evalMs = s.eval_ms ?? 0;
             return (
-              <div key={`${s.run_index}-${s.step_index}`} className="flex items-center gap-2">
-                <span className="text-[10px] text-gray-400 w-10 shrink-0">r{s.run_index}·s{s.step_index}</span>
-                <div className="flex h-2 rounded overflow-hidden bg-slate-100 flex-1" title={`prefill ${fmtMs(prefill)} · decode ${fmtMs(evalMs)}`}>
-                  <div className="bg-sky-400" style={{ width: `${(prefill / maxStepMs) * 100}%` }} />
+              <div key={`${s.run_index}-${s.step_index}`} className="flex items-center gap-3">
+                <span className="text-xs font-mono text-slate-400 w-12 shrink-0">r{s.run_index}·s{s.step_index}</span>
+                <div className="flex h-2.5 rounded-full overflow-hidden bg-slate-100 flex-1 shadow-inner" title={`prefill ${fmtMs(prefill)} · decode ${fmtMs(evalMs)}`}>
+                  <div className="bg-sky-500" style={{ width: `${(prefill / maxStepMs) * 100}%` }} />
                   <div className="bg-indigo-500" style={{ width: `${(evalMs / maxStepMs) * 100}%` }} />
                 </div>
-                <span className="text-[10px] text-gray-500 w-16 shrink-0 text-right">{fmtMs(prefill + evalMs)}</span>
+                <span className="text-xs font-mono font-medium text-slate-600 w-16 shrink-0 text-right">{fmtMs(prefill + evalMs)}</span>
               </div>
             );
           })}
-          <div className="text-[10px] text-gray-400">
-            <span className="inline-block w-2 h-2 bg-sky-400 rounded-sm mr-1" />prefill
-            <span className="inline-block w-2 h-2 bg-indigo-500 rounded-sm ml-3 mr-1" />decode
+          <div className="text-[10px] text-gray-400 pt-1 flex items-center">
+            <span className="inline-block w-2.5 h-2.5 bg-sky-500 rounded-sm mr-1.5 shadow-sm" /> <span className="uppercase tracking-wider font-semibold">Prefill</span>
+            <span className="inline-block w-2.5 h-2.5 bg-indigo-500 rounded-sm ml-4 mr-1.5 shadow-sm" /> <span className="uppercase tracking-wider font-semibold">Decode</span>
           </div>
         </div>
       )}
