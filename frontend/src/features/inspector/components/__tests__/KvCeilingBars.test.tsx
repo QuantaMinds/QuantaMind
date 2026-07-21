@@ -47,11 +47,13 @@ describe("KvCeilingBars", () => {
     expect(el).toHaveTextContent("never auto-launches a q4_0 cache");
   });
 
-  it("clamps a ceiling above the model's declared max and labels it '(model max)'", () => {
+  it("clamps a ceiling above the model's declared max and says memory isn't the limit", () => {
     // q4 = 300k but the model only supports 262,144 → capped, tagged.
     mockCeilings({ f16: 100_000, q8: 200_000, q4: 300_000 }, 262_144);
     render(<KvCeilingBars modelName="m" backend="ollama" modelBytes={9e9} totalBytes={16e9} />);
-    expect(screen.getByTestId("kv-ceiling-q4")).toHaveTextContent("262,144 ctx (model max)");
+    // The clamp label must say WHY it stopped (the model's own limit), so a big machine
+    // ceiling is never misread as "this is just the model's context spec".
+    expect(screen.getByTestId("kv-ceiling-q4")).toHaveTextContent("262,144 ctx (model's own max — memory could hold more)");
   });
 
   it("shows a per-precision 'Not available' when one ceiling is unmeasurable", () => {
