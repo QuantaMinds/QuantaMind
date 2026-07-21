@@ -101,7 +101,11 @@ export function MemoryEstimatePanel({
       <Row
         label="KV cache at this run's peak"
         value={kvBytes != null ? `${kvApprox}${formatBytes(kvBytes)}${peakTokens != null ? ` @ ${peakTokens} tok` : ""}` : null}
-        provenance={`${kvTier}${column?.kv_cache_type ? ` · ${column.kv_cache_type} KV` : ""}`}
+        provenance={`${kvTier} · ${
+          column?.kv_cache_type
+            ? `${column.kv_cache_type} KV (launched)`
+            : "at f16 KV — the default; this backend doesn't report its actual cache type"
+        }`}
         strong
       />
       <Row
@@ -112,7 +116,8 @@ export function MemoryEstimatePanel({
       {peakTokens != null && contextWindow != null && (
         <div className="text-[11px] font-mono text-gray-600 pt-1" data-testid="eval-ctx-budget">
           <span className="text-gray-500 font-semibold tracking-wider text-[10px] uppercase">Context window budget </span>
-          {peakTokens} / {contextWindow} ctx{budgetPct != null ? ` (${budgetPct}%)` : ""} — peak of a single run vs the window this run launched with
+          {peakTokens} / {contextWindow} ctx{budgetPct != null ? ` (${budgetPct}%)` : ""} — peak of a single run vs the window this
+          run launched with. Tokens, so precision-independent: f16/q8/q4 change the BYTES per cached token, never this count.
         </div>
       )}
       {verdict && (
