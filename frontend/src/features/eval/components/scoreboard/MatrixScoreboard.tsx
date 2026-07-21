@@ -24,6 +24,9 @@ interface MatrixScoreboardProps {
   /// The pass the Evaluator is showing — set when a Prompt vs Native result is clicked.
   focusedPass: "prompt" | "native";
   setFocusedPass: (p: "prompt" | "native") => void;
+  /// When set, the run is scoped to a SINGLE task — show only that task's row + aggregate
+  /// (the sidebar selected it; `handleRunBatch` runs only it). `null` = the whole collection.
+  runTaskId?: string | null;
 }
 
 export function MatrixScoreboard({
@@ -36,9 +39,16 @@ export function MatrixScoreboard({
   setFocusedTaskId,
   focusedPass,
   setFocusedPass,
+  runTaskId = null,
 }: MatrixScoreboardProps) {
   const [collapsed, setCollapsed] = useState(false);
-  const { tasks } = useEvalRegistryStore();
+  const { tasks: collectionTasks } = useEvalRegistryStore();
+  // Single-task scope: the whole board (rows AND the aggregate) reflects only the selected
+  // task, so a one-task run isn't buried in the full collection's grid. Falls back to the
+  // whole collection when nothing is selected. If the selected id isn't in this collection
+  // (a stale selection), show the collection rather than an empty board.
+  const singleTask = runTaskId ? collectionTasks.filter((t) => t.id === runTaskId) : null;
+  const tasks = singleTask && singleTask.length > 0 ? singleTask : collectionTasks;
   const list = useInstalledModelsStore((s) => s.list);
   const running = useBatchStore((s) => s.running);
   const progress = useBatchStore((s) => s.progress);
@@ -157,7 +167,8 @@ export function MatrixScoreboard({
           data-testid="scoreboard-run-chips"
         >
           &nbsp;- [ Target: {modelTargetLabel}
-          {tierLabel ? ` · Tier: ${tierLabel}` : ""} · K: {k} · Decoys: {decoys ?? "off"} ]
+          {tierLabel ? ` · Tier: ${tierLabel}` : ""} · K: {k} · Decoys: {decoys ?? "off"}
+          {singleTask && singleTask.length > 0 ? <span data-testid="scoreboard-single-task"> · Task: {runTaskId}</span> : ""} ]
         </span>
         {collapsed && (
           <span data-testid="simulator-collapsed-summary" style={{ marginLeft: 10, fontSize: 12, color: "#64748b", fontFamily: "Inter, sans-serif" }}>

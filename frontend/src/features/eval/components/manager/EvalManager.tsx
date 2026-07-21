@@ -53,6 +53,10 @@ interface EvalManagerProps {
   // Per-task authoring (rendered under the selected collection, on hover).
   onEditTask?: (taskId: string) => void;
   onDeleteTask?: (taskId: string) => void;
+  // Single-task run scope (Built-In/Custom): the sidebar-selected task id, or null for the
+  // whole collection. Owned by EvalPage so the Simulator can scope to it too.
+  runTaskId?: string | null;
+  setRunTaskId?: (id: string | null) => void;
 }
 
 export function EvalManager({
@@ -75,6 +79,8 @@ export function EvalManager({
   onNewCollection = () => {},
   onEditTask,
   onDeleteTask,
+  runTaskId = null,
+  setRunTaskId,
 }: Partial<EvalManagerProps> = {}) {
   const { presets, collections, selected, tasks, edited, init, select, isPreset, importFile, save, remove, hidePreset, editWorldState } =
     useEvalRegistryStore();
@@ -197,6 +203,7 @@ export function EvalManager({
 
   const handleDataSourceChange = async (source: "custom" | "builtin" | "mcp") => {
     setError(null);
+    setRunTaskId?.(null); // a new source has different tasks — drop any single-task selection
     if (source === "mcp") {
       setMcpActive(true);
       return;
@@ -366,6 +373,12 @@ export function EvalManager({
     } else if (tasks.length === 0) {
       setError("Add at least one task to the collection before running.");
       return;
+    } else if (runTaskId) {
+      // Single-task scope: run ONLY the sidebar-selected task (all other levers — k, Max Steps,
+      // decoys, thinking budget, global params, model — still apply, unchanged). If the selection
+      // vanished (task deleted / collection changed), fall back to the whole collection.
+      const one = tasks.find((t) => t.id === runTaskId);
+      runTasks = one ? [one] : tasks;
     }
     // `k` is always user-set (read fresh from the prop here, not a stale closure) and
     // always sent — it wins over the tier-derived value in the backend. The tier still
@@ -384,6 +397,12 @@ export function EvalManager({
     );
   };
 
+  // Single-task run scope: the sidebar picked ONE task, so the button reads "RUN TASK" and only
+  // that task runs. MCP scopes by its own highlighted task (`selectedMcpTask`); Built-In/Custom by
+  // `runTaskId` (which must still exist in the loaded collection — a deleted task falls back to all).
+  const singleTaskScope = mcpActive
+    ? selectedMcpTask != null
+    : runTaskId != null && tasks.some((t) => t.id === runTaskId);
   const mcpHasTasks = mcpTasks.length > 0 || mcpByoTasks.length > 0;
   const runDisabled =
     !model || (mcpActive ? !mcpHasTasks : tasks.length === 0) || (!nativeFc && !promptBased);
@@ -399,23 +418,32 @@ export function EvalManager({
             ? "Pick at least one calling method (Tool-Calling and/or Prompt-based)"
             : undefined;
 
-  // The selected collection's individual tasks, indented beneath it — each reveals
-  // Edit + Delete on hover (the authoring entry points live here, not the scoreboard).
+  // The selected collection's individual tasks, indented beneath it. Clicking a row SELECTS just
+  // that task (Run Task runs only it, the Simulator scopes to it); clicking it again clears the
+  // selection (back to the whole collection). Each row also reveals Edit + Delete on hover (the
+  // authoring entry points live here, not the scoreboard).
   const renderTasks = () =>
     tasks.length === 0 ? (
       <div style={{ fontSize: 11, color: "#94a3b8", fontStyle: "italic", padding: "2px 0 2px 22px" }}>No tasks</div>
     ) : (
       tasks.map((t) => {
         const hov = hoverTaskId === t.id;
+        const selected = runTaskId === t.id;
         return (
           <div
             key={t.id}
             onMouseEnter={() => setHoverTaskId(t.id)}
             onMouseLeave={() => setHoverTaskId((h) => (h === t.id ? null : h))}
-            style={{ display: "flex", alignItems: "center", gap: 4, padding: "2px 0 2px 22px", background: hov ? "#f8fafc" : "transparent" }}
+            onClick={() => setRunTaskId?.(selected ? null : t.id)}
+            title={selected ? "Selected — Run Task runs only this task. Click again to run the whole collection." : "Click to run just this task"}
+            style={{ display: "flex", alignItems: "center", gap: 6, padding: "2px 6px 2px 16px", cursor: "pointer", borderRadius: 4, background: selected ? "#e0e7ff" : hov ? "#f8fafc" : "transparent" }}
             data-testid={`eval-task-row-${t.id}`}
+            aria-pressed={selected}
           >
-            <span style={{ fontSize: 12, color: "#64748b", fontFamily: "'JetBrains Mono', monospace", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <span style={{ fontSize: 10, color: selected ? "#4f46e5" : "#cbd5e1", flexShrink: 0 }} aria-hidden>
+              {selected ? "◉" : "◯"}
+            </span>
+            <span style={{ fontSize: 12, color: selected ? "#4338ca" : "#64748b", fontWeight: selected ? 600 : 400, fontFamily: "'JetBrains Mono', monospace", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {t.id}
             </span>
             {hov && (
@@ -927,14 +955,26 @@ export function EvalManager({
               </span>
             ) : running ? (
               <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                <Spinner color="#991b1b" /> ■ STOP BATCH
+                <Spinner color="#991b1b" /> ■ {singleTaskScope ? "STOP TASK" : "STOP BATCH"}
               </span>
+            ) : singleTaskScope ? (
+              "▶ RUN TASK"
             ) : (
               "▶ RUN BATCH"
             )}
           </button>
-          {/* The equivalent `qm` command for the current selections — teaches the CLI in place. */}
-          {!mcpActive && (
+          {/* The equivalent `qm` command for the current selections — teaches the CLI in place.
+              A single-task run is a UI-only convenience (the CLI runs whole collections), so we
+              say so honestly rather than print a whole-collection command as its "equivalent". */}
+          {!mcpActive && runTaskId && singleTaskScope && (
+            <div
+              style={{ fontSize: 11, color: "#64748b", fontFamily: "Inter, sans-serif", fontStyle: "italic" }}
+              data-testid="eval-cli-single-task-note"
+            >
+              Single-task runs are in-app only — the <code>qm</code> CLI runs the whole collection.
+            </div>
+          )}
+          {!mcpActive && !(runTaskId && singleTaskScope) && (
             <CliCommandPreview
               testId="eval-cli-preview"
               cmd={buildRunCommand({

@@ -47,6 +47,10 @@ export function EvalPage() {
   const [evalModel, setEvalModel] = useState<string>("");
   const [focusedModel, setFocusedModel] = useState<string>("");
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
+  // Single-task run scope: the sidebar-selected task id (null = whole collection). Owned here so
+  // BOTH the Manager (which runs it) and the Simulator (which scopes its rows to it) read one
+  // value. Reset on a collection/source change so a stale id from another collection never leaks.
+  const [runTaskId, setRunTaskId] = useState<string | null>(null);
   // Which pass the Evaluator shows — set when the user clicks a Prompt vs Native result in the
   // Simulator, so the trace opens on the pass they clicked.
   const [focusedPass, setFocusedPass] = useState<"prompt" | "native">("prompt");
@@ -171,9 +175,19 @@ export function EvalPage() {
     // While running, keep the Evaluator/Simulator focused on the live task — a collection change
     // (including the one a mid-run tier switch triggers) must not null the focus, or the trace
     // goes blank until the live task id happens to change again.
-    if (!useBatchStore.getState().running) setFocusedTaskId(null);
+    if (!useBatchStore.getState().running) {
+      setFocusedTaskId(null);
+      setRunTaskId(null); // a new collection has different task ids — drop the single-task scope
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCollection]);
+
+  // Selecting a single task to run also previews it in the Evaluator, so the trace opens on the
+  // task you're about to run (before hitting Run). While running, the auto-follow effect below
+  // already drives the focus to the live task, so this only matters at idle.
+  useEffect(() => {
+    if (runTaskId) setFocusedTaskId(runTaskId);
+  }, [runTaskId]);
 
   // Keep the eval model a valid member of the GLOBAL selection — default the first;
   // reset if it leaves (a backend switch trims the selection to the new backend).
@@ -299,6 +313,8 @@ export function EvalPage() {
         }}
         onEditTask={onEditTask}
         onDeleteTask={setDeleteTaskId}
+        runTaskId={runTaskId}
+        setRunTaskId={setRunTaskId}
       />
       <div className="flex flex-col gap-4 min-w-0">
         {(() => {
@@ -315,6 +331,7 @@ export function EvalPage() {
                   setFocusedTaskId={setFocusedTaskId}
                   focusedPass={focusedPass}
                   setFocusedPass={setFocusedPass}
+                  runTaskId={runTaskId}
                 />
               </div>
               <TraceDebugger
