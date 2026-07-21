@@ -43,4 +43,12 @@ describe("useKvCeilings", () => {
     await waitFor(() => expect(inspectModel).toHaveBeenCalled());
     expect(contextCeilings).not.toHaveBeenCalled();
   });
+
+  it("forwards the measured working set to the ceilings IPC so the budget matches the GPU limit", async () => {
+    vi.mocked(inspectModel).mockResolvedValue({ dims } as never);
+    vi.mocked(contextCeilings).mockResolvedValue({ f16: 14_848, q8: 29_696, q4: 59_648, fit: "fits" });
+    renderHook(() => useKvCeilings("m", "ollama", 9e9, 16e9, 12e9));
+    await waitFor(() => expect(contextCeilings).toHaveBeenCalled());
+    expect(contextCeilings).toHaveBeenCalledWith(dims, 9e9, 16e9, 12e9);
+  });
 });

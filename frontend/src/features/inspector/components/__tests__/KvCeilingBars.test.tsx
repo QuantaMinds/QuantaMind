@@ -102,4 +102,47 @@ describe("KvCeilingBars", () => {
     rerender(<KvCeilingBars modelName="m" backend="ollama" modelBytes={9e9} totalBytes={16e9} unified={false} />);
     expect(screen.getByTestId("kv-ceilings")).toHaveTextContent("VRAM");
   });
+
+  it("shows a red 'spills to CPU' verdict when the weights exceed the GPU limit", () => {
+    // The capability question the ceilings can't answer: even with a ceiling number,
+    // weights over the limit mean the model doesn't stay on the GPU.
+    mockCeilings({ f16: 2_048, q8: 2_048, q4: 2_048, fit: "spills_to_cpu" });
+    render(<KvCeilingBars modelName="m" backend="ollama" modelBytes={25e9} totalBytes={32e9} unified workingSetBytes={24e9} />);
+    const chip = screen.getByTestId("kv-fit-verdict");
+    expect(chip).toHaveTextContent("spills to CPU/swap");
+    expect(chip).toHaveAttribute("data-fit", "spills_to_cpu");
+    expect(chip.className).toContain("text-red-700");
+  });
+
+  it("shows the green 'fits' and amber 'tight' verdicts", () => {
+    mockCeilings({ f16: 100_000, q8: 200_000, q4: 400_000, fit: "fits" });
+    const { rerender } = render(<KvCeilingBars modelName="m" backend="ollama" modelBytes={5e9} totalBytes={16e9} unified workingSetBytes={12e9} />);
+    expect(screen.getByTestId("kv-fit-verdict")).toHaveTextContent("Weights fit on the GPU");
+    mockCeilings({ f16: 10_000, q8: 20_000, q4: 40_000, fit: "tight" });
+    rerender(<KvCeilingBars modelName="m" backend="ollama" modelBytes={11e9} totalBytes={16e9} unified workingSetBytes={12e9} />);
+    const chip = screen.getByTestId("kv-fit-verdict");
+    expect(chip).toHaveTextContent("Tight");
+    expect(chip.className).toContain("text-amber-700");
+  });
+
+  it("renders NO fit chip when the GPU limit is unmeasured (unknown / absent) — never guessed", () => {
+    mockCeilings({ f16: 14_848, q8: 29_696, q4: 59_648, fit: "unknown" });
+    const { rerender } = render(<KvCeilingBars modelName="m" backend="ollama" modelBytes={9e9} totalBytes={16e9} />);
+    expect(screen.queryByTestId("kv-fit-verdict")).toBeNull();
+    // Absent fit (older payload / discrete GPU) also shows no chip.
+    mockCeilings({ f16: 14_848, q8: 29_696, q4: 59_648 });
+    rerender(<KvCeilingBars modelName="m" backend="ollama" modelBytes={9e9} totalBytes={16e9} />);
+    expect(screen.queryByTestId("kv-fit-verdict")).toBeNull();
+  });
+
+  it("shows the GPU-addressable line only on unified memory with a measured working set", () => {
+    mockCeilings({ f16: 100_000, q8: 200_000, q4: 400_000, fit: "fits" });
+    const { rerender } = render(<KvCeilingBars modelName="m" backend="ollama" modelBytes={5e9} totalBytes={16e9} unified workingSetBytes={12e9} />);
+    const line = screen.getByTestId("kv-gpu-addressable");
+    // Frames the smaller usable slice against the full pool: "~<usable> of <total> usable by the GPU".
+    expect(line.textContent).toMatch(/~[\d.]+\s?GB of [\d.]+\s?GB usable by the GPU \(macOS Metal limit\)/);
+    // Discrete GPU (no working set) → no such line; VRAM already IS the budget.
+    rerender(<KvCeilingBars modelName="m" backend="ollama" modelBytes={5e9} totalBytes={16e9} unified={false} />);
+    expect(screen.queryByTestId("kv-gpu-addressable")).toBeNull();
+  });
 });

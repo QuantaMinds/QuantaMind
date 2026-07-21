@@ -13,6 +13,7 @@ export function useKvCeilings(
   backend: BackendKind | undefined,
   modelBytes: number | null | undefined,
   totalBytes: number | null | undefined,
+  workingSetBytes?: number | null | undefined,
 ) {
   const [dims, setDims] = useState<ModelDims | null>(null);
   const [ceilings, setCeilings] = useState<CtxCeilings | null>(null);
@@ -37,13 +38,13 @@ export function useKvCeilings(
       setCeilings(null);
       return;
     }
-    contextCeilings(dims, modelBytes, totalBytes)
+    contextCeilings(dims, modelBytes, totalBytes, workingSetBytes)
       .then((c) => !cancelled && setCeilings(c))
       .catch(() => !cancelled && setCeilings(null));
     return () => {
       cancelled = true;
     };
-  }, [dims, modelBytes, totalBytes]);
+  }, [dims, modelBytes, totalBytes, workingSetBytes]);
 
   return { dims, ceilings };
 }

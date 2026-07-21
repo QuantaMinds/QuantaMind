@@ -310,6 +310,15 @@ mod tests {
         let _ = dxgi();
     }
 
+    // Wire-contract guard: the frontend's zod `GpuInfoSchema` reads `gpu_working_set_bytes`.
+    // A serde rename would silently blank the GPU-addressable line + fit verdict.
+    #[test]
+    fn gpu_info_serializes_working_set_under_the_frontend_key() {
+        let g = GpuInfo { gpu_working_set_bytes: Some(12_713_115_648), unified: true, available: true, ..Default::default() };
+        let json = serde_json::to_value(g).unwrap();
+        assert_eq!(json["gpu_working_set_bytes"], 12_713_115_648u64);
+    }
+
     // The Metal working-set read must return a real, sane number on Apple Silicon:
     // present, below total RAM, and a majority of it (Apple sizes it at ~66-75%).
     // A regression here would silently make the ceiling meters budget on nothing.

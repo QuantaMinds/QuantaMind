@@ -56,13 +56,23 @@ export async function estimateKvCacheBytes(dims: ModelDims, contextLength: numbe
   );
 }
 
-/// The largest context this machine holds for a model at each KV-cache precision.
-/// A `null` ceiling means unmeasurable ("Not available"), never a guess. Same math
-/// the llama.cpp launch planner uses, so the meters can't disagree with a launch.
+/// Whether the WEIGHTS fit under the GPU's hard memory limit — the question the
+/// context ceilings alone can't answer (a 100K ceiling is meaningless if the model
+/// doesn't even load on the GPU). `spills_to_cpu` = weights exceed the limit → CPU/swap,
+/// very slow. `unknown` = the limit is unmeasured (off Apple Silicon), never guessed.
+export const FitVerdictSchema = z.enum(["fits", "tight", "spills_to_cpu", "unknown"]);
+export type FitVerdict = z.infer<typeof FitVerdictSchema>;
+
+/// The largest context this machine holds for a model at each KV-cache precision, plus
+/// the weights' fit verdict against the GPU limit. A `null` ceiling means unmeasurable
+/// ("Not available"), never a guess. On Apple Silicon the ceilings budget against the
+/// MEASURED Metal working-set limit (`workingSetBytes`), so "fits" means fits on the GPU.
+/// `fit` is optional for back-compat (older payloads / fixtures omit it → treated unknown).
 export const CtxCeilingsSchema = z.object({
   f16: z.number().int().nullable(),
   q8: z.number().int().nullable(),
   q4: z.number().int().nullable(),
+  fit: FitVerdictSchema.optional(),
 });
 export type CtxCeilings = z.infer<typeof CtxCeilingsSchema>;
 
@@ -70,6 +80,7 @@ export async function contextCeilings(
   dims: ModelDims,
   modelBytes: number,
   totalBytes: number,
+  workingSetBytes?: number | null,
 ): Promise<CtxCeilings> {
   return CtxCeilingsSchema.parse(
     await invoke("context_ceilings", {
@@ -79,6 +90,7 @@ export async function contextCeilings(
       embeddingLength: dims.embedding_length,
       modelBytes,
       totalBytes,
+      workingSetBytes: workingSetBytes ?? null,
     }),
   );
 }

@@ -80,7 +80,8 @@ export function LatencyTimelines({
       </div>
       {charted.map((row) => (
         <ModelTimeline key={row.model} row={row} width={width} vram={pickLoaded(byName, row.model)}
-          history={entries} deviceTotalBytes={dev.totalBytes} unified={dev.unified} hw={hw} />
+          history={entries} deviceTotalBytes={dev.totalBytes} unified={dev.unified}
+          workingSetBytes={dev.workingSetBytes} hw={hw} />
       ))}
     </div>
   );
