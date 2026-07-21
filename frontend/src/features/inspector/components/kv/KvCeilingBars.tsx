@@ -63,7 +63,7 @@ function CeilingRow({
         <span className="text-gray-500">]</span>
       </span>
       <span className="text-gray-600 text-xs whitespace-nowrap">
-        ≈{usable.toLocaleString()} ctx{clamped ? " (model max)" : ""}
+        ≈{usable.toLocaleString()} ctx{clamped ? " (model's own max — memory could hold more)" : ""}
       </span>
     </div>
   );

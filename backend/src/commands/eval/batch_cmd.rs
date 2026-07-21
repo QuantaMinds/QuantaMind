@@ -527,11 +527,11 @@ pub(crate) async fn run_passes(
         col.ctx_ceiling = ctx_ceilings_stamp.get(&col.model).copied();
         if col.backend == BackendKind::LlamaCpp {
             // Stamp launch facts ONLY when the running server serves THIS column's model
-            // (stem match) — never another model's bytes or flags. llama.cpp has no
-            // /api/ps: `weights_total_bytes` here is the GGUF's on-disk size from the
-            // spawn readout (no resident/VRAM split exists to report — labeled so).
+            // — never another model's bytes or flags. llama.cpp has no /api/ps:
+            // `weights_total_bytes` here is the GGUF's on-disk size from the spawn
+            // readout (no resident/VRAM split exists to report — labeled so).
             if let Some((stem, model_bytes)) = &llama_server_model {
-                if *stem == col.model {
+                if llama_serves_model(stem, &col.model) {
                     col.kv_cache_type = llama_kv_type.clone();
                     col.weights_total_bytes = *model_bytes;
                 }
@@ -664,6 +664,29 @@ pub async fn resume_batch_eval(
 #[tauri::command]
 pub fn discard_run(app: AppHandle, run_id: String) -> Result<(), AppError> {
     queue::delete(&queue::run_path(&jobs_dir(&app)?, &run_id))
+}
+
+/// Does the running llama-server (identified by its GGUF file STEM) serve this eval
+/// column's model? Eval targets carry the FILE NAME (`gemma-4-12b-it_q4_k_m.gguf`) while
+/// the stem drops the extension — comparing them raw silently unstamped every app-launched
+/// llama run's model bytes ("Model in memory: N/A" under a live 4.4GB readout).
+fn llama_serves_model(server_stem: &str, col_model: &str) -> bool {
+    col_model == server_stem || col_model.strip_suffix(".gguf") == Some(server_stem)
+}
+
+#[cfg(test)]
+mod llama_stamp_tests {
+    use super::llama_serves_model;
+
+    #[test]
+    fn matches_with_and_without_the_gguf_suffix_and_never_across_models() {
+        assert!(llama_serves_model("gemma-4-12b-it_q4_k_m", "gemma-4-12b-it_q4_k_m.gguf"));
+        assert!(llama_serves_model("gemma-4-12b-it_q4_k_m", "gemma-4-12b-it_q4_k_m"));
+        // A server serving a DIFFERENT model must never lend its bytes/flags.
+        assert!(!llama_serves_model("qwen2.5-coder-7b-instruct_q4_k_m", "gemma-4-12b-it_q4_k_m.gguf"));
+        // Suffix only strips at the end — no substring tricks.
+        assert!(!llama_serves_model("gemma-4-12b", "gemma-4-12b-it_q4_k_m.gguf"));
+    }
 }
 
 #[cfg(test)]
