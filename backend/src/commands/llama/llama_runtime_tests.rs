@@ -124,6 +124,23 @@ fn plan_launch_q8_ceiling_unchanged_by_precision_refactor() {
     assert!(capped.note.as_deref().unwrap().contains("capped the context to 2048"));
 }
 
+/// Wire-contract guard: `FitVerdict` must serialize to the EXACT strings the frontend's
+/// zod `FitVerdictSchema` enumerates (`fits`/`tight`/`spills_to_cpu`/`unknown`). A silent
+/// rename here (e.g. camelCase) would make the UI drop the chip with no error — the whole
+/// point of Layer 2. `fit` is a real field on the serialized `CtxCeilings`.
+#[test]
+fn fit_verdict_serializes_to_the_frontend_wire_strings() {
+    let s = |v: FitVerdict| serde_json::to_string(&v).unwrap();
+    assert_eq!(s(FitVerdict::Fits), "\"fits\"");
+    assert_eq!(s(FitVerdict::Tight), "\"tight\"");
+    assert_eq!(s(FitVerdict::SpillsToCpu), "\"spills_to_cpu\"");
+    assert_eq!(s(FitVerdict::Unknown), "\"unknown\"");
+    // And the field rides on CtxCeilings as `fit`.
+    let c = ctx_ceilings(25_000_000_000, nineb_dims(), 32_000_000_000, Some(24_000_000_000));
+    let json = serde_json::to_value(c).unwrap();
+    assert_eq!(json["fit"], "spills_to_cpu");
+}
+
 /// `KvType` → `KvPrecision` is total over the launch domain: no Q4 arm exists,
 /// which is the type-level proof a launch can never auto-pick a Q4 cache.
 #[test]

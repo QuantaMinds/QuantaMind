@@ -58,7 +58,7 @@ export function MemoryEstimatePanel({
   const device = deviceMemory(hw);
   const weightsTotal = column?.weights_total_bytes ?? null;
   // Same fetch pattern as the workspace KV meters (cancel-on-cleanup, refetch on remount).
-  const { dims, ceilings } = useKvCeilings(model, backend, weightsTotal, hw?.total_memory_bytes);
+  const { dims, ceilings } = useKvCeilings(model, backend, weightsTotal, hw?.total_memory_bytes, device.workingSetBytes);
   const [kvAll, setKvAll] = useState<{ f16: number; q8: number; q4: number } | null>(null);
 
   // KV bytes at the run's peak token occupancy, at ALL three cache precisions — the same
@@ -179,6 +179,7 @@ export function MemoryEstimatePanel({
           modelBytes={weightsTotal}
           totalBytes={device.totalBytes}
           unified={device.unified}
+          workingSetBytes={device.workingSetBytes}
         />
       </div>
       {oomTaskId != null && (

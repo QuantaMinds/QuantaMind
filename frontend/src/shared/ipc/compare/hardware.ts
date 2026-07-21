@@ -10,6 +10,10 @@ export const GpuInfoSchema = z.object({
   vram_free_bytes: z.number().int().nonnegative().nullable().optional(),
   unified: z.boolean(),
   available: z.boolean(),
+  // Apple Silicon only: the GPU's MEASURED Metal working-set limit — the unified
+  // memory the GPU can actually wire down (~66-75% of RAM), not the whole pool. The
+  // context-ceiling meters budget against THIS. null/absent off macOS or unmeasured.
+  gpu_working_set_bytes: z.number().int().nonnegative().nullable().optional(),
 });
 export type GpuInfo = z.infer<typeof GpuInfoSchema>;
 

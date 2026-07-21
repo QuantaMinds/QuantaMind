@@ -27,6 +27,7 @@ export function ModelTimeline({
   history = [],
   deviceTotalBytes,
   unified,
+  workingSetBytes,
   hw,
 }: {
   row: CompareRow;
@@ -35,6 +36,7 @@ export function ModelTimeline({
   history?: HistoryEntry[];
   deviceTotalBytes?: number | null;
   unified?: boolean;
+  workingSetBytes?: number | null;
   hw?: HardwareSnapshot | null;
 }) {
   const [hovered, setHovered] = useState<LatencyBar | null>(null);
@@ -110,6 +112,7 @@ export function ModelTimeline({
           modelBytes={vram?.size_bytes ?? null}
           totalBytes={deviceTotalBytes ?? null}
           unified={unified}
+          workingSetBytes={workingSetBytes}
         />
       </div>
 

@@ -11,10 +11,18 @@ export function useHardware(): HardwareSnapshot | null {
   return hw;
 }
 
-/// Device memory pool total + whether it's unified, derived from a snapshot:
-/// unified (Apple) → system RAM; discrete (NVIDIA) → VRAM total; else null.
-export function deviceMemory(hw: HardwareSnapshot | null): { totalBytes: number | null; unified: boolean } {
+/// Device memory pool total, whether it's unified, and — on Apple Silicon — the GPU's
+/// MEASURED Metal working-set limit (the real budget for weights + KV cache, below the
+/// total pool). Derived from a snapshot: unified (Apple) → system RAM + working set;
+/// discrete (NVIDIA) → VRAM total (VRAM already IS the budget, so no separate working
+/// set); else null.
+export function deviceMemory(hw: HardwareSnapshot | null): {
+  totalBytes: number | null;
+  unified: boolean;
+  workingSetBytes: number | null;
+} {
   const g = hw?.gpu;
-  if (g?.unified) return { totalBytes: hw?.total_memory_bytes ?? null, unified: true };
-  return { totalBytes: g?.vram_total_bytes ?? null, unified: false };
+  if (g?.unified)
+    return { totalBytes: hw?.total_memory_bytes ?? null, unified: true, workingSetBytes: g?.gpu_working_set_bytes ?? null };
+  return { totalBytes: g?.vram_total_bytes ?? null, unified: false, workingSetBytes: null };
 }
