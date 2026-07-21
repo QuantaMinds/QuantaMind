@@ -10,6 +10,3 @@ export function servesModelsByName(backend: BackendKind): boolean {
 
 export const SINGLE_MODEL_NOTE =
   "llama.cpp & MLX serve one model at a time — this runs whichever model the server has loaded. Load this exact model, or use Ollama to compare across models.";
-
-export const QUANT_OLLAMA_ONLY_NOTE =
-  "Per-quant evals need Ollama — llama.cpp & MLX serve one model at a time, so they can't switch quants on a running server.";

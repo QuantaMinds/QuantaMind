@@ -5,7 +5,7 @@ import { useParamsStore } from "./shared/state/paramsStore";
 import { useBackendStore } from "./shared/state/backendStore";
 import { useSelectedModelStore } from "./shared/state/selectedModelStore";
 import { modelLabel } from "./shared/models/modelLabel";
-import { useVramFit } from "./features/quant/useVramFit";
+import { useVramFit } from "./shared/memory/useVramFit";
 import { usePopoverDismiss } from "./shared/ui/usePopoverDismiss";
 
 /// The global inference-parameters popover in the header. Edits the single

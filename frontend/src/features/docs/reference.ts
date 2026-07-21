@@ -371,46 +371,6 @@ export const REFERENCE_SECTIONS: ReferenceSection[] = [
   },
 
   {
-    id: "quant",
-    title: "Quant",
-    blurb: "Compare quantizations of one model family — size vs quality vs whether it fits.",
-    blocks: [
-      {
-        id: "selectors",
-        heading: "Family / use-case / context-length selectors",
-        what: "Pick a model family (one with 2+ installed quants), a use case, and a target context length.",
-        why: "“Which quant should I run?” has no universal answer — it depends on what you’re doing and how much memory you can spare. These three inputs frame the comparison.",
-        how: "The family picker only lists families with multiple quants to compare; the use case and context length drive the Fit and Recommendation columns.",
-      },
-      {
-        id: "quant-table",
-        heading: "Quant comparison table",
-        what: "A row per quantization with Size, Fit, Quality (eval pass-rate), Tool-calls (composite %), and a Recommendation badge.",
-        why: "Lower quants are smaller and faster but lossy; this table makes the size↔quality↔fit trade-off explicit so you pick deliberately, not by guesswork.",
-        how: "Size is on-disk bytes. Quality and Tool-calls are filled by running the same evals documented under Eval (pass-rate and tool-call composite). The Recommendation marks the best trade-off for your selected use case, with a delta vs the best quant.",
-      },
-      {
-        id: "fit",
-        heading: "Fit (OOM risk)",
-        what: "A safe / tight / won’t-fit indicator per quant at your chosen context length.",
-        why: "A quant that won’t fit in memory either fails or falls back to painfully slow partial offload — you want to know before you load it.",
-        how: "Sums the exact on-disk weight bytes and the real KV-cache bytes for the chosen context length and compares to the memory cap (same math as the Agent Report’s VRAM fit). Approximate inputs are flagged with a ~.",
-        formula: "total = weights_bytes + kv_cache_bytes(context)\nfit:  total ≤ cap → safe · ≥ 85% of cap → tight · > cap → won’t fit",
-        source: "backend/src/inference/eval/readiness/vram_fit.rs",
-      },
-      {
-        id: "kv-precision",
-        heading: "KV cache precision (f16 / q8_0 / q4_0)",
-        what: "The attention KV cache is stored at a precision you can trade for memory. The Latency tab’s “context ceiling by KV cache precision” meters show how much context each fits.",
-        why: "The KV cache grows linearly with context length AND model depth — at long context it can exceed the model weights themselves. Halving its precision roughly doubles the context you can hold in the same memory. That’s often the only way to fit long context on limited VRAM.",
-        how: "f16 is the default (2 bytes/value). q8_0 ≈ half the memory at a negligible quality cost (published perplexity deltas ≈ 0.002–0.05 — the “free win”). q4_0 ≈ a quarter, but with a real quality cost AND it can be dramatically slower at long context (dequant overhead — up to ~90% slower at 64k). Unified-memory machines budget the cache against system RAM; discrete GPUs against VRAM. Per backend: Ollama exposes OLLAMA_KV_CACHE_TYPE + OLLAMA_FLASH_ATTENTION=1 (server-global, silently falls back to f16 on unsupported architectures); llama.cpp uses -ctk/-ctv (QuantaMind auto-picks q8_0 under memory pressure, never q4_0); MLX’s server exposes no KV-quant flag; vLLM/SGLang take kv_cache_dtype=fp8 at launch. QuantaMind grades readiness at the precision your launch would actually use and never auto-launches a q4_0 cache.",
-        formula: "kv_bytes = 2(K,V) × layers × kv_heads × head_dim × bytes_per_value × ctx\nbytes_per_value:  f16 = 2 · q8_0 ≈ 1 · q4_0 ≈ 0.5\ncontext at same memory:  q8_0 ≈ 2× f16 · q4_0 ≈ 4× f16 (quality/speed cost)",
-        source: "backend/src/inference/vram_math.rs (kv_cache_bytes_at)",
-      },
-    ],
-  },
-
-  {
     id: "agentReport",
     title: "Agent Report",
     blurb: "Turn the measurements into a go / no-go readiness verdict per model.",

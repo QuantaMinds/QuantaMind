@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { servesModelsByName, SINGLE_MODEL_NOTE, QUANT_OLLAMA_ONLY_NOTE } from "../backendSupport";
+import { servesModelsByName, SINGLE_MODEL_NOTE } from "../backendSupport";
 
 describe("servesModelsByName", () => {
   it("is true only for Ollama (the multi-model server)", () => {
@@ -10,6 +10,5 @@ describe("servesModelsByName", () => {
 
   it("ships human-readable notes for the single-model limitation", () => {
     expect(SINGLE_MODEL_NOTE).toMatch(/one model at a time/i);
-    expect(QUANT_OLLAMA_ONLY_NOTE).toMatch(/Ollama/);
   });
 });

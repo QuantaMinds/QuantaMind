@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 
-vi.mock("../features/quant/useVramFit", () => ({
+vi.mock("../shared/memory/useVramFit", () => ({
   useVramFit: (model?: string) => ({
     dims: model ? { layers: 1, head_count: 1, head_count_kv: 1, embedding_length: 1, context_length: 131072 } : null,
     kvBytes: null,

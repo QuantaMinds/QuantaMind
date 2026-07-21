@@ -457,11 +457,12 @@ one folder per commit, behavior unchanged).
   unit-tested). `ollama/` also has `ollama_show.rs` — the Tauri-free `/api/show` client
   (template, capabilities, raw `model_info`) behind `commands/models/model_inspect.rs`
   (which also parses `ModelInspect.dims` + exposes `estimate_kv_cache_bytes`); frontend IPC
-  in `shared/ipc/system/inspect.ts`. The Quant tab's KV-aware VRAM fit / OOM gate lives in
-  `features/quant` (`useVramFit`, `QuantPage`, `fit.ts::fitOfNeed`); the curated memory-bandwidth
-  lookup is in `commands/system/hardware_mem.rs`. The 5.12–5.15 diagnostics are mostly frontend over
-  data already fetched: `features/eval/CpuFallbackBanner` (silent CPU fallback, from `/api/ps`),
-  `QuantPage::toolcallDelta` (quant parse-rate delta), `features/inspector/ContextBudgetBar`
+  in `shared/ipc/system/inspect.ts`. The KV-aware VRAM fit lives in
+  `shared/memory/useVramFit.ts` + `features/models/fit.ts::fitOfNeed` (the Quant tab that
+  first hosted it was removed; ParamsControl and the Context Stress Test still consume the hook);
+  the curated memory-bandwidth lookup is in `commands/system/hardware_mem.rs`. The 5.12–5.15
+  diagnostics are mostly frontend over data already fetched:
+  `features/eval/CpuFallbackBanner` (silent CPU fallback, from `/api/ps`), `features/inspector/ContextBudgetBar`
   (prompt_eval_count / context_length), and the Context Stress Test (`features/eval/cliff.ts` +
   `useContextCliff` + `ContextCliffChart`, visx). Built-in eval presets (curated + `tasks_finance.json`)
   are enumerated by `toolcall/tasks.rs::BUILTIN_COLLECTIONS` behind `list_builtin_collections` /

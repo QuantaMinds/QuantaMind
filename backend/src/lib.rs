@@ -185,8 +185,6 @@ pub fn run() {
             commands::workspace::workspaces::recent_workspaces,
             commands::prompt_templates::templates::list_prompt_templates,
             commands::llama::llama_templates::list_chat_templates,
-            commands::eval::evals_load::list_evals,
-            commands::eval::eval_run::run_eval_task,
             commands::eval::toolcall_cmd::run_toolcall_eval,
             commands::eval::toolcall_cmd::trace_toolcall_task,
             commands::eval::toolcall_cmd::load_toolcall_trace,

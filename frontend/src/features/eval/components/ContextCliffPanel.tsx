@@ -5,7 +5,7 @@ import { useParamsStore } from "../../../shared/state/paramsStore";
 import { useEvalRegistryStore, DEFAULT_PRESET } from "../state/evalRegistryStore";
 import { PresetOptGroups } from "./PresetOptGroups";
 import { getBuiltinCollection, loadCustomCollection, type ToolTask } from "../../../shared/ipc/eval/registry";
-import { useVramFit } from "../../quant/useVramFit";
+import { useVramFit } from "../../../shared/memory/useVramFit";
 import { useHardwareSnapshot } from "../../models/hooks/useHardwareSnapshot";
 import { loadedModels, type LoadedModel } from "../../../shared/ipc/system/vram";
 import { formatBytes } from "../../../shared/format/bytes";
