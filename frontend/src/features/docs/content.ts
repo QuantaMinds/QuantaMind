@@ -121,6 +121,99 @@ The **Models** tab lists everything QuantaMind can see, grouped by backend, with
 - **Running your first test** — evaluate a model you just installed.
 `.trim();
 
+const workspace = `
+# Working in the Workspace
+
+The **Workspace** is your home base: pick a model, write a prompt, run it, and watch tokens stream
+in with live performance metrics. It's the quickest way to feel out a model before you commit to a
+full test run.
+
+## The model bar
+
+The bar across the top drives the *whole app* — every page runs against the globally-selected model,
+so there's no per-page model choice to keep in sync.
+
+- **Model dropdown** — the selected model. For **Ollama** you can multi-select **2+ models**, which
+  turns Run into a side-by-side **Compare** (see **Comparing models**).
+- **Gear (⚙)** — a temperature popover (0.0–2.0), persisted per model.
+- **Stop (◼)** — kills the backend server; the header health dot flips red immediately.
+
+> [!TIP]
+> On a fresh machine the dropdown is replaced by an "Ollama is not running" card. On macOS it offers
+> **Start Ollama** / **Install Ollama**; on Windows and Linux, start Ollama yourself and click
+> **Check again**.
+
+## System + user prompt
+
+Two editors — an optional **System** prompt and the **User** prompt — mirror how the model is
+actually called, so what you test here matches what your app sends in production. **Run** streams
+tokens as they generate; a large model may show "Loading model…" for up to ~30s on the first run
+while weights load into memory. Cancelling mid-stream stops cleanly and keeps what was produced.
+
+## Run metrics
+
+After a run you get three *measured* numbers (never estimated, never a chars÷4 guess):
+
+- **TTFT** — time to the first streamed token (how long until it starts).
+- **tokens/s** — steady-state throughput, measured from first token to last.
+- **token count** — the backend's own counter.
+
+For per-token *forensics* (where each millisecond went), open the **Latency** tab.
+
+## Prompt templates
+
+The template picker pastes a known-good prompt skeleton (summarize, extract JSON, tool-call, …) into
+the User box, which you then edit freely — a faster start than re-deriving the shape each time.
+
+## Next steps
+
+- **Comparing models** — run one prompt across several models at once.
+- **Running your first test** — score a model on a whole collection of tasks.
+`.trim();
+
+const analysis = `
+# Comparing models side by side
+
+The **Analysis** tab runs *one prompt across several models* and shows their output and speed next to
+each other — the only honest way to choose between models for a task.
+
+## Starting a compare
+
+Select **2+ models** in the Workspace picker (Ollama), write your prompt, and Run. Each model gets
+its own **column** that streams independently — a slow model never holds up the others. Directly
+below the answers you also get the full per-token **latency** panels (the same ones the Latency tab
+shows), so quality and speed sit together.
+
+## Run strategies
+
+Local models are constrained by RAM, so you choose how they share your machine:
+
+| Strategy | What it does | Best when |
+| --- | --- | --- |
+| **Sequential** | One model at a time; each is evicted before the next loads | Limited RAM |
+| **Sequential (skippable)** | Same, with a **Skip** button per row | You want to bail on a slow one |
+| **Parallel** | All models load at once | You have the RAM and want speed |
+
+## Reading the results
+
+- **Compare columns** — each model's raw streamed output.
+- **Metrics chart** — throughput and TTFT bars from the same measured per-run numbers. A metric the
+  backend didn't report is drawn as *absent*, never a fake 0.
+- **Output diff** — pick two columns for a word-level diff that highlights exactly where two answers
+  diverge.
+- **Export** — save the whole comparison as Markdown (human-readable) or JSON (the machine-readable
+  analysis document).
+
+> [!TIP]
+> The context-ceiling meters here include the **weights-fit chip** and (on Apple Silicon) the
+> GPU-addressable line — so the capacity-vs-capability read is available right under the answer, not
+> only on the Latency tab.
+
+## Next steps
+
+- **Latency & memory of a Test run** — the timing/memory forensics behind these panels.
+`.trim();
+
 const firstTest = `
 # Running your first test
 
@@ -306,6 +399,198 @@ Two different things, two different displays:
 - **Troubleshooting** — if something's not measuring or running.
 `.trim();
 
+const customCollections = `
+# Building your own test collection
+
+Your tasks — not a generic fixture — are what tell you whether a model is ready for *your* app. Custom
+collections are first-class: build them by hand or bulk-load from a spreadsheet, on the **Tests** tab
+under the **Custom JSON** source.
+
+## Two ways to build
+
+- **Collection editor** — author tasks by hand: a name, domain, tier, and a list of single-turn
+  tool-call tasks. Tool schemas live in their own box and apply to every task.
+- **CSV import** — bulk-load single-turn tool-call tasks from a spreadsheet.
+
+## The CSV format
+
+Exactly four columns, in order:
+
+| Column | Meaning |
+| --- | --- |
+| \`id\` | unique task id |
+| \`prompt\` | the user request |
+| \`expected_tool\` | the tool the model should call — **leave empty for an abstain task** (correct behavior is *no* call) |
+| \`expected_args\` | the arguments, as a JSON object |
+
+One row = one task. The dialog **validates live** — wrong header order, bad args JSON, an unknown
+tool, or a duplicate id are flagged per row, and **Import stays disabled until it's clean**.
+
+> [!TIP]
+> An **abstain task** (empty \`expected_tool\`) tests restraint — the model passes by *not* calling a
+> tool it shouldn't. Mix these in so a trigger-happy model can't score full marks.
+
+## Scoring
+
+Custom collections run through the same engine as the built-ins: **tool-call composite accuracy**
+(right tool? right args? silent when it should be?) plus **Pass^k**, **Avg Steps**, **Effort**, and
+**Schema Resilience**. Scoring is *structural* — it matches the call name and args, never executes the
+tool. For tasks that need *real* tools and real end-state grading, use **MCP** instead.
+
+## Headless
+
+Everything you author here runs from the terminal: \`qm test --collection ./my_suite.json\` — same
+schema, same engine, an exit code you can gate CI on.
+
+## Next steps
+
+- **Testing with MCP servers** — grade against real tools and real world-state.
+- **The qm command-line tool** — run your collection headless.
+`.trim();
+
+const mcp = `
+# Testing with MCP servers
+
+Most collections score a model against *simulated* tools. **MCP** (Model Context Protocol) tests it
+against **real tools** — a real filesystem, a real SQLite database — and grades **what actually
+happened in the world**, not what the model *said* it did. It's the most honest agentic test
+QuantaMind runs.
+
+MCP lives on the **Tests** tab: at the top, switch the data source from **Built-in** / **Custom JSON**
+to **◉ MCP**. The page becomes the MCP connect-and-build flow, reusing the same scoreboard and **Run
+Batch** button as every other collection.
+
+## 1. Connect a server
+
+An MCP server is a small local program that exposes tools over a standard protocol. In the connect
+panel, add one with an **id**, a **command** (defaults to \`npx\`), and **args**. Two quick-add chips
+cover the common cases:
+
+- **filesystem** → \`npx -y @modelcontextprotocol/server-filesystem\` — append a directory the server
+  may touch.
+- **sqlite** → \`npx -y mcp-server-sqlite-npx\` — QuantaMind supplies a scratch database path for you.
+
+Both need **Node / npx** installed. **Connect** runs a quick probe and reports **"✓ N tools
+discovered"** or a loud red error — so a bad command fails at setup, not mid-run.
+
+> [!NOTE]
+> The transport is local **stdio** (a child process on your machine) — nothing goes to the cloud, and
+> server output (tool descriptions, results) is always rendered inert, never executed.
+
+## 2. Author a task — two doors
+
+### Test World (scored)
+
+The **QuantaMind Test World** builder is three sections that *are* the task:
+
+1. **Task** — a name and a plain-language instruction ("create result.txt containing DONE").
+2. **Set up the world** — a **temp folder** (seed files + contents) or a **temp database** (setup
+   SQL). Fresh and disposable every run.
+3. **Check the result (the answer key)** — for files: which must be **present**, **absent**, or
+   **contain** a substring; for a database: \`SELECT … :: expected\` assertions.
+
+Saving adds the task to the sidebar (you can also paste task JSON directly). Either way the task is
+**auto-validated**: the answer key must be *solvable* (a perfect agent passes) **and** *discriminating*
+(a do-nothing agent fails). A vacuous or contradictory key is rejected with named findings — because a
+broken answer key makes every score a lie.
+
+### Bring-Your-Own (diagnostic)
+
+The **Bring-Your-Own** door is just an instruction + one of your connected servers, with **no answer
+key**. It doesn't pass or fail — it reports **"schema-valid X/Y"** (did the model emit well-formed
+calls to your real tools?). Handy for smoke-testing a server; kept out of the pass-rate aggregate so
+scores are never blended.
+
+## 3. Run and read
+
+Pick your model and iterations (**k**) in the global header, then **Run Batch**. For each Test-World
+task, per run QuantaMind: seeds a fresh sandbox → spawns the real server scoped to it → lets the model
+drive the tools → **grades the world's end-state against your answer key** → throws the sandbox away.
+A transcript that claims "done" counts for nothing; only the files/rows do.
+
+The verdict is **Pass^k**, and it's strict — a task is *ready* only if **every** one of its k runs
+passed. One lucky pass is not readiness; failed runs record which checks they missed.
+
+## Safety
+
+- **Controlled worlds are disposable and isolated** (a brand-new temp folder/DB per run), so their
+  tool calls auto-approve — you can't gate k automated runs on human clicks.
+- Seed paths are confined by \`fs_guard\` (no \`..\` escapes or symlink tricks); secrets live in the OS
+  keychain, never on disk; tool definitions are hash-pinned, so a server that swaps its tools between
+  runs trips the pin.
+- **Your own (Bring-Your-Own) servers are only as confined as you scope them.** A BYO run drives your
+  real server directly, with no interactive approval step — so point the filesystem server at a
+  *throwaway* directory, never your home folder.
+
+## Prove it before you trust it
+
+Run **\`qm validate --collection ./worlds.json\`** (or let \`qm run\` / \`qm test\` do it automatically) to
+put a world file through the same gate the UI uses — structural checks plus a live spawn where a
+do-nothing agent must fail the real answer key. Missing \`npx\` / \`sqlite3\` is reported as inconclusive
+with the exact install command, never a fake failure.
+
+## Next steps
+
+- **Building your own test collection** — simulated-tool tasks (no server needed).
+- **The qm command-line tool** — run and gate all of this headless.
+`.trim();
+
+const cli = `
+# The qm command-line tool
+
+\`qm\` is the headless face of QuantaMind — the *same* evaluation engine as the app, driven from a
+terminal and returning an exit code you can gate CI on. Every control on the Tests page maps to a flag.
+
+## Build it
+
+\`qm\` is a second binary on the same crate:
+
+\`\`\`
+cargo build --bin qm
+\`\`\`
+
+## Three commands to a verdict
+
+\`\`\`
+qm doctor   # is any backend runnable? (reachable + has a model + creds OK)
+qm init     # auto-detect a backend, write ./qm.json, run a first verdict
+qm run      # the readiness verdict — Ready / Conditional / NotReady
+\`\`\`
+
+In a terminal, omitting \`--model\` / \`--collection\` / \`--backend\` opens interactive pickers; over
+SSH or CI it never prompts.
+
+## The commands
+
+| Command | The app equivalent |
+| --- | --- |
+| \`qm doctor\` | The backend health check — "is anything runnable?" |
+| \`qm init\` | Zero-config first run (writes \`qm.json\`; later runs need no flags) |
+| \`qm run\` | Tests → Run Batch on a **built-in** collection |
+| \`qm test\` | Tests → Run Batch on **your own** collection or an **MCP world** file |
+| \`qm validate\` | The import validator — prove a collection/world before trusting its score |
+| \`qm cliff\` | The Audit tab's **Context Stress Test** |
+| \`qm report\` | The Agent Report verdict, re-scored from a saved run (no backend, no re-inference) |
+| \`qm prompt\` | Workspace free-form generation |
+
+Run \`qm COMMAND --help\` for any command's full flag reference.
+
+## Exit codes gate CI
+
+The verdict *is* the exit status: **0** Ready · **10** Conditional · **20** NotReady · **11**
+Inconclusive (infra fault — retry, never a fake "bad model") · **3** nothing runnable. \`--fail-on\` is
+the team-policy knob, and a bundled GitHub Action (\`.github/actions/qm-eval\`) wires it into a pipeline
+with a JUnit report.
+
+> [!IMPORTANT]
+> Secrets discipline: never pass an API key as an argument. \`qm\` reads \`QM_API_KEY\` from the
+> environment (or the OS keychain) only; a key sent over plain \`http\` is withheld with a warning.
+
+## Next steps
+
+- **Troubleshooting** — common issues and fixes.
+`.trim();
+
 const troubleshooting = `
 # Troubleshooting
 
@@ -349,6 +634,27 @@ loaded size. Make sure the header backend matches the model you're inspecting.
 
 MLX only runs on Apple Silicon. On Intel Macs or other platforms it isn't offered.
 
+## MCP server won't connect ("✗ …")
+
+The connect probe launches your **command + args** as a local process, so the usual cause is a
+missing runtime or a typo. MCP servers here run through **npx**, so **Node.js** must be installed
+(\`node -v\`). Re-check the command and args; the red error names what failed. A server that prints
+anything but JSON-RPC to stdout also fails the probe — that's deliberate, so it fails at setup rather
+than corrupting a run.
+
+## MCP world validation fails / "do-nothing agent passed"
+
+Your answer key isn't *discriminating* — an empty run satisfies it, so it can't tell a working model
+from a broken one. Tighten the oracle (assert a file's **content**, not just its presence; make the
+DB assertion specific). The builder and \`qm validate\` both reject this on purpose: a broken answer
+key makes every Pass^k meaningless.
+
+## MCP world "Inconclusive" instead of a verdict
+
+A live world needs **npx** (any world) and **sqlite3** (database worlds). When they're missing the
+run is honestly inconclusive — never a fake failure — and the message prints the exact install
+command. Install the dependency and re-run.
+
 ## Still stuck?
 
 The **Reference** section (in the sidebar) has a per-feature breakdown of what every page does and
@@ -369,9 +675,20 @@ export const DOC_SECTIONS: DocSection[] = [
     title: "Guides",
     pages: [
       { id: "adding-models", title: "Adding models", description: "Install and download models per backend.", body: addingModels },
+      { id: "workspace", title: "Working in the Workspace", description: "Chat with a model and read its live run metrics.", body: workspace },
+      { id: "analysis", title: "Comparing models", description: "Run one prompt across several models, side by side.", body: analysis },
       { id: "first-test", title: "Running your first test", description: "Run and read an evaluation.", body: firstTest },
+      { id: "custom-collections", title: "Building your own test collection", description: "Author tasks by hand or import a CSV.", body: customCollections },
       { id: "agent-report", title: "Reading the Agent Report", description: "Turn scores into a readiness verdict.", body: agentReport },
       { id: "latency", title: "Latency & memory of a Test run", description: "What a test run cost: per-task speed, cache, KV memory, and context ceilings.", body: latency },
+    ],
+  },
+  {
+    id: "advanced",
+    title: "Advanced",
+    pages: [
+      { id: "mcp", title: "Testing with MCP servers", description: "Grade a model against real tools and real world-state.", body: mcp },
+      { id: "cli", title: "The qm command-line tool", description: "The headless engine — run and gate CI on the same verdicts.", body: cli },
     ],
   },
   {
