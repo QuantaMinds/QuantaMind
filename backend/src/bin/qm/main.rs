@@ -39,6 +39,9 @@ enum Command {
     Run(RunArgs),
     /// Auto-detect a backend, write qm.json, and run the suite (zero config).
     Init(InitArgs),
+    /// Last persisted run's per-task costs (latency/cache/memory), read from the
+    /// desktop app's stores — no model run. Run costs live with `run/test --costs`.
+    Costs(CostsArgs),
     /// Run a custom collection FILE → a per-mode scoreboard + verdict.
     Test(TestArgs),
     /// Re-assess a saved run against a readiness profile, offline (no backend).
@@ -139,6 +142,18 @@ impl From<SourceArg> for CliffSource {
         };
         CliffSource::Preset { preset }
     }
+}
+
+#[derive(clap::Args)]
+struct CostsArgs {
+    /// The collection id whose last run to read (as shown in the app / `qm run`).
+    collection: String,
+    /// Override the desktop app's data directory (default: the platform app-config dir).
+    #[arg(long)]
+    data_dir: Option<PathBuf>,
+    /// Emit the machine-readable costs as JSON on stdout.
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(clap::Args)]
@@ -465,9 +480,42 @@ async fn main() {
         Command::Init(args) => run_init(args).await,
         Command::Test(args) => run_test(args).await,
         Command::Report(args) => run_report(args),
+        Command::Costs(args) => run_costs_cmd(args),
         Command::Cliff(args) => run_cliff_cmd(args).await,
         Command::Validate(args) => run_validate_cmd(args).await,
         Command::Prompt(args) => run_prompt_cmd(args).await,
+    }
+}
+
+/// `qm costs` — the last persisted run's per-task costs, read from the desktop app's
+/// stores (latest-batch retention). Labels are the SANITIZED transcript stems — the
+/// original ids aren't recorded in the filenames, and we never "un-sanitize" by guess.
+fn run_costs_cmd(args: CostsArgs) {
+    let Some(dir) = args.data_dir.or_else(quantamind_lib::cli::costs::default_data_dir) else {
+        eprintln!("[QM-NO-DATA-DIR] couldn't resolve the app data dir — pass --data-dir");
+        std::process::exit(2);
+    };
+    match quantamind_lib::cli::costs::load_collection_costs(&dir, &args.collection) {
+        Ok(runs) => {
+            if args.json {
+                match serde_json::to_string_pretty(&runs) {
+                    Ok(s) => println!("{s}"),
+                    Err(e) => {
+                        eprintln!("[QM-INTERNAL] {e}");
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                eprintln!("(last persisted run of '{}'; names are sanitized transcript stems)", args.collection);
+                for r in &runs {
+                    print!("{}", run::render::render_costs(r));
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("[QM-NO-RUN] {}", redact_path(&e.to_string()));
+            std::process::exit(2);
+        }
     }
 }
 

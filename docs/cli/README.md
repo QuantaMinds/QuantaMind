@@ -341,6 +341,21 @@ The scoreboard makes the native-vs-prompt split obvious — here the 3B's native
 prose while its prompt-based path passes. A bad/missing/malformed file exits `2` with a clear
 `[QM-BAD-COLLECTION]` (the path is redacted per rule 7f).
 
+## `costs` — the last run's per-task costs, from disk
+
+```
+qm costs <collection> [--data-dir <path>] [--json]
+```
+
+Reads the **last persisted run** of a collection from the desktop app's stores
+(`agentic_transcripts/` + `batch_reports/`, latest-batch retention) and prints the same per-task
+cost rows as `run --costs` — no model run, no server needed. Use it to inspect a run after the
+fact or pull costs as a CI artifact. Task/model names are the *sanitized transcript stems* (the
+original ids aren't recorded in the filenames — they're printed as-is, never guessed back).
+Memory facts appear when the saved batch report carries them (a GUI run stamps placement/launch
+facts); the KV-at-peak figure needs a live dim-probe and is `n/a` offline. Exit `2` when the
+collection has no persisted run.
+
 ## `report` — re-assess a saved run, offline
 
 Score a **saved run** against a readiness profile without touching a backend — so you can hold one run
