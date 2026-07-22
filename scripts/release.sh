@@ -35,13 +35,25 @@ NOTES_FILE="${REPO_ROOT}/RELEASE_NOTES.md"
 
 # ------ 1. Bump version everywhere ------
 echo "==> Bumping version to ${VERSION} in 3 manifests"
-# backend/Cargo.toml — first `version = "X.Y.Z"` line
-sed -i.bak -E "0,/^version = \"[0-9]+\\.[0-9]+\\.[0-9]+\"$/{s//version = \"${VERSION}\"/;}" backend/Cargo.toml
+# backend/Cargo.toml — first `version = "X.Y.Z"` line ONLY. Not sed: the
+# `0,/re/` first-match address is GNU-only and SILENTLY does nothing on
+# macOS/BSD sed (found the hard way bumping 0.2.3). Python is already a
+# dependency of this script (manifest generation below).
+python3 - "$VERSION" backend/Cargo.toml <<'PYEOF'
+import re, sys
+version, path = sys.argv[1], sys.argv[2]
+src = open(path).read()
+out, n = re.subn(r'^version = "[0-9]+\.[0-9]+\.[0-9]+"$',
+                 f'version = "{version}"', src, count=1, flags=re.M)
+if n != 1:
+    sys.exit(f"error: no version line replaced in {path}")
+open(path, "w").write(out)
+PYEOF
 # backend/tauri.conf.json — top-level "version"
 sed -i.bak -E "s/\"version\": *\"[0-9]+\\.[0-9]+\\.[0-9]+\"/\"version\": \"${VERSION}\"/" backend/tauri.conf.json
 # frontend/package.json
 sed -i.bak -E "s/\"version\": *\"[0-9]+\\.[0-9]+\\.[0-9]+\"/\"version\": \"${VERSION}\"/" frontend/package.json
-rm -f backend/Cargo.toml.bak backend/tauri.conf.json.bak frontend/package.json.bak
+rm -f backend/tauri.conf.json.bak frontend/package.json.bak
 
 # Refresh Cargo.lock with the new version recorded
 ( cd backend && cargo update -p quantamind --offline 2>/dev/null || cargo check --offline 2>/dev/null || true )
