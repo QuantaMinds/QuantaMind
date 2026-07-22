@@ -6,6 +6,10 @@ name: install-smoke
 # CLI release or changing the install docs.
 on:
   workflow_dispatch:
+  # TEMP (remove before merge): run on this branch so the smoke can execute
+  # before the workflow exists on the default branch.
+  push:
+    branches: ["docs/qm-install-oneliner"]
 
 jobs:
   # The curl one-liner on bare Linux containers (no curl preinstalled on
