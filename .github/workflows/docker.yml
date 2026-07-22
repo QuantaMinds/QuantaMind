@@ -23,7 +23,7 @@ permissions:
 
 jobs:
   build-push:
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'quantamind-v')
+    if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'quantamind-v')
     runs-on: ubuntu-22.04
     outputs:
       version: ${{ steps.meta.outputs.version }}
