@@ -1,0 +1,62 @@
+name: install-smoke
+
+# Proves the README install paths on CLEAN machines — the exact commands a new
+# user runs, in containers/runners with no toolchain. Manual trigger (the
+# release itself is validated by quantamind-release.yml); run after cutting a
+# CLI release or changing the install docs.
+on:
+  workflow_dispatch:
+
+jobs:
+  # The curl one-liner on bare Linux containers (no curl preinstalled on
+  # debian-slim — installing it is part of proving the documented path).
+  linux-oneliner:
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ["ubuntu:22.04", "debian:bookworm-slim"]
+    runs-on: ubuntu-22.04
+    container: ${{ matrix.image }}
+    steps:
+      - name: Install curl + CA certs (container baseline)
+        run: apt-get update && apt-get install -y curl ca-certificates xz-utils
+      - name: One-liner install
+        run: curl -fsSL https://github.com/QuantaMinds/QuantaMind/releases/latest/download/quantamind-installer.sh | sh
+      - name: Installed binary runs
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          qm --version
+          # No backend in the container — doctor must still run and render the
+          # report (unreachable everywhere), not crash. Exit code is nonzero by
+          # contract, so don't gate on it; gate on the report being printed.
+          qm doctor > doctor.out 2>&1 || true
+          grep -q 'ollama' doctor.out
+          cat doctor.out
+
+  # The documented manual path for the static musl binary (the shell installer
+  # can't auto-route to musl — this is the copy-paste block from docs/cli).
+  linux-musl-manual:
+    runs-on: ubuntu-22.04
+    container: alpine:3.20
+    steps:
+      - name: Baseline tools
+        run: apk add --no-cache curl xz
+      - name: Manual musl download (docs/cli block, verbatim)
+        run: |
+          curl -fsSLO https://github.com/QuantaMinds/QuantaMind/releases/latest/download/quantamind-x86_64-unknown-linux-musl.tar.xz
+          tar -xJf quantamind-x86_64-unknown-linux-musl.tar.xz
+          install -m755 quantamind-x86_64-unknown-linux-musl/qm /usr/local/bin/qm
+          qm --version
+
+  # The PowerShell one-liner on Windows.
+  windows-oneliner:
+    runs-on: windows-latest
+    steps:
+      - name: irm | iex install
+        shell: powershell
+        run: irm https://github.com/QuantaMinds/QuantaMind/releases/latest/download/quantamind-installer.ps1 | iex
+      - name: Installed binary runs
+        shell: powershell
+        run: |
+          $env:Path = "$env:USERPROFILE\.local\bin;$env:Path"
+          qm --version
