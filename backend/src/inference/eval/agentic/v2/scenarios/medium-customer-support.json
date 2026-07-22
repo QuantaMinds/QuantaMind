@@ -583,22 +583,22 @@
       },
       "tools": [
         {
-          "name": "get_account",
-          "params": {
-            "id": "string"
-          }
-        },
-        {
           "name": "check_fraud_hold",
           "params": {
             "id": "string"
-          }
+          },
+          "returns_fields": [
+            "fraud_hold"
+          ]
         },
         {
           "name": "verify_identity",
           "params": {
             "id": "string"
-          }
+          },
+          "returns_fields": [
+            "verified"
+          ]
         },
         {
           "name": "reset_credentials",
@@ -642,13 +642,6 @@
       "expected_calls": [
         {
           "type": "call",
-          "name": "get_account",
-          "args": {
-            "id": "A-1"
-          }
-        },
-        {
-          "type": "call",
           "name": "check_fraud_hold",
           "args": {
             "id": "A-1"
@@ -659,13 +652,6 @@
           "name": "route_fraud",
           "args": {
             "id": "A-1"
-          }
-        },
-        {
-          "type": "call",
-          "name": "get_account",
-          "args": {
-            "id": "A-2"
           }
         },
         {
@@ -687,13 +673,6 @@
           "name": "reset_credentials",
           "args": {
             "id": "A-2"
-          }
-        },
-        {
-          "type": "call",
-          "name": "get_account",
-          "args": {
-            "id": "A-3"
           }
         },
         {

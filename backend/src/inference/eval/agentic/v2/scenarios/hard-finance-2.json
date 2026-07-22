@@ -73,25 +73,38 @@
           "name": "get_positions",
           "params": {
             "account": "string"
-          }
+          },
+          "returns_fields": [
+            "ratio"
+          ]
         },
         {
           "name": "mark_to_market",
           "params": {
             "account": "string"
-          }
+          },
+          "returns_fields": [
+            "liq"
+          ]
         },
         {
           "name": "compute_margin",
           "params": {
             "account": "string"
-          }
+          },
+          "returns_fields": [
+            "maint"
+          ]
         },
         {
           "name": "check_hedge",
           "params": {
             "account": "string"
-          }
+          },
+          "returns_fields": [
+            "hedged",
+            "net_after_hedge"
+          ]
         },
         {
           "name": "no_action",

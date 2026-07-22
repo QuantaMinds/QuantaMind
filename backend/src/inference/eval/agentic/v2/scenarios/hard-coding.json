@@ -401,13 +401,19 @@
           "name": "run_profiler",
           "params": {
             "path": "string"
-          }
+          },
+          "returns_fields": [
+            "profile"
+          ]
         },
         {
           "name": "read_file",
           "params": {
             "path": "string"
-          }
+          },
+          "returns_fields": [
+            "source"
+          ]
         },
         {
           "name": "write_file",
@@ -551,25 +557,36 @@
           "name": "get_audit_log",
           "params": {
             "service": "string"
-          }
+          },
+          "returns_fields": [
+            "audit_log"
+          ]
         },
         {
           "name": "identify_credential",
           "params": {
             "anomaly": "string"
-          }
+          },
+          "returns_fields": [
+            "credential",
+            "basis"
+          ]
         },
         {
           "name": "blast_radius",
           "params": {
             "credential": "string"
-          }
+          },
+          "returns_fields": [
+            "blast_radius"
+          ]
         },
         {
           "name": "snapshot_forensics",
           "params": {
             "service": "string"
-          }
+          },
+          "returns_entity": false
         },
         {
           "name": "rotate_credential",

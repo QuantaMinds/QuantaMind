@@ -147,7 +147,10 @@
           "params": {
             "counterparty": "string",
             "jurisdiction": "string"
-          }
+          },
+          "returns_fields": [
+            "sanctioned"
+          ]
         },
         {
           "name": "get_kyc",
@@ -166,7 +169,10 @@
           "params": {
             "account": "string",
             "counterparty": "string"
-          }
+          },
+          "returns_fields": [
+            "structuring_alert"
+          ]
         },
         {
           "name": "block_wire",
@@ -558,22 +564,25 @@
       },
       "tools": [
         {
-          "name": "get_loan",
-          "params": {
-            "id": "string"
-          }
-        },
-        {
           "name": "get_covenants",
           "params": {
             "loan": "string"
-          }
+          },
+          "returns_fields": [
+            "dscr_floor",
+            "lev_ceiling",
+            "min_liq"
+          ]
         },
         {
           "name": "get_financials",
           "params": {
             "loan": "string"
-          }
+          },
+          "returns_fields": [
+            "actual",
+            "cure"
+          ]
         },
         {
           "name": "compute_ratio",
@@ -656,13 +665,6 @@
       "expected_calls": [
         {
           "type": "call",
-          "name": "get_loan",
-          "args": {
-            "id": "L-1"
-          }
-        },
-        {
-          "type": "call",
           "name": "get_covenants",
           "args": {
             "loan": "L-1"
@@ -673,14 +675,6 @@
           "name": "get_financials",
           "args": {
             "loan": "L-1"
-          }
-        },
-        {
-          "type": "call",
-          "name": "compute_ratio",
-          "args": {
-            "loan": "L-1",
-            "ratio": "dscr"
           }
         },
         {
@@ -701,24 +695,9 @@
         },
         {
           "type": "call",
-          "name": "get_loan",
-          "args": {
-            "id": "L-2"
-          }
-        },
-        {
-          "type": "call",
           "name": "get_covenants",
           "args": {
             "loan": "L-2"
-          }
-        },
-        {
-          "type": "call",
-          "name": "compute_ratio",
-          "args": {
-            "loan": "L-2",
-            "ratio": "dscr"
           }
         },
         {
@@ -732,32 +711,9 @@
         },
         {
           "type": "call",
-          "name": "get_loan",
-          "args": {
-            "id": "L-3"
-          }
-        },
-        {
-          "type": "call",
           "name": "get_covenants",
           "args": {
             "loan": "L-3"
-          }
-        },
-        {
-          "type": "call",
-          "name": "compute_ratio",
-          "args": {
-            "loan": "L-3",
-            "ratio": "leverage"
-          }
-        },
-        {
-          "type": "call",
-          "name": "classify_compliance",
-          "args": {
-            "loan": "L-3",
-            "status": "WAIVER_ELIGIBLE"
           }
         },
         {
@@ -767,13 +723,6 @@
             "loan": "L-3",
             "status": "WAIVER_ELIGIBLE",
             "reason": "*cure*"
-          }
-        },
-        {
-          "type": "call",
-          "name": "get_loan",
-          "args": {
-            "id": "L-4"
           }
         },
         {

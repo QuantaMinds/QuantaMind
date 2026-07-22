@@ -318,14 +318,18 @@
           "params": {
             "id": "string"
           },
-          "returns_fields": ["class"]
+          "returns_fields": [
+            "class"
+          ]
         },
         {
           "name": "check_sessions",
           "params": {
             "service": "string"
           },
-          "returns_fields": ["active_sessions"]
+          "returns_fields": [
+            "active_sessions"
+          ]
         },
         {
           "name": "rotate_now",
@@ -475,13 +479,19 @@
           "name": "get_incident",
           "params": {
             "id": "string"
-          }
+          },
+          "returns_fields": [
+            "sev"
+          ]
         },
         {
           "name": "get_feature_flag",
           "params": {
             "incident": "string"
-          }
+          },
+          "returns_fields": [
+            "flag"
+          ]
         },
         {
           "name": "flag_off",

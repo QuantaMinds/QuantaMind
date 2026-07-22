@@ -92,31 +92,46 @@
           "name": "get_dataset",
           "params": {
             "trial": "string"
-          }
+          },
+          "returns_fields": [
+            "dataset"
+          ]
         },
         {
           "name": "get_prereg",
           "params": {
             "trial": "string"
-          }
+          },
+          "returns_fields": [
+            "prereg"
+          ]
         },
         {
           "name": "test_normality",
           "params": {
             "endpoint": "string"
-          }
+          },
+          "returns_fields": [
+            "normal"
+          ]
         },
         {
           "name": "run_ttest",
           "params": {
             "endpoint": "string"
-          }
+          },
+          "returns_fields": [
+            "p_raw"
+          ]
         },
         {
           "name": "run_mann_whitney",
           "params": {
             "endpoint": "string"
-          }
+          },
+          "returns_fields": [
+            "p"
+          ]
         },
         {
           "name": "impute_missing",
@@ -138,7 +153,10 @@
           "params": {
             "trial": "string",
             "interim": "number"
-          }
+          },
+          "returns_fields": [
+            "alpha_boundary_interim_1"
+          ]
         },
         {
           "name": "decide_interim",
@@ -246,14 +264,6 @@
           "name": "test_normality",
           "args": {
             "endpoint": "endpoint_A"
-          }
-        },
-        {
-          "type": "call",
-          "name": "impute_missing",
-          "args": {
-            "endpoint": "endpoint_A",
-            "method": "multiple imputation"
           }
         },
         {
@@ -455,7 +465,11 @@
           "name": "get_dlt_data",
           "params": {
             "cohort": "string"
-          }
+          },
+          "returns_fields": [
+            "dlt",
+            "n"
+          ]
         },
         {
           "name": "fit_tox_model",
@@ -467,13 +481,21 @@
           "name": "compute_posterior",
           "params": {
             "cohort": "string"
-          }
+          },
+          "returns_fields": [
+            "p_tox",
+            "band",
+            "ceiling"
+          ]
         },
         {
           "name": "get_escalation_rule",
           "params": {
             "trial": "string"
-          }
+          },
+          "returns_fields": [
+            "escalation_rule"
+          ]
         },
         {
           "name": "escalate",
@@ -594,13 +616,6 @@
         },
         {
           "type": "call",
-          "name": "fit_tox_model",
-          "args": {
-            "cohort": "C1"
-          }
-        },
-        {
-          "type": "call",
           "name": "compute_posterior",
           "args": {
             "cohort": "C1"
@@ -638,13 +653,6 @@
         },
         {
           "type": "call",
-          "name": "fit_tox_model",
-          "args": {
-            "cohort": "C2"
-          }
-        },
-        {
-          "type": "call",
           "name": "compute_posterior",
           "args": {
             "cohort": "C2"
@@ -669,13 +677,6 @@
         {
           "type": "call",
           "name": "get_dlt_data",
-          "args": {
-            "cohort": "C3"
-          }
-        },
-        {
-          "type": "call",
-          "name": "fit_tox_model",
           "args": {
             "cohort": "C3"
           }

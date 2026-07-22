@@ -47,19 +47,28 @@
           "name": "get_account",
           "params": {
             "account": "string"
-          }
+          },
+          "returns_fields": [
+            "daily_cap"
+          ]
         },
         {
           "name": "get_kyc",
           "params": {
             "account": "string"
-          }
+          },
+          "returns_fields": [
+            "kyc"
+          ]
         },
         {
           "name": "get_daily_usage",
           "params": {
             "account": "string"
-          }
+          },
+          "returns_fields": [
+            "used_today"
+          ]
         },
         {
           "name": "transfer_funds",
@@ -254,19 +263,29 @@
           "name": "get_account",
           "params": {
             "id": "string"
-          }
+          },
+          "returns_fields": [
+            "interest"
+          ]
         },
         {
           "name": "get_residency",
           "params": {
             "id": "string"
-          }
+          },
+          "returns_fields": [
+            "residency",
+            "pan"
+          ]
         },
         {
           "name": "get_treaty_form",
           "params": {
             "id": "string"
-          }
+          },
+          "returns_fields": [
+            "treaty"
+          ]
         },
         {
           "name": "calc",
@@ -475,7 +494,11 @@
           "name": "get_dispute",
           "params": {
             "id": "string"
-          }
+          },
+          "returns_fields": [
+            "days",
+            "network"
+          ]
         },
         {
           "name": "get_network_window",
@@ -487,7 +510,10 @@
           "name": "check_merchant_attempt",
           "params": {
             "id": "string"
-          }
+          },
+          "returns_fields": [
+            "merchant_attempt"
+          ]
         },
         {
           "name": "file_chargeback",

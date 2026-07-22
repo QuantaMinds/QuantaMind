@@ -209,28 +209,31 @@
       },
       "tools": [
         {
-          "name": "get_request",
-          "params": {
-            "id": "string"
-          }
-        },
-        {
           "name": "get_governing_law",
           "params": {
             "id": "string"
-          }
+          },
+          "returns_fields": [
+            "law"
+          ]
         },
         {
           "name": "check_legal_hold",
           "params": {
             "id": "string"
-          }
+          },
+          "returns_fields": [
+            "legal_hold"
+          ]
         },
         {
           "name": "check_transaction_need",
           "params": {
             "id": "string"
-          }
+          },
+          "returns_fields": [
+            "active_txn"
+          ]
         },
         {
           "name": "erase_data",
@@ -267,13 +270,6 @@
       "expected_calls": [
         {
           "type": "call",
-          "name": "get_request",
-          "args": {
-            "id": "R-1"
-          }
-        },
-        {
-          "type": "call",
           "name": "get_governing_law",
           "args": {
             "id": "R-1"
@@ -295,13 +291,6 @@
         },
         {
           "type": "call",
-          "name": "get_request",
-          "args": {
-            "id": "R-2"
-          }
-        },
-        {
-          "type": "call",
           "name": "check_legal_hold",
           "args": {
             "id": "R-2"
@@ -313,13 +302,6 @@
           "args": {
             "id": "R-2",
             "citation": "*legal hold*"
-          }
-        },
-        {
-          "type": "call",
-          "name": "get_request",
-          "args": {
-            "id": "R-3"
           }
         },
         {
@@ -403,7 +385,10 @@
           "name": "get_agreement",
           "params": {
             "id": "string"
-          }
+          },
+          "returns_fields": [
+            "info"
+          ]
         },
         {
           "name": "classify_info_type",
@@ -415,7 +400,10 @@
           "name": "get_clause_term",
           "params": {
             "id": "string"
-          }
+          },
+          "returns_fields": [
+            "term"
+          ]
         },
         {
           "name": "record_finding",
@@ -452,13 +440,6 @@
         },
         {
           "type": "call",
-          "name": "classify_info_type",
-          "args": {
-            "id": "A-1"
-          }
-        },
-        {
-          "type": "call",
           "name": "record_finding",
           "args": {
             "id": "A-1",
@@ -468,13 +449,6 @@
         {
           "type": "call",
           "name": "get_agreement",
-          "args": {
-            "id": "A-2"
-          }
-        },
-        {
-          "type": "call",
-          "name": "classify_info_type",
           "args": {
             "id": "A-2"
           }
@@ -497,13 +471,6 @@
         {
           "type": "call",
           "name": "get_agreement",
-          "args": {
-            "id": "A-3"
-          }
-        },
-        {
-          "type": "call",
-          "name": "classify_info_type",
           "args": {
             "id": "A-3"
           }
@@ -568,7 +535,10 @@
           "name": "get_doc",
           "params": {
             "id": "string"
-          }
+          },
+          "returns_fields": [
+            "privilege"
+          ]
         },
         {
           "name": "classify_privilege",
@@ -580,7 +550,10 @@
           "name": "check_substantial_need",
           "params": {
             "id": "string"
-          }
+          },
+          "returns_fields": [
+            "substantial_need"
+          ]
         },
         {
           "name": "produce",
@@ -624,13 +597,6 @@
         },
         {
           "type": "call",
-          "name": "classify_privilege",
-          "args": {
-            "id": "D-1"
-          }
-        },
-        {
-          "type": "call",
           "name": "withhold_log",
           "args": {
             "id": "D-1",
@@ -640,13 +606,6 @@
         {
           "type": "call",
           "name": "get_doc",
-          "args": {
-            "id": "D-2"
-          }
-        },
-        {
-          "type": "call",
-          "name": "classify_privilege",
           "args": {
             "id": "D-2"
           }
@@ -669,13 +628,6 @@
         {
           "type": "call",
           "name": "get_doc",
-          "args": {
-            "id": "D-3"
-          }
-        },
-        {
-          "type": "call",
-          "name": "classify_privilege",
           "args": {
             "id": "D-3"
           }

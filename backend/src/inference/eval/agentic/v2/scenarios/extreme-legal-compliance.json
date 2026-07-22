@@ -107,20 +107,30 @@
           "name": "get_cohort",
           "params": {
             "id": "string"
-          }
+          },
+          "returns_fields": [
+            "regime",
+            "category"
+          ]
         },
         {
           "name": "get_regime_rule",
           "params": {
             "regime": "string",
             "field": "string"
-          }
+          },
+          "returns_fields": [
+            "deadline"
+          ]
         },
         {
           "name": "get_record_count",
           "params": {
             "cohort": "string"
-          }
+          },
+          "returns_fields": [
+            "records"
+          ]
         },
         {
           "name": "check_threshold",
@@ -128,7 +138,10 @@
             "regime": "string",
             "count": "number",
             "category": "string"
-          }
+          },
+          "returns_fields": [
+            "threshold"
+          ]
         },
         {
           "name": "draft_notice",
@@ -529,21 +542,33 @@
           "name": "get_local_turnover",
           "params": {
             "jurisdiction": "string"
-          }
+          },
+          "returns_fields": [
+            "turnover"
+          ]
         },
         {
           "name": "get_merger_rule",
           "params": {
             "jurisdiction": "string",
             "field": "string"
-          }
+          },
+          "returns_fields": [
+            "threshold",
+            "suspensory",
+            "wait_days",
+            "regime"
+          ]
         },
         {
           "name": "check_threshold",
           "params": {
             "jurisdiction": "string",
             "turnover": "number"
-          }
+          },
+          "returns_fields": [
+            "triggered"
+          ]
         },
         {
           "name": "prepare_filing",
