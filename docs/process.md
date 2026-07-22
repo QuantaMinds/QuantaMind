@@ -18,7 +18,7 @@ Locked decisions. Do not substitute. Alternatives go to
 | Styling | Tailwind CSS 3.x | Utility-first, no design-system overhead |
 | State management | Zustand | 1KB, no boilerplate, scales |
 | Editor component | `@monaco-editor/react` + bundled `monaco-editor` | Same editor as VS Code; `monaco-editor` is a direct dep so the editor is **self-hosted** (no jsDelivr CDN load) — offline-safe + strict-CSP-safe. |
-| HTTP client (Rust) | `reqwest` + `tokio` | Standard, battle-tested |
+| HTTP client (Rust) | `reqwest` (rustls, `rustls-tls-native-roots`) + `tokio` | Standard, battle-tested. rustls (not platform TLS) so the lean `qm` binary has no OpenSSL system dependency and can build static/musl; native-roots keeps the OS trust store for corporate CAs |
 | Serialization | `serde` + `serde_json` / native JSON | Type-safe across IPC |
 | Validation (TS) | `zod` | Runtime schema validation |
 | Validation (Rust) | `validator` + `serde` | Type-level + custom validators |

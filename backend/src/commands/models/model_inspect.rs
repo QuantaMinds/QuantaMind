@@ -1,9 +1,14 @@
+#[cfg(feature = "gui")]
 use crate::commands::storage::storage_disk;
+#[cfg(feature = "gui")]
 use crate::errors::AppError;
+#[cfg(feature = "gui")]
 use crate::inference::backend::backend_kind::BackendKind;
 use crate::inference::backend::endpoint;
+#[cfg(feature = "gui")]
 use crate::inference::gguf::gguf::inspect_gguf;
 use crate::inference::ollama::ollama_show::show_model;
+#[cfg(feature = "gui")]
 use crate::inference::vram_math::{kv_cache_bytes_at, KvPrecision};
 use serde::Serialize;
 
@@ -69,6 +74,7 @@ fn dims_from_model_info(info: &serde_json::Map<String, serde_json::Value>) -> Op
 /// the GGUF header is the authoritative source. `None` when the file isn't found or a
 /// required dimension is absent, so the ceiling meters say "Not available", never a guess.
 /// `head_count_kv` tolerates absence (defaults to `head_count`, flagged `kv_estimated`).
+#[cfg(feature = "gui")]
 fn gguf_dims(model: &str) -> Option<ModelDims> {
     let path = storage_disk::find_installed_gguf(model)?;
     dims_from_gguf_meta(&inspect_gguf(&path).ok()?)
@@ -77,6 +83,7 @@ fn gguf_dims(model: &str) -> Option<ModelDims> {
 /// Map GGUF header metadata to `ModelDims`. Pure (no file I/O) so the mapping unit-tests
 /// directly. `block_count`/`head_count`/`embedding_length` are required → `None` if any is
 /// absent; `head_count_kv` tolerates absence (defaults to `head_count`, flags `kv_estimated`).
+#[cfg(feature = "gui")]
 fn dims_from_gguf_meta(m: &crate::inference::gguf::gguf::GgufMetadata) -> Option<ModelDims> {
     let head_count = m.head_count?;
     Some(ModelDims {
@@ -116,6 +123,7 @@ pub fn classify_base(template: &str, capabilities: &[String]) -> (bool, Option<S
 /// Inspect an installed model (Ollama `/api/show`): chat template, capabilities,
 /// and an advisory base-model guess. Non-Ollama backends return `available:
 /// false` — the template/capabilities live in Ollama's metadata only.
+#[cfg(feature = "gui")]
 #[tauri::command]
 pub async fn inspect_model(
     model: String,
@@ -166,6 +174,7 @@ pub async fn fetch_dims(model: &str) -> Option<ModelDims> {
 /// one source of truth (the dims come from `inspect_model`). `precision` is the
 /// cache storage type (`"f16"` / `"q8_0"` / `"q4_0"`); absent or unknown falls
 /// back to f16 — the conservative baseline every pre-existing caller assumed.
+#[cfg(feature = "gui")]
 #[tauri::command]
 pub fn estimate_kv_cache_bytes(
     layers: u64,
@@ -186,6 +195,7 @@ pub fn estimate_kv_cache_bytes(
 /// machine's MEASURED Metal working-set limit (from the hardware snapshot's `GpuInfo`) on
 /// Apple Silicon, `None` elsewhere; the ceilings budget against it so "fits" means fits on
 /// the GPU. Omitting it falls back to the total-RAM heuristic (unchanged legacy behavior).
+#[cfg(feature = "gui")]
 #[tauri::command]
 pub fn context_ceilings(
     layers: u64,

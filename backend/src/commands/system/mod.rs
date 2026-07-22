@@ -1,8 +1,14 @@
+#[cfg(feature = "gui")]
 pub mod gpu;
+#[cfg(feature = "gui")]
 pub mod hardware;
+#[cfg(feature = "gui")]
 pub mod hardware_mem;
 pub mod health;
+#[cfg(feature = "gui")]
 pub mod loaded_models;
+#[cfg(feature = "gui")]
 pub mod onboarding;
+#[cfg(feature = "gui")]
 pub mod os_info;
 pub mod process_memory;

@@ -1,4 +1,5 @@
 use crate::commands::system::health::HealthStatus;
+#[cfg(feature = "gui")]
 use crate::inference::backend::remote_config;
 use crate::inference::backend::remote_guard::credential_allowed;
 use reqwest::Client;
@@ -156,24 +157,28 @@ pub async fn remote_health(endpoint: &str, api_key: Option<&str>) -> HealthStatu
     }
 }
 
+#[cfg(feature = "gui")]
 #[tauri::command]
 pub async fn check_vllm_health() -> HealthStatus {
     let ep = remote_config::vllm();
     remote_health(&ep.url.unwrap_or_default(), ep.api_key.as_deref()).await
 }
 
+#[cfg(feature = "gui")]
 #[tauri::command]
 pub async fn check_sglang_health() -> HealthStatus {
     let ep = remote_config::sglang();
     remote_health(&ep.url.unwrap_or_default(), ep.api_key.as_deref()).await
 }
 
+#[cfg(feature = "gui")]
 #[tauri::command]
 pub async fn check_vllm_credential() -> RemoteAuthReport {
     let ep = remote_config::vllm();
     probe_remote_credential(&ep.url.unwrap_or_default(), ep.api_key.as_deref()).await
 }
 
+#[cfg(feature = "gui")]
 #[tauri::command]
 pub async fn check_sglang_credential() -> RemoteAuthReport {
     let ep = remote_config::sglang();

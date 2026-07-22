@@ -15,30 +15,65 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 # The headless `qm` CLI — a thin bin on the existing crate (ADR 0001: single crate,
 # no workspace). Shares the eval/inference engine verbatim via `quantamind_lib`.
+# Builds lean with `--no-default-features` (no Tauri/GUI deps) so release
+# binaries run on servers without webkit/GTK — see the `gui` feature below.
 [[bin]]
 name = "qm"
 path = "src/bin/qm/main.rs"
 
+# The desktop app. `required-features = ["gui"]` makes cargo skip this bin
+# entirely in a `--no-default-features` (headless CLI) build.
+[[bin]]
+name = "quantamind"
+path = "src/main.rs"
+required-features = ["gui"]
+
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "2", features = [], optional = true }
 
 [features]
+# The desktop app (Tauri + webview + audio capture). ON by default so
+# `pnpm tauri dev` / `cargo build` behave exactly as before. The headless `qm`
+# CLI is built with `--no-default-features`, which drops the entire GUI
+# dependency tree (webkit/GTK/ALSA on Linux) — the seam release binaries ship
+# through. GUI-only modules are gated with `#[cfg(feature = "gui")]`.
+default = ["gui"]
+gui = [
+  "dep:tauri",
+  "dep:tauri-plugin-dialog",
+  "dep:tauri-plugin-process",
+  "dep:tauri-plugin-shell",
+  "dep:tauri-plugin-updater",
+  "dep:tauri-build",
+  # Audio capture/decode + GPU probe — used only by GUI-gated modules; keeping
+  # them out of the lean build removes the Linux ALSA build-time dependency.
+  "dep:cpal",
+  "dep:hound",
+  "dep:rubato",
+  "dep:symphonia",
+  "dep:webrtc-vad",
+  "dep:metal",
+]
 # Enterprise/air-gapped build: compile OUT the entire publish/auth surface
 # (commands/publish/{auth,preview_cmd,publish_cmd,cohort}). The offline share
 # export (commands/publish/export_cmd) stays IN every build.
 enterprise = []
 
 [dependencies]
-tauri = { version = "2", features = [] }
-tauri-plugin-dialog = "2"
-tauri-plugin-process = "2"
-tauri-plugin-shell = "2"
-tauri-plugin-updater = "2"
+tauri = { version = "2", features = [], optional = true }
+tauri-plugin-dialog = { version = "2", optional = true }
+tauri-plugin-process = { version = "2", optional = true }
+tauri-plugin-shell = { version = "2", optional = true }
+tauri-plugin-updater = { version = "2", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
 thiserror = "2"
-reqwest = { version = "0.12", features = ["json", "multipart", "stream"] }
+# rustls instead of the platform TLS: no OpenSSL system dependency (the lean CLI
+# binary must run on bare servers/containers) and a path to static musl builds.
+# `rustls-tls-native-roots` keeps the OS trust store, so corporate/custom CAs
+# that worked with native TLS keep working.
+reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "stream", "rustls-tls-native-roots"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "fs", "io-util", "signal"] }
 tokio-util = { version = "0.7", features = ["io"] }
 futures-util = "0.3"
@@ -52,13 +87,13 @@ bytes = "1"
 keyring = { version = "3", features = ["apple-native", "windows-native"] }
 # PKCE S256 challenge encoding (publish auth; out of enterprise builds).
 base64 = "0.22"
-hound = "3"
-rubato = "0.16"
-symphonia = { version = "0.5", default-features = false, features = ["mp3", "pcm", "wav"] }
-cpal = "0.15"
+hound = { version = "3", optional = true }
+rubato = { version = "0.16", optional = true }
+symphonia = { version = "0.5", default-features = false, features = ["mp3", "pcm", "wav"], optional = true }
+cpal = { version = "0.15", optional = true }
 # Independent, deterministic (non-ML) voice-activity detection for the STT
 # silence-hallucination metric — never the model under test (anti-circularity).
-webrtc-vad = "0.4"
+webrtc-vad = { version = "0.4", optional = true }
 # Per-user data / config directory resolution (platform::user_dirs) — resolves
 # to %LOCALAPPDATA%\QuantaMind on Windows, ~/.quantamind on Unix.
 dirs = "6"
@@ -77,7 +112,7 @@ windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Cons
 # The context-ceiling meters budget against THIS, not total RAM, so "fits in memory"
 # reflects what actually fits on the GPU.
 [target.'cfg(target_os = "macos")'.dependencies]
-metal = "0.33"
+metal = { version = "0.33", optional = true }
 
 [dev-dependencies]
 mockito = "1"

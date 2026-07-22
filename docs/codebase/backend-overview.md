@@ -35,6 +35,14 @@ progress via `log_emit`, timestamp with `now_utc`, and recover poisoned locks
 with `lock_recover`. The spine knows nothing about any feature's internals — it
 only knows the *shape* of the contract.
 
+**The `gui` feature seam.** The whole spine above is gated behind the default-on
+`gui` cargo feature: `lib.rs::run`, the command table, and every GUI-only
+`commands/` module compile out of a `--no-default-features` build, which is how
+the headless `qm` CLI ships as a lean binary (no Tauri/webkit linkage). The six
+command modules the CLI reaches (`eval`, `mcp`, `models`, `prompt`, `remote`,
+`system`) stay compiled with their `#[tauri::command]` wrappers gated
+item-by-item. Rules + patterns: `docs/architecture.md#the-gui-feature-seam-headless-cli-build`.
+
 ---
 
 ## The IPC contract
