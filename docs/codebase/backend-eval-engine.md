@@ -1230,9 +1230,9 @@ let (source, native_fc) = match native {
 
 ## Folder: `inference/eval/batch.rs`
 
-The umbrella **batch dispatcher**: one model at a time, one task at a time, mixing
-single-turn and agentic tasks, with VRAM isolation between models and durable
-crash-resume.
+The umbrella **batch dispatcher**: one model at a time; **within a model, up to
+`eval_concurrency` tasks at once (default 1 = serial)**, mixing single-turn and
+agentic tasks, with VRAM isolation between models and durable crash-resume.
 
 - **Key types:** `TaskOutcome::{Single{passed,trace}, Agentic{report}, Error{message}}`;
   `CompletedUnit{model, task_id, category, outcome, is_native}` (the durable
@@ -1257,6 +1257,16 @@ crash-resume.
   every run errors is COUNTED into `tasks_errored` + classified, never silently dropped;
   an all-errored pass still emits a column, which `inputs.rs` filters on `total_runs>0`
   so it never pollutes the verdict), `batch_summaries`, `agg_agentic`.
+- **Task concurrency (`eval_concurrency`, PR2 scaffolding):** the inner task loop in both
+  `run_batch_resumable` and `run_native_fc_pass` runs the per-task model call under
+  `futures_util::stream::…buffered(concurrency)` — bounded-concurrent COMPUTE feeding a serial,
+  **task-index-ordered COMMIT** (`record` / `sink.task_done` / aggregation). Because `.buffered`
+  yields in input order, **N=1 is byte-identical to the prior serial loop** (same report, same
+  record append order, same sink event order); N>1 still commits deterministically. Models stay
+  strictly sequential across the outer loop (VRAM isolation); pass^k stays serial within a task.
+  The per-task wall-clock backstop scales with N (`scaled_task_budget(k, is_thinking, concurrency)`
+  = `task_budget × N`) since N concurrent tasks inflate each task's wall-clock ~N×. `None`/`0`/`1`
+  all resolve to serial. Surfacing the knob (CLI `--parallel`, backend gating) is deferred to PR4.
 - **Pass selection + order (`run_passes`, batch_cmd):** the UI picks the calling method(s) —
   `RunConfig.native` (Tool-Calling) and/or `RunConfig.prompt` (Prompt-based), at least one
   (Tool-Calling is the default; `prompt` defaults true for back-compat on resumed job logs). The

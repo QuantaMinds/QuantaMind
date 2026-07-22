@@ -193,6 +193,7 @@ async fn native_fc_pass_aggregates_into_the_column_for_supported_models_only() {
         &|_| {},
         &NoVramGate,
         sink.clone(),
+        1,
     )
     .await
     .unwrap();
@@ -252,6 +253,7 @@ async fn native_errored_tasks_are_counted_and_labeled_not_silently_dropped() {
         &|_| {},
         &NoVramGate,
         sink.clone(),
+        1,
     )
     .await
     .unwrap();
@@ -330,7 +332,7 @@ async fn resume_folds_a_completed_unit_without_re_running_or_re_emitting() {
 
     let report = run_batch_resumable(
         "c", &targets, &tasks, CancellationToken::new(), sink.clone(), failing_turn,
-        &prior, &|_| {}, &NoVramGate,
+        &prior, &|_| {}, &NoVramGate, 1,
     )
     .await
     .unwrap();
@@ -367,7 +369,7 @@ async fn vram_gate_error_halts_the_run_with_records_already_appended() {
 
     let result = run_batch_resumable(
         "c", &targets, &tasks, CancellationToken::new(), sink, make_turn,
-        &[], &record, &FailingGate,
+        &[], &record, &FailingGate, 1,
     )
     .await;
 
@@ -388,6 +390,224 @@ async fn cancellation_stops_the_queue_early() {
 
     assert_eq!(*sink.done.lock().unwrap(), 0);
     assert_eq!(report.columns.len(), 1); // the column is still emitted (empty)
+}
+
+// ── PR2: task-within-a-model concurrency scaffolding (default N=1 byte-identical) ──────────
+// The concurrent inner task loop runs compute under bounded concurrency but COMMITS in
+// task-index order (`futures_util::stream::iter(..).buffered(concurrency)` yields in input
+// order). N=1 MUST be byte-identical to the current serial dispatcher; N>1 must yield the
+// SAME report (commit order independent of completion order), fold prior units in-slot, and
+// honor cancellation. Models still run STRICTLY SEQUENTIALLY across the outer target loop —
+// concurrency is ONLY the inner task loop.
+
+/// A single-turn mock whose successive `run()` calls sleep DECREASING amounts (via a shared
+/// counter): the first-launched task finishes LAST, the last-launched finishes FIRST. So the
+/// completion order is REVERSED vs the task-index order — a correct `.buffered(concurrency)`
+/// commit is unaffected (it yields in input order); a completion-order commit would be caught.
+struct StaggeredModel {
+    seq: Arc<std::sync::atomic::AtomicUsize>,
+    total: usize,
+}
+impl ModelTurn for StaggeredModel {
+    async fn run(&self, _s: &GenerateSpec, _p: &Progress) -> AppResult<(String, GenerateStats)> {
+        let i = self.seq.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        // Higher launch index → shorter sleep → earlier completion (reversed vs index order).
+        let ms = (self.total.saturating_sub(i) as u64) * 15;
+        tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+        Ok((r#"{"name":"ping","args":{}}"#.into(), GenerateStats { eval_count: Some(5), prompt_eval_count: Some(3), ..Default::default() }))
+    }
+}
+
+// Gate 1 — N=1 byte-identical: a mixed batch (single + agentic, ≥3 tasks) at concurrency=1
+// yields a BatchReport EQUAL to the same batch through the current serial path. The columns
+// carry only order-independent aggregates (no per-run wall_ms), so equality is deterministic.
+#[tokio::test]
+async fn n1_is_byte_identical_to_the_serial_dispatcher() {
+    let targets = vec![target("m1")];
+    let tasks = vec![single_task("s0"), agentic_task("a1", 3), single_task("s2")];
+    let serial =
+        run_batch("c", &targets, &tasks, CancellationToken::new(), Arc::new(CountingSink::default()), make_turn)
+            .await
+            .unwrap();
+    let n1 = run_batch_resumable(
+        "c", &targets, &tasks, CancellationToken::new(), Arc::new(CountingSink::default()), make_turn,
+        &[], &|_| {}, &NoVramGate, 1,
+    )
+    .await
+    .unwrap();
+    assert_eq!(serial, n1, "concurrency=1 MUST be byte-identical to the current serial dispatcher");
+}
+
+// Gate 3 — record append order at N=1: `record` fires exactly once per non-folded task, in
+// task order (the durable append order is what a resume replays).
+#[tokio::test]
+async fn n1_records_once_per_task_in_task_index_order() {
+    let targets = vec![target("m1")];
+    let tasks: Vec<ToolTask> = (0..3).map(|i| single_task(&format!("t{i}"))).collect();
+    let rec: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let r = rec.clone();
+    let record = move |u: &CompletedUnit| r.lock().unwrap().push(u.task_id.clone());
+    run_batch_resumable(
+        "c", &targets, &tasks, CancellationToken::new(), Arc::new(CountingSink::default()), make_turn,
+        &[], &record, &NoVramGate, 1,
+    )
+    .await
+    .unwrap();
+    assert_eq!(*rec.lock().unwrap(), vec!["t0", "t1", "t2"], "N=1 records exactly once per task, in task order");
+}
+
+// Gate 2 — N=3 order-deterministic: the SAME batch at concurrency=3 EQUALS the N=1 report, and
+// the durable `record` append order is task-INDEX order despite REVERSED completion (the
+// staggered mock finishes higher indices first). Proves the commit is index-ordered, not
+// completion-ordered.
+#[tokio::test]
+async fn n3_equals_n1_and_commits_in_index_order_despite_reversed_completion() {
+    let targets = vec![target("m1")];
+    let tasks: Vec<ToolTask> = (0..4).map(|i| single_task(&format!("t{i}"))).collect();
+    let seq = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let total = tasks.len();
+    let s = seq.clone();
+    let make = move |_t: &ModelTarget| StaggeredModel { seq: s.clone(), total };
+
+    let rec1: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let r1 = rec1.clone();
+    let record1 = move |u: &CompletedUnit| r1.lock().unwrap().push(u.task_id.clone());
+    let n1 = run_batch_resumable(
+        "c", &targets, &tasks, CancellationToken::new(), Arc::new(CountingSink::default()), &make,
+        &[], &record1, &NoVramGate, 1,
+    )
+    .await
+    .unwrap();
+
+    seq.store(0, std::sync::atomic::Ordering::SeqCst); // reset for the concurrent run
+    let rec3: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let r3 = rec3.clone();
+    let record3 = move |u: &CompletedUnit| r3.lock().unwrap().push(u.task_id.clone());
+    let n3 = run_batch_resumable(
+        "c", &targets, &tasks, CancellationToken::new(), Arc::new(CountingSink::default()), &make,
+        &[], &record3, &NoVramGate, 3,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(n1, n3, "N=3 must yield the SAME report as N=1 (aggregates are commit-order independent)");
+    let expected: Vec<String> = (0..4).map(|i| format!("t{i}")).collect();
+    assert_eq!(
+        *rec3.lock().unwrap(),
+        expected,
+        "record must append in task-index order under concurrency, despite reversed completion",
+    );
+}
+
+/// Tracks the PEAK number of `run()` calls in flight at once — the DIRECT proof that the
+/// dispatcher genuinely runs tasks concurrently. A serial loop (or a `concurrency` param that's
+/// accepted but never used to dispatch — the exact defect this PR's review round caught) peaks at
+/// 1; `.buffered(3)` over ≥3 tasks peaks at 3. This is the one guard the other PR2 gates can't be:
+/// index-ordered commit and record order are satisfied by a purely serial impl too.
+struct OverlapModel {
+    in_flight: Arc<std::sync::atomic::AtomicUsize>,
+    peak: Arc<std::sync::atomic::AtomicUsize>,
+}
+impl ModelTurn for OverlapModel {
+    async fn run(&self, _s: &GenerateSpec, _p: &Progress) -> AppResult<(String, GenerateStats)> {
+        use std::sync::atomic::Ordering::SeqCst;
+        let now = self.in_flight.fetch_add(1, SeqCst) + 1;
+        self.peak.fetch_max(now, SeqCst);
+        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+        self.in_flight.fetch_sub(1, SeqCst);
+        Ok((r#"{"name":"ping","args":{}}"#.into(), GenerateStats { eval_count: Some(5), prompt_eval_count: Some(3), ..Default::default() }))
+    }
+}
+
+// The regression guard for the "knob plumbed but never dispatched" defect: at concurrency=3 over 4
+// tasks the dispatcher must actually overlap execution (peak in-flight = 3). `.buffered(3)` eagerly
+// polls all 3 buffered futures to their first `.await` before any completes, so the peak is
+// deterministic, not timing-dependent. A serial dispatch peaks at 1 and fails here.
+#[tokio::test]
+async fn n3_actually_overlaps_execution_not_serial_with_the_knob_ignored() {
+    let targets = vec![target("m1")];
+    let tasks: Vec<ToolTask> = (0..4).map(|i| single_task(&format!("t{i}"))).collect();
+    let peak = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let in_flight = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let (p, f) = (peak.clone(), in_flight.clone());
+    let make = move |_t: &ModelTarget| OverlapModel { in_flight: f.clone(), peak: p.clone() };
+    run_batch_resumable(
+        "c", &targets, &tasks, CancellationToken::new(), Arc::new(CountingSink::default()), &make,
+        &[], &|_| {}, &NoVramGate, 3,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        peak.load(std::sync::atomic::Ordering::SeqCst),
+        3,
+        "concurrency=3 over 4 tasks must run 3 at once — a serial dispatch (knob accepted but ignored) peaks at 1",
+    );
+}
+
+// Gate 4 — cancellation under concurrency: a pre-cancelled token launches NO task and returns a
+// coherent partial report (the column is still emitted), no panic.
+#[tokio::test]
+async fn cancellation_under_concurrency_returns_a_coherent_partial() {
+    let targets = vec![target("m1")];
+    let tasks: Vec<ToolTask> = (0..5).map(|i| single_task(&format!("t{i}"))).collect();
+    let sink = Arc::new(CountingSink::default());
+    let cancel = CancellationToken::new();
+    cancel.cancel(); // pre-cancelled → the concurrent driver must launch nothing
+
+    let report = run_batch_resumable(
+        "c", &targets, &tasks, cancel, sink.clone(), make_turn, &[], &|_| {}, &NoVramGate, 3,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(*sink.done.lock().unwrap(), 0, "no task committed under a pre-cancelled token");
+    assert_eq!(report.columns.len(), 1, "the column is still emitted (coherent partial) — never a panic");
+}
+
+// Gate 5 — resume fold under concurrency: a prior unit for task[1] is folded (no re-run) and
+// lands in its slot at concurrency=3; the folded slot skips `record`, the ran slots append in
+// index order. The live turn would FAIL every task (wrong tool), so a credited pass can ONLY
+// come from the fold.
+#[tokio::test]
+async fn resume_fold_lands_in_slot_under_concurrency_without_re_running() {
+    let targets = vec![target("m1")];
+    let tasks = vec![agentic_task("a0", 1), agentic_task("a1", 1), agentic_task("a2", 1)];
+    let prior = vec![completed_agentic("m1", "a1", 1)]; // a1 already passed
+    let failing = |_t: &ModelTarget| ScriptedModel { reply: r#"{"name":"wrong","args":{}}"#.into() };
+    let rec: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let r = rec.clone();
+    let record = move |u: &CompletedUnit| r.lock().unwrap().push(u.task_id.clone());
+
+    let report = run_batch_resumable(
+        "c", &targets, &tasks, CancellationToken::new(), Arc::new(CountingSink::default()), failing,
+        &prior, &record, &NoVramGate, 3,
+    )
+    .await
+    .unwrap();
+
+    let agg = report.columns[0].agentic.as_ref().unwrap();
+    assert_eq!(agg.tasks_passed, 1, "only the folded prior pass is credited — the two live runs failed");
+    assert_eq!(agg.tasks_total, 3);
+    assert_eq!(
+        *rec.lock().unwrap(),
+        vec!["a0", "a2"],
+        "the folded slot (a1) is skipped by record; the ran slots append in index order",
+    );
+}
+
+// Gate 6 — budget scale-by-N: the whole-batch wall-clock backstop is N× the serial per-task
+// budget (each of N concurrent tasks inflates wall-clock ~N×). `scale.max(1)` so N=0 is serial.
+#[test]
+fn budget_scales_by_concurrency_over_the_unscaled_per_task_budget() {
+    use crate::inference::eval::agentic::runner::scaled_task_budget;
+    let base = scaled_task_budget(16, false, 1);
+    assert_eq!(scaled_task_budget(16, false, 3), base * 3, "N=3 → 3× the per-task wall-clock budget");
+    assert_eq!(
+        scaled_task_budget(16, true, 4),
+        scaled_task_budget(16, true, 1) * 4,
+        "scales for a thinking model too",
+    );
+    assert_eq!(scaled_task_budget(16, false, 0), base, "scale.max(1): N=0 behaves as serial, never a zero budget");
 }
 
 // ── Pass^k aggregation: a task is credited only when ALL k runs pass (spec §3.3) ──
@@ -658,6 +878,7 @@ async fn live_diag_app_native_pass_for_gemma4() {
         &|_| {},
         &NoVramGate,
         sink.clone(),
+        1,
     )
     .await
     .unwrap();
@@ -936,7 +1157,7 @@ async fn schema_resil_live_none_iff_zero_schema_errors() {
     };
     run_native_fc_pass(
         &mut report, &tasks, &supported, CancellationToken::new(),
-        make_native, &[], &|_| {}, &NoVramGate, sink.clone(),
+        make_native, &[], &|_| {}, &NoVramGate, sink.clone(), 1,
     )
     .await
     .unwrap();

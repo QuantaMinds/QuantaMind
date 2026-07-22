@@ -281,6 +281,7 @@ pub async fn run_batch_eval(
     decoy_tools: Option<u32>,
     run_prompt_based: Option<bool>,
     think_preset: Option<ThinkPreset>,
+    eval_concurrency: Option<usize>,
 ) -> Result<BatchReport, AppError> {
     validate_tasks(&tasks)?;
     if let Some(p) = &params {
@@ -301,6 +302,9 @@ pub async fn run_batch_eval(
         tier,
         decoy_tools,
         think_preset: think_preset.unwrap_or_default(),
+        // PR2: the inner task-concurrency knob. `None` (default) → serial (N=1), byte-identical to
+        // the pre-concurrency dispatcher. Not surfaced to qm users yet (PR4 owns --parallel).
+        eval_concurrency,
     };
     // Start a fresh job log (header only) — a leftover log means an interrupted run.
     queue::create(&queue::run_path(&jobs_dir(&app)?, &collection_id), &config)?;
@@ -328,6 +332,10 @@ pub(crate) async fn run_passes(
         *g = Some(cancel.clone());
     }
     let tasks = apply_overrides(config.tasks.clone(), config.k, config.max_steps, config.tier, config.decoy_tools);
+    // Inner task-concurrency (PR2): `None`/`0`/`1` all resolve to serial. Threaded into both
+    // dispatchers AND used as the per-task `budget_scale` (an N-task batch inflates each task's
+    // wall-clock ~N×, so the backstop scales by N).
+    let concurrency = config.eval_concurrency.unwrap_or(1).max(1);
     let transcripts_dir = match transcripts_dir(app) {
         Ok(d) => Some(d),
         Err(e) => {
@@ -424,6 +432,7 @@ pub(crate) async fn run_passes(
             &record,
             &OllamaVramGate,
             sink.clone(),
+            concurrency,
         )
         .await?; // a gate Err halts; per-task run errors are swallowed inside
         // Surface the native column right away — but ONLY as an INTERMEDIATE complete when the
@@ -509,6 +518,7 @@ pub(crate) async fn run_passes(
             prior,
             &record,
             &OllamaVramGate,
+            concurrency,
         )
         .await?
     } else {

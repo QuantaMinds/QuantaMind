@@ -211,7 +211,7 @@ pub async fn run_agentic<M: ModelTurn>(
 ) -> AppResult<AgenticReport> {
     // Non-generated tasks reuse one sandbox for every run (a constant factory).
     let never = CancellationToken::new();
-    run_agentic_with(turn, config.k, |_| Ok((sandbox.clone(), config.max_steps, config.max_recovery)), &never, tx)
+    run_agentic_with(turn, config.k, |_| Ok((sandbox.clone(), config.max_steps, config.max_recovery)), &never, 1, tx)
         .await
 }
 
@@ -226,13 +226,14 @@ pub async fn run_agentic_with<M, F>(
     k: u32,
     make: F,
     cancel: &CancellationToken,
+    budget_scale: usize,
     tx: &UnboundedSender<TrajectoryStep>,
 ) -> AppResult<AgenticReport>
 where
     M: ModelTurn,
     F: Fn(u32) -> AppResult<(DeterministicSandbox, u32, u8)>,
 {
-    run_agentic_within(turn, k, make, cancel, task_budget(k, turn.is_thinking()), tx).await
+    run_agentic_within(turn, k, make, cancel, scaled_task_budget(k, turn.is_thinking(), budget_scale), tx).await
 }
 
 /// Per-RUN wall-clock allotment, multiplied by `k` to get the whole-batch budget
@@ -264,6 +265,15 @@ const THINKING_BUDGET_MULTIPLIER: u32 = 3;
 fn task_budget(k: u32, is_thinking: bool) -> std::time::Duration {
     let per_run = if is_thinking { PER_RUN_BUDGET * THINKING_BUDGET_MULTIPLIER } else { PER_RUN_BUDGET };
     per_run * k.max(1)
+}
+
+/// The whole-batch budget scaled by the inner task-concurrency N (#153): under N tasks running
+/// at once, each task's wall-clock inflates ~N×, so the backstop must scale by the CONFIGURED N.
+/// It's a ceiling — over-granting near the tail is safe (the PR1 stall watchdog still catches a
+/// true hang) — so `scale` is clamped up to 1 (N=0/1 → the unscaled per-task budget, byte-identical
+/// to the pre-concurrency behavior).
+pub(crate) fn scaled_task_budget(k: u32, is_thinking: bool, scale: usize) -> std::time::Duration {
+    task_budget(k, is_thinking) * scale.max(1) as u32
 }
 
 /// `run_agentic_with` with an injectable wall-clock budget (so the truncation path is
