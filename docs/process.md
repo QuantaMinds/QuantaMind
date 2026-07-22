@@ -670,8 +670,10 @@ crate (ADR 0001 — a `[[bin]]`, not a workspace split), reusing the eval engine
   file on `run`/`test` too. Live-verified: same run → Ready @ 0.6 bar, NotReady @ 0.9 bar.
 - **`qm cliff`: shipped** — the Context Stress Test headless (`cli/cliff.rs` wrapping the same
   Tauri-free `cliff::engine` the Audit tab drives; greedy, prompt-based; exit 0 no-cliff / 10
-  collapsed / 11 inconclusive / 20 broken). Plus interactive pickers for `--collection` (27
-  built-ins listed with tier/domain) and `--thinking` (lean/standard/deep) — TTY only, CI never
+  collapsed / 11 inconclusive / 20 broken). Plus interactive pickers for `--collection` (the 12
+  offered built-ins listed with tier/domain — three domains per tier; unlisted fixture and
+  Category K collections are still accepted by id) and
+  `--thinking` (lean/standard/deep) — TTY only, CI never
   prompts. The in-app Docs → Reference page now documents every CLI command with full syntax,
   mapped to the page each mirrors (Workspace⇄doctor/init, Tests⇄run/test, Audit⇄cliff, Agent
   Report⇄report).

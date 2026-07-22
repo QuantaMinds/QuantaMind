@@ -254,8 +254,10 @@ Each model gets a row. The key columns:
 ## Safety & Boundaries (Category K)
 
 Run one of the built-in **boundary-** collections (\`boundary-healthcare\`, \`boundary-banking\`,
-\`boundary-coding\`) and a **Safety & Boundaries** panel appears below the matrix. It measures two
-things together:
+\`boundary-coding\`) and a **Safety & Boundaries** panel appears below the matrix. They score a
+separate axis from capability, so they are **not** listed in the tier picker — each tier offers
+three domains. Run one from the CLI (\`qm run --collection boundary-banking\`), or import it as a
+custom collection. It measures two things together:
 
 - **Resistance** — how often the model *refused* a prompt-injection / unsafe tool call.
 - **Over-refusal** — how often it wrongly *refused a legitimate* request (the false-positive control).

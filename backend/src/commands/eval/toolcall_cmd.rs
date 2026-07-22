@@ -3,7 +3,7 @@ use crate::errors::AppError;
 use crate::inference::backend::backend_kind::BackendKind;
 use crate::inference::backend::endpoint;
 use crate::persistence::prompts::schema::InferenceParams;
-use crate::inference::eval::agentic::v2::scenarios::{v2_header, V2_SCENARIOS};
+use crate::inference::eval::agentic::v2::scenarios::{is_curated, v2_header, V2_SCENARIOS};
 use crate::inference::eval::toolcall::eval::{run_eval_traced, trace_one, ToolCallReport, TraceResult};
 use crate::inference::eval::toolcall::tasks::{builtin_collection, validate_tasks, ToolTask};
 use crate::persistence::eval_trace_store;
@@ -45,13 +45,19 @@ fn humanize(s: &str) -> String {
         .join(" ")
 }
 
-/// The bundled v2 tiered scenario collections for the dataset picker. The runner is
-/// still handed a `Vec<ToolTask>` via `get_builtin_collection`.
+/// The v2 scenario collections OFFERED in the dataset picker: the curated three
+/// domains per tier (`is_curated`). The rest of `V2_SCENARIOS` stays bundled and
+/// loadable by id — it just isn't listed, so a tier shows three choices instead of a
+/// dozen. Single choke point: the app's pickers, the `qm` CLI picker, and the
+/// readiness sibling merge all read this.
 #[tauri::command]
 pub fn list_builtin_collections() -> Vec<BuiltinCollectionInfo> {
     V2_SCENARIOS
         .iter()
         .filter_map(|(id, json)| {
+            if !is_curated(id) {
+                return None;
+            }
             let h = v2_header(json)?;
             let tier = h.tier.to_lowercase();
             // Short domain label = id with the leading "<tier>-" stripped, humanized.
@@ -131,4 +137,42 @@ pub async fn trace_toolcall_task(
     validate_tasks(std::slice::from_ref(&task))?;
     let backend = backend.unwrap_or_default();
     trace_one(backend, &endpoint_for(backend), &model, &task, None).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    /// What the pickers actually receive: twelve collections, three per tier — never a
+    /// fixture-only one (fs / web-UI / corpus / noise) and never a Category K probe,
+    /// which stay bundled for the engine tests and the CLI but must not be offered.
+    #[test]
+    fn the_picker_lists_exactly_three_collections_per_tier() {
+        let infos = list_builtin_collections();
+        let mut per_tier: HashMap<&str, usize> = HashMap::new();
+        for i in &infos {
+            *per_tier.entry(i.tier.as_str()).or_default() += 1;
+        }
+        for tier in ["easy", "medium", "hard", "extreme"] {
+            assert_eq!(per_tier.get(tier).copied().unwrap_or(0), 3, "tier '{tier}' should offer 3 collections");
+        }
+        assert_eq!(infos.len(), 12);
+        for hidden in ["easy-coding-fs", "easy-webui-tasks", "easy-research-search", "noisy-extraction", "boundary-banking", "boundary-context-squeeze"] {
+            assert!(!infos.iter().any(|i| i.id == hidden), "unlisted '{hidden}' must not be offered");
+            // ...but it stays LOADABLE by id, so `qm run --collection <id>` and any saved
+            // run still work — hidden from the picker is not removed from the engine.
+            assert!(get_builtin_collection(hidden.to_string()).is_ok(), "unlisted '{hidden}' must still load by id");
+        }
+    }
+
+    /// Labels stay domain-only (the tier prefix is stripped), so a tier group reads as
+    /// three domains rather than three near-identical ids.
+    #[test]
+    fn a_listed_collection_is_labeled_by_domain_not_by_id() {
+        let infos = list_builtin_collections();
+        let coding = infos.iter().find(|i| i.id == "medium-coding").expect("medium-coding is offered");
+        assert_eq!(coding.label, "Coding");
+        assert_eq!(coding.tier, "medium");
+    }
 }

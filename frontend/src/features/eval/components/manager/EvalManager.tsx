@@ -764,6 +764,7 @@ export function EvalManager({
                   )
                 ) : (
                   (() => {
+                    // Three domains for the active tier — the backend offers no more.
                     const items = effectiveTier ? presets.filter((p) => p.tier === effectiveTier) : [];
                     if (items.length === 0) {
                       return (
@@ -774,9 +775,7 @@ export function EvalManager({
                     }
                     return (
                       <div data-testid={`eval-tier-group-${effectiveTier}`}>
-                        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "#94a3b8", padding: "10px 0 2px" }}>
-                          {effectiveTier}
-                        </div>
+                        <div style={groupHeadingStyle}>{effectiveTier}</div>
                         {items.map((p) =>
                           collectionRow(p.id, p.label, [{ label: "Remove from list", danger: true, onClick: () => setDeleteTarget(p.id), testid: `eval-collection-delete-${p.id}` }]),
                         )}
@@ -1187,6 +1186,16 @@ const controlLabelStyle: React.CSSProperties = {
   fontSize: 12,
   color: "#475569",
   fontFamily: "Inter, sans-serif",
+};
+
+/// Heading above a group in the built-in collection list (the active tier, and Safety).
+const groupHeadingStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 700,
+  textTransform: "uppercase",
+  letterSpacing: 0.5,
+  color: "#94a3b8",
+  padding: "10px 0 2px",
 };
 
 
