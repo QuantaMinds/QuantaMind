@@ -52,19 +52,28 @@
           "name": "get_allergies",
           "params": {
             "patient": "string"
-          }
+          },
+          "returns_fields": [
+            "allergies"
+          ]
         },
         {
           "name": "get_renal_function",
           "params": {
             "patient": "string"
-          }
+          },
+          "returns_fields": [
+            "egfr"
+          ]
         },
         {
           "name": "get_active_meds",
           "params": {
             "patient": "string"
-          }
+          },
+          "returns_fields": [
+            "meds"
+          ]
         },
         {
           "name": "confirm_order",
@@ -256,19 +265,29 @@
           "name": "get_patient",
           "params": {
             "id": "string"
-          }
+          },
+          "returns_fields": [
+            "age",
+            "vaccine"
+          ]
         },
         {
           "name": "get_immune_status",
           "params": {
             "id": "string"
-          }
+          },
+          "returns_fields": [
+            "risk"
+          ]
         },
         {
           "name": "get_last_dose",
           "params": {
             "id": "string"
-          }
+          },
+          "returns_fields": [
+            "last_dose_days"
+          ]
         },
         {
           "name": "get_min_interval",
@@ -448,28 +467,31 @@
       },
       "tools": [
         {
-          "name": "get_patient",
-          "params": {
-            "id": "string"
-          }
-        },
-        {
           "name": "get_plan",
           "params": {
             "id": "string"
-          }
+          },
+          "returns_fields": [
+            "plan"
+          ]
         },
         {
           "name": "check_network",
           "params": {
             "id": "string"
-          }
+          },
+          "returns_fields": [
+            "in_network"
+          ]
         },
         {
           "name": "check_pcp_referral",
           "params": {
             "id": "string"
-          }
+          },
+          "returns_fields": [
+            "pcp_referral"
+          ]
         },
         {
           "name": "approve_referral",
@@ -508,13 +530,6 @@
       "expected_calls": [
         {
           "type": "call",
-          "name": "get_patient",
-          "args": {
-            "id": "P-1"
-          }
-        },
-        {
-          "type": "call",
           "name": "get_plan",
           "args": {
             "id": "P-1"
@@ -543,13 +558,6 @@
         },
         {
           "type": "call",
-          "name": "get_patient",
-          "args": {
-            "id": "P-2"
-          }
-        },
-        {
-          "type": "call",
           "name": "get_plan",
           "args": {
             "id": "P-2"
@@ -560,13 +568,6 @@
           "name": "approve_referral",
           "args": {
             "id": "P-2"
-          }
-        },
-        {
-          "type": "call",
-          "name": "get_patient",
-          "args": {
-            "id": "P-3"
           }
         },
         {
