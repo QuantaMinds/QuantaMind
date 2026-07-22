@@ -47,6 +47,7 @@ pub fn backend_rss(kind: crate::inference::backend::backend_kind::BackendKind) -
     rss_matching(needle)
 }
 
+#[cfg(feature = "gui")]
 #[tauri::command]
 pub fn get_ollama_rss() -> Option<u64> {
     ollama_rss()

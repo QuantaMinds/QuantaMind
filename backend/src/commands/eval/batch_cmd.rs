@@ -27,7 +27,7 @@ use crate::inference::eval::readiness::hardware::hwclass::agentic_ctx_ceiling;
 use crate::inference::llama::llama::probe_llama_n_ctx;
 use crate::commands::llama::llama_server_types::LlamaServerState;
 use crate::inference::eval::run_facts;
-use crate::inference::ollama::ollama_show::{probe_ollama_version, probe_supports_tools};
+use crate::inference::ollama::ollama_show::probe_ollama_version;
 use crate::persistence::eval_history;
 use crate::persistence::jobs::queue::{self, RunConfig};
 use crate::persistence::jobs::transcripts;
@@ -597,22 +597,9 @@ pub struct UnfinishedRun {
     pub total: usize,
 }
 
-/// Does this backend+model support a NATIVE tool-calling API? Ollama answers via
-/// `/api/show`'s `tools` capability; llama.cpp launched with `--jinja` applies the
-/// model's embedded tool grammar (treated as capable — a template lacking tool
-/// support simply yields no `tool_calls`, which the harness labels honestly); MLX
-/// has no native tool API. Mirrors the prompt path's backend dispatch so native
-/// FC follows whichever server is running.
-pub(crate) async fn probe_native_tools(backend: BackendKind, endpoint: &str, model: &str) -> bool {
-    match backend {
-        BackendKind::Ollama => probe_supports_tools(endpoint, model).await,
-        // llama.cpp (`--jinja`) and the remote OpenAI servers apply the model's
-        // tool grammar; a template lacking tool support simply yields no
-        // `tool_calls`, which the harness labels honestly.
-        BackendKind::LlamaCpp | BackendKind::VLlm | BackendKind::SgLang => true,
-        BackendKind::Mlx => false,
-    }
-}
+// Moved to the engine (`inference/eval/batch.rs`) so the headless CLI reaches it
+// without this GUI command module; re-exported here for the existing GUI callers.
+pub(crate) use crate::inference::eval::batch::probe_native_tools;
 
 /// Upper bound on a run's units — prompt (targets × tasks) plus, when native is
 /// on, the agentic tasks on each native-capable target. MLX has no native tool API

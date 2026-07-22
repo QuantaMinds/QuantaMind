@@ -130,8 +130,10 @@ export type ToolTask = z.infer<typeof ToolTaskSchema>;
 
 const TaskArraySchema = z.array(ToolTaskSchema);
 
-/// A bundled v2 tiered scenario collection for the picker: id (file stem), short
-/// domain, and tier (so the UI groups Easy→Extreme and labels by domain).
+/// A bundled v2 tiered scenario collection OFFERED by the picker: id (file stem), short
+/// domain, and tier (so the UI groups Easy→Extreme and labels by domain). The backend
+/// lists only the curated set — three domains per tier — so a tier is never a wall of
+/// collections.
 export const BuiltinCollectionInfoSchema = z.object({
   id: z.string(),
   label: z.string(),

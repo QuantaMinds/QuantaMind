@@ -1,0 +1,98 @@
+name: docker
+
+# Build + push ghcr.io/quantaminds/qm from a published CLI release's binaries.
+# Runs automatically when a `quantamind-v*` release is published (by
+# quantamind-release.yml), or manually for a given tag. The binaries are
+# DOWNLOADED from the release and attestation-verified — never rebuilt — so the
+# image ships exactly what the release ships.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "CLI release tag (e.g. quantamind-v0.2.3)"
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-push:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'quantamind-v')
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve tag + version
+        id: meta
+        run: |
+          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}"
+          case "$TAG" in quantamind-v*) ;; *) echo "::error::not a CLI tag: $TAG"; exit 1;; esac
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#quantamind-v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download + attestation-verify release binaries
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          mkdir -p binaries/amd64 binaries/arm64
+          # amd64 = the static musl binary (runs anywhere); arm64 = glibc (distroless/cc provides it).
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            -p 'quantamind-x86_64-unknown-linux-musl.tar.xz' \
+            -p 'quantamind-aarch64-unknown-linux-gnu.tar.xz'
+          gh attestation verify quantamind-x86_64-unknown-linux-musl.tar.xz --repo "$GITHUB_REPOSITORY"
+          gh attestation verify quantamind-aarch64-unknown-linux-gnu.tar.xz --repo "$GITHUB_REPOSITORY"
+          tar -xJf quantamind-x86_64-unknown-linux-musl.tar.xz
+          tar -xJf quantamind-aarch64-unknown-linux-gnu.tar.xz
+          mv quantamind-x86_64-unknown-linux-musl/qm binaries/amd64/qm
+          mv quantamind-aarch64-unknown-linux-gnu/qm binaries/arm64/qm
+          chmod +x binaries/*/qm
+
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build + push multi-arch image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/quantaminds/qm:${{ steps.meta.outputs.version }}
+            ghcr.io/quantaminds/qm:latest
+
+  # Prove the image + the DOCUMENTED host-networking command against a real
+  # Ollama listening on the runner's host port — the exact setup a user has.
+  smoke:
+    needs: build-push
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Start host Ollama (container publishing :11434 on the host)
+        run: |
+          docker run -d --name ollama -p 11434:11434 ollama/ollama
+          for i in $(seq 1 30); do
+            curl -fsS localhost:11434/api/version && break || sleep 2
+          done
+
+      - name: Pull image and run the documented commands
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          IMG="ghcr.io/quantaminds/qm:${{ needs.build-push.outputs.version }}"
+          docker run --rm "$IMG" --version
+          # The doc's networking one-liner. Exit is nonzero by contract (Ollama
+          # has 0 models pulled), so gate on the rendered report instead: the
+          # ollama line must NOT read unreachable.
+          docker run --rm --add-host=host.docker.internal:host-gateway "$IMG" \
+            doctor --backend ollama --base http://host.docker.internal:11434 \
+            > doctor.out 2>&1 || true
+          cat doctor.out
+          grep -E '^ollama' doctor.out | grep -v unreachable

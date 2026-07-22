@@ -334,6 +334,29 @@ Reference: `commands/prompt.rs` (thin) → `commands/prompt_run.rs::run_prompt_i
 (pure, integration-tested with mockito). New commands follow this split; logic
 that needs a test belongs in the core, not the command.
 
+### The `gui` feature seam (headless CLI build)
+
+The crate has one cargo feature seam: `gui` (default-on). The desktop app is
+`cargo build` / `pnpm tauri dev` exactly as before; the headless `qm` CLI is
+built with `--no-default-features`, which compiles OUT every Tauri dependency
+(the release-binary path — no webkit/GTK on a server). The rules:
+
+- GUI-only modules (`commands/` except the six the CLI reaches: `eval`, `mcp`,
+  `models`, `prompt`, `remote`, `system`) are gated at the `mod` declaration
+  with `#[cfg(feature = "gui")]`.
+- Inside a shared command file, `#[tauri::command]` wrappers whose signatures
+  carry Tauri types (`AppHandle`, `State`) are gated wholesale; wrappers with
+  plain signatures that the CLI calls directly use
+  `#[cfg_attr(feature = "gui", tauri::command)]` so the fn stays callable lean.
+- Logic both faces need lives in the engine, not the command layer
+  (`probe_native_tools` → `inference/eval/batch.rs`; the MCP task-spec wire
+  types → `commands/mcp/task_cmd.rs`, the spec→ToolTask stage).
+- The `quantamind` bin has `required-features = ["gui"]`, so the lean build
+  skips it; `build.rs` runs `tauri_build` only when the feature is on.
+- CI enforces the seam: the `qm-headless` job builds `--no-default-features`
+  on a runner with no Tauri system libs and fails if the binary links
+  gtk/webkit/asound.
+
 Update this section when the set of layers or allowed edges change, or a new
 cross-layer boundary needs a sink/callback contract.
 
@@ -474,8 +497,9 @@ one folder per commit, behavior unchanged).
   task definition (`spec`, `sandbox`, `build`) stay at the root. **`agentic/v2/`** is
   the Phase 9-v2 authored-scenario engine: `collection`/`transpile` (load a v2 JSON
   object → engine `ToolTask`s), `match` (wildcard + `must_not_call`), `world_state`
-  (ground-truth responder), `scenarios` (the 19 bundled collections via
-  `include_str!`, under `v2/scenarios/`), and `generator` (per-run procedural
+  (ground-truth responder), `scenarios` (the bundled collections via `include_str!`,
+  under `v2/scenarios/`, plus `CURATED_IDS`/`is_curated` — the 12 the pickers offer,
+  three per tier; the rest stay loadable-by-id engine fixtures), and `generator` (per-run procedural
   instancing — seeded entity-id remap). v2 runs on the SAME runner — no second
   execution path (`run_agentic_with` drives Pass^k via a per-run sandbox factory).
 - **frontend `features/workspace/components/`** (was 17 files): `model-select/` ·

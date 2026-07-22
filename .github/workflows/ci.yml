@@ -17,6 +17,48 @@ on:
   pull_request:
 
 jobs:
+  # Drift-guard for the headless CLI seam (docs/architecture.md#the-gui-feature-seam-headless-cli-build):
+  # `qm` must build with NO Tauri system libs installed and must not link
+  # gtk/webkit/asound/ssl — the exact promise the release binaries make to
+  # servers and CI runners. Runs on the bare ubuntu image: no apt step at all.
+  qm-headless:
+    runs-on: ubuntu-22.04
+    concurrency:
+      group: ci-qm-headless-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+          key: qm-headless
+      - name: Build lean qm (no default features, no Tauri system deps)
+        working-directory: backend
+        run: cargo build --release --bin qm --no-default-features
+      - name: Assert no GUI/audio/TLS system linkage
+        working-directory: backend
+        run: |
+          ldd target/release/qm
+          if ldd target/release/qm | grep -iE 'gtk|webkit|asound|libssl|libcrypto'; then
+            echo "::error::lean qm links a GUI/audio/OpenSSL system lib — the gui feature seam regressed"
+            exit 1
+          fi
+      - name: Smoke-run the binary
+        working-directory: backend
+        run: ./target/release/qm --version
+      # Static musl build (feeds the release matrix). rustls + gated audio deps
+      # make this possible; if a dep regresses musl support this fails loudly.
+      - name: Build static musl qm
+        working-directory: backend
+        run: |
+          sudo apt-get update && sudo apt-get install -y musl-tools
+          cargo build --release --bin qm --no-default-features --target x86_64-unknown-linux-musl
+          file target/x86_64-unknown-linux-musl/release/qm
+          ./target/x86_64-unknown-linux-musl/release/qm --version
+
   test:
     strategy:
       fail-fast: false

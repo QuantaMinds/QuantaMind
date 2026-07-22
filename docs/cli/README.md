@@ -7,14 +7,11 @@ human text, or a machine-readable object with `--json`.
 
 ## Quickstart — three commands to your first verdict
 
-Build once, then **connect and get a verdict the way `gh auth login` / `gcloud init` work**: one
-diagnose command, one zero-config init. After the one-time build, connecting takes seconds — every
-failure prints the exact fix command, so you're never stuck googling.
+Install in seconds, then **connect and get a verdict the way `gh auth login` / `gcloud init`
+work**: one diagnose command, one zero-config init. No Rust, no build — every failure prints the
+exact fix command, so you're never stuck googling.
 
-**0 · Prerequisites** (skip what you already have)
-
-- **Rust 1.75+** — macOS `brew install rust` · Linux `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh` · Windows `winget install Rustlang.Rustup`
-- **A running inference server with ≥1 model.** Fastest path is Ollama:
+**0 · Prerequisite: a running inference server with ≥1 model.** Fastest path is Ollama:
 
 ```bash
 # macOS: brew install ollama · Linux: curl -fsSL https://ollama.com/install.sh | sh
@@ -25,17 +22,70 @@ ollama pull qwen2.5:3b        # ~2 GB — a good first model to gate
 
 Already running llama.cpp / MLX / vLLM / SGLang instead? Skip this — `qm doctor` finds whatever is up.
 
-**1 · Build the binary** (one-time; the first compile takes a few minutes)
+**1 · Install the binary** (prebuilt — macOS arm64/x64, Linux x64/arm64, Windows x64)
+
+```bash
+# macOS / Linux — installs qm into ~/.local/bin
+curl -fsSL https://github.com/QuantaMinds/QuantaMind/releases/latest/download/quantamind-installer.sh | sh
+qm --version                                           # → qm 0.2.3
+```
+
+```powershell
+# Windows
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/QuantaMinds/QuantaMind/releases/latest/download/quantamind-installer.ps1 | iex"
+qm --version
+```
+
+If `qm` isn't found afterwards, your shell hasn't picked up `~/.local/bin` yet — the installer
+prints the one `source` line to run (or open a new terminal). Install somewhere else with
+`QUANTAMIND_INSTALL_DIR=/some/dir`.
+
+<details>
+<summary><b>Containers & minimal distros (static musl) · checksums & attestation · uninstall · building from source</b></summary>
+
+**Static binary for containers/Alpine/scratch** — fully static (musl), no glibc needed; the
+installer doesn't auto-select it, so grab it directly:
+
+```bash
+curl -fsSLO https://github.com/QuantaMinds/QuantaMind/releases/latest/download/quantamind-x86_64-unknown-linux-musl.tar.xz
+tar -xJf quantamind-x86_64-unknown-linux-musl.tar.xz
+install -m755 quantamind-x86_64-unknown-linux-musl/qm /usr/local/bin/qm
+```
+
+**Verify what you downloaded** — every artifact has a sha256 and a GitHub artifact attestation
+proving it was built by this repo's release workflow:
+
+```bash
+gh attestation verify quantamind-x86_64-unknown-linux-musl.tar.xz --owner QuantaMinds
+```
+
+**macOS note:** the curl installer is the recommended path. A tarball downloaded via a *browser*
+gets macOS's quarantine attribute and Gatekeeper may block the unsigned binary; `curl` downloads
+don't. (Signing/notarization is wired and lands when the certs do.)
+
+**Docker image** — `ghcr.io/quantaminds/qm` (multi-arch, distroless, built from the
+attestation-verified release binaries) for CI/CD pipelines and ephemeral runners. One thing to
+know: inside a container, `localhost` is the container — to reach an Ollama running on the host,
+map the host gateway and pass `--base`:
+
+```bash
+docker run --rm --add-host=host.docker.internal:host-gateway \
+  ghcr.io/quantaminds/qm doctor --backend ollama --base http://host.docker.internal:11434
+```
+
+**Uninstall:** `rm ~/.local/bin/qm` (plus the `~/.local/bin/env` line the installer added to your
+shell rc, if any).
+
+**Building from source** (contributors):
 
 ```bash
 git clone https://github.com/QuantaMinds/QuantaMind.git
 cd QuantaMind/backend
-cargo build --bin qm
-sudo install -m755 target/debug/qm /usr/local/bin/qm   # optional: put `qm` on PATH
-qm --version                                           # → qm 0.2.0
+cargo build --release --bin qm --no-default-features   # lean build — no Tauri/GUI deps
+./target/release/qm --version
 ```
 
-(No PATH install? Use `target/debug/qm` wherever this doc says `qm`.)
+</details>
 
 **2 · Connect — is anything runnable?**
 

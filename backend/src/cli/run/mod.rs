@@ -16,7 +16,7 @@ pub use junit::to_junit;
 pub use render::{exit_code, render_human, render_scoreboard, FailOn};
 
 use crate::cli::doctor::probe::probe_backend;
-use crate::commands::eval::batch_cmd::probe_native_tools;
+use crate::inference::eval::batch::probe_native_tools;
 use crate::commands::remote::remote_health::{RemoteAuthReport, RemoteAuthStatus};
 use crate::errors::AppResult;
 use crate::inference::backend::backend_kind::BackendKind;
@@ -251,7 +251,7 @@ pub(crate) fn load_collection(spec: &str) -> Result<LoadedCollection, Collection
             .map(|first| first.get("instruction").is_some() && first.get("world").is_some())
             .unwrap_or(false);
         let tasks = if is_world_file {
-            let specs: Vec<crate::commands::mcp::run_cmd::McpTaskSpec> = serde_json::from_str(&text)
+            let specs: Vec<crate::commands::mcp::task_cmd::McpTaskSpec> = serde_json::from_str(&text)
                 .map_err(|e| CollectionError::BadFile(format!("world file: {e}")))?;
             crate::commands::mcp::task_cmd::build_mcp_tasks(specs)
                 .map_err(|e| CollectionError::BadFile(crate::redact::redact_path(&e.to_string())))?

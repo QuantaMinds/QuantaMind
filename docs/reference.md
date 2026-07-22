@@ -740,10 +740,16 @@ Error), with a click-through Trace Debugger. See [the workspace](#eval-runner).
   report's `schema_resilience` is recovered ÷ runs-that-hit-an-error — **n/a** (UI
   "—") when no run ever hit one, never a fabricated 0. Constrained-decoding paths
   can't emit syntactically-broken calls, so this targets **semantic** faults.
-- **Difficulty tiers (Phase 9) + the v2 scenario engine.** Eval content is now the
-  **19 bundled tiered scenario collections** (Easy→Extreme across coding, finance,
+- **Difficulty tiers (Phase 9) + the v2 scenario engine.** Eval content is the
+  **bundled tiered scenario collections** (Easy→Extreme across coding, finance,
   medical, legal, ecommerce, support, supply-chain, math/science, clinical) under
   `agentic/v2/scenarios/`. They **replaced** the old hand-coded single/multi fixtures.
+  Of the 22 bundled, the pickers **offer 12** (`CURATED_IDS`): three domains per tier —
+  the coding·finance·medical spine, Easy substituting ecommerce — so a tier is a short
+  list of domains, not a wall. The other 10 stay bundled as engine fixtures (the fs /
+  web-UI / corpus / noise environments the tests drive, and the Category K probes, which
+  score a separate axis and run from the CLI): not listed, still loadable by id, so
+  `qm run --collection <id>` and any saved run keep working.
   Each collection is one JSON object (`{name, domain, tier, pass_k, axes, tasks[]}`);
   `v2/collection.rs::load_v2_collection` transpiles it to engine `ToolTask`s
   (`category:"agent_loop"`, routed through the unchanged agentic runner — no second

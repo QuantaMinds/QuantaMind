@@ -32,6 +32,7 @@ pub mod sync;
 pub mod time_iso;
 pub mod validation;
 
+#[cfg(feature = "gui")]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
