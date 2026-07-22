@@ -8,9 +8,6 @@ name: docker
 on:
   release:
     types: [published]
-  # TEMP (remove before merge): exercise on this branch pre-merge.
-  push:
-    branches: ["feature/qm-docker-image"]
   workflow_dispatch:
     inputs:
       tag:
@@ -23,7 +20,7 @@ permissions:
 
 jobs:
   build-push:
-    if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'quantamind-v')
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'quantamind-v')
     runs-on: ubuntu-22.04
     outputs:
       version: ${{ steps.meta.outputs.version }}
@@ -35,7 +32,7 @@ jobs:
       - name: Resolve tag + version
         id: meta
         run: |
-          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name || 'quantamind-v0.2.3' }}"
+          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}"
           case "$TAG" in quantamind-v*) ;; *) echo "::error::not a CLI tag: $TAG"; exit 1;; esac
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=${TAG#quantamind-v}" >> "$GITHUB_OUTPUT"
