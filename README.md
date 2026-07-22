@@ -53,11 +53,23 @@ Reliability is scored with **pass^k** — does the model succeed *k* of *k* time
 
 ## Quick start
 
-**Just want to run it?** Download a prebuilt build from **[quantamind.co](https://quantamind.co/)** and launch — no toolchain needed. You'll still need [Ollama](https://ollama.com/) running with a model pulled ([Step 2](#quick-start) below).
+**Prefer the terminal?** Install the headless `qm` CLI in seconds — no Rust, no build, no toolchain:
 
-**Prefer the terminal?** The headless `qm` CLI needs only Rust + a running backend — see the **[CLI quickstart](./docs/cli/README.md#quickstart--three-commands-to-your-first-verdict)** (build → `qm doctor` → `qm init`, and every failure prints its exact fix).
+```bash
+# macOS / Linux
+curl -fsSL https://github.com/QuantaMinds/QuantaMind/releases/latest/download/quantamind-installer.sh | sh
+```
 
-**Building from source** takes ~5 minutes. macOS is first-class today; Windows and Linux dev builds run too, with sidecar lifecycles being rewired phase-by-phase (see [Roadmap](#roadmap)).
+```powershell
+# Windows
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/QuantaMinds/QuantaMind/releases/latest/download/quantamind-installer.ps1 | iex"
+```
+
+Then `qm doctor` → `qm init` gets your first verdict (every failure prints its exact fix). Full reference, static-musl/container binaries, checksums + attestation verification: **[CLI quickstart](./docs/cli/README.md#quickstart--three-commands-to-your-first-verdict)**. You'll still need [Ollama](https://ollama.com/) (or another backend) running with a model pulled ([Step 2](#quick-start) below).
+
+**Want the desktop app?** Download a prebuilt build from **[quantamind.co](https://quantamind.co/)** and launch — no toolchain needed.
+
+**Building from source** (contributors) takes ~5 minutes. macOS is first-class today; Windows and Linux dev builds run too, with sidecar lifecycles being rewired phase-by-phase (see [Roadmap](#roadmap)).
 
 **1 · Install toolchains** (skip any you already have)
 
