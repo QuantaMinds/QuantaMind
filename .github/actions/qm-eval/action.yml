@@ -1,8 +1,9 @@
 name: 'QuantaMind agent-readiness eval'
 description: 'Run the qm tool-calling suite against a model and gate CI on the Ready/Conditional/NotReady verdict.'
 
-# Wraps the `qm run` CLI. Builds `qm` from the QuantaMind source in the workspace
-# (check it out first — see docs/ci/README.md), runs the suite against an
+# Wraps the `qm run` CLI. By default installs the PREBUILT `qm` from the latest
+# GitHub Release (seconds — no Rust toolchain); `install: source` builds the
+# lean binary from the checked-out workspace instead. Runs the suite against an
 # OpenAI-compatible endpoint, writes a JUnit report + a JSON report, uploads both
 # as an artifact, and lets `qm`'s exit code (subject to `fail-on`) gate the job.
 #
@@ -10,6 +11,9 @@ description: 'Run the qm tool-calling suite against a model and gate CI on the R
 # pass it as the `QM_API_KEY` env from a secret on the calling step/job.
 
 inputs:
+  install:
+    description: "release (prebuilt binary from the latest GitHub Release — fast, default) | source (build --no-default-features from the workspace)"
+    default: 'release'
   backend:
     description: 'ollama | llama_cpp | mlx | vllm | sglang'
     default: 'vllm'
@@ -53,24 +57,29 @@ inputs:
 runs:
   using: composite
   steps:
-    # qm links the full quantamind lib (Tauri deps), so Linux needs the GUI system
-    # libs to compile — same set as the project's own CI.
-    - name: Install Linux build deps
-      if: runner.os == 'Linux'
+    - name: Install prebuilt qm (release mode)
+      if: inputs.install == 'release'
       shell: bash
       run: |
-        sudo apt-get update
-        sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf libasound2-dev
+        curl -fsSL https://github.com/QuantaMinds/QuantaMind/releases/latest/download/quantamind-installer.sh | sh
+        echo "QM_BIN=$HOME/.local/bin/qm" >> "$GITHUB_ENV"
+        "$HOME/.local/bin/qm" --version
 
+    # Source mode: the lean (--no-default-features) build — headless by
+    # construction, so NO Tauri/GTK/ALSA system libs are needed.
     - uses: dtolnay/rust-toolchain@stable
+      if: inputs.install == 'source'
     - uses: Swatinem/rust-cache@v2
+      if: inputs.install == 'source'
       with:
         workspaces: ${{ inputs.backend-path }}
-
-    - name: Build qm
+    - name: Build qm from source (lean)
+      if: inputs.install == 'source'
       shell: bash
       working-directory: ${{ inputs.backend-path }}
-      run: cargo build --release --bin qm
+      run: |
+        cargo build --release --bin qm --no-default-features
+        echo "QM_BIN=${{ inputs.backend-path }}/target/release/qm" >> "$GITHUB_ENV"
 
     - name: Run qm eval
       shell: bash
@@ -78,7 +87,7 @@ runs:
         QM_BASE: ${{ inputs.base-url }}
         # QM_API_KEY is inherited from the caller's env (set it from a secret).
       run: |
-        BIN="${{ inputs.backend-path }}/target/release/qm"
+        BIN="$QM_BIN"
         args=(run
           --backend "${{ inputs.backend }}"
           --model "${{ inputs.model }}"
