@@ -744,13 +744,12 @@ Error), with a click-through Trace Debugger. See [the workspace](#eval-runner).
   **bundled tiered scenario collections** (Easy→Extreme across coding, finance,
   medical, legal, ecommerce, support, supply-chain, math/science, clinical) under
   `agentic/v2/scenarios/`. They **replaced** the old hand-coded single/multi fixtures.
-  Of the 27 bundled, the pickers **offer 15**: three capability domains per tier
-  (`CURATED_CAPABILITY` — the coding·finance·medical spine; Easy substitutes ecommerce)
-  plus the three Category K safety probes (`CURATED_SAFETY`), which list under their own
-  **Safety & Boundaries** group rather than inside Easy — their JSON tier only sets the
-  step/pass^k budget. The remaining 12 stay bundled as engine fixtures (the fs / web-UI /
-  corpus / noise / context-squeeze environments the tests drive): not listed, still
-  loadable by id, so `--collection <id>` and any saved run keep working.
+  Of the 22 bundled, the pickers **offer 12** (`CURATED_IDS`): three domains per tier —
+  the coding·finance·medical spine, Easy substituting ecommerce — so a tier is a short
+  list of domains, not a wall. The other 10 stay bundled as engine fixtures (the fs /
+  web-UI / corpus / noise environments the tests drive, and the Category K probes, which
+  score a separate axis and run from the CLI): not listed, still loadable by id, so
+  `qm run --collection <id>` and any saved run keep working.
   Each collection is one JSON object (`{name, domain, tier, pass_k, axes, tasks[]}`);
   `v2/collection.rs::load_v2_collection` transpiles it to engine `ToolTask`s
   (`category:"agent_loop"`, routed through the unchanged agentic runner — no second

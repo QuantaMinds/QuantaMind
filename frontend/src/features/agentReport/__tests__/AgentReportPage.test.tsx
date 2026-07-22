@@ -37,7 +37,7 @@ const profile = (id: string, name: string, min: number): ReadinessProfile => ({
 beforeEach(() => {
   vi.clearAllMocks();
   // Non-empty presets so the page doesn't trigger a registry init() in the test.
-  useEvalRegistryStore.setState({ presets: [{ id: "easy-coding", label: "Coding", domain: "coding", tier: "easy", kind: "capability" }], collections: ["finance"], selected: "finance" });
+  useEvalRegistryStore.setState({ presets: [{ id: "easy-coding", label: "Coding", domain: "coding", tier: "easy" }], collections: ["finance"], selected: "finance" });
   useReadinessStore.setState({ profiles: [], selectedProfileId: "", verdicts: [], rightSizing: [], rightSizingHint: null, hardware: null, capBytes: null, assessed: false, loading: false, error: null });
   useBatchStore.setState({ report: null });
   vi.mocked(listReadinessProfiles).mockResolvedValue([profile("coding-agent", "Coding agent", 0.8)]);
@@ -87,9 +87,9 @@ describe("AgentReportPage", () => {
     // different-domain collection are present so the domain guard can be exercised.
     useEvalRegistryStore.setState({
       presets: [
-        { id: "easy-coding", label: "Coding", domain: "coding", tier: "easy", kind: "capability" },
-        { id: "medium-coding", label: "Coding", domain: "coding", tier: "medium", kind: "capability" },
-        { id: "easy-finance", label: "Finance", domain: "finance", tier: "easy", kind: "capability" },
+        { id: "easy-coding", label: "Coding", domain: "coding", tier: "easy" },
+        { id: "medium-coding", label: "Coding", domain: "coding", tier: "medium" },
+        { id: "easy-finance", label: "Finance", domain: "finance", tier: "easy" },
       ],
       collections: [],
       selected: "easy-coding",

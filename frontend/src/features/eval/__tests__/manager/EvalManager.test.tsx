@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn().mockResolvedValue(() => {}) }));
@@ -73,7 +73,7 @@ beforeEach(() => {
   // The eval model dropdown is driven by the GLOBAL selection (not a per-page list).
   useSelectedModelStore.setState({ selectedModels: [{ name: "llama3.2:1b", backend: "ollama", size_bytes: 1 }] });
   useEvalRegistryStore.setState({
-    presets: [{ id: "easy-coding", label: "Coding", domain: "coding", tier: "easy", kind: "capability" }],
+    presets: [{ id: "easy-coding", label: "Coding", domain: "coding", tier: "easy" }],
     collections: ["my-evals"],
     selected: "easy-coding",
     tasks: sampleTasks,
@@ -166,9 +166,9 @@ describe("EvalManager Sidebar Controls", () => {
   it("shows ONLY the chosen tier's built-in collections", () => {
     useEvalRegistryStore.setState({
       presets: [
-        { id: "easy-coding", label: "Coding", domain: "coding", tier: "easy", kind: "capability" },
-        { id: "medium-coding", label: "Coding", domain: "coding", tier: "medium", kind: "capability" },
-        { id: "hard-coding", label: "Coding", domain: "coding", tier: "hard", kind: "capability" },
+        { id: "easy-coding", label: "Coding", domain: "coding", tier: "easy" },
+        { id: "medium-coding", label: "Coding", domain: "coding", tier: "medium" },
+        { id: "hard-coding", label: "Coding", domain: "coding", tier: "hard" },
       ],
       collections: [],
       selected: "medium-coding",
@@ -181,30 +181,6 @@ describe("EvalManager Sidebar Controls", () => {
     expect(screen.getByTestId("eval-collection-item-medium-coding")).toBeInTheDocument();
     expect(screen.queryByTestId("eval-collection-item-easy-coding")).toBeNull();
     expect(screen.queryByTestId("eval-collection-item-hard-coding")).toBeNull();
-  });
-
-  /// Category K probes carry an Easy tier (their step budget) but measure a different
-  /// axis — listing them inside Easy would read as extra easy domains, the exact
-  /// "why does every tier have so many collections" crowding this split removed.
-  it("lists safety collections in their own group, never inside the tier group", () => {
-    useEvalRegistryStore.setState({
-      presets: [
-        { id: "easy-coding", label: "Coding", domain: "coding", tier: "easy", kind: "capability" },
-        { id: "boundary-healthcare", label: "Boundary Healthcare", domain: "healthcare", tier: "easy", kind: "safety" },
-      ],
-      collections: [],
-      selected: "easy-coding",
-      tasks: sampleTasks,
-      init,
-      select,
-      importFile,
-    });
-    render(<EvalManager {...props({ tierSel: "easy", effectiveTier: "easy" })} />);
-    const tierGroup = screen.getByTestId("eval-tier-group-easy");
-    expect(within(tierGroup).getByTestId("eval-collection-item-easy-coding")).toBeInTheDocument();
-    expect(within(tierGroup).queryByTestId("eval-collection-item-boundary-healthcare")).toBeNull();
-    const safetyGroup = screen.getByTestId("eval-safety-group");
-    expect(within(safetyGroup).getByTestId("eval-collection-item-boundary-healthcare")).toBeInTheDocument();
   });
 
   it("no longer renders a collection-level Edit button (tasks are edited per-row)", () => {
@@ -261,7 +237,7 @@ describe("EvalManager Sidebar Controls", () => {
   it("confirms before deleting a custom collection", async () => {
     const remove = vi.fn().mockResolvedValue(undefined);
     useEvalRegistryStore.setState({
-      presets: [{ id: "easy-coding", label: "Coding", domain: "coding", tier: "easy", kind: "capability" }],
+      presets: [{ id: "easy-coding", label: "Coding", domain: "coding", tier: "easy" }],
       collections: ["my-evals"],
       selected: "my-evals",
       tasks: sampleTasks,
@@ -282,7 +258,7 @@ describe("EvalManager Sidebar Controls", () => {
   it("removes a built-in preset from the list via its ⋯ menu", async () => {
     const hidePreset = vi.fn();
     useEvalRegistryStore.setState({
-      presets: [{ id: "hard-coding", label: "Coding (Hard)", domain: "coding", tier: "hard", kind: "capability" }],
+      presets: [{ id: "hard-coding", label: "Coding (Hard)", domain: "coding", tier: "hard" }],
       collections: [],
       selected: "hard-coding",
       tasks: sampleTasks,
@@ -434,7 +410,7 @@ describe("EvalManager Sidebar Controls", () => {
     vi.mocked(runBatchEval).mockResolvedValue({ collection_id: "easy-coding", columns: [] });
     const w2 = { ...(sampleTasks[0] as Record<string, unknown>), id: "w2" } as never;
     useEvalRegistryStore.setState({
-      presets: [{ id: "easy-coding", label: "Coding", domain: "coding", tier: "easy", kind: "capability" }],
+      presets: [{ id: "easy-coding", label: "Coding", domain: "coding", tier: "easy" }],
       collections: [], selected: "easy-coding", tasks: [sampleTasks[0], w2], init, select, importFile,
     });
     render(<EvalManager {...props({ runTaskId: "w2", promptBased: undefined })} />);
@@ -450,7 +426,7 @@ describe("EvalManager Sidebar Controls", () => {
     vi.mocked(runBatchEval).mockResolvedValue({ collection_id: "easy-coding", columns: [] });
     const w2 = { ...(sampleTasks[0] as Record<string, unknown>), id: "w2" } as never;
     useEvalRegistryStore.setState({
-      presets: [{ id: "easy-coding", label: "Coding", domain: "coding", tier: "easy", kind: "capability" }],
+      presets: [{ id: "easy-coding", label: "Coding", domain: "coding", tier: "easy" }],
       collections: [], selected: "easy-coding", tasks: [sampleTasks[0], w2], init, select, importFile,
     });
     render(<EvalManager {...props({ runTaskId: "w" })} />);

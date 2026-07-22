@@ -3,24 +3,21 @@ use serde::Deserialize;
 /// Every bundled v2 tiered scenario collection: `(id, raw JSON)`. The id is the
 /// file stem; the collection's domain + tier come from the JSON header. These are
 /// THE eval content — they replace the old hand-coded single/multi fixtures.
+/// `CURATED_IDS` below decides which of them the app OFFERS; the rest are fixtures
+/// the engine tests drive.
 pub const V2_SCENARIOS: &[(&str, &str)] = &[
     ("easy-coding", include_str!("scenarios/easy-coding.json")),
     ("easy-coding-fs", include_str!("scenarios/easy-coding-fs.json")),
     ("easy-research-search", include_str!("scenarios/easy-research-search.json")),
     ("easy-webui-tasks", include_str!("scenarios/easy-webui-tasks.json")),
-    ("easy-customer-support", include_str!("scenarios/easy-customer-support.json")),
     ("easy-ecommerce", include_str!("scenarios/easy-ecommerce.json")),
     ("easy-finance", include_str!("scenarios/easy-finance.json")),
-    ("easy-math-science", include_str!("scenarios/easy-math-science.json")),
     ("medium-coding", include_str!("scenarios/medium-coding.json")),
-    ("medium-customer-support", include_str!("scenarios/medium-customer-support.json")),
-    ("medium-ecommerce", include_str!("scenarios/medium-ecommerce.json")),
     ("medium-finance", include_str!("scenarios/medium-finance.json")),
     ("medium-legal", include_str!("scenarios/medium-legal.json")),
     ("medium-medical", include_str!("scenarios/medium-medical.json")),
     ("hard-coding", include_str!("scenarios/hard-coding.json")),
     ("hard-finance", include_str!("scenarios/hard-finance.json")),
-    ("hard-finance-2", include_str!("scenarios/hard-finance-2.json")),
     ("hard-medical", include_str!("scenarios/hard-medical.json")),
     ("hard-support-ecommerce", include_str!("scenarios/hard-support-ecommerce.json")),
     ("extreme-clinical-trial-stats", include_str!("scenarios/extreme-clinical-trial-stats.json")),
@@ -41,14 +38,16 @@ pub fn v2_json(id: &str) -> Option<&'static str> {
     V2_SCENARIOS.iter().find(|(i, _)| *i == id).map(|(_, j)| *j)
 }
 
-/// The capability collections the app OFFERS: exactly three domains per tier — a
+/// The collections the app OFFERS: exactly three domains per tier — a
 /// coding · finance · medical spine so one model can be compared across rising
 /// difficulty (Easy substitutes ecommerce, having no medical collection; Extreme
 /// lists its three). Everything in `V2_SCENARIOS` that is absent here stays bundled
-/// as an engine fixture (the fs / web-UI / corpus / noise environments the tests
-/// drive) but is never listed in a picker; `v2_json`/`collection_hash` still resolve
-/// it by id, so a saved run or a `--collection` by name keeps working.
-pub const CURATED_CAPABILITY: &[&str] = &[
+/// as an engine fixture — the fs / web-UI / corpus / noise environments the tests
+/// drive, and the Category K safety probes, which are a separate axis run from the
+/// CLI (`qm run --collection boundary-banking`), not a thirteenth choice in a tier.
+/// `v2_json`/`collection_hash` still resolve every bundled id, so a `--collection`
+/// by name and any saved run keep working.
+pub const CURATED_IDS: &[&str] = &[
     "easy-coding",
     "easy-finance",
     "easy-ecommerce",
@@ -63,23 +62,10 @@ pub const CURATED_CAPABILITY: &[&str] = &[
     "extreme-supply-chain-recon",
 ];
 
-/// Category K safety/boundary probes. Listed under their OWN group, never inside a
-/// difficulty tier: their JSON tier is `Easy` (it sets the step/pass^k budget) but
-/// they measure injection resistance + over-refusal, an axis kept off the capability
-/// Pass^k. `boundary-context-squeeze` is deliberately absent — it is the attribution
-/// test's fixture, not a collection to run by hand.
-pub const CURATED_SAFETY: &[&str] = &["boundary-healthcare", "boundary-banking", "boundary-coding"];
-
-/// Which picker group a collection belongs to (`"capability"` / `"safety"`), or `None`
-/// for a fixture-only collection that must not appear in any picker.
-pub fn curated_kind(id: &str) -> Option<&'static str> {
-    if CURATED_CAPABILITY.contains(&id) {
-        Some("capability")
-    } else if CURATED_SAFETY.contains(&id) {
-        Some("safety")
-    } else {
-        None
-    }
+/// Whether a bundled collection is OFFERED in the pickers. A fixture-only collection
+/// answers `false` — it stays loadable by id, it is just never listed.
+pub fn is_curated(id: &str) -> bool {
+    CURATED_IDS.contains(&id)
 }
 
 /// Lightweight collection header for the picker (domain + tier), without
@@ -140,46 +126,39 @@ mod tests {
     /// is invisible at runtime — `filter_map` just drops it).
     #[test]
     fn every_curated_id_is_a_bundled_collection() {
-        for id in CURATED_CAPABILITY.iter().chain(CURATED_SAFETY.iter()) {
+        assert_eq!(CURATED_IDS.len(), 12);
+        for id in CURATED_IDS {
             assert!(v2_json(id).is_some(), "curated id '{id}' names no bundled collection");
         }
     }
 
-    /// The product promise: each difficulty tier offers exactly three capability
-    /// collections, each a DIFFERENT domain. Adding a fourth (or a duplicate domain)
-    /// fails here rather than quietly re-crowding the picker.
+    /// The product promise: each difficulty tier offers exactly three collections, each a
+    /// DIFFERENT domain. Adding a fourth (or a duplicate domain) fails here rather than
+    /// quietly re-crowding the picker.
     #[test]
-    fn each_tier_offers_exactly_three_distinct_capability_domains() {
+    fn each_tier_offers_exactly_three_distinct_domains() {
         for tier in ["easy", "medium", "hard", "extreme"] {
-            let headers: Vec<V2Header> = CURATED_CAPABILITY
+            let headers: Vec<V2Header> = CURATED_IDS
                 .iter()
                 .filter_map(|id| v2_json(id).and_then(v2_header))
                 .filter(|h| h.tier.to_lowercase() == tier)
                 .collect();
-            assert_eq!(headers.len(), 3, "tier '{tier}' offers {} capability collections, want 3", headers.len());
+            assert_eq!(headers.len(), 3, "tier '{tier}' offers {} collections, want 3", headers.len());
             let domains: HashSet<&str> = headers.iter().map(|h| h.domain.as_str()).collect();
             assert_eq!(domains.len(), 3, "tier '{tier}' repeats a domain: {domains:?}");
         }
     }
 
-    /// A safety collection is only meaningful if it actually carries Category K tasks —
-    /// otherwise the Safety group would offer a collection whose panel never appears.
+    /// An offered collection must carry no Category K task: the safety axis is scored and
+    /// attributed separately, so a probe sitting inside a difficulty tier would mix an
+    /// injection-resistance result into that tier's capability Pass^k.
     #[test]
-    fn every_curated_safety_collection_carries_safety_tasks() {
-        for id in CURATED_SAFETY {
-            let tasks = load_v2_collection(v2_json(id).unwrap()).unwrap();
-            assert!(
-                tasks.iter().any(|t| t.agentic.as_ref().is_some_and(|s| s.safety.is_some())),
-                "curated safety collection '{id}' carries no safety-tagged task"
-            );
-        }
-        // ...and a capability collection must NOT, or its safety axis would leak into a
-        // tier the Safety panel doesn't cover.
-        for id in CURATED_CAPABILITY {
+    fn no_offered_collection_carries_a_safety_task() {
+        for id in CURATED_IDS {
             let tasks = load_v2_collection(v2_json(id).unwrap()).unwrap();
             assert!(
                 !tasks.iter().any(|t| t.agentic.as_ref().is_some_and(|s| s.safety.is_some())),
-                "capability collection '{id}' carries a safety task — it belongs in CURATED_SAFETY"
+                "offered collection '{id}' carries a safety task — Category K runs from the CLI, not a tier"
             );
         }
     }
@@ -601,7 +580,7 @@ mod tests {
 
     #[test]
     fn every_bundled_v2_collection_loads_and_validates() {
-        assert_eq!(V2_SCENARIOS.len(), 27);
+        assert_eq!(V2_SCENARIOS.len(), 22);
         for (id, json) in V2_SCENARIOS {
             let tasks = load_v2_collection(json).unwrap_or_else(|e| panic!("collection '{id}' failed to load: {e}"));
             assert!(!tasks.is_empty(), "collection '{id}' has no tasks");

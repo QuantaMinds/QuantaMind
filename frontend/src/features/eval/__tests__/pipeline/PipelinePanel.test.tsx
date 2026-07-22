@@ -34,7 +34,7 @@ beforeEach(() => {
   vi.mocked(traceToolcallTask).mockResolvedValue(trace as never);
   vi.mocked(loadToolcallTrace).mockResolvedValue(null);
   useEvalRegistryStore.setState({
-    presets: [{ id: "easy-coding", label: "Coding", domain: "coding", tier: "easy", kind: "capability" }],
+    presets: [{ id: "easy-coding", label: "Coding", domain: "coding", tier: "easy" }],
     collections: [],
     init: vi.fn().mockResolvedValue(undefined),
   });

@@ -17,9 +17,7 @@ describe("listBuiltinCollections — per-row resilience", () => {
     vi.mocked(invoke).mockResolvedValue([valid, badTier]);
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const out = await listBuiltinCollections();
-    // The valid preset still loads. A row with no `kind` (a pre-curation backend) reads as
-    // `capability` — the safe default: it lists under its tier, never in the Safety group.
-    expect(out).toEqual([{ ...valid, kind: "capability" }]);
+    expect(out).toEqual([valid]); // the valid preset still loads
     expect(warn).toHaveBeenCalled(); // never silent
     expect(warn.mock.calls[0].join(" ")).toContain("weird-x"); // names the offending id
     warn.mockRestore();

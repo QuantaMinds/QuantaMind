@@ -764,12 +764,9 @@ export function EvalManager({
                   )
                 ) : (
                   (() => {
-                    // The tier group lists CAPABILITY collections only (three domains). The
-                    // Category K probes carry an Easy tier for their step budget but measure
-                    // a different axis, so they get their own group instead of padding Easy.
-                    const items = effectiveTier ? presets.filter((p) => p.kind !== "safety" && p.tier === effectiveTier) : [];
-                    const safety = presets.filter((p) => p.kind === "safety");
-                    if (items.length === 0 && safety.length === 0) {
+                    // Three domains for the active tier — the backend offers no more.
+                    const items = effectiveTier ? presets.filter((p) => p.tier === effectiveTier) : [];
+                    if (items.length === 0) {
                       return (
                         <div style={{ color: "#64748b", fontSize: 12, fontStyle: "italic", paddingLeft: 8 }}>
                           {effectiveTier ? `No ${effectiveTier} collections` : "Detecting tier…"}
@@ -777,24 +774,12 @@ export function EvalManager({
                       );
                     }
                     return (
-                      <>
-                        <div data-testid={`eval-tier-group-${effectiveTier}`}>
-                          <div style={groupHeadingStyle}>{effectiveTier}</div>
-                          {items.map((p) =>
-                            collectionRow(p.id, p.label, [{ label: "Remove from list", danger: true, onClick: () => setDeleteTarget(p.id), testid: `eval-collection-delete-${p.id}` }]),
-                          )}
-                        </div>
-                        {safety.length > 0 && (
-                          <div data-testid="eval-safety-group">
-                            <div style={groupHeadingStyle} title="Category K: prompt-injection resistance + over-refusal control — scored on its own axis, not the capability Pass^k">
-                              Safety &amp; Boundaries
-                            </div>
-                            {safety.map((p) =>
-                              collectionRow(p.id, p.label, [{ label: "Remove from list", danger: true, onClick: () => setDeleteTarget(p.id), testid: `eval-collection-delete-${p.id}` }]),
-                            )}
-                          </div>
+                      <div data-testid={`eval-tier-group-${effectiveTier}`}>
+                        <div style={groupHeadingStyle}>{effectiveTier}</div>
+                        {items.map((p) =>
+                          collectionRow(p.id, p.label, [{ label: "Remove from list", danger: true, onClick: () => setDeleteTarget(p.id), testid: `eval-collection-delete-${p.id}` }]),
                         )}
-                      </>
+                      </div>
                     );
                   })()
                 )}

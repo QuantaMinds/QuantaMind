@@ -1318,15 +1318,15 @@ in `toolcall_cmd` and are imported by the other command modules.
   is empty — i.e. cliff/quant probes).
 - **The curated picker set.** `list_builtin_collections` is the ONE choke point every
   picker reads (app dropdowns, the `qm` CLI `--collection` picker, the readiness sibling
-  merge), so it decides what the product offers. It lists only `scenarios::curated_kind`
-  ids — 12 capability collections (three domains per tier: the coding·finance·medical
-  spine, ecommerce standing in for Easy) plus the 3 Category K probes — and stamps each
-  row's `kind` (`capability`/`safety`) so the UI groups safety separately instead of
-  padding Easy with it. The other bundled collections (fs / web-UI / corpus / noise /
-  context-squeeze) are engine fixtures: unlisted, but `get_builtin_collection` still
-  loads them by id, so `--collection <id>`, saved runs, and their tests keep working.
-  Guards: `the_picker_lists_three_capability_collections_per_tier_plus_safety` here and
-  `each_tier_offers_exactly_three_distinct_capability_domains` in `scenarios.rs`.
+  merge), so it decides what the product offers. It lists only `scenarios::is_curated`
+  ids — 12 collections, three domains per tier (the coding·finance·medical spine,
+  ecommerce standing in for Easy). The other bundled collections are engine fixtures
+  (fs / web-UI / corpus / noise) or the Category K probes, which score a separate axis:
+  unlisted, but `get_builtin_collection` still loads them by id, so
+  `qm run --collection <id>`, saved runs, and their tests keep working. Guards:
+  `the_picker_lists_exactly_three_collections_per_tier` here, plus
+  `each_tier_offers_exactly_three_distinct_domains` and
+  `no_offered_collection_carries_a_safety_task` in `scenarios.rs`.
 
 ### File: `eval_run.rs`
 - `run_eval_task` — one generic `EvalTask` by id (accumulate output, then

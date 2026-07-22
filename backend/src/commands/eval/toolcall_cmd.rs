@@ -3,7 +3,7 @@ use crate::errors::AppError;
 use crate::inference::backend::backend_kind::BackendKind;
 use crate::inference::backend::endpoint;
 use crate::persistence::prompts::schema::InferenceParams;
-use crate::inference::eval::agentic::v2::scenarios::{curated_kind, v2_header, V2_SCENARIOS};
+use crate::inference::eval::agentic::v2::scenarios::{is_curated, v2_header, V2_SCENARIOS};
 use crate::inference::eval::toolcall::eval::{run_eval_traced, trace_one, ToolCallReport, TraceResult};
 use crate::inference::eval::toolcall::tasks::{builtin_collection, validate_tasks, ToolTask};
 use crate::persistence::eval_trace_store;
@@ -23,16 +23,14 @@ pub(crate) fn traces_dir(app: &tauri::AppHandle) -> Result<PathBuf, AppError> {
 }
 
 /// One built-in v2 tiered collection for the picker: the id (file stem), a short
-/// humanized domain `label`, its `tier` — so the UI can group Easy→Extreme and
-/// label by domain, while flat dropdowns can still show `label` — and its picker
-/// `kind` (`"capability"` / `"safety"`), which decides the GROUP it lists under.
+/// humanized domain `label`, and its `tier` — so the UI can group Easy→Extreme and
+/// label by domain, while flat dropdowns can still show `label`.
 #[derive(Serialize)]
 pub struct BuiltinCollectionInfo {
     pub id: String,
     pub label: String,
     pub domain: String,
     pub tier: String,
-    pub kind: String,
 }
 
 /// Title-case a `-`/`_`-separated identifier ("supply-chain-recon" → "Supply Chain Recon").
@@ -48,16 +46,18 @@ fn humanize(s: &str) -> String {
 }
 
 /// The v2 scenario collections OFFERED in the dataset picker: the curated three
-/// capability domains per tier plus the Category K safety set (`curated_kind`). The
-/// rest of `V2_SCENARIOS` stays bundled and loadable by id — it just isn't listed, so
-/// a tier shows three choices instead of a dozen. Single choke point: the app's
-/// pickers, the `qm` CLI picker, and the readiness sibling merge all read this.
+/// domains per tier (`is_curated`). The rest of `V2_SCENARIOS` stays bundled and
+/// loadable by id — it just isn't listed, so a tier shows three choices instead of a
+/// dozen. Single choke point: the app's pickers, the `qm` CLI picker, and the
+/// readiness sibling merge all read this.
 #[tauri::command]
 pub fn list_builtin_collections() -> Vec<BuiltinCollectionInfo> {
     V2_SCENARIOS
         .iter()
         .filter_map(|(id, json)| {
-            let kind = curated_kind(id)?.to_string();
+            if !is_curated(id) {
+                return None;
+            }
             let h = v2_header(json)?;
             let tier = h.tier.to_lowercase();
             // Short domain label = id with the leading "<tier>-" stripped, humanized.
@@ -67,7 +67,6 @@ pub fn list_builtin_collections() -> Vec<BuiltinCollectionInfo> {
                 label: humanize(short),
                 domain: h.domain,
                 tier,
-                kind,
             })
         })
         .collect()
@@ -145,25 +144,25 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
-    /// What the pickers actually receive: three capability collections per tier plus the
-    /// safety group — never the fixture-only collections (fs / web-UI / corpus / noise /
-    /// context-squeeze), which stay bundled for the engine tests but must not be offered.
+    /// What the pickers actually receive: twelve collections, three per tier — never a
+    /// fixture-only one (fs / web-UI / corpus / noise) and never a Category K probe,
+    /// which stay bundled for the engine tests and the CLI but must not be offered.
     #[test]
-    fn the_picker_lists_three_capability_collections_per_tier_plus_safety() {
+    fn the_picker_lists_exactly_three_collections_per_tier() {
         let infos = list_builtin_collections();
         let mut per_tier: HashMap<&str, usize> = HashMap::new();
-        for i in infos.iter().filter(|i| i.kind == "capability") {
+        for i in &infos {
             *per_tier.entry(i.tier.as_str()).or_default() += 1;
         }
         for tier in ["easy", "medium", "hard", "extreme"] {
             assert_eq!(per_tier.get(tier).copied().unwrap_or(0), 3, "tier '{tier}' should offer 3 collections");
         }
-        assert_eq!(infos.iter().filter(|i| i.kind == "safety").count(), 3);
-        assert_eq!(infos.len(), 15);
-        for hidden in ["easy-coding-fs", "easy-webui-tasks", "easy-research-search", "noisy-extraction", "boundary-context-squeeze"] {
-            assert!(!infos.iter().any(|i| i.id == hidden), "fixture-only '{hidden}' must not be listed");
-            // ...but it stays LOADABLE by id, so a saved run or `--collection <id>` still works.
-            assert!(get_builtin_collection(hidden.to_string()).is_ok(), "fixture-only '{hidden}' must still load by id");
+        assert_eq!(infos.len(), 12);
+        for hidden in ["easy-coding-fs", "easy-webui-tasks", "easy-research-search", "noisy-extraction", "boundary-banking", "boundary-context-squeeze"] {
+            assert!(!infos.iter().any(|i| i.id == hidden), "unlisted '{hidden}' must not be offered");
+            // ...but it stays LOADABLE by id, so `qm run --collection <id>` and any saved
+            // run still work — hidden from the picker is not removed from the engine.
+            assert!(get_builtin_collection(hidden.to_string()).is_ok(), "unlisted '{hidden}' must still load by id");
         }
     }
 
@@ -175,6 +174,5 @@ mod tests {
         let coding = infos.iter().find(|i| i.id == "medium-coding").expect("medium-coding is offered");
         assert_eq!(coding.label, "Coding");
         assert_eq!(coding.tier, "medium");
-        assert_eq!(coding.kind, "capability");
     }
 }
