@@ -69,6 +69,8 @@ Then `qm doctor` → `qm init` gets your first verdict (every failure prints its
 
 **Want the desktop app?** Download a prebuilt build from **[quantamind.co](https://quantamind.co/)** and launch — no toolchain needed.
 
+> **macOS + "developer cannot be verified"?** Our builds aren't Apple-signed *yet* (in progress). The curl install above is unaffected. For a browser-downloaded app/binary: right-click → Open, or `xattr -d com.apple.quarantine <file>` — details + integrity checks in [Troubleshooting](./docs/reference.md#macos-gatekeeper).
+
 **Building from source** (contributors) takes ~5 minutes. macOS is first-class today; Windows and Linux dev builds run too, with sidecar lifecycles being rewired phase-by-phase (see [Roadmap](#roadmap)).
 
 **1 · Install toolchains** (skip any you already have)

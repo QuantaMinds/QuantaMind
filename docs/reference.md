@@ -174,6 +174,29 @@ classified in `frontend/src/shared/ipc/core/errorInfo.ts`; the card lives in
 `frontend/src/shared/ui/ErrorCard.tsx`. The anchors below match the `learnMore`
 links the classifier emits (mirrored at `quantamind.co/docs/troubleshooting`).
 
+### macOS: "cannot be opened because the developer cannot be verified" {#macos-gatekeeper}
+
+**What happened.** Our macOS builds are not Apple-signed yet (Developer ID signing/notarization
+is in progress). Anything downloaded with a **browser** — the desktop `.dmg` from quantamind.co
+or a `qm` release tarball — gets macOS's quarantine flag, and Gatekeeper blocks unsigned
+quarantined apps: the desktop app shows the "developer cannot be verified" dialog; the `qm`
+binary is killed on launch.
+
+**Desktop app (.dmg):** after copying QuantaMind.app to Applications, **right-click the app →
+Open → Open** (once; macOS remembers). Or in Terminal:
+`xattr -d com.apple.quarantine /Applications/QuantaMind.app`
+
+**`qm` CLI:** prefer the curl one-liner install (curl downloads are never quarantined, no
+workaround needed):
+`curl -fsSL https://github.com/QuantaMinds/QuantaMind/releases/latest/download/quantamind-installer.sh | sh`
+If you already browser-downloaded the tarball: `xattr -d com.apple.quarantine ./qm` — then
+`qm doctor` connects as usual.
+
+**Is that safe?** Every release artifact is sha256-checksummed and carries a GitHub build
+attestation (`gh attestation verify <file> --owner QuantaMinds`) proving it was built by this
+repository's release workflow — that's the integrity check Apple's stamp would otherwise give
+you.
+
 ### Ollama not running {#ollama-not-running}
 
 QuantaMind talks to a local Ollama server at `localhost:11434`. If it isn't

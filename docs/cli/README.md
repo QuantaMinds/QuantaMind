@@ -59,9 +59,19 @@ proving it was built by this repo's release workflow:
 gh attestation verify quantamind-x86_64-unknown-linux-musl.tar.xz --owner QuantaMinds
 ```
 
-**macOS note:** the curl installer is the recommended path. A tarball downloaded via a *browser*
-gets macOS's quarantine attribute and Gatekeeper may block the unsigned binary; `curl` downloads
-don't. (Signing/notarization is wired and lands when the certs do.)
+**macOS note — our builds aren't Apple-signed yet.** Developer ID signing/notarization is in
+progress; until it lands, the **curl installer above is the recommended path** — `curl` downloads
+skip macOS's quarantine, so the binary just runs. If you downloaded the `.tar.xz` with a
+*browser* instead, macOS will kill `qm` on first run with *"cannot be opened because the
+developer cannot be verified."* The fix is one command on the extracted binary:
+
+```bash
+xattr -d com.apple.quarantine ./qm     # then: ./qm doctor  → connect as usual
+```
+
+(Or: right-click the binary in Finder → Open → Open. Both are safe here because every artifact is
+checksummed and carries a GitHub build attestation — verify with the `gh attestation` command
+above if you want proof it came from this repo's release workflow.)
 
 **Docker image** — `ghcr.io/quantaminds/qm` (multi-arch, distroless, built from the
 attestation-verified release binaries) for CI/CD pipelines and ephemeral runners. One thing to
