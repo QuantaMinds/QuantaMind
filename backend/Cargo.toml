@@ -45,6 +45,14 @@ gui = [
   "dep:tauri-plugin-shell",
   "dep:tauri-plugin-updater",
   "dep:tauri-build",
+  # Audio capture/decode + GPU probe — used only by GUI-gated modules; keeping
+  # them out of the lean build removes the Linux ALSA build-time dependency.
+  "dep:cpal",
+  "dep:hound",
+  "dep:rubato",
+  "dep:symphonia",
+  "dep:webrtc-vad",
+  "dep:metal",
 ]
 # Enterprise/air-gapped build: compile OUT the entire publish/auth surface
 # (commands/publish/{auth,preview_cmd,publish_cmd,cohort}). The offline share
@@ -75,13 +83,13 @@ bytes = "1"
 keyring = { version = "3", features = ["apple-native", "windows-native"] }
 # PKCE S256 challenge encoding (publish auth; out of enterprise builds).
 base64 = "0.22"
-hound = "3"
-rubato = "0.16"
-symphonia = { version = "0.5", default-features = false, features = ["mp3", "pcm", "wav"] }
-cpal = "0.15"
+hound = { version = "3", optional = true }
+rubato = { version = "0.16", optional = true }
+symphonia = { version = "0.5", default-features = false, features = ["mp3", "pcm", "wav"], optional = true }
+cpal = { version = "0.15", optional = true }
 # Independent, deterministic (non-ML) voice-activity detection for the STT
 # silence-hallucination metric — never the model under test (anti-circularity).
-webrtc-vad = "0.4"
+webrtc-vad = { version = "0.4", optional = true }
 # Per-user data / config directory resolution (platform::user_dirs) — resolves
 # to %LOCALAPPDATA%\QuantaMind on Windows, ~/.quantamind on Unix.
 dirs = "6"
@@ -100,7 +108,7 @@ windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Cons
 # The context-ceiling meters budget against THIS, not total RAM, so "fits in memory"
 # reflects what actually fits on the GPU.
 [target.'cfg(target_os = "macos")'.dependencies]
-metal = "0.33"
+metal = { version = "0.33", optional = true }
 
 [dev-dependencies]
 mockito = "1"

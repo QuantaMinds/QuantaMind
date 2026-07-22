@@ -1,6 +1,7 @@
 #[cfg(feature = "gui")]
 use crate::commands::prompt::prompt_options::{to_generate_options, validate_params};
 use crate::errors::AppError;
+#[cfg(feature = "gui")]
 use crate::inference::backend::backend_kind::BackendKind;
 #[cfg(feature = "gui")]
 use crate::inference::backend::endpoint;
