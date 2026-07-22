@@ -41,6 +41,47 @@ pub fn v2_json(id: &str) -> Option<&'static str> {
     V2_SCENARIOS.iter().find(|(i, _)| *i == id).map(|(_, j)| *j)
 }
 
+/// The capability collections the app OFFERS: exactly three domains per tier — a
+/// coding · finance · medical spine so one model can be compared across rising
+/// difficulty (Easy substitutes ecommerce, having no medical collection; Extreme
+/// lists its three). Everything in `V2_SCENARIOS` that is absent here stays bundled
+/// as an engine fixture (the fs / web-UI / corpus / noise environments the tests
+/// drive) but is never listed in a picker; `v2_json`/`collection_hash` still resolve
+/// it by id, so a saved run or a `--collection` by name keeps working.
+pub const CURATED_CAPABILITY: &[&str] = &[
+    "easy-coding",
+    "easy-finance",
+    "easy-ecommerce",
+    "medium-coding",
+    "medium-finance",
+    "medium-medical",
+    "hard-coding",
+    "hard-finance",
+    "hard-medical",
+    "extreme-clinical-trial-stats",
+    "extreme-legal-compliance",
+    "extreme-supply-chain-recon",
+];
+
+/// Category K safety/boundary probes. Listed under their OWN group, never inside a
+/// difficulty tier: their JSON tier is `Easy` (it sets the step/pass^k budget) but
+/// they measure injection resistance + over-refusal, an axis kept off the capability
+/// Pass^k. `boundary-context-squeeze` is deliberately absent — it is the attribution
+/// test's fixture, not a collection to run by hand.
+pub const CURATED_SAFETY: &[&str] = &["boundary-healthcare", "boundary-banking", "boundary-coding"];
+
+/// Which picker group a collection belongs to (`"capability"` / `"safety"`), or `None`
+/// for a fixture-only collection that must not appear in any picker.
+pub fn curated_kind(id: &str) -> Option<&'static str> {
+    if CURATED_CAPABILITY.contains(&id) {
+        Some("capability")
+    } else if CURATED_SAFETY.contains(&id) {
+        Some("safety")
+    } else {
+        None
+    }
+}
+
 /// Lightweight collection header for the picker (domain + tier), without
 /// transpiling every task.
 #[derive(Deserialize)]
@@ -93,6 +134,54 @@ mod tests {
             && has_wildcard(&a.args)
             && args_match_v2(&a.args, &b.args)
             && !args_match_v2(&b.args, &a.args)
+    }
+
+    /// Every curated id must resolve, or the picker silently loses an entry (a typo here
+    /// is invisible at runtime — `filter_map` just drops it).
+    #[test]
+    fn every_curated_id_is_a_bundled_collection() {
+        for id in CURATED_CAPABILITY.iter().chain(CURATED_SAFETY.iter()) {
+            assert!(v2_json(id).is_some(), "curated id '{id}' names no bundled collection");
+        }
+    }
+
+    /// The product promise: each difficulty tier offers exactly three capability
+    /// collections, each a DIFFERENT domain. Adding a fourth (or a duplicate domain)
+    /// fails here rather than quietly re-crowding the picker.
+    #[test]
+    fn each_tier_offers_exactly_three_distinct_capability_domains() {
+        for tier in ["easy", "medium", "hard", "extreme"] {
+            let headers: Vec<V2Header> = CURATED_CAPABILITY
+                .iter()
+                .filter_map(|id| v2_json(id).and_then(v2_header))
+                .filter(|h| h.tier.to_lowercase() == tier)
+                .collect();
+            assert_eq!(headers.len(), 3, "tier '{tier}' offers {} capability collections, want 3", headers.len());
+            let domains: HashSet<&str> = headers.iter().map(|h| h.domain.as_str()).collect();
+            assert_eq!(domains.len(), 3, "tier '{tier}' repeats a domain: {domains:?}");
+        }
+    }
+
+    /// A safety collection is only meaningful if it actually carries Category K tasks —
+    /// otherwise the Safety group would offer a collection whose panel never appears.
+    #[test]
+    fn every_curated_safety_collection_carries_safety_tasks() {
+        for id in CURATED_SAFETY {
+            let tasks = load_v2_collection(v2_json(id).unwrap()).unwrap();
+            assert!(
+                tasks.iter().any(|t| t.agentic.as_ref().is_some_and(|s| s.safety.is_some())),
+                "curated safety collection '{id}' carries no safety-tagged task"
+            );
+        }
+        // ...and a capability collection must NOT, or its safety axis would leak into a
+        // tier the Safety panel doesn't cover.
+        for id in CURATED_CAPABILITY {
+            let tasks = load_v2_collection(v2_json(id).unwrap()).unwrap();
+            assert!(
+                !tasks.iter().any(|t| t.agentic.as_ref().is_some_and(|s| s.safety.is_some())),
+                "capability collection '{id}' carries a safety task — it belongs in CURATED_SAFETY"
+            );
+        }
     }
 
     /// Permanent answer-key guard: a future authored scenario can't silently regress

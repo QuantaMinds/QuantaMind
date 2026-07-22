@@ -37,7 +37,7 @@ beforeEach(() => {
   useBatchStore.getState().reset();
   useBackendStore.setState({ selectedBackend: "ollama" });
   useEvalRegistryStore.setState({
-    presets: [{ id: "easy-coding", label: "Coding", domain: "coding", tier: "easy" }],
+    presets: [{ id: "easy-coding", label: "Coding", domain: "coding", tier: "easy", kind: "capability" }],
     collections: [],
     selected: "easy-coding",
     tasks: [],
@@ -129,9 +129,9 @@ describe("EvalPage — k pre-fill from tier (no clobber)", () => {
   beforeEach(() => {
     useEvalRegistryStore.setState({
       presets: [
-        { id: "easy-coding", label: "Coding", domain: "coding", tier: "easy" },
-        { id: "medium-coding", label: "Coding", domain: "coding", tier: "medium" },
-        { id: "hard-coding", label: "Coding", domain: "coding", tier: "hard" },
+        { id: "easy-coding", label: "Coding", domain: "coding", tier: "easy", kind: "capability" },
+        { id: "medium-coding", label: "Coding", domain: "coding", tier: "medium", kind: "capability" },
+        { id: "hard-coding", label: "Coding", domain: "coding", tier: "hard", kind: "capability" },
       ],
       collections: [],
       selected: "medium-coding",
@@ -231,8 +231,8 @@ describe("EvalPage — results view stays bound to a running batch (nav-persiste
     });
     useEvalRegistryStore.setState({
       presets: [
-        { id: "easy-coding", label: "Coding", domain: "coding", tier: "easy" },
-        { id: "hard-coding", label: "Coding", domain: "coding", tier: "hard" },
+        { id: "easy-coding", label: "Coding", domain: "coding", tier: "easy", kind: "capability" },
+        { id: "hard-coding", label: "Coding", domain: "coding", tier: "hard", kind: "capability" },
       ],
       collections: [],
       selected: "easy-coding",
@@ -290,7 +290,7 @@ describe("EvalPage — single-task run scope", () => {
     useSelectedModelStore.setState({ selectedModels: [{ name: "llama3.2:1b", backend: "ollama", size_bytes: 1 }] });
     // Tier "medium" so it survives the Built-in list's tier filter (hwTier mock → medium).
     useEvalRegistryStore.setState({
-      presets: [{ id: "med-coding", label: "Coding", domain: "coding", tier: "medium" }],
+      presets: [{ id: "med-coding", label: "Coding", domain: "coding", tier: "medium", kind: "capability" }],
       collections: [], selected: "med-coding",
       tasks: [{ id: "t1", category: "single", prompt: "p", tools: [{ name: "x", description: "", parameters: { type: "object", properties: {} } }], expected: { type: "call", name: "x", args: {} } }] as never,
       init, select, isPreset: (v: string) => v === "med-coding",

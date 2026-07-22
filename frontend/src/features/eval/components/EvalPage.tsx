@@ -239,8 +239,10 @@ export function EvalPage() {
     // still change the tier lever; it just won't re-pick the collection until the run ends.
     if (useBatchStore.getState().running) return;
     const cur = presets.find((p) => p.id === selectedCollection);
-    if (cur && cur.tier === effectiveTier) return; // already a valid in-tier selection
-    const first = presets.find((p) => p.tier === effectiveTier);
+    if (cur && (cur.tier === effectiveTier || cur.kind === "safety")) return; // valid in-tier, or a deliberate Safety pick
+    // Auto-target a CAPABILITY collection: the safety probes carry an Easy tier for their
+    // step budget, so a tier switch must never silently land the user on one.
+    const first = presets.find((p) => p.kind !== "safety" && p.tier === effectiveTier);
     if (first) void selectCollection(first.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveTier, presets]);

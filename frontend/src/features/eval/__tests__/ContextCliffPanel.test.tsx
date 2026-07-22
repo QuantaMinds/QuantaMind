@@ -76,7 +76,7 @@ beforeEach(() => {
   useParamsStore.setState({ globalParams: {} });
   // Bypass real init (IPC) — seed presets so the panel loads its own dataset.
   useEvalRegistryStore.setState({
-    presets: [{ id: "easy-coding", label: "Coding", domain: "coding", tier: "easy" }],
+    presets: [{ id: "easy-coding", label: "Coding", domain: "coding", tier: "easy", kind: "capability" }],
     collections: [],
     init: vi.fn().mockResolvedValue(undefined),
   });

@@ -22,7 +22,7 @@ beforeEach(() => {
   vi.mocked(getBuiltinCollection).mockResolvedValue(tasks as never);
   vi.mocked(loadCollectionHistory).mockResolvedValue([]);
   useEvalRegistryStore.setState({
-    presets: [{ id: "easy-coding", label: "Coding", domain: "coding", tier: "easy" }],
+    presets: [{ id: "easy-coding", label: "Coding", domain: "coding", tier: "easy", kind: "capability" }],
     collections: [],
     init: vi.fn().mockResolvedValue(undefined),
   });

@@ -130,13 +130,17 @@ export type ToolTask = z.infer<typeof ToolTaskSchema>;
 
 const TaskArraySchema = z.array(ToolTaskSchema);
 
-/// A bundled v2 tiered scenario collection for the picker: id (file stem), short
-/// domain, and tier (so the UI groups Easy→Extreme and labels by domain).
+/// A bundled v2 tiered scenario collection OFFERED by the picker: id (file stem), short
+/// domain, tier (so the UI groups Easy→Extreme and labels by domain), and the group it
+/// belongs to. The backend lists only the curated set — three capability domains per
+/// tier plus the Category K safety probes — so a tier is never a wall of collections.
+/// `kind` defaults to `capability` so a report saved before the field existed still parses.
 export const BuiltinCollectionInfoSchema = z.object({
   id: z.string(),
   label: z.string(),
   domain: z.string(),
   tier: z.enum(["easy", "medium", "hard", "extreme"]),
+  kind: z.enum(["capability", "safety"]).default("capability"),
 });
 export type BuiltinCollectionInfo = z.infer<typeof BuiltinCollectionInfoSchema>;
 

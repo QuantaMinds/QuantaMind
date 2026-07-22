@@ -474,8 +474,9 @@ one folder per commit, behavior unchanged).
   task definition (`spec`, `sandbox`, `build`) stay at the root. **`agentic/v2/`** is
   the Phase 9-v2 authored-scenario engine: `collection`/`transpile` (load a v2 JSON
   object → engine `ToolTask`s), `match` (wildcard + `must_not_call`), `world_state`
-  (ground-truth responder), `scenarios` (the 19 bundled collections via
-  `include_str!`, under `v2/scenarios/`), and `generator` (per-run procedural
+  (ground-truth responder), `scenarios` (the bundled collections via `include_str!`,
+  under `v2/scenarios/`, plus `CURATED_CAPABILITY`/`CURATED_SAFETY` — the subset the
+  pickers offer; the rest stay loadable-by-id engine fixtures), and `generator` (per-run procedural
   instancing — seeded entity-id remap). v2 runs on the SAME runner — no second
   execution path (`run_agentic_with` drives Pass^k via a per-run sandbox factory).
 - **frontend `features/workspace/components/`** (was 17 files): `model-select/` ·

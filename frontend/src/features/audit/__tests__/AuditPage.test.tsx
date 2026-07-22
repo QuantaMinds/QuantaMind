@@ -27,7 +27,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   useBackendStore.setState({ selectedBackend: "ollama" });
   useBatchStore.setState({ report: null });
-  useEvalRegistryStore.setState({ presets: [{ id: "easy-coding", label: "Coding", domain: "coding", tier: "easy" }], collections: [], init: vi.fn().mockResolvedValue(undefined) });
+  useEvalRegistryStore.setState({ presets: [{ id: "easy-coding", label: "Coding", domain: "coding", tier: "easy", kind: "capability" }], collections: [], init: vi.fn().mockResolvedValue(undefined) });
 });
 
 describe("AuditPage", () => {
@@ -58,9 +58,9 @@ describe("AuditPage", () => {
     // separates them under Easy/Medium/Hard <optgroup>s.
     useEvalRegistryStore.setState({
       presets: [
-        { id: "easy-coding", label: "Coding", domain: "coding", tier: "easy" },
-        { id: "medium-coding", label: "Coding", domain: "coding", tier: "medium" },
-        { id: "hard-coding", label: "Coding", domain: "coding", tier: "hard" },
+        { id: "easy-coding", label: "Coding", domain: "coding", tier: "easy", kind: "capability" },
+        { id: "medium-coding", label: "Coding", domain: "coding", tier: "medium", kind: "capability" },
+        { id: "hard-coding", label: "Coding", domain: "coding", tier: "hard", kind: "capability" },
       ],
     });
     render(<AuditPage />);
@@ -76,6 +76,22 @@ describe("AuditPage", () => {
     expect(Array.from(select.querySelectorAll("option")).map((o) => o.value)).toEqual([
       "easy-coding", "medium-coding", "hard-coding",
     ]);
+  });
+
+  it("keeps the Category K probes in a Safety group, out of the tier groups", async () => {
+    useEvalRegistryStore.setState({
+      presets: [
+        { id: "easy-coding", label: "Coding", domain: "coding", tier: "easy", kind: "capability" },
+        { id: "boundary-banking", label: "Boundary Banking", domain: "banking", tier: "easy", kind: "safety" },
+      ],
+    });
+    render(<AuditPage />);
+    const select = screen.getByTestId("audit-collection") as HTMLSelectElement;
+    const groups = Array.from(select.querySelectorAll("optgroup"));
+    expect(groups.map((g) => g.label)).toEqual(["Easy", "Safety & Boundaries"]);
+    // The safety probe's Easy tier must not pad the Easy group.
+    expect(Array.from(groups[0].querySelectorAll("option")).map((o) => o.value)).toEqual(["easy-coding"]);
+    expect(Array.from(groups[1].querySelectorAll("option")).map((o) => o.value)).toEqual(["boundary-banking"]);
   });
 
   it("surfaces a load failure instead of a misleading 'no runs yet' empty state", async () => {

@@ -764,8 +764,12 @@ export function EvalManager({
                   )
                 ) : (
                   (() => {
-                    const items = effectiveTier ? presets.filter((p) => p.tier === effectiveTier) : [];
-                    if (items.length === 0) {
+                    // The tier group lists CAPABILITY collections only (three domains). The
+                    // Category K probes carry an Easy tier for their step budget but measure
+                    // a different axis, so they get their own group instead of padding Easy.
+                    const items = effectiveTier ? presets.filter((p) => p.kind !== "safety" && p.tier === effectiveTier) : [];
+                    const safety = presets.filter((p) => p.kind === "safety");
+                    if (items.length === 0 && safety.length === 0) {
                       return (
                         <div style={{ color: "#64748b", fontSize: 12, fontStyle: "italic", paddingLeft: 8 }}>
                           {effectiveTier ? `No ${effectiveTier} collections` : "Detecting tier…"}
@@ -773,14 +777,24 @@ export function EvalManager({
                       );
                     }
                     return (
-                      <div data-testid={`eval-tier-group-${effectiveTier}`}>
-                        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "#94a3b8", padding: "10px 0 2px" }}>
-                          {effectiveTier}
+                      <>
+                        <div data-testid={`eval-tier-group-${effectiveTier}`}>
+                          <div style={groupHeadingStyle}>{effectiveTier}</div>
+                          {items.map((p) =>
+                            collectionRow(p.id, p.label, [{ label: "Remove from list", danger: true, onClick: () => setDeleteTarget(p.id), testid: `eval-collection-delete-${p.id}` }]),
+                          )}
                         </div>
-                        {items.map((p) =>
-                          collectionRow(p.id, p.label, [{ label: "Remove from list", danger: true, onClick: () => setDeleteTarget(p.id), testid: `eval-collection-delete-${p.id}` }]),
+                        {safety.length > 0 && (
+                          <div data-testid="eval-safety-group">
+                            <div style={groupHeadingStyle} title="Category K: prompt-injection resistance + over-refusal control — scored on its own axis, not the capability Pass^k">
+                              Safety &amp; Boundaries
+                            </div>
+                            {safety.map((p) =>
+                              collectionRow(p.id, p.label, [{ label: "Remove from list", danger: true, onClick: () => setDeleteTarget(p.id), testid: `eval-collection-delete-${p.id}` }]),
+                            )}
+                          </div>
                         )}
-                      </div>
+                      </>
                     );
                   })()
                 )}
@@ -1187,6 +1201,16 @@ const controlLabelStyle: React.CSSProperties = {
   fontSize: 12,
   color: "#475569",
   fontFamily: "Inter, sans-serif",
+};
+
+/// Heading above a group in the built-in collection list (the active tier, and Safety).
+const groupHeadingStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 700,
+  textTransform: "uppercase",
+  letterSpacing: 0.5,
+  color: "#94a3b8",
+  padding: "10px 0 2px",
 };
 
 
