@@ -13,6 +13,10 @@ pub const V2_SCENARIOS: &[(&str, &str)] = &[
     ("easy-ecommerce", include_str!("scenarios/easy-ecommerce.json")),
     ("easy-finance", include_str!("scenarios/easy-finance.json")),
     ("medium-coding", include_str!("scenarios/medium-coding.json")),
+    // v2: task-design fixes (oracle no longer leaks the root cause / fix recipe; prompt
+    // reachable). The v1 file stays bundled so saved runs + its hash keep resolving —
+    // answer-key changes NEVER edit a hashed collection in place (docs/process.md).
+    ("medium-coding-v2", include_str!("scenarios/medium-coding-v2.json")),
     ("medium-finance", include_str!("scenarios/medium-finance.json")),
     ("medium-legal", include_str!("scenarios/medium-legal.json")),
     ("medium-medical", include_str!("scenarios/medium-medical.json")),
@@ -51,7 +55,7 @@ pub const CURATED_IDS: &[&str] = &[
     "easy-coding",
     "easy-finance",
     "easy-ecommerce",
-    "medium-coding",
+    "medium-coding-v2",
     "medium-finance",
     "medium-medical",
     "hard-coding",
@@ -580,7 +584,7 @@ mod tests {
 
     #[test]
     fn every_bundled_v2_collection_loads_and_validates() {
-        assert_eq!(V2_SCENARIOS.len(), 22);
+        assert_eq!(V2_SCENARIOS.len(), 23);
         for (id, json) in V2_SCENARIOS {
             let tasks = load_v2_collection(json).unwrap_or_else(|e| panic!("collection '{id}' failed to load: {e}"));
             assert!(!tasks.is_empty(), "collection '{id}' has no tasks");

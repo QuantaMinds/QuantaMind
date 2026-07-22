@@ -72,11 +72,17 @@ pub fn list_builtin_collections() -> Vec<BuiltinCollectionInfo> {
             }
             let h = v2_header(json)?;
             let tier = h.tier.to_lowercase();
-            // Short domain label = id with the leading "<tier>-" stripped, humanized.
-            let short = id.strip_prefix(&format!("{tier}-")).unwrap_or(id);
+            // Short domain label: the header's declared domain (humanized) — id-derived
+            // only as a fallback, so a VERSIONED id ("medium-coding-v2") still reads
+            // "Coding", never "Coding V2" (labels are domain-only by contract).
+            let short = if h.domain.is_empty() {
+                id.strip_prefix(&format!("{tier}-")).unwrap_or(id).to_string()
+            } else {
+                h.domain.clone()
+            };
             Some(BuiltinCollectionInfo {
                 id: id.to_string(),
-                label: humanize(short),
+                label: humanize(&short),
                 domain: h.domain,
                 tier,
             })
@@ -186,7 +192,7 @@ mod tests {
     #[test]
     fn a_listed_collection_is_labeled_by_domain_not_by_id() {
         let infos = list_builtin_collections();
-        let coding = infos.iter().find(|i| i.id == "medium-coding").expect("medium-coding is offered");
+        let coding = infos.iter().find(|i| i.id == "medium-coding-v2").expect("medium-coding-v2 is offered");
         assert_eq!(coding.label, "Coding");
         assert_eq!(coding.tier, "medium");
     }
