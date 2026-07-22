@@ -111,37 +111,58 @@
           "name": "get_order",
           "params": {
             "id": "string"
-          }
+          },
+          "returns_fields": [
+            "cat",
+            "state"
+          ]
         },
         {
           "name": "get_marketplace_policy",
           "params": {
             "mkt": "string"
-          }
+          },
+          "returns_fields": [
+            "mkt"
+          ]
         },
         {
           "name": "get_state_ewaste_rule",
           "params": {
             "state": "string"
-          }
+          },
+          "returns_fields": [
+            "ewaste"
+          ]
         },
         {
           "name": "get_buyer_protection",
           "params": {
             "order_id": "string"
-          }
+          },
+          "returns_fields": [
+            "protection"
+          ]
         },
         {
           "name": "get_delivery_date",
           "params": {
             "order_id": "string"
-          }
+          },
+          "returns_fields": [
+            "window",
+            "since"
+          ]
         },
         {
           "name": "get_chat_log",
           "params": {
             "order_id": "string"
-          }
+          },
+          "returns_fields": [
+            "claim",
+            "note"
+          ]
         },
         {
           "name": "full_refund",
