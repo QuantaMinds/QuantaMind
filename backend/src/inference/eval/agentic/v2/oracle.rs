@@ -73,6 +73,13 @@ pub enum SemanticFindingKind {
     /// expected call surfaces — the model must GUESS the grader's exact wording,
     /// which manufactures false-negative fails on capable models.
     UngroundedAnswerToken,
+    /// Two required getters resolve to the SAME entity and one exposes a superset of
+    /// (or the same fields as) the other — the bigger getter already hands the model
+    /// everything the smaller was required to fetch, so a model that reads efficiently
+    /// and skips the smaller call is falsely failed as "missing" it. The default
+    /// whole-blob responder makes every unprojected sibling getter redundant; the fix is
+    /// a per-tool `returns_fields` slice (or dropping/retagging the redundant checkpoint).
+    LeakyGetter,
     /// Category K: an Attack-arm safety probe with no `must_not_call` trap — there is no
     /// forbidden action to resist, so the probe can never be failed and its "resistance"
     /// is meaningless (not discriminating).
@@ -105,7 +112,9 @@ pub enum SemanticSeverity {
 impl SemanticFindingKind {
     pub fn severity(self) -> SemanticSeverity {
         match self {
-            SemanticFindingKind::UngroundedAnswerToken => SemanticSeverity::Warning,
+            // Heuristic authoring smells (surfaced, never hard-blocked): the answer key MIGHT
+            // intend the redundant call, so a leaky getter is a Warning like an ungrounded token.
+            SemanticFindingKind::UngroundedAnswerToken | SemanticFindingKind::LeakyGetter => SemanticSeverity::Warning,
             _ => SemanticSeverity::Error,
         }
     }
@@ -253,6 +262,73 @@ fn task_semantic_findings(task: &ToolTask) -> Vec<SemanticFinding> {
             push(
                 SemanticFindingKind::AckingGetter,
                 format!("{tid}: expected getter {}({}) resolves to NO world_state data (it acks) — move the fact under a top-level key matching the call's arg value or the tool name", cp.tool, cp.args),
+            );
+        }
+    }
+
+    // (2b) Leaky getter: two required getters resolving to the SAME entity where one's
+    // exposed field set contains the other's. The default responder hands back the WHOLE
+    // entity blob, so any unprojected sibling getter is redundant — a model that reads
+    // efficiently from the bigger getter and skips the smaller is falsely failed for the
+    // "missing" call. The exposed set is the getter's `returns_fields` slice if declared,
+    // else all (non-reserved) blob keys.
+    let exposure = |cp: &TaskCheckpoint| -> Option<(String, std::collections::BTreeSet<String>)> {
+        if !spec.entity_tools.iter().any(|g| g == &cp.tool) || reporters.contains(&cp.tool.as_str()) {
+            return None;
+        }
+        let raw = derive_response(ws_val, &Call { name: cp.tool.clone(), args: cp.args.clone() });
+        let blob = if raw != ACK { raw } else { derive_response(ws_val, &Call { name: cp.tool.clone(), args: concretize(&cp.args) }) };
+        let v: Value = serde_json::from_str(&blob).ok()?;
+        let obj = v.as_object()?;
+        // Group siblings by the entity read: the first arg value that is a world_state key,
+        // else the tool-name blob key.
+        let entity = cp
+            .args
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter_map(|(_, x)| x.as_str())
+            .find(|s| ws.contains_key(*s))
+            .map(str::to_string)
+            .unwrap_or_else(|| cp.tool.clone());
+        let projected = spec.field_projections.get(&cp.tool);
+        let fields: std::collections::BTreeSet<String> = obj
+            .keys()
+            .filter(|k| !RESERVED.contains(&k.as_str()))
+            .filter(|k| projected.map_or(true, |p| p.contains(k)))
+            .cloned()
+            .collect();
+        (!fields.is_empty()).then_some((entity, fields))
+    };
+    let mut exposures: Vec<(String, String, std::collections::BTreeSet<String>)> = Vec::new();
+    for cp in checkpoints {
+        if let Some((entity, fields)) = exposure(cp) {
+            if !exposures.iter().any(|(e, t, _)| e == &entity && t == &cp.tool) {
+                exposures.push((entity, cp.tool.clone(), fields));
+            }
+        }
+    }
+    for i in 0..exposures.len() {
+        for j in (i + 1)..exposures.len() {
+            let (e_i, t_i, f_i) = &exposures[i];
+            let (e_j, t_j, f_j) = &exposures[j];
+            if e_i != e_j {
+                continue;
+            }
+            let (small, big, leaked) = if f_j.is_subset(f_i) {
+                (t_j, t_i, f_j)
+            } else if f_i.is_subset(f_j) {
+                (t_i, t_j, f_i)
+            } else {
+                continue;
+            };
+            let fields: Vec<&str> = leaked.iter().map(String::as_str).collect();
+            push(
+                SemanticFindingKind::LeakyGetter,
+                format!(
+                    "{tid}: on entity '{e_i}', getter {big} already exposes all of {small}'s required fields ({}) — a model reading {big} needn't call {small}, so skipping {small} is falsely failed; give {big} a `returns_fields` slice excluding {small}'s fields (or drop/retag the redundant checkpoint)",
+                    fields.join(", ")
+                ),
             );
         }
     }
