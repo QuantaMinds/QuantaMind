@@ -5,15 +5,79 @@
 //! and the prompt tells the model to DISCOVER its per-run sandbox first (the root
 //! is only known at run time).
 
-use crate::commands::mcp::run_cmd::{ByoTaskSpec, McpTaskSpec, OracleSpec, WorldSpec};
+
 use crate::inference::eval::agentic::sandbox::EndStateRule;
 use crate::inference::eval::agentic::spec::{AgenticSpec, EnvKind};
 use crate::inference::eval::mcp::oracle_db::DbOracle;
 use crate::inference::eval::mcp::oracle_fs::FsOracle;
 use crate::inference::eval::mcp::world::{DbSeed, FsSeed, McpSpec};
 use crate::inference::eval::toolcall::tasks::{ToolSchema, ToolTask};
+use serde::Deserialize;
 use serde_json::json;
 use std::collections::BTreeMap;
+
+// The MCP task-spec types (the builder's world+oracle wire format) live HERE —
+// the spec→ToolTask stage — so the headless CLI parses task files without the
+// GUI-only run commands; `run_cmd` (gui) imports them back from this module.
+/// Mirror of the frontend `McpTaskDef` (the one task-file format).
+#[derive(Deserialize)]
+pub struct McpTaskSpec {
+    #[allow(dead_code)]
+    pub name: String,
+    pub instruction: String,
+    pub world: WorldSpec,
+    #[serde(default)]
+    pub oracle: OracleSpec,
+    #[serde(default = "default_k")]
+    pub k: u32,
+}
+fn default_k() -> u32 {
+    5
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum WorldSpec {
+    Fs {
+        #[serde(default)]
+        files: Vec<FileSpec>,
+    },
+    Db {
+        #[serde(default, rename = "setupSql")]
+        setup_sql: String,
+    },
+}
+
+#[derive(Deserialize)]
+pub struct FileSpec {
+    pub path: String,
+    pub content: String,
+}
+
+#[derive(Deserialize, Default)]
+pub struct OracleSpec {
+    #[serde(default)]
+    pub assert_present: Vec<String>,
+    #[serde(default)]
+    pub assert_absent: Vec<String>,
+    #[serde(default)]
+    pub assert_content: Vec<(String, String)>,
+    #[serde(default)]
+    pub assert_eq: Vec<(String, String)>,
+    #[serde(default)]
+    pub assert_contains: Vec<(String, String)>,
+}
+
+/// One BYO task: which connected server + what the model should do. Diagnostic only
+/// (no answer key). `camelCase` to match the frontend `McpByoTaskDef`.
+#[derive(Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ByoTaskSpec {
+    pub name: String,
+    pub instruction: String,
+    pub server_id: String,
+}
+
 
 /// The 14 real filesystem-server tool schemas, parsed from the captured fixture
 /// (the same bytes the wire types were modeled from).
@@ -136,7 +200,7 @@ fn sanitize(s: &str) -> String {
 
 /// Convert built MCP tasks to eval `ToolTask`s for the unified Run-Batch path.
 /// Validates them (the same trust boundary as a custom collection).
-#[tauri::command]
+#[cfg_attr(feature = "gui", tauri::command)]
 pub fn build_mcp_tasks(tasks: Vec<McpTaskSpec>) -> Result<Vec<ToolTask>, crate::errors::AppError> {
     let out: Vec<ToolTask> = tasks.iter().enumerate().map(|(i, t)| to_tooltask(t, i)).collect();
     crate::inference::eval::toolcall::tasks::validate_tasks(&out)?;
@@ -151,7 +215,7 @@ pub fn build_mcp_tasks(tasks: Vec<McpTaskSpec>) -> Result<Vec<ToolTask>, crate::
 /// Returns the `CollectionValidation` the UI already renders. A structural build
 /// failure comes back as `ok:false` + `structural_error` (never an IPC Err), so the
 /// paste door shows findings instead of a red toast.
-#[tauri::command]
+#[cfg_attr(feature = "gui", tauri::command)]
 pub async fn validate_mcp_tasks(
     tasks: Vec<McpTaskSpec>,
 ) -> Result<crate::inference::eval::agentic::v2::oracle::CollectionValidation, crate::errors::AppError> {
@@ -186,7 +250,7 @@ pub fn to_byo_tooltask(spec: &ByoTaskSpec) -> ToolTask {
     }
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "gui", tauri::command)]
 pub fn build_mcp_byo_tasks(tasks: Vec<ByoTaskSpec>) -> Result<Vec<ToolTask>, crate::errors::AppError> {
     Ok(tasks.iter().map(to_byo_tooltask).collect())
 }

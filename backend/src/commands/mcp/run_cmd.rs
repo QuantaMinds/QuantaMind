@@ -10,6 +10,7 @@ use crate::commands::eval::batch_payloads::{
     EVENT_BATCH_PROGRESS,
 };
 use crate::commands::mcp::mcp_cmd::{connect_configured, registry_path};
+use crate::commands::mcp::task_cmd::{ByoTaskSpec, McpTaskSpec, WorldSpec};
 use crate::errors::{AppError, AppResult};
 use crate::inference::backend::backend_kind::BackendKind;
 use crate::inference::backend::endpoint;
@@ -33,7 +34,7 @@ use crate::mcp::registry::split_namespaced;
 use crate::persistence::mcp::servers::load;
 use crate::persistence::readiness::reports;
 use crate::persistence::eval_history;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use tauri::Manager;
@@ -56,55 +57,6 @@ fn resolve_backend(backend: BackendKind) -> AppResult<String> {
 }
 
 // ── Track B: controlled-world task ─────────────────────────────────────────
-
-/// Mirror of the frontend `McpTaskDef` (the one task-file format).
-#[derive(Deserialize)]
-pub struct McpTaskSpec {
-    #[allow(dead_code)]
-    pub name: String,
-    pub instruction: String,
-    pub world: WorldSpec,
-    #[serde(default)]
-    pub oracle: OracleSpec,
-    #[serde(default = "default_k")]
-    pub k: u32,
-}
-fn default_k() -> u32 {
-    5
-}
-
-#[derive(Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum WorldSpec {
-    Fs {
-        #[serde(default)]
-        files: Vec<FileSpec>,
-    },
-    Db {
-        #[serde(default, rename = "setupSql")]
-        setup_sql: String,
-    },
-}
-
-#[derive(Deserialize)]
-pub struct FileSpec {
-    pub path: String,
-    pub content: String,
-}
-
-#[derive(Deserialize, Default)]
-pub struct OracleSpec {
-    #[serde(default)]
-    pub assert_present: Vec<String>,
-    #[serde(default)]
-    pub assert_absent: Vec<String>,
-    #[serde(default)]
-    pub assert_content: Vec<(String, String)>,
-    #[serde(default)]
-    pub assert_eq: Vec<(String, String)>,
-    #[serde(default)]
-    pub assert_contains: Vec<(String, String)>,
-}
 
 #[derive(Serialize)]
 pub struct McpRunResult {
@@ -382,16 +334,6 @@ fn step_kind_for(c: &ByoCall) -> StepKind {
 /// contract — no execution without an explicit opt-in — is unit-tested without a live server.
 fn byo_gate_decision(allow_execute: bool, pending: &PendingCall) -> Decision {
     gate_decision(GatePolicy::DenyByDefault, pending, allow_execute.then_some(Decision::Approve))
-}
-
-/// One BYO task: which connected server + what the model should do. Diagnostic only
-/// (no answer key). `camelCase` to match the frontend `McpByoTaskDef`.
-#[derive(Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct ByoTaskSpec {
-    pub name: String,
-    pub instruction: String,
-    pub server_id: String,
 }
 
 fn add_diag(a: DiagnosticStats, b: &DiagnosticStats) -> DiagnosticStats {

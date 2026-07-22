@@ -1,6 +1,11 @@
+#[cfg(feature = "gui")]
 pub mod batch_cmd;
+#[cfg(feature = "gui")]
 pub mod batch_payloads;
+#[cfg(feature = "gui")]
 pub mod eval_registry;
+#[cfg(feature = "gui")]
 pub mod matrix_cmd;
+#[cfg(feature = "gui")]
 pub mod readiness_cmd;
 pub mod toolcall_cmd;

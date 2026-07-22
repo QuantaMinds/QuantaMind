@@ -15,25 +15,48 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 # The headless `qm` CLI — a thin bin on the existing crate (ADR 0001: single crate,
 # no workspace). Shares the eval/inference engine verbatim via `quantamind_lib`.
+# Builds lean with `--no-default-features` (no Tauri/GUI deps) so release
+# binaries run on servers without webkit/GTK — see the `gui` feature below.
 [[bin]]
 name = "qm"
 path = "src/bin/qm/main.rs"
 
+# The desktop app. `required-features = ["gui"]` makes cargo skip this bin
+# entirely in a `--no-default-features` (headless CLI) build.
+[[bin]]
+name = "quantamind"
+path = "src/main.rs"
+required-features = ["gui"]
+
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "2", features = [], optional = true }
 
 [features]
+# The desktop app (Tauri + webview + audio capture). ON by default so
+# `pnpm tauri dev` / `cargo build` behave exactly as before. The headless `qm`
+# CLI is built with `--no-default-features`, which drops the entire GUI
+# dependency tree (webkit/GTK/ALSA on Linux) — the seam release binaries ship
+# through. GUI-only modules are gated with `#[cfg(feature = "gui")]`.
+default = ["gui"]
+gui = [
+  "dep:tauri",
+  "dep:tauri-plugin-dialog",
+  "dep:tauri-plugin-process",
+  "dep:tauri-plugin-shell",
+  "dep:tauri-plugin-updater",
+  "dep:tauri-build",
+]
 # Enterprise/air-gapped build: compile OUT the entire publish/auth surface
 # (commands/publish/{auth,preview_cmd,publish_cmd,cohort}). The offline share
 # export (commands/publish/export_cmd) stays IN every build.
 enterprise = []
 
 [dependencies]
-tauri = { version = "2", features = [] }
-tauri-plugin-dialog = "2"
-tauri-plugin-process = "2"
-tauri-plugin-shell = "2"
-tauri-plugin-updater = "2"
+tauri = { version = "2", features = [], optional = true }
+tauri-plugin-dialog = { version = "2", optional = true }
+tauri-plugin-process = { version = "2", optional = true }
+tauri-plugin-shell = { version = "2", optional = true }
+tauri-plugin-updater = { version = "2", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"

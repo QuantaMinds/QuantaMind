@@ -1,22 +1,33 @@
+#[cfg(feature = "gui")]
 use crate::commands::prompt::prompt_options::{to_generate_options, validate_params};
 use crate::errors::AppError;
 use crate::inference::backend::backend_kind::BackendKind;
+#[cfg(feature = "gui")]
 use crate::inference::backend::endpoint;
+#[cfg(feature = "gui")]
 use crate::persistence::prompts::schema::InferenceParams;
 use crate::inference::eval::agentic::v2::scenarios::{is_curated, v2_header, V2_SCENARIOS};
+#[cfg(feature = "gui")]
 use crate::inference::eval::toolcall::eval::{run_eval_traced, trace_one, ToolCallReport, TraceResult};
-use crate::inference::eval::toolcall::tasks::{builtin_collection, validate_tasks, ToolTask};
+use crate::inference::eval::toolcall::tasks::{builtin_collection, ToolTask};
+#[cfg(feature = "gui")]
+use crate::inference::eval::toolcall::tasks::validate_tasks;
+#[cfg(feature = "gui")]
 use crate::persistence::eval_trace_store;
 use serde::Serialize;
+#[cfg(feature = "gui")]
 use std::path::PathBuf;
+#[cfg(feature = "gui")]
 use tauri::Manager;
 
+#[cfg(feature = "gui")]
 pub(crate) fn endpoint_for(backend: BackendKind) -> String {
     endpoint::base_url(backend)
 }
 
 /// Managed dir for per-collection per-task trace caches (mirrors the `history/`
 /// dir). Shared with the matrix command so both runners cache to one place.
+#[cfg(feature = "gui")]
 pub(crate) fn traces_dir(app: &tauri::AppHandle) -> Result<PathBuf, AppError> {
     let dir = app.path().app_config_dir().map_err(|e| AppError::Io(e.to_string()))?;
     Ok(dir.join("traces"))
@@ -50,7 +61,7 @@ fn humanize(s: &str) -> String {
 /// loadable by id — it just isn't listed, so a tier shows three choices instead of a
 /// dozen. Single choke point: the app's pickers, the `qm` CLI picker, and the
 /// readiness sibling merge all read this.
-#[tauri::command]
+#[cfg_attr(feature = "gui", tauri::command)]
 pub fn list_builtin_collections() -> Vec<BuiltinCollectionInfo> {
     V2_SCENARIOS
         .iter()
@@ -73,7 +84,7 @@ pub fn list_builtin_collections() -> Vec<BuiltinCollectionInfo> {
 }
 
 /// Tasks for a built-in collection id (a v2 scenario file stem, e.g. "easy-coding").
-#[tauri::command]
+#[cfg_attr(feature = "gui", tauri::command)]
 pub fn get_builtin_collection(id: String) -> Result<Vec<ToolTask>, AppError> {
     builtin_collection(&id).ok_or_else(|| AppError::NotFound(format!("built-in collection '{id}'")))
 }
@@ -85,6 +96,7 @@ pub fn get_builtin_collection(id: String) -> Result<Vec<ToolTask>, AppError> {
 /// the frontend stays port-agnostic. Each task's full trace is cached under
 /// `collection_id` (best-effort: a cache-write hiccup never fails the eval — the
 /// visualizer falls back to a live run) so "View Trace" needs no re-run.
+#[cfg(feature = "gui")]
 #[tauri::command]
 pub async fn run_toolcall_eval(
     app: tauri::AppHandle,
@@ -115,6 +127,7 @@ pub async fn run_toolcall_eval(
 /// The cached trace for one `(collection, model, task)` from the last run, or
 /// `None` if never run/saved — so the pipeline visualizer shows saved data
 /// without re-running inference.
+#[cfg(feature = "gui")]
 #[tauri::command]
 pub fn load_toolcall_trace(
     app: tauri::AppHandle,
@@ -128,6 +141,7 @@ pub fn load_toolcall_trace(
 /// Trace ONE task end-to-end for the pipeline visualizer: the exact system
 /// message sent, the model's raw output, and the verdict — so the eval isn't a
 /// black box. Same trust boundary (validates the task) and endpoint resolution.
+#[cfg(feature = "gui")]
 #[tauri::command]
 pub async fn trace_toolcall_task(
     model: String,

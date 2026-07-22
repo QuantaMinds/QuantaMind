@@ -1,5 +1,5 @@
 use super::*;
-use crate::commands::mcp::run_cmd::{FileSpec, McpTaskSpec, OracleSpec, WorldSpec};
+use crate::commands::mcp::task_cmd::{FileSpec, McpTaskSpec, OracleSpec, WorldSpec};
 use crate::inference::eval::mcp::world::McpSpec;
 use crate::inference::eval::toolcall::tasks::validate_tasks;
 

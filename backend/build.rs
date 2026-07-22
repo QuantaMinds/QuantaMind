@@ -1,4 +1,3 @@
-use std::path::Path;
 use std::process::Command;
 
 /// Short git commit the binary was built from, stamped into the binary as
@@ -21,8 +20,10 @@ fn emit_build_hash() {
     println!("cargo:rerun-if-changed=../.git/refs");
 }
 
-fn main() {
-    emit_build_hash();
+// GUI-only build wiring (Tauri context + resource checks). Compiled out of the
+// headless `--no-default-features` CLI build, where `tauri-build` is absent.
+#[cfg(feature = "gui")]
+fn gui_build() {
 
     // `binaries/` is bundled as a Tauri resource (tauri.conf.json) but is
     // gitignored (multi-MB sidecar artifacts: llama-server, the shared
@@ -31,7 +32,7 @@ fn main() {
     // runs. Create it so the build always succeeds, and warn loudly when the
     // sidecar itself is absent so the user knows to fetch it instead of hitting
     // a silent runtime failure.
-    let binaries = Path::new("binaries");
+    let binaries = std::path::Path::new("binaries");
     if let Err(e) = std::fs::create_dir_all(binaries) {
         println!("cargo:warning=could not create backend/binaries/: {e}");
     }
@@ -52,4 +53,12 @@ fn main() {
     }
 
     tauri_build::build()
+}
+
+#[cfg(not(feature = "gui"))]
+fn gui_build() {}
+
+fn main() {
+    emit_build_hash();
+    gui_build()
 }
