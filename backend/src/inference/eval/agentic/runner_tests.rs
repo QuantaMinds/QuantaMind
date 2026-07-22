@@ -1654,6 +1654,11 @@ async fn persistent_trap_halts_gracefully_not_infinite_loop() {
     assert_eq!(steps[0].kind, StepKind::ToolError);
     assert!(steps[0].injection.as_deref().unwrap().contains("500"));
     assert_eq!(steps[1].kind, StepKind::HallucinatedCompletion);
+    // The honest note: the checkpoint tool was ATTEMPTED (and faulted), not skipped — so it must
+    // NOT read "never called". This is the Ornith-Q8 distinction (a fault-recovery failure).
+    let note = steps[1].injection.as_deref().unwrap_or("");
+    assert!(note.contains("execute_transfer (attempted — HTTP 500 Fatal, not retried)"), "faulted-not-skipped note: {note:?}");
+    assert!(!note.contains("never called"), "a faulted checkpoint is not 'never called': {note:?}");
 }
 
 #[tokio::test]
@@ -2961,13 +2966,29 @@ fn unsatisfied_checkpoints_names_the_skipped_tools() {
         TaskCheckpoint { tool: "get_wire".into(), args: json!({ "id": "W-1" }) },
         TaskCheckpoint { tool: "check_structuring".into(), args: json!({ "account": "AC-901" }) },
     ]);
-    let note = super::unsatisfied_checkpoints(&end, &[true, false], 0).expect("one unsatisfied");
-    assert!(note.contains("check_structuring"), "names the skipped tool: {note}");
+    // Never called → "(never called)".
+    let note = super::unsatisfied_checkpoints(&end, &[true, false], 0, &[]).expect("one unsatisfied");
+    assert!(note.contains("check_structuring (never called)"), "names the skipped tool: {note}");
     assert!(!note.contains("get_wire"), "the satisfied tool is omitted: {note}");
     // All satisfied → no false "missing" note.
-    assert!(super::unsatisfied_checkpoints(&end, &[true, true], 0).is_none());
+    assert!(super::unsatisfied_checkpoints(&end, &[true, true], 0, &[]).is_none());
     // A world-oracle end state has no discrete tool checkpoints → None (never fabricated).
-    assert!(super::unsatisfied_checkpoints(&EndStateRule::RequireWorldOracle, &[], 0).is_none());
+    assert!(super::unsatisfied_checkpoints(&EndStateRule::RequireWorldOracle, &[], 0, &[]).is_none());
+}
+
+/// A checkpoint whose only call was fault-trapped (Driver B) and never retried must read
+/// "attempted — <fault>, not retried" — NOT "never called" — so a fault-RECOVERY failure
+/// (the Ornith-Q8 case: it DID call check_structuring, got HTTP 429) is not mislabeled a skip.
+#[test]
+fn unsatisfied_checkpoints_distinguishes_faulted_from_skipped() {
+    let end = EndStateRule::RequireAll(vec![
+        TaskCheckpoint { tool: "check_structuring".into(), args: json!({ "account": "AC-901" }) },
+        TaskCheckpoint { tool: "file_sar".into(), args: json!({ "id": "W-1" }) },
+    ]);
+    let faulted = [("check_structuring".to_string(), "HTTP 429 Service Unavailable".to_string())];
+    let note = super::unsatisfied_checkpoints(&end, &[false, false], 0, &faulted).expect("two unsatisfied");
+    assert!(note.contains("check_structuring (attempted — HTTP 429 Service Unavailable, not retried)"), "faulted: {note}");
+    assert!(note.contains("file_sar (never called)"), "genuinely skipped tool stays 'never called': {note}");
 }
 
 /// End-to-end through the runner: a model that yields prose on turn one (skipping the

@@ -819,7 +819,7 @@ export function TraceDebugger({
                                         <div style={sandboxInterceptCard}>
                                           <div style={sandboxHeader}>
                                             {s.kind === "hallucinated_completion"
-                                              ? "Why It Failed — Missing Required Checkpoint"
+                                              ? "Why It Failed — Unsatisfied Required Checkpoint(s)"
                                               : "Sandbox Response Injection"}
                                           </div>
                                           <pre style={sandboxBody}>
