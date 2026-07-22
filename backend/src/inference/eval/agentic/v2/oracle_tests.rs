@@ -62,8 +62,28 @@ fn ws_of(task: &mut ToolTask) -> &mut serde_json::Map<String, Value> {
 #[test]
 fn semantic_findings_clean_on_a_bundled_collection() {
     let tasks = ecommerce_tasks();
-    let findings = semantic_findings(&tasks);
+    // `LeakyGetter` is a staged Warning-severity heuristic that surfaces the suite-wide
+    // whole-blob-getter debt (~30 tasks, remediated task-by-task via `returns_fields`); it is
+    // deliberately excluded here so this Error-level cleanliness guarantee stays green while
+    // that debt is worked down. All hard-block (Error) kinds must still be absent.
+    let findings: Vec<_> = semantic_findings(&tasks)
+        .into_iter()
+        .filter(|f| f.kind != SemanticFindingKind::LeakyGetter)
+        .collect();
     assert!(findings.is_empty(), "bundled collection must be semantically clean: {findings:?}");
+}
+
+#[test]
+fn semantic_findings_flags_a_leaky_getter() {
+    // hard-support-ecommerce requires `get_order` (whole-blob) AND `get_delivery_date` on the
+    // same order — the model gets the delivery window from get_order, so requiring the second
+    // call false-fails an efficient model. The guard must surface it (with the fix instruction).
+    let leaks: Vec<_> = semantic_findings(&ecommerce_tasks())
+        .into_iter()
+        .filter(|f| f.kind == SemanticFindingKind::LeakyGetter)
+        .collect();
+    assert!(!leaks.is_empty(), "the leaky-getter guard must flag the whole-blob overlap");
+    assert!(leaks.iter().any(|f| f.message.contains("returns_fields")), "the finding names the fix: {leaks:?}");
 }
 
 /// A digit-bearing entity id named in neither the prompt nor any other blob is an
