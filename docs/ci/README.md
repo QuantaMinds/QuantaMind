@@ -8,8 +8,11 @@ The action lives at `.github/actions/qm-eval`; a runnable example is `.github/wo
 
 ## Usage
 
+By default the action installs the **prebuilt `qm`** from the latest GitHub Release — no Rust
+toolchain, seconds instead of minutes. (`install: source` builds the lean binary from a checkout
+instead.)
+
 ```yaml
-- uses: actions/checkout@v4            # the action builds qm from the QuantaMind source
 - uses: QuantaMinds/QuantaMind/.github/actions/qm-eval@main
   with:
     backend: vllm
@@ -31,6 +34,7 @@ from a secret**, never as an action input (inputs appear in logs). `qm` transmit
 
 | Input | Meaning | Default |
 |---|---|---|
+| `install` | `release` (prebuilt from the latest GitHub Release) / `source` (lean build from a checkout — needs `actions/checkout` first) | `release` |
 | `backend` | `ollama` / `llama_cpp` / `mlx` / `vllm` / `sglang` | `vllm` |
 | `base-url` | endpoint URL (→ `QM_BASE`) | **required** |
 | `model` | model to evaluate | **required** |
@@ -76,8 +80,20 @@ The action writes `qm-junit.xml` and uploads it (with `qm-report.json`) as an ar
 GitHub's checks UI, add a JUnit reporter step (the example uses `mikepenz/action-junit-report`) — a Ready
 run shows green; a NotReady run shows red with the failing tier and its failure taxonomy named.
 
-## Note on build cost
+## Container image
 
-`qm` currently links the full QuantaMind library (Tauri deps), so the action builds those too — the
-first run is slow; `Swatinem/rust-cache` makes repeats fast. A leaner CLI-only build is a future
-improvement (a prebuilt `qm` binary distribution would remove the build step entirely).
+For pipelines that prefer an image over an installer step (GitLab, Jenkins, ephemeral runners),
+the same binary ships as **`ghcr.io/quantaminds/qm`** (multi-arch amd64/arm64, distroless, built
+from the attestation-verified release artifacts):
+
+```yaml
+container: ghcr.io/quantaminds/qm:latest
+# or:  docker run --rm ghcr.io/quantaminds/qm run --backend vllm --base "$QM_BASE" --model qwen3-32b
+```
+
+Reaching an Ollama on the DOCKER HOST from inside the container (`localhost` is the container):
+
+```bash
+docker run --rm --add-host=host.docker.internal:host-gateway \
+  ghcr.io/quantaminds/qm doctor --backend ollama --base http://host.docker.internal:11434
+```

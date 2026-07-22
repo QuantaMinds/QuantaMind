@@ -793,13 +793,10 @@ here becomes relevant, move it into a phase plan first.
 
 From the binary-distribution work (2026-07-22; shipped: dist pipeline on
 `quantamind-v*` tags, 6-target prebuilt binaries incl. static musl, shell/ps1
-one-liners, checksums + attestations — see `#release-tags--two-independent-pipelines`):
+one-liners, checksums + attestations, and the `ghcr.io/quantaminds/qm`
+multi-arch image via docker.yml on release-publish — see
+`#release-tags--two-independent-pipelines`):
 
-- **Docker/GHCR image** (`ghcr.io/quantaminds/qm`, multi-arch from the musl
-  binary) + `qm-eval` action image path. Networking doc is mandatory:
-  `--add-host=host.docker.internal:host-gateway` + `--base` (in-container
-  `localhost:11434` is the container). The install-smoke workflow already
-  proves the musl binary in containers.
 - **PyPI wheels / `uvx qm`** via maturin `bin` bindings (the ruff/uv model,
   manylinux2014 baseline) — the most native channel for the Python audience;
   do after the lean build has soaked.

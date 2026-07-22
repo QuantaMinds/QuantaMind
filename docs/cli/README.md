@@ -63,6 +63,16 @@ gh attestation verify quantamind-x86_64-unknown-linux-musl.tar.xz --owner Quanta
 gets macOS's quarantine attribute and Gatekeeper may block the unsigned binary; `curl` downloads
 don't. (Signing/notarization is wired and lands when the certs do.)
 
+**Docker image** — `ghcr.io/quantaminds/qm` (multi-arch, distroless, built from the
+attestation-verified release binaries) for CI/CD pipelines and ephemeral runners. One thing to
+know: inside a container, `localhost` is the container — to reach an Ollama running on the host,
+map the host gateway and pass `--base`:
+
+```bash
+docker run --rm --add-host=host.docker.internal:host-gateway \
+  ghcr.io/quantaminds/qm doctor --backend ollama --base http://host.docker.internal:11434
+```
+
 **Uninstall:** `rm ~/.local/bin/qm` (plus the `~/.local/bin/env` line the installer added to your
 shell rc, if any).
 
