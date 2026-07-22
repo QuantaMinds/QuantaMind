@@ -135,11 +135,20 @@ fn reported_in_prose(end_state: &EndStateRule, satisfied: &[bool], next_cp: usiz
 }
 
 /// The required checkpoints a hallucinated "done" never satisfied — so the trace names the
-/// REAL cause (e.g. "never called check_structuring") instead of a nebulous "stop word".
-/// Deduplicated tool names (a task can require the same tool for several entities). `None`
-/// for end states without discrete tool checkpoints (RequireEndState / RequireWorldOracle /
+/// REAL cause instead of a nebulous "stop word". Each open checkpoint's tool is described by
+/// how it came up short: `(attempted — <fault>, not retried)` when a call to it was
+/// fault-trapped (Driver B) but never retried to success — vs `(never called)` when the model
+/// simply skipped it. This keeps a fault-RECOVERY failure from being mislabeled as a skipped
+/// tool (`satisfied[]` alone can't tell them apart — a faulted call leaves the flag false).
+/// Deduplicated by tool (a task can require the same tool for several entities). `None` for end
+/// states without discrete tool checkpoints (RequireEndState / RequireWorldOracle /
 /// ExpectAbstainingText) or when nothing is actually outstanding.
-fn unsatisfied_checkpoints(end_state: &EndStateRule, satisfied: &[bool], next_cp: usize) -> Option<String> {
+fn unsatisfied_checkpoints(
+    end_state: &EndStateRule,
+    satisfied: &[bool],
+    next_cp: usize,
+    faulted_tools: &[(String, String)],
+) -> Option<String> {
     let cps: Vec<&TaskCheckpoint> = match end_state {
         EndStateRule::RequireAll(cps) => cps.iter().zip(satisfied).filter(|(_, &s)| !s).map(|(c, _)| c).collect(),
         EndStateRule::RequireSequence(cps) => cps.get(next_cp..).unwrap_or(&[]).iter().collect(),
@@ -150,12 +159,21 @@ fn unsatisfied_checkpoints(end_state: &EndStateRule, satisfied: &[bool], next_cp
     if cps.is_empty() {
         return None;
     }
-    let mut names: Vec<String> = cps.iter().map(|c| c.tool.clone()).collect();
-    names.dedup(); // checkpoints are grouped by entity, so adjacent-dedup collapses the repeats
+    let mut seen = std::collections::BTreeSet::new();
+    let mut parts: Vec<String> = Vec::new();
+    for cp in &cps {
+        if !seen.insert(cp.tool.clone()) {
+            continue; // one line per tool (checkpoints group by entity)
+        }
+        match faulted_tools.iter().find(|(t, _)| *t == cp.tool) {
+            Some((_, err)) => parts.push(format!("{} (attempted — {err}, not retried)", cp.tool)),
+            None => parts.push(format!("{} (never called)", cp.tool)),
+        }
+    }
     Some(format!(
-        "Declared done, but {} required checkpoint(s) were never satisfied — missing tool call(s): {}",
+        "Declared done, but {} required checkpoint(s) weren't satisfied: {}",
         cps.len(),
-        names.join(", ")
+        parts.join("; ")
     ))
 }
 
@@ -535,6 +553,11 @@ async fn run_steps<M: ModelTurn>(
         _ => Vec::new(),
     };
     let mut state = SandboxState::new(); // per-run fault attempt counters (Driver B)
+    // Tools whose call was fault-trapped this run (tool → last fault message). Lets a
+    // hallucinated-completion note say "attempted — HTTP 429, not retried" for a faulted
+    // checkpoint instead of mislabeling it "never called" (a faulted emit leaves satisfied[]
+    // false, indistinguishable from a skip without this).
+    let mut faulted_tools: Vec<(String, String)> = Vec::new();
     // Per-run MUTABLE web-UI state (Slice 3) — fresh each run, NEVER in the shared sandbox (which
     // holds only the immutable spec). Mirrors the per-run `SandboxState` lifecycle.
     let mut web_ui = match &sandbox.responder {
@@ -818,7 +841,7 @@ async fn run_steps<M: ModelTurn>(
                     // (the honest cause), not just "hallucinated". Only for this kind — the others
                     // (empty/dialect/malformed) are self-describing.
                     let note = (kind == StepKind::HallucinatedCompletion)
-                        .then(|| unsatisfied_checkpoints(&sandbox.end_state, &satisfied, next_cp))
+                        .then(|| unsatisfied_checkpoints(&sandbox.end_state, &satisfied, next_cp, &faulted_tools))
                         .flatten();
                     send(kind, note, EnvView::None);
                     return Ok(RunOutcome::failure(step_index + 1, output_tokens, failure)
@@ -918,6 +941,7 @@ async fn run_steps<M: ModelTurn>(
                 ensure_model_pushed(&mut convo, &clean, &mut model_pushed);
                 convo.push_tool_result(&err);
                 turn_lines.push((StepKind::ToolError, tool_result_line(&err)));
+                faulted_tools.push((call.name.clone(), err)); // for an honest "attempted — <fault>" note
                 continue;
             }
             // 3c — apply the STATEFUL web-UI action NOW (the mutation IS the env's effect, and the
