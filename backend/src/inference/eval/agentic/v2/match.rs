@@ -58,10 +58,36 @@ pub fn is_unordered(p: &str) -> bool {
     p.strip_prefix('~').is_some_and(|rest| rest.contains('*'))
 }
 
-/// Case-insensitive literal segments of a `*`-glob (empty segments dropped). Shared by
-/// the ordered and unordered matchers so both tokenize identically.
+/// Drop thousands-separator commas — a comma flanked by ASCII digits — so a number the
+/// model formats naturally ("$15,230.50", "1,000") matches an answer-key glob written as a
+/// bare number ("15230.5", "1000"). Only digit,digit commas are removed; prose commas
+/// ("HIPAA, GDPR", "renal, warfarin") are untouched, so ordered/unordered token matching is
+/// unaffected. Applied identically to both pattern and candidate so the comparison stays
+/// symmetric. Trailing-zero differences ("250" vs "$250.00") already pass via substring.
+fn strip_thousands_separators(s: &str) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    let mut out = String::with_capacity(s.len());
+    for (i, &ch) in chars.iter().enumerate() {
+        let is_sep = ch == ','
+            && i > 0
+            && chars[i - 1].is_ascii_digit()
+            && chars.get(i + 1).is_some_and(|c| c.is_ascii_digit());
+        if !is_sep {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+/// Case-insensitive literal segments of a `*`-glob (empty segments dropped), with
+/// thousands separators normalized so numeric literals match regardless of formatting.
+/// Shared by the ordered and unordered matchers so both tokenize identically.
 fn glob_segments(pattern: &str) -> Vec<String> {
-    pattern.to_lowercase().split('*').filter(|s| !s.is_empty()).map(str::to_string).collect()
+    strip_thousands_separators(&pattern.to_lowercase())
+        .split('*')
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 /// Ordered multi-segment glob: split the pattern on `*`, drop empty segments, and
@@ -69,7 +95,7 @@ fn glob_segments(pattern: &str) -> Vec<String> {
 /// non-overlapping. Leading/trailing `*` impose no anchor; a lone `*` (no literals)
 /// matches any non-empty value. Case-insensitive (authored wildcard args are prose).
 fn glob_match(pattern: &str, candidate: &str) -> bool {
-    let hay = candidate.to_lowercase();
+    let hay = strip_thousands_separators(&candidate.to_lowercase());
     let segments = glob_segments(pattern);
     if segments.is_empty() {
         return !candidate.trim().is_empty(); // lone "*" → any non-empty string
@@ -91,7 +117,7 @@ fn glob_match(pattern: &str, candidate: &str) -> bool {
 /// arbitrary left-to-right ordering constraint. A lone `~*` (no literals) matches any
 /// non-empty value.
 fn unordered_match(pattern: &str, candidate: &str) -> bool {
-    let hay = candidate.to_lowercase();
+    let hay = strip_thousands_separators(&candidate.to_lowercase());
     let body = pattern.strip_prefix('~').unwrap_or(pattern);
     let tokens = glob_segments(body);
     if tokens.is_empty() {
@@ -140,6 +166,21 @@ mod tests {
         assert!(p("*denied*", "Request Denied")); // case-insensitive
         assert!(p("*", "anything")); // lone star → any non-empty
         assert!(!p("*x*", "")); // empty candidate
+    }
+
+    #[test]
+    fn numeric_globs_tolerate_thousands_separators_and_currency() {
+        // The es_fi_check_balance bug: key `*15230.5*`, model replied with natural currency
+        // formatting. A correct answer must NOT be false-failed on the comma/trailing zero.
+        assert!(p("*15230.5*", "The current balance of account AC-200 is $15,230.50 USD."));
+        assert!(p("*15230.5*", "balance is 15230.5 INR")); // comma-free still works
+        assert!(p("*1000*", "reporting threshold is 1,000 records")); // 1,000 → 1000
+        assert!(p("*250*", "credited $250.00 interest")); // trailing zeros via substring
+        // Symmetric: an author who writes the separator in the glob also matches a bare number.
+        assert!(p("*1,000*", "1000 units"));
+        // Prose commas are NOT stripped, so token matching is unchanged.
+        assert!(p("*hipaa*gdpr*", "HIPAA, GDPR both apply"));
+        assert!(!p("*99999*", "$15,230.50")); // a genuinely wrong number still fails
     }
 
     #[test]
