@@ -48,6 +48,11 @@ pub struct RunConfig {
     /// result is only ever compared to others produced under the SAME preset (reproducibility).
     #[serde(default)]
     pub think_preset: crate::inference::eval::agentic::difficulty::passk::ThinkPreset,
+    /// PR2: the inner task-concurrency knob (tasks-within-a-model run at once). `None` → serial
+    /// (N=1), byte-identical to the pre-concurrency dispatcher. `#[serde(default)]` keeps an
+    /// interrupted job log written before this field resumable — it deserializes to `None`.
+    #[serde(default)]
+    pub eval_concurrency: Option<usize>,
 }
 
 /// serde default for `RunConfig::prompt` — an interrupted job written before the field existed

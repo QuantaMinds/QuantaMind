@@ -17,6 +17,7 @@ fn config() -> RunConfig {
         tier: None,
         decoy_tools: None,
         think_preset: Default::default(),
+        eval_concurrency: None,
     }
 }
 
@@ -84,4 +85,36 @@ fn list_paths_finds_each_run_log() {
     create(&run_path(dir.path(), "a"), &config()).unwrap();
     create(&run_path(dir.path(), "b"), &config()).unwrap();
     assert_eq!(list_paths(dir.path()).unwrap().len(), 2);
+}
+
+// ── PR2 gate 7: `eval_concurrency` serde back-compat ──────────────────────────────
+// An interrupted job log written BEFORE the field existed must still resume: the JSON
+// carries no `eval_concurrency`, so it must deserialize to `None` (serial), never fail
+// the parse — the exact back-compat pattern `prompt`/`tier`/`decoy_tools`/`think_preset` use.
+
+#[test]
+fn run_config_without_eval_concurrency_deserializes_to_none() {
+    // A minimal header as an OLD queue would have written it — no `eval_concurrency` key.
+    let legacy = serde_json::json!({
+        "collection_id": "finance",
+        "targets": [],
+        "tasks": [],
+        "k": 5,
+        "max_steps": 8,
+        "params": null,
+        "keep_alive": null,
+        "native": true
+        // prompt / tier / decoy_tools / think_preset / eval_concurrency all absent → defaults
+    });
+    let cfg: RunConfig = serde_json::from_value(legacy).unwrap();
+    assert_eq!(cfg.eval_concurrency, None, "absent field must default to None (serial), not fail the parse");
+    assert!(cfg.prompt, "the sibling back-compat default still holds");
+}
+
+#[test]
+fn run_config_with_eval_concurrency_round_trips() {
+    let mut cfg = config();
+    cfg.eval_concurrency = Some(4);
+    let round: RunConfig = serde_json::from_str(&serde_json::to_string(&cfg).unwrap()).unwrap();
+    assert_eq!(round.eval_concurrency, Some(4), "a set concurrency must survive the JSON round-trip");
 }

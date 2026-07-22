@@ -474,6 +474,7 @@ pub async fn run_suite(opts: RunOptions) -> AppResult<RunOutcome> {
             &|_| {},
             &NoVramGate,
             sink.clone(),
+            1, // PR2: qm CLI stays serial; --parallel is PR4.
         )
         .await?;
         skel.columns.into_iter().filter_map(|c| c.agentic_native_fc.map(|a| (c.model, a))).collect()

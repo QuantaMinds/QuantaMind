@@ -18,6 +18,7 @@ use crate::inference::eval::toolcall::tasks::{is_agentic, ToolTask};
 use crate::inference::eval::run_summary::RunSummary;
 use crate::inference::ollama::ollama::force_unload;
 use crate::inference::ollama::ollama_show::probe_supports_tools;
+use futures_util::stream::{self, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -507,6 +508,7 @@ async fn run_one_agentic<M: ModelTurn + Send + Sync>(
     model: &str,
     cancel: &CancellationToken,
     sink: Arc<dyn BatchSink>,
+    budget_scale: usize,
 ) -> AppResult<AgenticReport> {
     let (sandbox, cfg) = sandbox_for(task)?;
     let (tx, mut rx) = unbounded_channel::<TrajectoryStep>();
@@ -517,7 +519,7 @@ async fn run_one_agentic<M: ModelTurn + Send + Sync>(
         }
     });
     let started = std::time::Instant::now();
-    let result = run_agentic_for(turn, task, model, &sandbox, cfg, cancel, &tx).await;
+    let result = run_agentic_for(turn, task, model, &sandbox, cfg, cancel, budget_scale, &tx).await;
     drop(tx);
     let _ = pump.await;
     // Whole-batch wall-clock (all k runs, model + sandbox/world time) — the per-turn server
@@ -529,6 +531,7 @@ async fn run_one_agentic<M: ModelTurn + Send + Sync>(
 /// per run (seeded by model + run_index → contamination resistance); a static task
 /// reuses the one `sandbox`. The shared seam both run paths (streaming + native FC)
 /// call so generation behaves identically in each.
+#[allow(clippy::too_many_arguments)]
 async fn run_agentic_for<M: ModelTurn>(
     turn: &M,
     task: &ToolTask,
@@ -536,6 +539,7 @@ async fn run_agentic_for<M: ModelTurn>(
     sandbox: &DeterministicSandbox,
     cfg: AgenticConfig,
     cancel: &CancellationToken,
+    budget_scale: usize,
     tx: &tokio::sync::mpsc::UnboundedSender<TrajectoryStep>,
 ) -> AppResult<AgenticReport> {
     let generated = task.agentic.as_ref().map(|s| s.generated).unwrap_or(false);
@@ -552,6 +556,7 @@ async fn run_agentic_for<M: ModelTurn>(
             }
         },
         cancel,
+        budget_scale,
         tx,
     )
     .await
@@ -572,7 +577,7 @@ where
     M: ModelTurn + Send + Sync,
     F: Fn(&ModelTarget) -> M,
 {
-    run_batch_resumable(collection_id, targets, tasks, cancel, sink, make_turn, &[], &|_| {}, &NoVramGate).await
+    run_batch_resumable(collection_id, targets, tasks, cancel, sink, make_turn, &[], &|_| {}, &NoVramGate, 1).await
 }
 
 /// The VRAM-safe, **resumable** sequential dispatcher. For each target model:
@@ -593,6 +598,7 @@ pub async fn run_batch_resumable<M, F, G>(
     prior: &[CompletedUnit],
     record: &(dyn Fn(&CompletedUnit) + Sync),
     gate: &G,
+    concurrency: usize,
 ) -> AppResult<BatchReport>
 where
     M: ModelTurn + Send + Sync,
@@ -625,53 +631,87 @@ where
         let mut agentic_reports: Vec<AgenticReport> = Vec::new();
         let mut col_error: Option<String> = None;
 
-        for (i, task) in tasks.iter().enumerate() {
-            if cancel.is_cancelled() {
-                break;
-            }
-            if let Some(unit) = done.get(&(target.model.as_str(), task.id.as_str())) {
-                fold_completed(unit, task, &mut single_tasks, &mut single_results, &mut agentic_reports, &mut col_error);
-                continue;
-            }
-            sink.task_started(&target.model, &task.id, i, tasks.len(), &task.category, false);
-            if is_agentic(&task.category) {
-                match run_one_agentic(&turn, task, &target.model, &cancel, sink.clone()).await {
-                    Ok(report) => {
-                        let outcome = TaskOutcome::Agentic { report: report.clone() };
-                        record(&unit_of(target, task, outcome.clone(), false));
-                        sink.task_done(&target.model, &task.id, &outcome, false);
-                        agentic_reports.push(report);
+        // Per-task COMPUTE outcome (the model call), produced under bounded concurrency
+        // (`concurrency`) but COMMITTED below in TASK-INDEX order: `.buffered(n)` yields items
+        // in input order regardless of completion order, so N=1 is byte-identical to the prior
+        // serial loop and N>1 still commits deterministically. The resume-skip (`done` fold)
+        // and the cancellation check run INSIDE each task's future, at ITS start — so a
+        // cancelled/folded task never makes a model call, matching the old driving-loop checks.
+        enum StepOutcome {
+            Cancelled,
+            Folded,
+            Agentic(AppResult<AgenticReport>),
+            Single(AppResult<TraceResult>),
+        }
+        let n_tasks = tasks.len();
+        let mut compute = stream::iter(tasks.iter().cloned().enumerate())
+            .map(|(i, task)| {
+                let turn = &turn;
+                let cancel = &cancel;
+                let sink = sink.clone();
+                let done = &done;
+                async move {
+                    if cancel.is_cancelled() {
+                        return (i, task, StepOutcome::Cancelled);
                     }
-                    Err(e) => {
-                        // Errors are NOT recorded → they re-run on resume (the backend may be back).
-                        let msg = e.to_string();
-                        sink.task_done(&target.model, &task.id, &TaskOutcome::Error { message: msg.clone(), oom: is_oom_message(&msg) }, false);
-                        col_error = Some(msg);
+                    if done.contains_key(&(target.model.as_str(), task.id.as_str())) {
+                        return (i, task, StepOutcome::Folded);
+                    }
+                    sink.task_started(&target.model, &task.id, i, n_tasks, &task.category, false);
+                    if is_agentic(&task.category) {
+                        let r = run_one_agentic(turn, &task, &target.model, cancel, sink.clone(), concurrency).await;
+                        (i, task, StepOutcome::Agentic(r))
+                    } else {
+                        let r = trace_one_with(turn, &target.model, &task).await;
+                        (i, task, StepOutcome::Single(r))
                     }
                 }
-            } else {
-                match trace_one_with(&turn, &target.model, task).await {
-                    Ok(trace) => {
-                        let passed = verdict_passed(&trace.verdict);
-                        single_tasks.push(task.clone());
-                        single_results.push(TaskResult {
-                            id: task.id.clone(),
-                            category: task.category.clone(),
-                            verdict: trace.verdict.clone(),
-                            prompt_tokens: trace.prompt_tokens,
-                        });
-                        let outcome = TaskOutcome::Single { passed, trace };
-                        record(&unit_of(target, task, outcome.clone(), false));
-                        sink.task_done(&target.model, &task.id, &outcome, false);
-                    }
-                    Err(e) => {
-                        let msg = e.to_string();
-                        sink.task_done(&target.model, &task.id, &TaskOutcome::Error { message: msg.clone(), oom: is_oom_message(&msg) }, false);
-                        col_error = Some(msg);
-                    }
+            })
+            .buffered(concurrency.max(1));
+
+        while let Some((i, task, outcome)) = compute.next().await {
+            let _ = i;
+            match outcome {
+                // Mirrors the old driving loop's `break` on cancel: stop committing further
+                // tasks (already in-flight compute for later indices is dropped, not committed).
+                StepOutcome::Cancelled => break,
+                StepOutcome::Folded => {
+                    let unit = done.get(&(target.model.as_str(), task.id.as_str())).expect("checked in compute");
+                    fold_completed(unit, &task, &mut single_tasks, &mut single_results, &mut agentic_reports, &mut col_error);
+                }
+                StepOutcome::Agentic(Ok(report)) => {
+                    let outcome = TaskOutcome::Agentic { report: report.clone() };
+                    record(&unit_of(target, &task, outcome.clone(), false));
+                    sink.task_done(&target.model, &task.id, &outcome, false);
+                    agentic_reports.push(report);
+                }
+                StepOutcome::Agentic(Err(e)) => {
+                    // Errors are NOT recorded → they re-run on resume (the backend may be back).
+                    let msg = e.to_string();
+                    sink.task_done(&target.model, &task.id, &TaskOutcome::Error { message: msg.clone(), oom: is_oom_message(&msg) }, false);
+                    col_error = Some(msg);
+                }
+                StepOutcome::Single(Ok(trace)) => {
+                    let passed = verdict_passed(&trace.verdict);
+                    single_results.push(TaskResult {
+                        id: task.id.clone(),
+                        category: task.category.clone(),
+                        verdict: trace.verdict.clone(),
+                        prompt_tokens: trace.prompt_tokens,
+                    });
+                    let outcome = TaskOutcome::Single { passed, trace };
+                    record(&unit_of(target, &task, outcome.clone(), false));
+                    sink.task_done(&target.model, &task.id, &outcome, false);
+                    single_tasks.push(task);
+                }
+                StepOutcome::Single(Err(e)) => {
+                    let msg = e.to_string();
+                    sink.task_done(&target.model, &task.id, &TaskOutcome::Error { message: msg.clone(), oom: is_oom_message(&msg) }, false);
+                    col_error = Some(msg);
                 }
             }
         }
+        drop(compute);
 
         let toolcall = (!single_results.is_empty()).then(|| aggregate(&single_tasks, single_results));
         let agentic = (!agentic_reports.is_empty()).then(|| agg_agentic(&agentic_reports, false));
@@ -769,6 +809,7 @@ pub async fn run_native_fc_pass<M, F, G>(
     record: &(dyn Fn(&CompletedUnit) + Sync),
     gate: &G,
     sink: Arc<dyn BatchSink>,
+    concurrency: usize,
 ) -> AppResult<()>
 where
     M: ModelTurn + Send + Sync,
@@ -806,37 +847,75 @@ where
         let mut reports: Vec<AgenticReport> = Vec::new();
         let mut errored: u32 = 0; // tasks whose every run errored (a backend Err)
         let mut error_class = NativeErrorClass::None;
-        for (i, task) in agentic_tasks.iter().enumerate() {
-            if cancel.is_cancelled() {
-                break;
-            }
-            if let Some(unit) = done.get(&(col.model.as_str(), task.id.as_str())) {
-                if let TaskOutcome::Agentic { report } = &unit.outcome {
-                    reports.push(report.clone());
+
+        // Same bounded-concurrency-compute / index-ordered-commit split as the prompt path
+        // (`run_batch_resumable`) — see its comment. N=1 is byte-identical to the prior serial
+        // native loop; N>1 still commits in task-index order.
+        enum StepOutcome {
+            Cancelled,
+            // A folded prior unit — `Some(report)` when the prior outcome was Agentic (the only
+            // kind ever recorded for a native pass), `None` for any other prior outcome kind
+            // (skip the commit entirely, mirroring the old loop's unconditional `continue`).
+            Folded(Option<AgenticReport>),
+            Ran { result: AppResult<AgenticReport>, wall_ms: u64 },
+        }
+        let model = col.model.clone();
+        let n_agentic_tasks = agentic_tasks.len();
+        let owned_agentic_tasks: Vec<ToolTask> = agentic_tasks.iter().map(|t| (*t).clone()).collect();
+        let mut compute = stream::iter(owned_agentic_tasks.into_iter().enumerate())
+            .map(|(i, task)| {
+                let cancel = &cancel;
+                let sink = sink.clone();
+                let done = &done;
+                let model = &model;
+                let make_native = &make_native;
+                async move {
+                    if cancel.is_cancelled() {
+                        return (i, task, StepOutcome::Cancelled);
+                    }
+                    if let Some(unit) = done.get(&(model.as_str(), task.id.as_str())) {
+                        let report = match &unit.outcome {
+                            TaskOutcome::Agentic { report } => Some(report.clone()),
+                            _ => None,
+                        };
+                        return (i, task, StepOutcome::Folded(report));
+                    }
+                    // Announce the task BEFORE the (slow) model call so the UI shows the native
+                    // pass is running immediately — not blank until the first turn returns.
+                    sink.task_started(model, &task.id, i, n_agentic_tasks, &task.category, true);
+                    let turn = make_native(model, &task);
+                    let (sandbox, cfg) = match sandbox_for(&task) {
+                        Ok(v) => v,
+                        Err(e) => return (i, task, StepOutcome::Ran { result: Err(e), wall_ms: 0 }),
+                    };
+                    let (tx, mut rx) = unbounded_channel::<TrajectoryStep>();
+                    // Forward native steps to the UI sink (tagged is_native) so the user can
+                    // WATCH the native run in the Evaluator — not a throwaway drain that hides it.
+                    let (s2, model2, task2) = (sink.clone(), model.clone(), task.id.clone());
+                    let pump = tokio::spawn(async move {
+                        while let Some(step) = rx.recv().await {
+                            s2.agentic_turn(&model2, &task2, &step, true); // native pass
+                        }
+                    });
+                    let started = std::time::Instant::now();
+                    let result = run_agentic_for(&turn, &task, model, &sandbox, cfg, cancel, concurrency, &tx).await;
+                    drop(tx);
+                    let _ = pump.await;
+                    (i, task, StepOutcome::Ran { result, wall_ms: started.elapsed().as_millis() as u64 })
                 }
-                continue;
-            }
-            // Announce the task BEFORE the (slow) model call so the UI shows the native pass is
-            // running immediately — not blank until the first turn returns.
-            sink.task_started(&col.model, &task.id, i, agentic_tasks.len(), &task.category, true);
-            let turn = make_native(&col.model, task);
-            let (sandbox, cfg) = sandbox_for(task)?;
-            let (tx, mut rx) = unbounded_channel::<TrajectoryStep>();
-            // Forward native steps to the UI sink (tagged is_native) so the user can WATCH the
-            // native run in the Evaluator — not the old throwaway drain that hid it.
-            let (s2, model2, task2) = (sink.clone(), col.model.clone(), task.id.clone());
-            let pump = tokio::spawn(async move {
-                while let Some(step) = rx.recv().await {
-                    s2.agentic_turn(&model2, &task2, &step, true); // native pass
-                }
-            });
-            let started = std::time::Instant::now();
-            let result = run_agentic_for(&turn, task, &col.model, &sandbox, cfg, &cancel, &tx).await;
-            drop(tx);
-            let _ = pump.await;
-            match result {
-                Ok(report) => {
-                    let report = stamp_task_meta(report, task).with_wall_ms(started.elapsed().as_millis() as u64);
+            })
+            .buffered(concurrency.max(1));
+
+        while let Some((i, task, outcome)) = compute.next().await {
+            let _ = i;
+            match outcome {
+                // Mirrors the old driving loop's `break` on cancel: stop committing further
+                // tasks (already in-flight compute for later indices is dropped, not committed).
+                StepOutcome::Cancelled => break,
+                StepOutcome::Folded(Some(report)) => reports.push(report),
+                StepOutcome::Folded(None) => {}
+                StepOutcome::Ran { result: Ok(report), wall_ms } => {
+                    let report = stamp_task_meta(report, &task).with_wall_ms(wall_ms);
                     let outcome = TaskOutcome::Agentic { report: report.clone() };
                     record(&CompletedUnit {
                         model: col.model.clone(),
@@ -854,7 +933,7 @@ where
                 // turn timeout is already scored). Count it visibly and classify the cause so
                 // a host/infra crash is never read as model incapability. The dropped task is
                 // why the native denominator silently shrank before this fix.
-                Err(e) => {
+                StepOutcome::Ran { result: Err(e), .. } => {
                     let msg = e.to_string();
                     errored += 1;
                     error_class = merge_error_class(error_class, classify_native_error(&msg));
@@ -865,6 +944,7 @@ where
                 }
             }
         }
+        drop(compute);
         // Emit the column when ANYTHING ran OR errored — an all-errored native pass now
         // surfaces "0 scored, N errored" instead of vanishing to `None`. `agg_agentic(&[])`
         // is empty-safe (total_runs 0), and `inputs.rs` filters native on `total_runs > 0`,
