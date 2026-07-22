@@ -789,6 +789,30 @@ Parking lot for ideas, libraries, and changes deliberately deferred. Nothing
 here is in the current phase — see [Phase roadmap](#phase-roadmap). If something
 here becomes relevant, move it into a phase plan first.
 
+### qm distribution: deferred channels
+
+From the binary-distribution work (2026-07-22; shipped: dist pipeline on
+`quantamind-v*` tags, 6-target prebuilt binaries incl. static musl, shell/ps1
+one-liners, checksums + attestations — see `#release-tags--two-independent-pipelines`):
+
+- **Docker/GHCR image** (`ghcr.io/quantaminds/qm`, multi-arch from the musl
+  binary) + `qm-eval` action image path. Networking doc is mandatory:
+  `--add-host=host.docker.internal:host-gateway` + `--base` (in-container
+  `localhost:11434` is the container). The install-smoke workflow already
+  proves the musl binary in containers.
+- **PyPI wheels / `uvx qm`** via maturin `bin` bindings (the ruff/uv model,
+  manylinux2014 baseline) — the most native channel for the Python audience;
+  do after the lean build has soaked.
+- **Homebrew tap** (`QuantaMinds/homebrew-tap`, dist generates the formula) —
+  BLOCKED on Apple signing/notarization (`scripts/notarize-cli.sh` env gate +
+  the 2026-09-01 Gatekeeper tightening).
+- **crates.io publish → `cargo binstall qm`** — binstall resolves artifacts
+  via the crates.io listing; publishing the crate is the prerequisite.
+- **`quantamind.co/install.sh` vanity redirect** → the GitHub latest-release
+  installer asset (website repo change).
+- **npm package** — deliberately skipped: wrong audience, adds a maintenance
+  surface without a user segment.
+
 ### Latency⇢Tests link: deferred follow-ups
 
 From the inspector↔eval latency-link work (plan-reviewed 2026-07-20), deliberately
