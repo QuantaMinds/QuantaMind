@@ -4,6 +4,24 @@ All notable changes to QuantaMind are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.2.3] — 2026-07-22
+
+First release of the headless `qm` CLI as **prebuilt binaries** — no Rust
+toolchain, no `cargo build`.
+
+### Added
+
+- **One-line install** (macOS/Linux): `curl -fsSL https://github.com/QuantaMinds/QuantaMind/releases/latest/download/quantamind-installer.sh | sh` — installs `qm` into `~/.local/bin`. Windows: `powershell -ExecutionPolicy Bypass -c "irm https://github.com/QuantaMinds/QuantaMind/releases/latest/download/quantamind-installer.ps1 | iex"`.
+- Prebuilt `qm` for six targets: macOS (Apple Silicon + Intel), Linux glibc (x64 + arm64), Linux **static musl** (x64, runs in any container), Windows x64.
+- Every artifact ships with sha256 checksums and GitHub artifact attestations (`gh attestation verify <file> --owner QuantaMinds`).
+
+### Changed
+
+- The CLI binary is now **headless by construction**: a `gui` cargo feature seam keeps the Tauri/desktop dependency tree (webkit/GTK/ALSA) out of `qm` entirely; CI enforces this with a linkage guard.
+- HTTP now uses rustls with the OS trust store (no OpenSSL system dependency).
+
+*(0.2.1/0.2.2 were desktop-only tag iterations without published releases.)*
+
 ## [0.2.0] — 2026-06-06
 
 The first release since 0.1.0 — so these notes cover everything added since the

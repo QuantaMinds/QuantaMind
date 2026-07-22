@@ -1,0 +1,45 @@
+# dist (cargo-dist) workspace pointer — the Rust crate lives in backend/, not
+# the repo root, so this file tells dist where to find it. Release config for
+# the headless `qm` CLI is under [dist]; the desktop app releases separately
+# (release-desktop.yml, plain v* tags — see docs/process.md#conventions).
+[workspace]
+members = ["cargo:backend"]
+
+# Config for 'dist'
+[dist]
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.32.0"
+# CI backends to support
+ci = "github"
+# The installers to generate for each app
+installers = ["shell", "powershell"]
+# Target platforms to build apps for (Rust target-triple syntax)
+targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-unknown-linux-musl", "x86_64-pc-windows-msvc"]
+# Whether default-features should be enabled with cargo build
+default-features = false
+# Checksums to generate for each App
+checksum = "sha256"
+# Whether to enable GitHub Attestations
+github-attestations = true
+# Whether dist should create a Github Release or use an existing draft
+create-release = true
+# A prefix git tags must include for dist to care about them
+tag-namespace = "quantamind"
+# Path that installers should place binaries in. NOT CARGO_HOME — the target
+# audience (Python/DevOps engineers) has no Rust toolchain; ~/.local/bin is the
+# XDG-standard user bin dir and typically already on PATH.
+install-path = "~/.local/bin"
+# Whether to install an updater program
+install-updater = false
+
+# Ship ONLY the headless CLI on every platform. The `quantamind` GUI bin lives
+# on the same crate but has required-features=["gui"], which the lean
+# (no-default-features) build never enables — the desktop app releases through
+# release-desktop.yml instead.
+[dist.binaries]
+aarch64-apple-darwin = ["qm"]
+x86_64-apple-darwin = ["qm"]
+aarch64-unknown-linux-gnu = ["qm"]
+x86_64-unknown-linux-gnu = ["qm"]
+x86_64-unknown-linux-musl = ["qm"]
+x86_64-pc-windows-msvc = ["qm"]

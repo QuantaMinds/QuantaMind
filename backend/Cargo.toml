@@ -1,8 +1,9 @@
 [package]
 name = "quantamind"
-version = "0.2.0"
+version = "0.2.3"
 description = "QuantaMind — local LLM workspace"
 authors = ["quantamind-dev"]
+repository = "https://github.com/QuantaMinds/QuantaMind"
 edition = "2021"
 # Two binaries live on this crate (the Tauri app `quantamind` + the headless `qm`
 # CLI), so a bare `cargo run` — which `tauri dev` invokes without `--bin` — would be
@@ -117,3 +118,8 @@ metal = { version = "0.33", optional = true }
 [dev-dependencies]
 mockito = "1"
 tempfile = "3"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
