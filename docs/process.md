@@ -170,6 +170,11 @@ matches the convention; PR body references "closes #N" when applicable.
 - macOS CLI artifacts: `scripts/notarize-cli.sh` (env-gated no-op until the
   four Apple secrets exist; REQUIRED before any Homebrew formula and by the
   2026-09-01 Gatekeeper tightening).
+- **Until signing lands:** every CLI release's CHANGELOG section (dist uses it
+  as the release body) must carry the "macOS: downloading with a browser?"
+  note — unsigned + quarantine workaround (`xattr -d com.apple.quarantine`) +
+  attestation-verify line. Same note lives in README, docs/cli, and
+  `docs/reference.md#macos-gatekeeper`; delete all four when signing ships.
 
 ### File size
 
