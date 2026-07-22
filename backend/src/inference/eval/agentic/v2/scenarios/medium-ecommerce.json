@@ -79,8 +79,7 @@
             "order_id": "string",
             "mode": "string",
             "slab_pct": "number"
-          },
-          "returns_entity": false
+          }
         },
         {
           "name": "record_invoice",
@@ -129,15 +128,6 @@
         },
         {
           "type": "call",
-          "name": "compute_tax",
-          "args": {
-            "order_id": "ORD-1",
-            "mode": "CGST_SGST",
-            "slab_pct": 18
-          }
-        },
-        {
-          "type": "call",
           "name": "record_invoice",
           "args": {
             "order_id": "ORD-1",
@@ -149,15 +139,6 @@
           "name": "get_order",
           "args": {
             "id": "ORD-2"
-          }
-        },
-        {
-          "type": "call",
-          "name": "compute_tax",
-          "args": {
-            "order_id": "ORD-2",
-            "mode": "IGST",
-            "slab_pct": 18
           }
         },
         {
@@ -180,15 +161,6 @@
           "name": "get_slab",
           "args": {
             "category": "books"
-          }
-        },
-        {
-          "type": "call",
-          "name": "compute_tax",
-          "args": {
-            "order_id": "ORD-3",
-            "mode": "IGST",
-            "slab_pct": 0
           }
         },
         {
@@ -288,10 +260,7 @@
           "name": "check_courier_agecheck",
           "params": {
             "pincode": "string"
-          },
-          "returns_fields": [
-            "courier_age_check"
-          ]
+          }
         },
         {
           "name": "dispatch",

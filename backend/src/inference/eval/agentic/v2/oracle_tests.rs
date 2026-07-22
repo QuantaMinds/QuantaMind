@@ -62,27 +62,45 @@ fn ws_of(task: &mut ToolTask) -> &mut serde_json::Map<String, Value> {
 #[test]
 fn semantic_findings_clean_on_a_bundled_collection() {
     let tasks = ecommerce_tasks();
-    // `LeakyGetter` is a staged Warning-severity heuristic that surfaces the suite-wide
-    // whole-blob-getter debt (~30 tasks, remediated task-by-task via `returns_fields`); it is
-    // deliberately excluded here so this Error-level cleanliness guarantee stays green while
-    // that debt is worked down. All hard-block (Error) kinds must still be absent.
-    let findings: Vec<_> = semantic_findings(&tasks)
-        .into_iter()
-        .filter(|f| f.kind != SemanticFindingKind::LeakyGetter)
-        .collect();
+    // The suite-wide whole-blob-getter debt (~30 tasks across all tiers) has been fully
+    // remediated via per-getter `returns_fields` — so LeakyGetter (a Warning) is no longer
+    // excluded here: a bundled collection must now be clean under EVERY kind, Warning included.
+    let findings = semantic_findings(&tasks);
     assert!(findings.is_empty(), "bundled collection must be semantically clean: {findings:?}");
 }
 
 #[test]
 fn semantic_findings_flags_a_leaky_getter() {
-    // hard-support-ecommerce requires `get_order` (whole-blob) AND `get_delivery_date` on the
-    // same order — the model gets the delivery window from get_order, so requiring the second
-    // call false-fails an efficient model. The guard must surface it (with the fix instruction).
-    let leaks: Vec<_> = semantic_findings(&ecommerce_tasks())
+    // Two required getters resolving to the SAME entity, both whole-blob (no `returns_fields`):
+    // the default responder hands each the full blob, so the smaller call is redundant and an
+    // efficient model that reads one and skips the other is falsely failed. The guard must
+    // surface it and name the `returns_fields` fix. (Built inline so the bundled scenarios stay
+    // fully remediated — this is the fixture that PROVES the guard still fires.)
+    const LEAKY: &str = r#"{
+      "name": "synth_leak", "domain": "coding", "tier": "Easy", "pass_k": 1,
+      "axes": { "min_required_steps": 2, "decoy_tools": 0, "hidden_prereqs": 0,
+                "conflicting_constraints": 0, "adversarial_context": false, "region_variance": false },
+      "tasks": [{
+        "id": "leak", "category": "agent_loop", "max_steps": 7, "max_recovery": 2,
+        "prompt": "Read record REC via get_a and get_b, then reply ok.",
+        "world_state": { "REC": { "x": 1, "y": 2 } },
+        "tools": [
+          { "name": "get_a", "params": { "id": "string" } },
+          { "name": "get_b", "params": { "id": "string" } },
+          { "name": "reply", "params": { "text": "string" } }
+        ],
+        "expected_calls": [
+          { "type": "call", "name": "get_a", "args": { "id": "REC" } },
+          { "type": "call", "name": "get_b", "args": { "id": "REC" } },
+          { "type": "call", "name": "reply", "args": { "text": "*ok*" } }
+        ]
+      }]
+    }"#;
+    let leaks: Vec<_> = semantic_findings(&load_v2_collection(LEAKY).unwrap())
         .into_iter()
         .filter(|f| f.kind == SemanticFindingKind::LeakyGetter)
         .collect();
-    assert!(!leaks.is_empty(), "the leaky-getter guard must flag the whole-blob overlap");
+    assert!(!leaks.is_empty(), "the leaky-getter guard must flag two whole-blob getters on one entity");
     assert!(leaks.iter().any(|f| f.message.contains("returns_fields")), "the finding names the fix: {leaks:?}");
 }
 

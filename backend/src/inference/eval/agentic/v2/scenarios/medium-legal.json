@@ -394,8 +394,7 @@
           "name": "classify_info_type",
           "params": {
             "id": "string"
-          },
-          "returns_entity": false
+          }
         },
         {
           "name": "get_clause_term",
@@ -441,13 +440,6 @@
         },
         {
           "type": "call",
-          "name": "classify_info_type",
-          "args": {
-            "id": "A-1"
-          }
-        },
-        {
-          "type": "call",
           "name": "record_finding",
           "args": {
             "id": "A-1",
@@ -457,13 +449,6 @@
         {
           "type": "call",
           "name": "get_agreement",
-          "args": {
-            "id": "A-2"
-          }
-        },
-        {
-          "type": "call",
-          "name": "classify_info_type",
           "args": {
             "id": "A-2"
           }
@@ -486,13 +471,6 @@
         {
           "type": "call",
           "name": "get_agreement",
-          "args": {
-            "id": "A-3"
-          }
-        },
-        {
-          "type": "call",
-          "name": "classify_info_type",
           "args": {
             "id": "A-3"
           }
@@ -566,8 +544,7 @@
           "name": "classify_privilege",
           "params": {
             "id": "string"
-          },
-          "returns_entity": false
+          }
         },
         {
           "name": "check_substantial_need",
@@ -620,13 +597,6 @@
         },
         {
           "type": "call",
-          "name": "classify_privilege",
-          "args": {
-            "id": "D-1"
-          }
-        },
-        {
-          "type": "call",
           "name": "withhold_log",
           "args": {
             "id": "D-1",
@@ -636,13 +606,6 @@
         {
           "type": "call",
           "name": "get_doc",
-          "args": {
-            "id": "D-2"
-          }
-        },
-        {
-          "type": "call",
-          "name": "classify_privilege",
           "args": {
             "id": "D-2"
           }
@@ -665,13 +628,6 @@
         {
           "type": "call",
           "name": "get_doc",
-          "args": {
-            "id": "D-3"
-          }
-        },
-        {
-          "type": "call",
-          "name": "classify_privilege",
           "args": {
             "id": "D-3"
           }

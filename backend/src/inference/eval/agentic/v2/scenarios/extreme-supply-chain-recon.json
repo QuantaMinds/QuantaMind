@@ -133,49 +133,75 @@
           "name": "get_batch",
           "params": {
             "id": "string"
-          }
+          },
+          "returns_fields": [
+            "dest",
+            "hold",
+            "transit_days"
+          ]
         },
         {
           "name": "get_temp_log",
           "params": {
             "batch": "string"
-          }
+          },
+          "returns_fields": [
+            "temp_log"
+          ]
         },
         {
           "name": "compute_mkt",
           "params": {
             "batch": "string"
-          }
+          },
+          "returns_fields": [
+            "mkt_c"
+          ]
         },
         {
           "name": "get_label_budget",
           "params": {
             "batch": "string"
-          }
+          },
+          "returns_fields": [
+            "budget_c"
+          ]
         },
         {
           "name": "get_expiry",
           "params": {
             "batch": "string"
-          }
+          },
+          "returns_fields": [
+            "expiry"
+          ]
         },
         {
           "name": "get_transit",
           "params": {
             "dest": "string"
-          }
+          },
+          "returns_fields": [
+            "transit_days"
+          ]
         },
         {
           "name": "get_reg_hold",
           "params": {
             "dest": "string"
-          }
+          },
+          "returns_fields": [
+            "regulatory_hold"
+          ]
         },
         {
           "name": "get_linkage",
           "params": {
             "batch": "string"
-          }
+          },
+          "returns_fields": [
+            "linked_to"
+          ]
         },
         {
           "name": "release_batch",
@@ -624,7 +650,10 @@
           "name": "check_cm_cert",
           "params": {
             "supplier": "string"
-          }
+          },
+          "returns_fields": [
+            "cm_certified"
+          ]
         },
         {
           "name": "get_carbon",
@@ -636,7 +665,13 @@
           "name": "get_lead_time",
           "params": {
             "supplier": "string"
-          }
+          },
+          "returns_fields": [
+            "lead",
+            "cap",
+            "co2",
+            "cheap"
+          ]
         },
         {
           "name": "compute_spend_concentration",

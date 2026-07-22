@@ -589,16 +589,14 @@
           "params": {
             "loan": "string",
             "ratio": "string"
-          },
-          "returns_entity": false
+          }
         },
         {
           "name": "classify_compliance",
           "params": {
             "loan": "string",
             "status": "string"
-          },
-          "returns_entity": false
+          }
         },
         {
           "name": "call_default",
@@ -681,14 +679,6 @@
         },
         {
           "type": "call",
-          "name": "compute_ratio",
-          "args": {
-            "loan": "L-1",
-            "ratio": "dscr"
-          }
-        },
-        {
-          "type": "call",
           "name": "call_default",
           "args": {
             "loan": "L-1"
@@ -712,14 +702,6 @@
         },
         {
           "type": "call",
-          "name": "compute_ratio",
-          "args": {
-            "loan": "L-2",
-            "ratio": "dscr"
-          }
-        },
-        {
-          "type": "call",
           "name": "log_decision",
           "args": {
             "loan": "L-2",
@@ -732,22 +714,6 @@
           "name": "get_covenants",
           "args": {
             "loan": "L-3"
-          }
-        },
-        {
-          "type": "call",
-          "name": "compute_ratio",
-          "args": {
-            "loan": "L-3",
-            "ratio": "leverage"
-          }
-        },
-        {
-          "type": "call",
-          "name": "classify_compliance",
-          "args": {
-            "loan": "L-3",
-            "status": "WAIVER_ELIGIBLE"
           }
         },
         {
