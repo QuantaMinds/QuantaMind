@@ -549,13 +549,17 @@ const cli = `
 \`qm\` is the headless face of QuantaMind — the *same* evaluation engine as the app, driven from a
 terminal and returning an exit code you can gate CI on. Every control on the Tests page maps to a flag.
 
-## Build it
+## Install it
 
-\`qm\` is a second binary on the same crate:
+Prebuilt binaries — no Rust, no build (macOS, Linux, Windows):
 
 \`\`\`
-cargo build --bin qm
+curl -fsSL https://github.com/QuantaMinds/QuantaMind/releases/latest/download/quantamind-installer.sh | sh
 \`\`\`
+
+Windows: \`irm https://github.com/QuantaMinds/QuantaMind/releases/latest/download/quantamind-installer.ps1 | iex\`
+· CI images: \`ghcr.io/quantaminds/qm\` · Contributors can still build from source:
+\`cargo build --release --bin qm --no-default-features\`.
 
 ## Three commands to a verdict
 
@@ -603,6 +607,20 @@ const troubleshooting = `
 # Troubleshooting
 
 Common issues and quick fixes.
+
+## macOS blocked the app or \`qm\` ("developer cannot be verified")
+
+Our macOS builds aren't Apple-signed **yet** (signing is in progress), so anything downloaded with
+a **browser** is quarantined and blocked on first launch. Fixes:
+
+- **Desktop app** — right-click **QuantaMind.app → Open → Open** (once; macOS remembers), or
+  \`xattr -d com.apple.quarantine /Applications/QuantaMind.app\`.
+- **\`qm\` binary** — prefer the curl installer (never quarantined). For a browser-downloaded
+  tarball: \`xattr -d com.apple.quarantine ./qm\`, then \`qm doctor\` connects as usual.
+
+Every release artifact is sha256-checksummed and carries a GitHub build attestation
+(\`gh attestation verify <file> --owner QuantaMinds\`) — the integrity proof Apple's stamp would
+otherwise give.
 
 ## Run Batch does nothing / returns n=0
 
