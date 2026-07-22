@@ -461,19 +461,28 @@
           "name": "get_order",
           "params": {
             "id": "string"
-          }
+          },
+          "returns_fields": [
+            "ts"
+          ]
         },
         {
           "name": "check_allocation",
           "params": {
             "id": "string"
-          }
+          },
+          "returns_fields": [
+            "allocated"
+          ]
         },
         {
           "name": "get_loyalty_tier",
           "params": {
             "id": "string"
-          }
+          },
+          "returns_fields": [
+            "tier"
+          ]
         },
         {
           "name": "get_timestamp",

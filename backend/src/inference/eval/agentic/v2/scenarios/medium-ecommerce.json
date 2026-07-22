@@ -59,7 +59,13 @@
           "name": "get_order",
           "params": {
             "id": "string"
-          }
+          },
+          "returns_fields": [
+            "seller",
+            "buyer",
+            "category",
+            "amount"
+          ]
         },
         {
           "name": "get_slab",
@@ -73,7 +79,8 @@
             "order_id": "string",
             "mode": "string",
             "slab_pct": "number"
-          }
+          },
+          "returns_entity": false
         },
         {
           "name": "record_invoice",
@@ -255,7 +262,11 @@
           "name": "get_order",
           "params": {
             "id": "string"
-          }
+          },
+          "returns_fields": [
+            "state",
+            "min"
+          ]
         },
         {
           "name": "get_state_min_age",
@@ -268,13 +279,19 @@
           "name": "verify_buyer_age",
           "params": {
             "id": "string"
-          }
+          },
+          "returns_fields": [
+            "age"
+          ]
         },
         {
           "name": "check_courier_agecheck",
           "params": {
             "pincode": "string"
-          }
+          },
+          "returns_fields": [
+            "courier_age_check"
+          ]
         },
         {
           "name": "dispatch",
@@ -450,13 +467,19 @@
           "name": "get_seller",
           "params": {
             "id": "string"
-          }
+          },
+          "returns_fields": [
+            "tenure_days"
+          ]
         },
         {
           "name": "get_dispute_rate",
           "params": {
             "seller": "string"
-          }
+          },
+          "returns_fields": [
+            "dispute_rate"
+          ]
         },
         {
           "name": "hold_reserve",
@@ -628,19 +651,29 @@
           "name": "get_order",
           "params": {
             "id": "string"
-          }
+          },
+          "returns_fields": [
+            "value",
+            "dest"
+          ]
         },
         {
           "name": "get_deminimis",
           "params": {
             "dest": "string"
-          }
+          },
+          "returns_fields": [
+            "deminimis"
+          ]
         },
         {
           "name": "check_restricted",
           "params": {
             "id": "string"
-          }
+          },
+          "returns_fields": [
+            "restricted"
+          ]
         },
         {
           "name": "ship_duty_free",

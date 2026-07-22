@@ -401,13 +401,19 @@
           "name": "run_profiler",
           "params": {
             "path": "string"
-          }
+          },
+          "returns_fields": [
+            "profile"
+          ]
         },
         {
           "name": "read_file",
           "params": {
             "path": "string"
-          }
+          },
+          "returns_fields": [
+            "source"
+          ]
         },
         {
           "name": "write_file",
