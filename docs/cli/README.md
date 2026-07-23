@@ -322,7 +322,7 @@ $ qm run --backend ollama --model qwen2.5:3b
 · [1/5] es_co_run_failing_test
   … (progress on stderr)
 VERDICT: Ready   (ollama · qwen2.5:3b · easy-coding)
-  [PromptBased] Ready  pass^k=0.80  runs=4/5
+  [PromptBased] Ready  pass^k=0.80  runs=4/5  avg steps=2.6
 
 profile: general-agent
 $ echo $?   # 0
@@ -331,7 +331,7 @@ A model that can't drive an agent fails honestly, naming the blocker — never a
 ```
 $ qm run --backend ollama --model llama-3.2-1b-instruct:iq3_m
 VERDICT: Not Ready   (ollama · llama-3.2-1b-instruct:iq3_m · easy-coding)
-  [PromptBased] Not Ready  pass^k=0.00  runs=0/5
+  [PromptBased] Not Ready  pass^k=0.00  runs=0/5  avg steps=4.4
     ✗ pass^k 0.00 < 0.60 required
 $ echo $?   # 20   (with --fail-on never → 0 + a [QM-NOTE], findings still shown)
 ```
@@ -358,7 +358,7 @@ qm init [--json]
 $ qm init
 wrote qm.json (backend=ollama, model=qwen2.5:3b)     # stderr
 VERDICT: Ready   (ollama · qwen2.5:3b · easy-coding)
-  [PromptBased] Ready  pass^k=0.80  runs=20/25
+  [PromptBased] Ready  pass^k=0.80  runs=20/25  avg steps=2.6
 $ qm run          # no flags — reads qm.json
 VERDICT: Ready   (ollama · qwen2.5:3b · easy-coding) …
 ```
@@ -450,11 +450,11 @@ active on the page — so the CLI verdict always matches the page, even for an e
 ```
 $ qm report --report run.json --profile general-agent    # min_pass_k 0.6
 VERDICT: Ready   (ollama · qwen2.5:3b · easy-coding)
-  [PromptBased] Ready  pass^k=0.80  runs=4/5
+  [PromptBased] Ready  pass^k=0.80  runs=4/5  avg steps=2.6
 
 $ qm report --report run.json --profile strict.json       # min_pass_k 0.9
 VERDICT: Not Ready   (ollama · qwen2.5:3b · easy-coding)
-  [PromptBased] Not Ready  pass^k=0.80  runs=4/5
+  [PromptBased] Not Ready  pass^k=0.80  runs=4/5  avg steps=2.6
     ✗ pass^k 0.80 < 0.90 required
 $ echo $?   # 20
 ```

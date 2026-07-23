@@ -90,3 +90,28 @@ fn memory_facts_name_their_provenance() {
     assert_eq!(none.model_bytes, None);
     assert!(none.model_bytes_provenance.contains("not measurable"));
 }
+
+/// Per-task KV: with dims present, each row carries the f16 figure at ITS OWN peak
+/// (not the collection peak); with dims unmeasurable it stays None — never a guess.
+#[test]
+fn per_task_kv_uses_each_tasks_own_peak_and_gates_on_dims() {
+    let mut a = step(0, 0);
+    a.context_used = Some(1000);
+    let mut b = step(0, 0);
+    b.context_used = Some(500);
+    let mut cells = std::collections::BTreeMap::new();
+    cells.insert(("t-big".to_string(), false), vec![a]);
+    cells.insert(("t-small".to_string(), false), vec![b]);
+    let dims = Some((32, 32, 8, 4096, false));
+    let c = assemble("m", &cells, &std::collections::BTreeMap::new(), None, dims);
+    let big = c.tasks.iter().find(|t| t.task_id == "t-big").unwrap();
+    let small = c.tasks.iter().find(|t| t.task_id == "t-small").unwrap();
+    let (kb, ks) = (big.kv_f16_bytes_at_peak.unwrap(), small.kv_f16_bytes_at_peak.unwrap());
+    // Twice the occupancy → twice the KV (the formula is linear in tokens).
+    assert_eq!(kb, ks * 2);
+    // Footer figure sizes at the COLLECTION peak = the big task's.
+    assert_eq!(c.memory.kv_at_peak.as_ref().unwrap().f16_bytes, kb);
+    // No dims → no per-task figure, never a guess.
+    let c2 = assemble("m", &cells, &std::collections::BTreeMap::new(), None, None);
+    assert!(c2.tasks.iter().all(|t| t.kv_f16_bytes_at_peak.is_none()));
+}

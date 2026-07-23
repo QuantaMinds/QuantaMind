@@ -84,8 +84,9 @@ pub fn render_human(r: &RunReport) -> String {
         r.collection_id
     ));
     for v in &r.verdicts {
+        let steps = v.avg_steps.map_or("n/a".into(), |a| format!("{a:.1}"));
         out.push_str(&format!(
-            "  [{:?}] {}  pass^k={}  runs={}/{}\n",
+            "  [{:?}] {}  pass^k={}  runs={}/{}  avg steps={steps}\n",
             v.verdict.path,
             status_label(v.verdict.status),
             passk_str(v.pass_k),
@@ -147,7 +148,7 @@ pub fn render_costs(c: &crate::cli::run::costs::RunCosts) -> String {
             Some(n) => format!("{n} (no split)"),
         };
         out.push_str(&format!(
-            "  {} [{}]{}  runs={} steps={}  prefill={}  decode={}  out={}  think={}  cache_hits={}  peak_ctx={}  wall={}  rss_max={}\n",
+            "  {} [{}]{}  runs={} steps={}  prefill={}  decode={}  out={}  think={}  cache_hits={}  peak_ctx={}  kv@peak={}  wall={}  rss_max={}\n",
             t.task_id,
             t.pass,
             if t.oom { "  ✗ OUT OF MEMORY" } else { "" },
@@ -159,6 +160,7 @@ pub fn render_costs(c: &crate::cli::run::costs::RunCosts) -> String {
             think,
             opt(t.cache_hit_tokens_total, |v| format!("{v} tok")),
             opt(t.peak_context_tokens, |v| format!("{v} tok")),
+            opt(t.kv_f16_bytes_at_peak, |v| format!("{} (f16)", gb(v))),
             opt(t.wall_ms, ms),
             opt(t.max_step_end_rss_bytes, gb),
         ));
