@@ -10,13 +10,13 @@ Benchmark any **Ollama**, **llama.cpp**, or **MLX** model for *agentic readiness
 
 <br/>
 
+[![Discord](https://img.shields.io/badge/Discord-Get%20help%20from%20the%20team-5865F2?logo=discord&logoColor=white)](https://discord.gg/6CjSJyZTfG)
+[![Repo](https://img.shields.io/badge/GitHub-QuantaMinds%2FQuantaMind-181717?logo=github)](https://github.com/QuantaMinds/QuantaMind)
+[![Website](https://img.shields.io/badge/Website-quantamind.co-2563EB?logo=googlechrome&logoColor=white)](https://quantamind.co/)
+
 ![Version](https://img.shields.io/badge/version-0.2.4-blue)
 ![Platform](https://img.shields.io/badge/platform-macOS-blue)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green)
-
-[![Repo](https://img.shields.io/badge/GitHub-QuantaMinds%2FQuantaMind-181717?logo=github)](https://github.com/QuantaMinds/QuantaMind)
-[![Website](https://img.shields.io/badge/Website-quantamind.co-2563EB?logo=googlechrome&logoColor=white)](https://quantamind.co/)
-[![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white)](https://discord.gg/6CjSJyZTfG)
 
 <br/>
 
@@ -32,9 +32,7 @@ You do **not** need Rust, Node, or any toolchain to use QuantaMind.
 
 ### Option 1 · Desktop app
 
-Download a prebuilt build from **[quantamind.co](https://quantamind.co/)** and launch.
-
-> **macOS + "developer cannot be verified"?** Our builds aren't Apple-signed *yet* (in progress). For a browser-downloaded app/binary: right-click → Open, or `xattr -d com.apple.quarantine <file>` — details + integrity checks in [Troubleshooting](./docs/reference.md#macos-gatekeeper). The curl install below is unaffected.
+Download the prebuilt app from **[quantamind.co](https://quantamind.co/)** and launch.
 
 ### Option 2 · The `qm` CLI (headless)
 
@@ -71,7 +69,7 @@ In the **desktop app**: open the **Tests** tab, pick your model, run a built-in 
 
 Full CLI reference, container images, checksums + attestation verification: **[CLI quickstart](./docs/cli/README.md#quickstart--three-commands-to-your-first-verdict)**.
 
-> 💬 **Hit a snag?** Frictionless setup is a goal, so setup bugs are real bugs. [Open an issue](https://github.com/QuantaMinds/QuantaMind/issues) or ask in [Discord](https://discord.gg/6CjSJyZTfG).
+> 💬 **Hit a snag?** [Troubleshooting](./docs/reference.md#troubleshooting) covers the common ones — including macOS's ["developer cannot be verified" dialog](./docs/reference.md#macos-gatekeeper). Setup bugs are real bugs: [open an issue](https://github.com/QuantaMinds/QuantaMind/issues) or ask in [Discord](https://discord.gg/6CjSJyZTfG).
 
 ---
 
@@ -115,19 +113,31 @@ QuantaMind is a workbench, not a chat app — each surface answers one question 
 <details>
 <summary><b>The details behind each tab</b></summary>
 
-**Tests** — Graduated tiered scenarios spanning coding, finance, medical, legal, ecommerce, support, supply-chain, math/science, and clinical-trial domains. Each difficulty tier offers **three** collections — one per domain, a coding·finance·medical spine so a model is comparable as difficulty rises. Deterministic sandbox-free scoring (tool-call accuracy, pass^k, avg steps, schema resilience, dominant failure mode). A **Difficulty Tier** control recommends pass^k iterations and step budgets per tier; an **Anti-Saturation** toggle injects decoy tools to resist contamination. Run a whole collection, or **click one task to run just it** (Built-In, Custom JSON, or MCP) — the Simulator, live Evaluator trace, and Model Results all scope to that task while every run lever (k, max steps, decoys, thinking budget, params, model, native/prompt method) applies unchanged. Failure modes are named honestly — `ForbiddenCall`, `LoopCap`, `FakeDone`, `foreign_dialect`, `empty_output`, `Reasoning-overrun` — never just pass/fail. A **Thinking-model** flag (auto-detected) raises the token budget and strips `<think>` scratchpads so a reasoner isn't scored as malformed. A **Context Stress Test** finds the prompt length where tool-call accuracy collapses — and only ever reports a depth it actually measured: the ladder is capped to fit the model's real context window (past it Ollama silently truncates the prompt and pins its own token counter, which would fabricate a cliff at the window from a model that never degraded), and depth counts the context the model *read*, including llama.cpp's cached prefix. Deterministic environments let a task run against a **simulated filesystem** the agent browses with `read_file`/`list_dir`/`grep`, replayed visually in a step-scrubber. Custom collections are **validated before they're written**: JSON import shows a format guide with a copyable template, dry-runs the answer-key checks on the file (unreachable entity IDs, getters that return no data, field-scoped getters naming a nonexistent field, leakable oracle keys), and blocks a broken import with per-task fix-it messages — so a fixture bug can never masquerade as "every model fails my task".
+**Tests**
+- Tiered scenarios (Easy→Extreme) across nine domains, with a coding·finance·medical spine at every tier so a model stays comparable as difficulty rises.
+- Deterministic scoring: tool-call accuracy, pass^k, schema resilience — and failure modes named honestly (`ForbiddenCall`, `LoopCap`, `FakeDone`, …), never just pass/fail.
+- Run a whole collection or click one task to run just it; every lever (k, step caps, decoy tools, thinking budget, native/prompt method) applies unchanged.
+- A Context Stress Test finds where tool-call accuracy collapses — and only ever reports a depth it actually measured.
+- Custom JSON collections are validated before import, with per-task fix-it messages — a fixture bug can't masquerade as "every model fails my task".
 
-**Agent Report** — Verdict gated on your configurable readiness profile (min pass^k, forbid loops/false-done, require full VRAM, min context, require native FC). Both tool-calling paths (Native FC / Prompt-Based) get a separate verdict row. Hardware-aware VRAM fit (exact weights + KV cache vs an allocation cap) — for a llama.cpp model, graded at the KV-cache precision its launch would actually use (a Q8 cache under memory pressure, with an explicit advisory). A **Right-Sizing** section names the smallest quant of each family still Ready on your hardware vs the largest, with measured percent reductions (size · memory · Pass^k delta — percentages only, never dollar figures). A per-model deep-dive shows an Executive Verdict, Tier Progression Matrix, and Failure Taxonomy. Export as standalone HTML, or publish a verdicts-and-metrics-only row (opt-in, default-off — never prompts, traces, machine identifiers, or host-specific right-sizing). The page's **Equivalent CLI command** preview emits a runnable `qm report` chain that writes a `profile.json` with the exact thresholds active on the page — so the headless verdict always grades the same bar as the UI, even for an edited profile.
+**Agent Report**
+- Verdict gated on a readiness profile you configure: min pass^k, forbid loops/false-done, VRAM fit, min context, native function calling.
+- Separate verdict rows for native and prompt-based tool calling; VRAM fit graded at the KV-cache precision the launch would actually use.
+- Right-Sizing names the smallest quant of each family still Ready on your hardware, with measured deltas (size · memory · pass^k).
+- Export standalone HTML, or publish an opt-in verdicts-and-metrics-only row; an "Equivalent CLI command" preview reproduces the exact same bar headlessly.
 
-**Workspace** — Live model picker driven by `/api/tags`, explicit `running`/`streaming`/`done`/`cancelled`/`error` states, clean stream cancellation (no fake "done"), byte-identical YAML round-trip, and a persistent status bar with Ollama health.
+**Workspace** — live model picker, explicit run states with clean cancellation (no fake "done"), byte-identical YAML round-trip, persistent backend-health status bar.
 
-**Speech-to-Text** — whisper.cpp (`whisper-server`) on a fixed `:8093`, its own engine axis parallel to the LLM backend. Curated model catalog, atomic both-or-none installs, audio decoded/downmixed/resampled to 16 kHz in Rust. Offline-only by construction — a loopback-only probe means transcription never silently reaches the cloud.
+**Speech-to-Text** — whisper.cpp as its own engine axis; curated catalog, atomic installs, all audio decoding in Rust, loopback-only by construction.
 
-**Models** — One modal, three sources. Disk pre-check refuses any install leaving < 2 GB free. Real-time progress (bytes/speed/ETA), cancellable, resumable HF downloads (`.partial` + Range), pure-Rust GGUF header parsing, and an 8-family chat-template registry.
+**Models** — one modal, three sources (Ollama Library / Hugging Face / local `.gguf`); disk pre-check, cancellable resumable downloads, pure-Rust GGUF parsing.
 
-**Analysis** — Multi-select models, one prompt, three run strategies with a hardware feasibility verdict (`ok`/`risky`/`wont_fit`) computed at click time. Per-model streaming columns, and — directly below each answer — the full per-token latency breakdown from the **Latency** tab (TTFT phase track, cold-load / prefill / inter-token cards, token-timing chart, latency histogram, VRAM & context-ceiling meters), then a throughput/TTFT chart and word-level diff. (Per-quant right-sizing guidance lives on the **Agent Report** page.) The **Latency** tab (kept as its own view) adds "context ceiling by KV cache precision" meters — how much context your machine holds for a model at f16 / q8_0 (≈2×) / q4_0 (≈4×, with quality + long-context speed caveats). On Apple Silicon the budget is the GPU's **measured Metal working-set limit** (the ~66-75% of unified memory the GPU can actually wire down — read from the Metal API, not raw RAM), and a **fit verdict** (`Fits`/`Tight`/`SpillsToCpu`) says whether the weights fit under that limit at all — the question a large ceiling can't answer (a 100K ceiling is meaningless if the model doesn't load on the GPU). Capacity, not capability: the meter measures memory only, never speed or quality at that context. These read the model that's currently loaded in memory (measured, never fabricated) — including a `llama-server` you started yourself or via the `qm` CLI, not only one the app launched.
+**Analysis & Latency**
+- Multi-model compare with a hardware feasibility verdict (`ok`/`risky`/`wont_fit`) at click time, and the full per-token latency breakdown under each answer.
+- Context-ceiling meters by KV-cache precision (f16 / q8_0 / q4_0), budgeted on the **measured** Metal working-set limit on Apple Silicon, with a `Fits`/`Tight`/`SpillsToCpu` verdict.
+- The Latency tab doubles as the Tests cost page: per-task prefill/decode split, thinking tokens, cache hits, KV memory at peak context, and OOM forensics — every number labeled measured, computed, estimated, or claimed.
 
-**Latency ⇢ Tests link** — The Latency tab is the **Test-run cost page** (workspace per-token timing lives under Analysis, right below each answer): run a task (or a whole collection — Built-In, Custom JSON, or MCP) on the Tests tab and see, per task, what it actually cost on your box — prefill/decode split per agent step, thinking tokens, prompt-cache hits (measured on llama.cpp; honestly "Not available" on Ollama, which doesn't report cache reuse), and a stacked memory answer: weights in VRAM (measured) + the KV cache at that task's peak context (computed from measured tokens on llama.cpp, estimated elsewhere — always labeled which) + a fits/tight/won't-fit verdict for *this* agent workload on *this* machine. If a task dies of a real out-of-memory, the panel names the task and step and computes the context ceilings (f16/q8_0/q4_0 KV) that would fit instead. Every number carries its provenance — measured, computed from measured tokens, estimated, or the model tag's unverified claim.
+The full tour of every control and caveat lives in the in-app **Docs** tab and [`docs/codebase/`](./docs/codebase/README.md).
 
 </details>
 
