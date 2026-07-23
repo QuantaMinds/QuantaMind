@@ -182,6 +182,28 @@ pnpm tauri dev
 
 ---
 
+## The `qm` CLI
+
+Everything the desktop app measures, headless — for CI gates, SSH boxes, air-gapped runs, and scripts. Install in seconds (no Rust, no build):
+
+```bash
+curl -fsSL https://github.com/QuantaMinds/QuantaMind/releases/latest/download/quantamind-installer.sh | sh
+```
+
+The whole journey is five commands:
+
+```console
+$ qm doctor        # connect: probes all 5 backends, prints the exact fix for anything broken
+$ qm init          # zero-config: picks a backend+model, writes qm.json, runs a first verdict
+$ qm validate --collection <id|file.json>   # prove a test is trustworthy BEFORE spending a model on it
+$ qm run --k 8 --costs --save-report r.json --junit j.xml --save-transcripts traces/
+$ qm report --report r.json --profile coding-agent   # re-score offline under any team policy
+```
+
+The verdict **is** the exit code — `0` Ready · `10` Conditional · `20` NotReady · `11` Inconclusive (infra, retry) — so a pipeline gates on it directly, and the bundled **[`qm-eval` GitHub Action](./docs/ci/README.md)** (prebuilt binary, no toolchain) or the **`ghcr.io/quantaminds/qm`** container does it for you. Every number is measured or `n/a`, never estimated: per-task steps, thinking tokens (tokenized split on llama.cpp), cache hits, peak context, per-task KV, RSS. Full reference: **[docs/cli](./docs/cli/README.md)**.
+
+---
+
 ## What's inside
 
 QuantaMind is a workbench, not a chat app — each surface answers one question about a local model.
@@ -314,7 +336,7 @@ The README stays lean on purpose. Depth lives in `docs/`:
 - **[`docs/architecture.md`](./docs/architecture.md)** — modules, IPC, layering law, robustness rules, folder taxonomy.
 - **[`docs/process.md`](./docs/process.md)** — tech stack, setup, conventions, the step-by-step workflow, roadmap.
 - **[`docs/reference.md`](./docs/reference.md)** — analysis/bench schema and troubleshooting.
-- **[`docs/cli/README.md`](./docs/cli/README.md)** — the headless `qm` CLI, with a **[three-command quickstart](./docs/cli/README.md#quickstart--three-commands-to-your-first-verdict)** (build → `qm doctor` → `qm init`; connecting takes seconds once built). `qm doctor` diagnoses every backend (reachable? models? credential? tool-calling?) and tells you exactly what to fix; `qm init` auto-detects a backend and runs the suite with zero config; `qm run` prints a Ready/Conditional/NotReady verdict with a CI-gateable exit code.
+- **[`docs/cli/README.md`](./docs/cli/README.md)** — the headless `qm` CLI, with a **[three-command quickstart](./docs/cli/README.md#quickstart--three-commands-to-your-first-verdict)** (one-line install → `qm doctor` → `qm init`; no toolchain needed). `qm doctor` diagnoses every backend (reachable? models? credential? tool-calling?) and tells you exactly what to fix; `qm init` auto-detects a backend and runs the suite with zero config; `qm run` prints a Ready/Conditional/NotReady verdict with a CI-gateable exit code.
 
 ---
 

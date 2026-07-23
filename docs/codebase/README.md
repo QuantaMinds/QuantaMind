@@ -44,6 +44,7 @@ React UI  ──(invoke "command_name", args)──▶  Rust #[tauri::command]
 | [backend-compare.md](backend-compare.md) | Side-by-side multi-model runner, memory-fit gate, export | `commands/compare/`, `inference/compare/` |
 | [backend-prompt-workspace-system.md](backend-prompt-workspace-system.md) | Single-prompt run, prompt templates, workspaces, history, settings, storage, system/hardware | `commands/prompt/`, `commands/prompt_templates/`, `commands/workspace/`, `commands/settings/`, `commands/storage/`, `commands/system/` |
 | [backend-persistence.md](backend-persistence.md) | On-disk stores: prompts, evals, history, jobs, readiness, publish, STT, settings, workspaces | `persistence/` |
+| [backend-cli.md](backend-cli.md) | The headless `qm` CLI: doctor probe, zero-config init, run/verdict engine, validate gate, costs/transcripts capture, exit-code contract | `src/bin/qm/`, `cli/` |
 | [backend-publish.md](backend-publish.md) | Publish-to-board flow, OAuth/PKCE identity, canonical payload, validation | `commands/publish/`, `persistence/publish/` |
 
 ### Frontend (TypeScript/React — `frontend/src/`)
