@@ -3,7 +3,10 @@
 `qm` is the **headless** face of QuantaMind: the same agent-readiness engine as the desktop app,
 driven from the terminal for first-run setup, CI gating, air-gapped runs, and scripting. It talks
 directly to your local or remote inference server — no GUI, no phone-home. Every command prints
-human text, or a machine-readable object with `--json`.
+human text, or a machine-readable object with `--json`. Failing agentic runs can be
+post-mortemed with `--save-transcripts <dir>` on `run`/`test`: every task's per-step
+trajectory (raw model output, injected tool results, timings) lands as JSONL — the same
+format the desktop app's trace store uses.
 
 ## Quickstart — three commands to your first verdict
 
