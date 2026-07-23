@@ -58,15 +58,114 @@ can fix the doc.
 
 ## Project setup
 
-See the [README — Quick start](./README.md#quick-start). In short:
+You only need this to **build QuantaMind from source** — to *use* it, grab the
+prebuilt app or `qm` CLI from the [README Quick start](./README.md#-quick-start-no-build-required).
+
+macOS is first-class today; Windows and Linux dev builds run too, with sidecar
+lifecycles being rewired phase-by-phase (see the README [Roadmap](./README.md#roadmap)).
+The whole setup takes ~5 minutes on macOS.
+
+**1 · Install toolchains** (skip any you already have)
+
+<table>
+<tr><th>macOS</th><th>Linux (Debian / Ubuntu)</th><th>Windows</th></tr>
+<tr valign="top"><td>
 
 ```bash
-# prerequisites: Rust 1.75+, Node 20+, pnpm 9+, Ollama (macOS only for now)
-git clone https://github.com/QuantaMinds/QuantaMind.git quantamind
-cd quantamind/frontend
+brew install rust node pnpm ollama
+xcode-select --install
+```
+
+</td><td>
+
+```bash
+# Tauri system deps
+sudo apt update && sudo apt install -y \
+  libwebkit2gtk-4.1-dev build-essential \
+  curl wget file libxdo-dev libssl-dev \
+  libayatana-appindicator3-dev \
+  librsvg2-dev patchelf
+# Rust, Node 20+, pnpm, Ollama
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - \
+  && sudo apt install -y nodejs
+corepack enable pnpm
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+</td><td>
+
+```powershell
+winget install Rustlang.Rustup OpenJS.NodeJS `
+  pnpm.pnpm Ollama.Ollama `
+  Microsoft.VisualStudio.2022.BuildTools
+# Add "Desktop development with C++" in the
+# VS installer (MSVC linker). WebView2 ships
+# with Windows 11. Then see the "Windows dev
+# shell" note below to source cargo + MSVC.
+```
+
+</td></tr></table>
+
+**2 · Start Ollama + pull a small model**
+
+```bash
+ollama serve &                 # Windows: runs as a service after install
+ollama pull llama3.2:1b
+```
+
+**3 · Clone, install, run**
+
+```bash
+git clone https://github.com/QuantaMinds/QuantaMind.git
+cd QuantaMind/frontend
 pnpm install
+pnpm tauri dev            # first build is slow; opens a native window
+pnpm tauri build          # production → backend/target/release/bundle/ (.dmg + .app)
+```
+
+<details>
+<summary><b>Prerequisites & optional backends</b></summary>
+
+| Tool | Version | Required? |
+|---|---|---|
+| **Rust** | 1.75+ | required |
+| **Node** | 20+ | required |
+| **pnpm** | 9+ | required |
+| **Ollama** | latest | required — the default backend |
+| **llama.cpp** (`llama-server`) | latest | optional — run GGUF models directly |
+| **MLX** (`pip install mlx-lm`) | latest | optional — Apple Silicon only |
+| **vLLM** / **SGLang** | latest | optional — a **remote** OpenAI-compatible GPU server; set its URL (+ `--api-key`) in Settings |
+| **whisper.cpp** | latest | optional — speech-to-text (`brew install whisper-cpp`) |
+
+</details>
+
+<details>
+<summary><b>Windows dev shell</b> — one-time setup for <code>pnpm tauri dev</code></summary>
+
+On Windows, source two things into your PowerShell session before `cargo` (and therefore `pnpm tauri dev`) can run: **the Rust bin dir on PATH** (rustup only updates *new* shells) and the **MSVC linker env** from Visual Studio's `vcvars64.bat`. macOS and Linux need neither.
+
+If you hit `program not found: cargo metadata` or `linker link.exe not found`:
+
+```powershell
+# Refresh PATH for this session (already permanent on the User env var).
+$env:Path = "$env:USERPROFILE\.cargo\bin;$env:APPDATA\npm;$env:LOCALAPPDATA\Programs\Ollama;$env:Path"
+
+# Source MSVC env into PowerShell. Adjust the path for your VS version
+# (2022\BuildTools, 2022\Community, or 18\Community for VS 2026).
+$vcvars = "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat"
+cmd /c "call `"$vcvars`" && set" |
+  Where-Object { $_ -match "^(INCLUDE|LIB|Path|LIBPATH)=" } |
+  ForEach-Object { $n,$v = $_ -split "=", 2; Set-Item -Path "env:$n" -Value $v }
+
+cargo --version; link.exe /?      # both should print without error
+cd path\to\QuantaMind\frontend
 pnpm tauri dev
 ```
+
+**pnpm 11 quirk (`ERR_PNPM_IGNORED_BUILDS: esbuild@…`):** the repo's `pnpm-workspace.yaml` pre-approves `esbuild`, so a fresh clone Just Works. On a stale worktree, re-pull `main`. Save the block above as `run-dev.ps1` if you spin up dev shells often.
+
+</details>
 
 Before pushing, the same checks CI runs:
 
@@ -300,6 +399,6 @@ have in mind.
 
 ## Security
 
-Do **not** open a public issue for a vulnerability. See
-[README — Reporting vulnerabilities](./README.md#reporting-vulnerabilities) and
-email the maintainers privately.
+Do **not** open a public issue for a vulnerability. Open a
+[private security advisory](https://github.com/QuantaMinds/QuantaMind/security/advisories/new)
+instead — see [`SECURITY.md`](./SECURITY.md).
