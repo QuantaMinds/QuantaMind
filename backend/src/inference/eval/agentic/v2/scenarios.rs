@@ -13,6 +13,10 @@ pub const V2_SCENARIOS: &[(&str, &str)] = &[
     ("easy-ecommerce", include_str!("scenarios/easy-ecommerce.json")),
     ("easy-finance", include_str!("scenarios/easy-finance.json")),
     ("medium-coding", include_str!("scenarios/medium-coding.json")),
+    // v2: task-design fixes (oracle no longer leaks the root cause / fix recipe; prompt
+    // reachable). The v1 file stays bundled so saved runs + its hash keep resolving —
+    // answer-key changes NEVER edit a hashed collection in place (docs/process.md).
+    ("medium-coding-v2", include_str!("scenarios/medium-coding-v2.json")),
     ("medium-finance", include_str!("scenarios/medium-finance.json")),
     ("medium-legal", include_str!("scenarios/medium-legal.json")),
     ("medium-medical", include_str!("scenarios/medium-medical.json")),
@@ -51,7 +55,7 @@ pub const CURATED_IDS: &[&str] = &[
     "easy-coding",
     "easy-finance",
     "easy-ecommerce",
-    "medium-coding",
+    "medium-coding-v2",
     "medium-finance",
     "medium-medical",
     "hard-coding",
@@ -580,7 +584,7 @@ mod tests {
 
     #[test]
     fn every_bundled_v2_collection_loads_and_validates() {
-        assert_eq!(V2_SCENARIOS.len(), 22);
+        assert_eq!(V2_SCENARIOS.len(), 23);
         for (id, json) in V2_SCENARIOS {
             let tasks = load_v2_collection(json).unwrap_or_else(|e| panic!("collection '{id}' failed to load: {e}"));
             assert!(!tasks.is_empty(), "collection '{id}' has no tasks");
@@ -754,6 +758,77 @@ mod tests {
     /// clean under `oracle::semantic_findings` filtered to `kind` — the same
     /// implementation `evals::save` hard-blocks custom collections on, so the CI
     /// contract and the import trust boundary can never drift.
+    /// Superseded collections (a bundled sibling names them in its `supersedes` header)
+    /// are retained ONLY so saved runs and their content hashes keep resolving — they
+    /// carry the very defects their successor fixed, so the non-superseded sweeps skip
+    /// them (and a positive-control test below asserts the defects still trip).
+    fn superseded_ids() -> Vec<String> {
+        #[derive(serde::Deserialize)]
+        struct Sup {
+            #[serde(default)]
+            supersedes: String,
+        }
+        V2_SCENARIOS
+            .iter()
+            .filter_map(|(_, json)| serde_json::from_str::<Sup>(json).ok())
+            .map(|h| h.supersedes)
+            .filter(|s| !s.is_empty())
+            .collect()
+    }
+
+    /// The task-design defect classes the medium-coding live audit surfaced (2026-07-22):
+    /// prompt-leaked facts, cross-entity duplicate fields, faults on confirmation
+    /// checkpoints. Every CURRENT bundled collection is clean; superseded ones are skipped
+    /// (they preserve the historical defects for hash/save-run continuity).
+    #[test]
+    fn no_current_collection_carries_an_audit_defect() {
+        use crate::inference::eval::agentic::v2::collection::load_v2_collection;
+        use crate::inference::eval::agentic::v2::oracle::{semantic_findings, SemanticFindingKind};
+        let audit_kinds = [
+            SemanticFindingKind::PromptLeakedFact,
+            SemanticFindingKind::CrossEntityDuplicateField,
+            SemanticFindingKind::FaultedMultiCheckpointTool,
+        ];
+        let skip = superseded_ids();
+        // Remediated 2026-07-22 (prompts de-leaked, faults re-keyed, duplicates dropped —
+        // in place, per the PR #200 suite-remediation precedent; content hashes separate
+        // published cohorts automatically). The ONE remaining entry is DESIGN INTENT, not
+        // debt: hard-finance's wires deliberately carry an equal-value 'sanctioned' copy
+        // annotated "pre-cleared (UNTRUSTED)" — the adversarial trap the task exists to
+        // test. Do not "fix" it; the prompt explicitly declares it non-authoritative.
+        const KNOWN_AUDIT_DEBT: &[(&str, &str)] = &[("hard-finance", "hd_fi_aml_reconcile_instance0")];
+        let mut violations: Vec<String> = Vec::new();
+        for (id, json) in V2_SCENARIOS {
+            if skip.iter().any(|s| s == id) {
+                continue;
+            }
+            let tasks = load_v2_collection(json).unwrap();
+            for f in semantic_findings(&tasks) {
+                if audit_kinds.contains(&f.kind) && !KNOWN_AUDIT_DEBT.contains(&(id, f.task_id.as_str())) {
+                    violations.push(format!("{id}/{}: {}", f.task_id, f.message));
+                }
+            }
+        }
+        assert!(violations.is_empty(), "audit-defect findings in current collections:\n{}", violations.join("\n"));
+    }
+
+    /// Positive control: the SUPERSEDED medium-coding v1 must keep tripping the audit
+    /// checks — it is the permanent regression fixture proving the validators detect the
+    /// exact historical defects (prompt leaks in 3+ tasks, the E-staging/staging backup
+    /// duplicate, the 503 on the run_tests confirmation checkpoint). If this ever goes
+    /// green, the validators regressed, not the collection.
+    #[test]
+    fn superseded_v1_still_trips_the_audit_checks() {
+        use crate::inference::eval::agentic::v2::collection::load_v2_collection;
+        use crate::inference::eval::agentic::v2::oracle::{semantic_findings, SemanticFindingKind};
+        let tasks = load_v2_collection(v2_json("medium-coding").unwrap()).unwrap();
+        let findings = semantic_findings(&tasks);
+        let count = |k: SemanticFindingKind| findings.iter().filter(|f| f.kind == k).count();
+        assert!(count(SemanticFindingKind::PromptLeakedFact) >= 3, "v1 prompt leaks must trip: {findings:?}");
+        assert!(count(SemanticFindingKind::CrossEntityDuplicateField) >= 1, "v1 backup duplicate must trip");
+        assert!(count(SemanticFindingKind::FaultedMultiCheckpointTool) >= 1, "v1 run_tests fault must trip");
+    }
+
     fn assert_bundled_clean_for(kind: crate::inference::eval::agentic::v2::oracle::SemanticFindingKind) {
         use crate::inference::eval::agentic::v2::collection::load_v2_collection;
         use crate::inference::eval::agentic::v2::oracle::semantic_findings;

@@ -91,6 +91,11 @@ pub struct RunOptions {
     /// cache hits, peak context, step-end RSS, KV-at-peak) — the CLI twin of the
     /// app's Latency Test-run view. Off by default: it samples host RSS per turn.
     pub costs: bool,
+    /// If set, persist every task's per-step trajectory (the raw model output,
+    /// injections, timings) as JSONL files in this directory — the SAME format the
+    /// GUI's agentic_transcripts store uses, so failing runs can be post-mortemed
+    /// from the CLI without a verbose server log.
+    pub save_transcripts: Option<std::path::PathBuf>,
 }
 
 /// What a run produced. The bin maps each variant to the documented exit code.
@@ -426,8 +431,9 @@ pub async fn run_suite(opts: RunOptions) -> AppResult<RunOutcome> {
     let tier = opts.tier.unwrap_or_else(|| effective_tier(&tasks));
     let targets = vec![ModelTarget { model: opts.model.clone(), backend: opts.backend, is_thinking }];
     let cancel = CancellationToken::new();
-    // Kept concrete so `--costs` can read the captured turns back after the run.
-    let cli_sink = Arc::new(if opts.costs {
+    // Kept concrete so `--costs`/`--save-transcripts` can read the captured turns
+    // back after the run.
+    let cli_sink = Arc::new(if opts.costs || opts.save_transcripts.is_some() {
         sink::CliSink::capturing(tasks.len(), opts.backend)
     } else {
         sink::CliSink::new(tasks.len())
@@ -522,6 +528,24 @@ pub async fn run_suite(opts: RunOptions) -> AppResult<RunOutcome> {
 
     // Persist the raw BatchReport if asked (for offline `qm report --report`). Saved
     // even for an errored/inconclusive run — the raw evidence is still worth keeping.
+    if let Some(dir) = &opts.save_transcripts {
+        use crate::persistence::jobs::transcripts;
+        std::fs::create_dir_all(dir).map_err(|e| crate::errors::AppError::Io(format!("create {}: {e}", dir.display())))?;
+        let steps = cli_sink.captured_steps();
+        let outcomes = cli_sink.captured_outcomes();
+        for ((task_id, native), task_steps) in &steps {
+            let path = transcripts::transcript_path(dir, &opts.collection, &opts.model, task_id, *native);
+            transcripts::begin_task(&path)?;
+            for step in task_steps {
+                transcripts::append_step(&path, step)?;
+            }
+            if let Some(outcome) = outcomes.get(&(task_id.clone(), *native)) {
+                transcripts::append_outcome(&path, outcome)?;
+            }
+        }
+        eprintln!("transcripts: {} task file(s) → {}", steps.len(), dir.display());
+    }
+
     if let Some(path) = &opts.save_report {
         let json = serde_json::to_string_pretty(&report).map_err(|e| crate::errors::AppError::Internal(e.to_string()))?;
         std::fs::write(path, json).map_err(|e| crate::errors::AppError::Internal(format!("write report: {e}")))?;

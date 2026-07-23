@@ -221,6 +221,10 @@ struct TestArgs {
     /// Write the raw run report here for offline re-assessment (`qm report --report`).
     #[arg(long)]
     save_report: Option<PathBuf>,
+    /// Persist per-step task trajectories (raw model output, injections, timings) as
+    /// JSONL files in this directory — the GUI trace store's format, for post-mortems.
+    #[arg(long)]
+    save_transcripts: Option<PathBuf>,
     /// Also report per-task run costs (prefill/decode split, thinking split, cache
     /// hits, peak context, step-end RSS, KV-at-peak) — the CLI twin of the Latency
     /// tab's Test-run view. Costs ride the JSON output too.
@@ -337,6 +341,10 @@ struct RunArgs {
     /// Write the raw run report here for offline re-assessment (`qm report --report`).
     #[arg(long)]
     save_report: Option<PathBuf>,
+    /// Persist per-step task trajectories (raw model output, injections, timings) as
+    /// JSONL files in this directory — the GUI trace store's format, for post-mortems.
+    #[arg(long)]
+    save_transcripts: Option<PathBuf>,
     /// Also report per-task run costs (prefill/decode split, thinking split, cache
     /// hits, peak context, step-end RSS, KV-at-peak) — the CLI twin of the Latency
     /// tab's Test-run view. Costs ride the JSON output too.
@@ -656,6 +664,7 @@ async fn run_test(args: TestArgs) {
         mode: RunMode::from(args.mode),
         profile_id: args.profile,
         save_report: args.save_report,
+        save_transcripts: args.save_transcripts,
         max_steps: args.max_steps,
         decoy_tools: args.decoy,
         params: args.params.resolve(),
@@ -696,6 +705,7 @@ async fn run_suite(args: RunArgs) {
         mode: RunMode::from(args.mode),
         profile_id: args.profile,
         save_report: args.save_report,
+        save_transcripts: args.save_transcripts,
         max_steps: args.max_steps,
         decoy_tools: args.decoy,
         params: args.params.resolve(),
@@ -735,6 +745,7 @@ async fn run_cliff_cmd(args: CliffArgs) {
             mode: RunMode::PromptBased, // ignored by the cliff engine; `native` below picks the path
             profile_id: "general-agent".into(),
             save_report: None,
+        save_transcripts: None,
             max_steps: None,
             decoy_tools: None,
             params: None, // cliff params flow via CliffOptions below, not RunOptions
@@ -909,6 +920,7 @@ async fn run_init(args: InitArgs) {
         mode: RunMode::PromptBased,
         profile_id: cfg.profile,
         save_report: None,
+        save_transcripts: None,
         max_steps: None,
         decoy_tools: None,
         params: None,

@@ -94,6 +94,23 @@ pub enum SemanticFindingKind {
     /// — a benign control's correct behavior is to PROCEED, so it must require the call;
     /// otherwise there is no over-refusal to measure.
     SafetyBenignNoLegitPath,
+    /// The prompt states, adjacent to an entity's id, the very fact a required getter
+    /// must discover about that entity ("S-2 stateful active-sessions") — the discovery
+    /// is pre-answered, so a model that trusts the prompt skips the getter and is failed
+    /// for the "missing" call (the hallucinated-completion signature the medium-coding
+    /// audit measured live at 2–3 steps). Rule text naming CATEGORIES in the abstract
+    /// ("stateful -> dual-key") is fine; the leak is the id→fact binding.
+    PromptLeakedFact,
+    /// The same field key rides on TWO different entities that required getters surface —
+    /// whichever getter runs first hands the model the other's fact, so the second
+    /// checkpoint is skippable (the cross-entity variant the same-entity LeakyGetter
+    /// check can't see; medium-coding's `backup` on both E-staging and staging).
+    CrossEntityDuplicateField,
+    /// A fault is keyed to a tool that carries ≥2 checkpoints. A faulted call consumes
+    /// no checkpoint, so the accounting then demands a gratuitous extra success — a model
+    /// that sensibly routes around the outage instead of blind-retrying can never
+    /// complete (medium-coding's 503-on-run_tests defect, live-traced).
+    FaultedMultiCheckpointTool,
 }
 
 /// How certain a finding is, which decides its enforcement. The first three
@@ -114,7 +131,11 @@ impl SemanticFindingKind {
         match self {
             // Heuristic authoring smells (surfaced, never hard-blocked): the answer key MIGHT
             // intend the redundant call, so a leaky getter is a Warning like an ungrounded token.
-            SemanticFindingKind::UngroundedAnswerToken | SemanticFindingKind::LeakyGetter => SemanticSeverity::Warning,
+            SemanticFindingKind::UngroundedAnswerToken
+            | SemanticFindingKind::LeakyGetter
+            | SemanticFindingKind::PromptLeakedFact
+            | SemanticFindingKind::CrossEntityDuplicateField
+            | SemanticFindingKind::FaultedMultiCheckpointTool => SemanticSeverity::Warning,
             _ => SemanticSeverity::Error,
         }
     }
@@ -328,6 +349,124 @@ fn task_semantic_findings(task: &ToolTask) -> Vec<SemanticFinding> {
                 format!(
                     "{tid}: on entity '{e_i}', getter {big} already exposes all of {small}'s required fields ({}) — a model reading {big} needn't call {small}, so skipping {small} is falsely failed; give {big} a `returns_fields` slice excluding {small}'s fields (or drop/retag the redundant checkpoint)",
                     fields.join(", ")
+                ),
+            );
+        }
+    }
+
+    // (2c) Cross-entity duplicate field: the SAME field key with the SAME value exposed by
+    // required getters on TWO different entities (different tools — the same tool over
+    // sibling entities is the normal per-entity pattern). Equal values = a redundant fact:
+    // whichever getter runs first hands the model the other's answer, so the later
+    // checkpoint is skippable and a skip is falsely failed. DIFFERING values are excluded —
+    // that is deliberate adversarial contradiction (an untrusted copy the model must
+    // verify), the adversarial_context axis working as intended. Deduped per
+    // (field, tool-pair) so an entity fan-out reports one defect, not the cross product.
+    // Safety probes are exempt (they grade resistance, not discovery efficiency).
+    if spec.safety.is_none() {
+        let field_val = |entity: &str, field: &str| -> Option<Value> {
+            ws.get(entity).and_then(|b| b.as_object()).and_then(|o| o.get(field)).cloned()
+        };
+        let mut reported: HashSet<(String, String, String)> = HashSet::new();
+        for i in 0..exposures.len() {
+            for j in (i + 1)..exposures.len() {
+                let (e_i, t_i, f_i) = &exposures[i];
+                let (e_j, t_j, f_j) = &exposures[j];
+                if e_i == e_j || t_i == t_j {
+                    continue;
+                }
+                for field in f_i.intersection(f_j) {
+                    let (a, b) = (field_val(e_i, field), field_val(e_j, field));
+                    if a.is_none() || a != b {
+                        continue;
+                    }
+                    let mut pair = [t_i.clone(), t_j.clone()];
+                    pair.sort();
+                    if reported.insert((field.clone(), pair[0].clone(), pair[1].clone())) {
+                        push(
+                            SemanticFindingKind::CrossEntityDuplicateField,
+                            format!(
+                                "{tid}: field '{field}' rides with the SAME value on entities of both {} and {} (e.g. '{e_i}' and '{e_j}') — whichever getter runs first hands the model the other's fact, so the later checkpoint is skippable; keep the field on ONE entity or project it out of the other getter",
+                                pair[0], pair[1]
+                            ),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    // (2d) Prompt-leaked fact: a string field value a required getter must discover,
+    // stated in the prompt ADJACENT to that entity's id ("S-2 stateful"). Rule text
+    // naming categories in the abstract is legitimate policy; the id→fact binding is
+    // the leak, so the check requires proximity (value within a small window around
+    // an occurrence of the entity id).
+    let value_near_entity = |entity: &str, value: &str| -> bool {
+        let (pl, el, vl) = (task.prompt.to_lowercase(), entity.to_lowercase(), value.to_lowercase());
+        let mut start = 0;
+        while let Some(off) = pl[start..].find(&el) {
+            let i = start + off;
+            let lo = i.saturating_sub(16);
+            let hi = (i + el.len() + 48).min(pl.len());
+            // Token-boundary match, not substring — 'fail' inside "fails" is prose,
+            // not a leaked fact (the false positive the first sweep produced).
+            if names_token(&pl[lo..hi], &vl) {
+                return true;
+            }
+            start = i + 1;
+        }
+        false
+    };
+    for (entity, tool, _fields) in exposures.iter().filter(|_| spec.safety.is_none()) {
+        let raw = derive_response(ws_val, &Call { name: tool.clone(), args: serde_json::json!({ "id": entity }) });
+        let Ok(Value::Object(blob)) = serde_json::from_str::<Value>(&raw) else { continue };
+        for (field, val) in blob.iter() {
+            if RESERVED.contains(&field.as_str()) {
+                continue;
+            }
+            if let Some(projected) = spec.field_projections.get(tool) {
+                if !projected.contains(field) {
+                    continue;
+                }
+            }
+            let Some(s) = val.as_str() else { continue };
+            // A value that is itself a world_state entity id is exempt: entity ids MUST
+            // appear in the prompt (reachability), so id-shaped values ("structuring
+            // partner: W-1") adjacent to a sibling id in an enumeration are not leaks.
+            if ws.contains_key(s) {
+                continue;
+            }
+            if s.len() >= 3 && value_near_entity(entity, s) {
+                push(
+                    SemanticFindingKind::PromptLeakedFact,
+                    format!(
+                        "{tid}: the prompt states '{s}' next to entity '{entity}' — the exact fact the required {tool} call must discover ('{field}'), so a model trusting the prompt skips the getter and is failed for the missing call; list bare entity ids in the prompt and let the getter carry the fact"
+                    ),
+                );
+            }
+        }
+    }
+
+    // (2e) Fault on a confirmation-checkpoint tool: a faulted call consumes no checkpoint.
+    // For a GETTER mid-task that's harmless — the model needs the data, so it naturally
+    // retries and the retry consumes. The hazard is a tool carrying ≥2 checkpoints whose
+    // LAST one is the task's FINAL checkpoint (a confirmation call): nothing downstream
+    // needs its result, so nothing forces the retry — a model that routes around the
+    // outage can then never complete (medium-coding's 503-on-run_tests, live-traced).
+    let fault_tools: Vec<&str> = spec
+        .faults
+        .iter()
+        .map(|f| f.call.name.as_str())
+        .chain(spec.name_faults.iter().map(|f| f.on_call.as_str()))
+        .collect();
+    for tool in fault_tools.into_iter().filter(|_| spec.safety.is_none()) {
+        let n = checkpoints.iter().filter(|cp| cp.tool == tool).count();
+        let last_is_confirmation = checkpoints.last().is_some_and(|cp| cp.tool == tool);
+        if n >= 2 && last_is_confirmation {
+            push(
+                SemanticFindingKind::FaultedMultiCheckpointTool,
+                format!(
+                    "{tid}: fault on '{tool}', which carries {n} checkpoints INCLUDING the final confirmation call — the faulted attempt consumes nothing and no later step needs its data, so a model that routes around the outage never completes. Key the fault to a mid-task getter instead"
                 ),
             );
         }
