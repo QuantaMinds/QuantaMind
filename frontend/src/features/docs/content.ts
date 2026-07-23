@@ -587,6 +587,18 @@ SSH or CI it never prompts.
 
 Run \`qm COMMAND --help\` for any command's full flag reference.
 
+## Artifacts a run can emit
+
+| Flag | What you get |
+| --- | --- |
+| \`--save-report r.json\` | The raw run report — re-score offline with \`qm report\` under any profile |
+| \`--junit j.xml\` | JUnit XML for the CI checks panel |
+| \`--costs\` | Per-task costs: steps, prefill/decode, thinking tokens (measured split on llama.cpp), cache hits, peak context, per-task KV, RSS |
+| \`--save-transcripts dir/\` | Per-step trajectory JSONL (raw model output, injected results, timings) — the app's trace-store format, for post-mortems |
+
+The verdict line itself carries \`pass^k\`, the run tally, and **avg steps**; every
+number is measured or \`n/a\`, never estimated.
+
 ## Exit codes gate CI
 
 The verdict *is* the exit status: **0** Ready · **10** Conditional · **20** NotReady · **11**
