@@ -186,9 +186,19 @@ pnpm tauri dev
 
 Everything the desktop app measures, headless — for CI gates, SSH boxes, air-gapped runs, and scripts. Install in seconds (no Rust, no build):
 
+**macOS / Linux**
+
 ```bash
 curl -fsSL https://github.com/QuantaMinds/QuantaMind/releases/latest/download/quantamind-installer.sh | sh
 ```
+
+**Windows (PowerShell)**
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/QuantaMinds/QuantaMind/releases/latest/download/quantamind-installer.ps1 | iex"
+```
+
+Prebuilt for macOS (Apple Silicon + Intel), Linux (x64 + arm64, plus a fully static musl build for containers), and Windows x64 — every artifact checksummed and attestation-signed.
 
 The whole journey is five commands:
 

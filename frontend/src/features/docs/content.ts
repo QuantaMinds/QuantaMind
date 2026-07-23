@@ -551,15 +551,22 @@ terminal and returning an exit code you can gate CI on. Every control on the Tes
 
 ## Install it
 
-Prebuilt binaries — no Rust, no build (macOS, Linux, Windows):
+Prebuilt binaries — no Rust, no build.
+
+**macOS / Linux**
 
 \`\`\`
 curl -fsSL https://github.com/QuantaMinds/QuantaMind/releases/latest/download/quantamind-installer.sh | sh
 \`\`\`
 
-Windows: \`irm https://github.com/QuantaMinds/QuantaMind/releases/latest/download/quantamind-installer.ps1 | iex\`
-· CI images: \`ghcr.io/quantaminds/qm\` · Contributors can still build from source:
-\`cargo build --release --bin qm --no-default-features\`.
+**Windows (PowerShell)**
+
+\`\`\`
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/QuantaMinds/QuantaMind/releases/latest/download/quantamind-installer.ps1 | iex"
+\`\`\`
+
+CI images: \`ghcr.io/quantaminds/qm\` (linux amd64/arm64) · Contributors can still build from
+source: \`cargo build --release --bin qm --no-default-features\`.
 
 ## Three commands to a verdict
 
