@@ -31,6 +31,10 @@ pub struct TaskCostRow {
     /// Max single-run token occupancy — sizes the KV figure. Sums above can exceed it:
     /// they accumulate across runs; this is one moment.
     pub peak_context_tokens: Option<u32>,
+    /// KV bytes at THIS task's peak occupancy, f16 (the conservative baseline —
+    /// cache type is a launch setting; the footer prints the full precision
+    /// ladder). `None` when model dims are unmeasurable — never a guess.
+    pub kv_f16_bytes_at_peak: Option<u64>,
     pub context_window: Option<u32>,
     pub max_step_end_rss_bytes: Option<u64>,
     /// Measured wall clock of the whole Pass^k batch (model + world time).
@@ -119,6 +123,7 @@ pub fn task_cost_row(task_id: &str, native: bool, steps: &[TrajectoryStep], outc
         reasoning_tokens_total: sum_reported(steps, |s| s.reasoning_tokens.map(u64::from)),
         thinking_split_measured: steps.iter().any(|s| s.thinking_split_measured),
         cache_hit_tokens_total: sum_reported(steps, |s| s.cache_n.map(u64::from)),
+        kv_f16_bytes_at_peak: None, // filled by assemble (needs model dims)
         peak_context_tokens: peak,
         context_window: steps.iter().find_map(|s| s.context_window),
         max_step_end_rss_bytes: steps.iter().filter_map(|s| s.resident_bytes).max(),
@@ -177,10 +182,14 @@ pub fn assemble(
     column: Option<&BatchColumn>,
     dims: Option<(u64, u64, u64, u64, bool)>,
 ) -> RunCosts {
-    let tasks: Vec<TaskCostRow> = cells
+    let mut tasks: Vec<TaskCostRow> = cells
         .iter()
         .map(|((task, native), steps)| task_cost_row(task, *native, steps, outcomes.get(&(task.clone(), *native))))
         .collect();
+    // Per-task KV at that task's own peak — same formula, same dims gate as the footer.
+    for t in &mut tasks {
+        t.kv_f16_bytes_at_peak = kv_at_peak(dims, t.peak_context_tokens).map(|kv| kv.f16_bytes);
+    }
     let peak = tasks.iter().filter_map(|t| t.peak_context_tokens).max();
     RunCosts {
         model: model.to_string(),
