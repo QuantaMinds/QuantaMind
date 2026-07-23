@@ -10,17 +10,13 @@ Benchmark any **Ollama**, **llama.cpp**, or **MLX** model for *agentic readiness
 
 <br/>
 
-![Version](https://img.shields.io/badge/version-0.2.0-blue)
+![Version](https://img.shields.io/badge/version-0.2.4-blue)
 ![Platform](https://img.shields.io/badge/platform-macOS-blue)
-![Tauri](https://img.shields.io/badge/Tauri-2.x-FFC131?logo=tauri&logoColor=black)
-![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange?logo=rust&logoColor=white)
-![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
-![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green)
 
 [![Repo](https://img.shields.io/badge/GitHub-QuantaMinds%2FQuantaMind-181717?logo=github)](https://github.com/QuantaMinds/QuantaMind)
 [![Website](https://img.shields.io/badge/Website-quantamind.co-2563EB?logo=googlechrome&logoColor=white)](https://quantamind.co/)
-[![Discord](https://img.shields.io/badge/Discord-quantamind.co-2563EB?logo=discord&logoColor=white)](https://discord.gg/6CjSJyZTfG)
+[![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white)](https://discord.gg/6CjSJyZTfG)
 
 <br/>
 
@@ -30,7 +26,56 @@ Benchmark any **Ollama**, **llama.cpp**, or **MLX** model for *agentic readiness
 
 ---
 
-## Why
+## ⚡ Quick start (no build required)
+
+You do **not** need Rust, Node, or any toolchain to use QuantaMind.
+
+### Option 1 · Desktop app
+
+Download a prebuilt build from **[quantamind.co](https://quantamind.co/)** and launch.
+
+> **macOS + "developer cannot be verified"?** Our builds aren't Apple-signed *yet* (in progress). For a browser-downloaded app/binary: right-click → Open, or `xattr -d com.apple.quarantine <file>` — details + integrity checks in [Troubleshooting](./docs/reference.md#macos-gatekeeper). The curl install below is unaffected.
+
+### Option 2 · The `qm` CLI (headless)
+
+Prefer the terminal? Install in seconds:
+
+```bash
+# macOS / Linux
+curl -fsSL https://github.com/QuantaMinds/QuantaMind/releases/latest/download/quantamind-installer.sh | sh
+```
+
+```powershell
+# Windows (PowerShell)
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/QuantaMinds/QuantaMind/releases/latest/download/quantamind-installer.ps1 | iex"
+```
+
+Prebuilt for macOS (Apple Silicon + Intel), Linux (x64 + arm64, plus a fully static musl build for containers), and Windows x64 — every artifact checksummed and attestation-signed.
+
+### Your first verdict
+
+QuantaMind drives a model you already run locally — so you need a backend up (the default is [Ollama](https://ollama.com/)):
+
+```bash
+# 1. Start a backend and pull a small model to gate
+ollama pull llama3.2:1b
+
+# 2. Probe your backends — every failure prints its exact fix
+qm doctor
+
+# 3. Zero-config: pick a backend+model and run a first verdict
+qm init
+```
+
+In the **desktop app**: open the **Tests** tab, pick your model, run a built-in agentic collection — then check **Agent Report** for the verdict.
+
+Full CLI reference, container images, checksums + attestation verification: **[CLI quickstart](./docs/cli/README.md#quickstart--three-commands-to-your-first-verdict)**.
+
+> 💬 **Hit a snag?** Frictionless setup is a goal, so setup bugs are real bugs. [Open an issue](https://github.com/QuantaMinds/QuantaMind/issues) or ask in [Discord](https://discord.gg/6CjSJyZTfG).
+
+---
+
+## 🧠 Why QuantaMind?
 
 Parameter count is a terrible predictor of whether a local model can drive an agent. In Docker's open agent-loop benchmark, **Llama 3.3 70B scored 0.61** on tool-calling while **Qwen3 8B scored 0.97** — a model ~20× smaller was far more reliable.
 
@@ -48,169 +93,6 @@ Reliability is scored with **pass^k** — does the model succeed *k* of *k* time
 
 > [!IMPORTANT]
 > Everything runs on your machine. There is no QuantaMind cloud, no account, no telemetry. Your prompts and model outputs never leave your hardware.
-
----
-
-## Quick start
-
-**Prefer the terminal?** Install the headless `qm` CLI in seconds — no Rust, no build, no toolchain:
-
-```bash
-# macOS / Linux
-curl -fsSL https://github.com/QuantaMinds/QuantaMind/releases/latest/download/quantamind-installer.sh | sh
-```
-
-```powershell
-# Windows
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/QuantaMinds/QuantaMind/releases/latest/download/quantamind-installer.ps1 | iex"
-```
-
-Then `qm doctor` → `qm init` gets your first verdict (every failure prints its exact fix). Full reference, static-musl/container binaries, checksums + attestation verification: **[CLI quickstart](./docs/cli/README.md#quickstart--three-commands-to-your-first-verdict)**. You'll still need [Ollama](https://ollama.com/) (or another backend) running with a model pulled ([Step 2](#quick-start) below).
-
-**Want the desktop app?** Download a prebuilt build from **[quantamind.co](https://quantamind.co/)** and launch — no toolchain needed.
-
-> **macOS + "developer cannot be verified"?** Our builds aren't Apple-signed *yet* (in progress). The curl install above is unaffected. For a browser-downloaded app/binary: right-click → Open, or `xattr -d com.apple.quarantine <file>` — details + integrity checks in [Troubleshooting](./docs/reference.md#macos-gatekeeper).
-
-**Building from source** (contributors) takes ~5 minutes. macOS is first-class today; Windows and Linux dev builds run too, with sidecar lifecycles being rewired phase-by-phase (see [Roadmap](#roadmap)).
-
-**1 · Install toolchains** (skip any you already have)
-
-<table>
-<tr><th>macOS</th><th>Linux (Debian / Ubuntu)</th><th>Windows</th></tr>
-<tr valign="top"><td>
-
-```bash
-brew install rust node pnpm ollama
-xcode-select --install
-```
-
-</td><td>
-
-```bash
-# Tauri system deps
-sudo apt update && sudo apt install -y \
-  libwebkit2gtk-4.1-dev build-essential \
-  curl wget file libxdo-dev libssl-dev \
-  libayatana-appindicator3-dev \
-  librsvg2-dev patchelf
-# Rust, Node 20+, pnpm, Ollama
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - \
-  && sudo apt install -y nodejs
-corepack enable pnpm
-curl -fsSL https://ollama.com/install.sh | sh
-```
-
-</td><td>
-
-```powershell
-winget install Rustlang.Rustup OpenJS.NodeJS `
-  pnpm.pnpm Ollama.Ollama `
-  Microsoft.VisualStudio.2022.BuildTools
-# Add "Desktop development with C++" in the
-# VS installer (MSVC linker). WebView2 ships
-# with Windows 11. Then see the "Windows dev
-# shell" note below to source cargo + MSVC.
-```
-
-</td></tr></table>
-
-**2 · Start Ollama + pull a small model to gate**
-
-```bash
-ollama serve &                 # Windows: runs as a service after install
-ollama pull llama3.2:1b
-```
-
-**3 · Clone, install, run**
-
-```bash
-git clone https://github.com/QuantaMinds/QuantaMind.git
-cd QuantaMind/frontend
-pnpm install
-pnpm tauri dev            # first build is slow; opens a native window
-```
-
-> On **Windows**, `cargo` and the MSVC linker must be on PATH before `pnpm tauri dev` — see the **Windows dev shell** note below.
-
-Open the **Tests** tab, pick your model, run a built-in agentic collection for your first verdict — then check **Agent Report** for the per-model breakdown.
-
-> 💬 Hit a snag? [Open an issue](https://github.com/QuantaMinds/QuantaMind/issues) — frictionless setup is a goal, so setup bugs are real bugs.
-
-<details>
-<summary><b>Prerequisites & optional backends</b></summary>
-
-| Tool | Version | Required? |
-|---|---|---|
-| **Rust** | 1.75+ | required |
-| **Node** | 20+ | required |
-| **pnpm** | 9+ | required |
-| **Ollama** | latest | required — the default backend |
-| **llama.cpp** (`llama-server`) | latest | optional — run GGUF models directly |
-| **MLX** (`pip install mlx-lm`) | latest | optional — Apple Silicon only |
-| **vLLM** / **SGLang** | latest | optional — a **remote** OpenAI-compatible GPU server; set its URL (+ `--api-key`) in Settings |
-| **whisper.cpp** | latest | optional — speech-to-text (`brew install whisper-cpp`) |
-
-</details>
-
-<details>
-<summary><b>Windows dev shell</b> — one-time setup for <code>pnpm tauri dev</code></summary>
-
-On Windows, source two things into your PowerShell session before `cargo` (and therefore `pnpm tauri dev`) can run: **the Rust bin dir on PATH** (rustup only updates *new* shells) and the **MSVC linker env** from Visual Studio's `vcvars64.bat`. macOS and Linux need neither.
-
-If you hit `program not found: cargo metadata` or `linker link.exe not found`:
-
-```powershell
-# Refresh PATH for this session (already permanent on the User env var).
-$env:Path = "$env:USERPROFILE\.cargo\bin;$env:APPDATA\npm;$env:LOCALAPPDATA\Programs\Ollama;$env:Path"
-
-# Source MSVC env into PowerShell. Adjust the path for your VS version
-# (2022\BuildTools, 2022\Community, or 18\Community for VS 2026).
-$vcvars = "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat"
-cmd /c "call `"$vcvars`" && set" |
-  Where-Object { $_ -match "^(INCLUDE|LIB|Path|LIBPATH)=" } |
-  ForEach-Object { $n,$v = $_ -split "=", 2; Set-Item -Path "env:$n" -Value $v }
-
-cargo --version; link.exe /?      # both should print without error
-cd path\to\QuantaMind\frontend
-pnpm tauri dev
-```
-
-**pnpm 11 quirk (`ERR_PNPM_IGNORED_BUILDS: esbuild@…`):** the repo's `pnpm-workspace.yaml` pre-approves `esbuild`, so a fresh clone Just Works. On a stale worktree, re-pull `main`. Save the block above as `run-dev.ps1` if you spin up dev shells often.
-
-</details>
-
----
-
-## The `qm` CLI
-
-Everything the desktop app measures, headless — for CI gates, SSH boxes, air-gapped runs, and scripts. Install in seconds (no Rust, no build):
-
-**macOS / Linux**
-
-```bash
-curl -fsSL https://github.com/QuantaMinds/QuantaMind/releases/latest/download/quantamind-installer.sh | sh
-```
-
-**Windows (PowerShell)**
-
-```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/QuantaMinds/QuantaMind/releases/latest/download/quantamind-installer.ps1 | iex"
-```
-
-Prebuilt for macOS (Apple Silicon + Intel), Linux (x64 + arm64, plus a fully static musl build for containers), and Windows x64 — every artifact checksummed and attestation-signed.
-
-The whole journey is five commands:
-
-```console
-$ qm doctor        # connect: probes all 5 backends, prints the exact fix for anything broken
-$ qm init          # zero-config: picks a backend+model, writes qm.json, runs a first verdict
-$ qm validate --collection <id|file.json>   # prove a test is trustworthy BEFORE spending a model on it
-$ qm run --k 8 --costs --save-report r.json --junit j.xml --save-transcripts traces/
-$ qm report --report r.json --profile coding-agent   # re-score offline under any team policy
-```
-
-The verdict **is** the exit code — `0` Ready · `10` Conditional · `20` NotReady · `11` Inconclusive (infra, retry) — so a pipeline gates on it directly, and the bundled **[`qm-eval` GitHub Action](./docs/ci/README.md)** (prebuilt binary, no toolchain) or the **`ghcr.io/quantaminds/qm`** container does it for you. Every number is measured or `n/a`, never estimated: per-task steps, thinking tokens (tokenized split on llama.cpp), cache hits, peak context, per-task KV, RSS. Full reference: **[docs/cli](./docs/cli/README.md)**.
 
 ---
 
@@ -253,6 +135,24 @@ QuantaMind is a workbench, not a chat app — each surface answers one question 
 
 ---
 
+## 🛠 CI & pipeline integration
+
+Everything the desktop app measures, headless — for CI gates, SSH boxes, air-gapped runs, and scripts. The whole journey is five commands:
+
+```console
+$ qm doctor        # connect: probes all 5 backends, prints the exact fix for anything broken
+$ qm init          # zero-config: picks a backend+model, writes qm.json, runs a first verdict
+$ qm validate --collection <id|file.json>   # prove a test is trustworthy BEFORE spending a model on it
+$ qm run --k 8 --costs --save-report r.json --junit j.xml --save-transcripts traces/
+$ qm report --report r.json --profile coding-agent   # re-score offline under any team policy
+```
+
+The verdict **is** the exit code — `0` Ready · `10` Conditional · `20` NotReady · `11` Inconclusive (infra, retry) — so a pipeline gates on it directly, and the bundled **[`qm-eval` GitHub Action](./docs/ci/README.md)** (prebuilt binary, no toolchain) or the **`ghcr.io/quantaminds/qm`** container does it for you. Every number is measured or `n/a`, never estimated: per-task steps, thinking tokens (tokenized split on llama.cpp), cache hits, peak context, per-task KV, RSS.
+
+Full reference: **[docs/cli](./docs/cli/README.md)**.
+
+---
+
 ## Roadmap
 
 - **Windows + Linux** desktop builds — *in progress*. The platform-adapter foundation has landed; sidecar lifecycles, multi-vendor GPU probe, and native storage paths are being rewired phase-by-phase.
@@ -263,105 +163,18 @@ QuantaMind is a workbench, not a chat app — each surface answers one question 
 
 ---
 
-## Tech stack
+## 📖 Documentation & contributing
 
-Tauri 2.x + Rust + React 19 + TypeScript 5 + Vite + Tailwind + Zustand. These choices are **locked** — substitutions require explicit review.
+QuantaMind is an open-source workbench — Tauri 2.x + Rust + React 19 + TypeScript 5 + Vite + Tailwind + Zustand (the stack is **locked**; full table in [`docs/process.md#tech-stack`](./docs/process.md#tech-stack)). If you want to build the desktop app from source, dive into the architecture, or add new agentic tests:
 
-<details>
-<summary><b>Full dependency table</b></summary>
-
-| Layer | Choice | Why |
-|---|---|---|
-| Desktop shell | **Tauri 2.x** | ~30 MB binaries, native WebView, Rust backend |
-| Backend language | **Rust 1.75+** (ed. 2021) | Tauri default; safe IPC + HTTP |
-| Frontend | **React 19 + TypeScript 5** | Largest open-source contributor pool |
-| Build tool | **Vite 7** | Fast HMR, Tauri-friendly |
-| Styling | **Tailwind CSS 3** | Utility-first, no design-system overhead |
-| State | **Zustand** | ~1 KB, no boilerplate, scales |
-| Editor | **`@monaco-editor/react`** | Same editor as VS Code |
-| HTTP client (Rust) | **`reqwest` + `tokio`** | Battle-tested |
-| Speech-to-text | **whisper.cpp** (`whisper-server` sidecar) | Local STT over HTTP on `:8093`; subprocess, not FFI |
-| Audio preprocessing | **`hound` + `rubato`** | Decode WAV → downmix → resample to 16 kHz in-process |
-| Voice-activity detection | **`webrtc-vad`** | Independent non-ML VAD for the silence-hallucination metric |
-| Serialization | **`serde` / `serde_json` / `serde_yaml`** | Type-safe across IPC |
-| Validation | **`zod`** (TS) · **`validator` + `serde`** (Rust) | Runtime schema validation at the IPC boundary |
-| Testing | **`cargo test` + `mockito`** · **`vitest` + Testing Library** | Built-in, fast |
-| Format / Lint | **`rustfmt` + Clippy** · **Prettier + ESLint** | Auto-format on save |
-| Pre-commit / CI | **`lefthook`** · **GitHub Actions** | Lighter than Husky; free for OSS |
-
-**Deliberately not installed (yet):** no logging library, no state-machine library, no UI component library, no form library, no in-process AI/ML libraries. Every dependency is a maintenance debt.
-
-</details>
-
----
-
-## Architecture
-
-```
-┌──────────────────────────────────────────────┐
-│           React + TypeScript Frontend        │
-│    features/  ←  shared/ipc/  ←  invoke()    │
-└─────────────────────┬────────────────────────┘
-                      │  IPC boundary (JSON)
-┌─────────────────────▼────────────────────────┐
-│              Rust Backend (backend/)         │
-│   commands/  →  inference/  →  metrics/      │
-│                    ↓                          │
-│               persistence/                    │
-└─────────────────────┬────────────────────────┘
-                      │  HTTP
-                      ▼
-    Ollama · llama.cpp · MLX  (local)   ·   vLLM · SGLang  (remote GPU)
-```
-
-The two halves talk JSON over Tauri's IPC — contracts explicit in `shared/ipc/types.ts`, mirrored in Rust, no codegen. `shared/ipc/` is the **only** place that calls `invoke`. Each file is single-concern; each module owns one responsibility.
-
-> **New here?** [`ARCHITECTURE.md`](ARCHITECTURE.md) is the five-minute map of the backend's hexagonal layout and the one dependency rule that keeps it navigable.
-
----
-
-## Building from source
-
-```bash
-cd frontend
-pnpm install
-pnpm tauri dev            # development, with HMR
-pnpm tauri build          # production → backend/target/release/bundle/ (.dmg + .app)
-```
-
-macOS is the shipping target today; Windows and Linux are being rewired phase-by-phase (see [Roadmap](#roadmap)).
-
-```bash
-cd frontend && pnpm test          # frontend (vitest)
-cd backend  && cargo test         # backend (cargo test + mockito)
-```
-
----
-
-## Documentation
-
-The README stays lean on purpose. Depth lives in `docs/`:
-
-- **[`docs/codebase/`](./docs/codebase/README.md)** — deep, file-by-file reference for every backend module and frontend page (**Why** it exists, **What** it does, **How/Where** it's used). Jump to [inference engines](./docs/codebase/backend-inference-backends.md), [the eval engine](./docs/codebase/backend-eval-engine.md), [STT](./docs/codebase/backend-stt.md), or [the Workspace tab](./docs/codebase/frontend-workspace.md).
+- **[Building from source](./CONTRIBUTING.md#project-setup)** — Rust/Node/pnpm toolchains for macOS, Linux, and Windows (incl. the Windows dev-shell setup), plus the dev/test loop. ~5 minutes on macOS.
+- **[Contribution guidelines](./CONTRIBUTING.md)** — ground rules, branching, the PR checklist.
+- **[`ARCHITECTURE.md`](./ARCHITECTURE.md)** — the five-minute map: React frontend ↔ JSON-over-IPC ↔ Rust backend ↔ HTTP to Ollama / llama.cpp / MLX (local) or vLLM / SGLang (remote GPU).
+- **[`docs/codebase/`](./docs/codebase/README.md)** — deep, file-by-file reference for every backend module and frontend page.
 - **[`docs/architecture.md`](./docs/architecture.md)** — modules, IPC, layering law, robustness rules, folder taxonomy.
 - **[`docs/process.md`](./docs/process.md)** — tech stack, setup, conventions, the step-by-step workflow, roadmap.
-- **[`docs/reference.md`](./docs/reference.md)** — analysis/bench schema and troubleshooting.
-- **[`docs/cli/README.md`](./docs/cli/README.md)** — the headless `qm` CLI, with a **[three-command quickstart](./docs/cli/README.md#quickstart--three-commands-to-your-first-verdict)** (one-line install → `qm doctor` → `qm init`; no toolchain needed). `qm doctor` diagnoses every backend (reachable? models? credential? tool-calling?) and tells you exactly what to fix; `qm init` auto-detects a backend and runs the suite with zero config; `qm run` prints a Ready/Conditional/NotReady verdict with a CI-gateable exit code.
-
----
-
-## Contributing
-
-Contributions welcome. The engineering principles are non-negotiable — start with [`CLAUDE.md`](./CLAUDE.md) and [`docs/process.md#workflow`](./docs/process.md#workflow).
-
-**Before you open a PR:**
-
-- [ ] Single concern (one feature, bug, or refactor)
-- [ ] Each file stays single-concern — split by responsibility, not line count
-- [ ] Tests added/updated and passing — *and outputs verified* (a green CI run is necessary, not sufficient)
-- [ ] Docs in `docs/` updated in the same PR
-- [ ] No `unwrap()` outside tests
-- [ ] Commits follow [Conventional Commits](https://www.conventionalcommits.org/); branches are `<type>/<short-description>` (`feature/`, `fix/`, `bug/`, `docs/`, `chore/`, `refactor/`)
+- **[`docs/reference.md`](./docs/reference.md)** — analysis/bench schema, adding custom tests, troubleshooting.
+- **[`docs/cli/README.md`](./docs/cli/README.md)** — the headless `qm` CLI, end to end.
 
 ---
 
@@ -378,11 +191,15 @@ Contributions welcome. The engineering principles are non-negotiable — start w
 - **Schema validation at every IPC boundary** — Zod on TS, serde + `validator` on Rust; malformed payloads rejected with typed errors.
 
 Found a vulnerability? Please open a [private security advisory](https://github.com/QuantaMinds/QuantaMind/security/advisories/new) instead of a public issue.
----
-### Community
 
-- [Discord](https://discord.gg/6CjSJyZTfG)
-- [𝕏 (Twitter)](https://x.com/QuantaMind_2025)
+---
+
+## Community
+
+- 💬 [Discord](https://discord.gg/6CjSJyZTfG) — talk directly to the core team
+- 🐦 [𝕏 (Twitter)](https://x.com/QuantaMind_2025)
+- 🐛 [Issues](https://github.com/QuantaMinds/QuantaMind/issues) — setup bugs are real bugs
+
 ---
 
 ## FAQ
