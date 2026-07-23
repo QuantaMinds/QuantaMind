@@ -6,6 +6,15 @@ name: docker
 # DOWNLOADED from the release and attestation-verified — never rebuilt — so the
 # image ships exactly what the release ships.
 on:
+  # Called by quantamind-release.yml after announce (post-announce-jobs) — the
+  # release event itself never fires here: a GITHUB_TOKEN-published release
+  # doesn't trigger other workflows (recursion guard).
+  workflow_call:
+    inputs:
+      plan:
+        description: "dist's release plan (passed by the chained post-announce job; unused — the tag comes from github.ref_name)"
+        required: false
+        type: string
   release:
     types: [published]
   workflow_dispatch:
@@ -20,7 +29,7 @@ permissions:
 
 jobs:
   build-push:
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'quantamind-v')
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name || github.ref_name, 'quantamind-v')
     runs-on: ubuntu-22.04
     outputs:
       version: ${{ steps.meta.outputs.version }}
@@ -32,7 +41,7 @@ jobs:
       - name: Resolve tag + version
         id: meta
         run: |
-          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}"
+          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name || github.ref_name }}"
           case "$TAG" in quantamind-v*) ;; *) echo "::error::not a CLI tag: $TAG"; exit 1;; esac
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=${TAG#quantamind-v}" >> "$GITHUB_OUTPUT"

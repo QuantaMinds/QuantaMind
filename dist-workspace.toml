@@ -31,6 +31,12 @@ tag-namespace = "quantamind"
 install-path = "~/.local/bin"
 # Whether to install an updater program
 install-updater = false
+# After the GitHub Release is announced, CALL .github/workflows/docker.yml
+# (workflow_call) to build+push ghcr.io/quantaminds/qm from the just-published
+# artifacts. Chained here because a release PUBLISHED by GITHUB_TOKEN never
+# fires other workflows' `release:` triggers (recursion guard) — the 0.2.4 cut
+# proved it; a called workflow runs inside this run and is immune.
+post-announce-jobs = ["./docker"]
 
 # Ship ONLY the headless CLI on every platform. The `quantamind` GUI bin lives
 # on the same crate but has required-features=["gui"], which the lean
