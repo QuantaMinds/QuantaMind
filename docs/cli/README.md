@@ -30,7 +30,7 @@ Already running llama.cpp / MLX / vLLM / SGLang instead? Skip this — `qm docto
 ```bash
 # macOS / Linux — installs qm into ~/.local/bin
 curl -fsSL https://github.com/QuantaMinds/QuantaMind/releases/latest/download/quantamind-installer.sh | sh
-qm --version                                           # → qm 0.2.3
+qm --version                                           # → qm 0.2.4
 ```
 
 ```powershell
