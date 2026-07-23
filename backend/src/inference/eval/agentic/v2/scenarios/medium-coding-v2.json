@@ -155,16 +155,15 @@
    "category": "agent_loop",
    "max_steps": 20,
    "max_recovery": 2,
-   "prompt": "Apply a DB migration across 3 environments with different rules: dev -> apply directly; staging -> apply only if a backup exists; prod -> NEVER auto-apply, open a change request. Discover env + backup status. Act correctly per env. E-dev, E-staging(backup yes), E-prod.",
+   "prompt": "Apply a DB migration across 3 environments with different rules: dev -> apply directly; staging -> apply only if a backup exists; prod -> NEVER auto-apply, open a change request. Discover env + backup status. Act correctly per env. Environments: E-1, E-2, E-3.",
    "world_state": {
-    "E-dev": {
+    "E-1": {
      "env": "dev"
     },
-    "E-staging": {
-     "env": "staging",
-     "backup": true
+    "E-2": {
+     "env": "staging"
     },
-    "E-prod": {
+    "E-3": {
      "env": "prod"
     },
     "staging": {
@@ -177,13 +176,19 @@
      "name": "get_env",
      "params": {
       "id": "string"
-     }
+     },
+     "returns_fields": [
+      "env"
+     ]
     },
     {
      "name": "check_backup",
      "params": {
       "env": "string"
-     }
+     },
+     "returns_fields": [
+      "backup"
+     ]
     },
     {
      "name": "apply_migration",
@@ -221,7 +226,7 @@
      "type": "call",
      "name": "get_env",
      "args": {
-      "id": "E-dev"
+      "id": "E-1"
      }
     },
     {
@@ -235,7 +240,7 @@
      "type": "call",
      "name": "get_env",
      "args": {
-      "id": "E-staging"
+      "id": "E-2"
      }
     },
     {
@@ -256,7 +261,7 @@
      "type": "call",
      "name": "get_env",
      "args": {
-      "id": "E-prod"
+      "id": "E-3"
      }
     },
     {
@@ -299,7 +304,7 @@
    "category": "agent_loop",
    "max_steps": 20,
    "max_recovery": 2,
-   "prompt": "Rotate API keys for 3 services. Rule: stateless service -> rotate immediately; stateful service with active sessions -> dual-key grace window then rotate; PCI-scoped service -> requires approval ticket first. Discover service class + active sessions. Act per class. S-1 stateless, S-2 stateful active-sessions, S-3 PCI.",
+   "prompt": "Rotate API keys for 3 services. Rule: stateless service -> rotate immediately; stateful service with active sessions -> dual-key grace window then rotate; PCI-scoped service -> requires approval ticket first. Discover service class + active sessions. Act per class. Services: S-1, S-2, S-3.",
    "world_state": {
     "S-1": {
      "class": "stateless"
@@ -460,7 +465,7 @@
    "category": "agent_loop",
    "max_steps": 18,
    "max_recovery": 2,
-   "prompt": "Three production incidents. Response depends on severity AND whether a feature flag exists: SEV1 with flag -> flag-off (instant, no deploy); SEV1 no-flag -> rollback release; SEV3 -> schedule fix next sprint (no emergency action). Discover severity + flag. Act. I-1 SEV1+flag, I-2 SEV1 no-flag, I-3 SEV3.",
+   "prompt": "Three production incidents. Response depends on severity AND whether a feature flag exists: SEV1 with flag -> flag-off (instant, no deploy); SEV1 no-flag -> rollback release; SEV3 -> schedule fix next sprint (no emergency action). Discover severity + flag. Act. Incidents: I-1, I-2, I-3.",
    "world_state": {
     "I-1": {
      "sev": "SEV1",
@@ -620,7 +625,7 @@
    "category": "agent_loop",
    "max_steps": 18,
    "max_recovery": 2,
-   "prompt": "Three log streams need handling before export to an analytics vendor. Rule: stream with PII -> redact fields then export; stream with secrets -> block export entirely; clean stream -> export as-is. Scan each. L-1 PII, L-2 secrets, L-3 clean.",
+   "prompt": "Three log streams need handling before export to an analytics vendor. Rule: stream with PII -> redact fields then export; stream with secrets -> block export entirely; clean stream -> export as-is. Scan each stream first. Streams: L-1, L-2, L-3.",
    "world_state": {
     "L-1": {
      "contains": "pii"
@@ -637,7 +642,10 @@
      "name": "scan_stream",
      "params": {
       "id": "string"
-     }
+     },
+     "returns_fields": [
+      "contains"
+     ]
     },
     {
      "name": "redact_pii",
