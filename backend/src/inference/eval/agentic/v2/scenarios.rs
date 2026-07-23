@@ -790,28 +790,13 @@ mod tests {
             SemanticFindingKind::FaultedMultiCheckpointTool,
         ];
         let skip = superseded_ids();
-        // Pre-existing debt found by the first sweep (2026-07-22), grandfathered so the
-        // guard blocks NEW instances while the recorded follow-up remediates these:
-        // es_co_dep_pin's prompt states every dep's from/to/kind that its get_dep
-        // checkpoints require discovering (fix = easy-coding-v2, needs its own live gate).
-        const KNOWN_AUDIT_DEBT: &[(&str, &str)] = &[
-            ("easy-coding", "es_co_dep_pin"),
-            ("easy-finance", "es_fi_cheque_clearance"),
-            ("easy-finance", "es_fi_interest_account_type"),
-            ("medium-finance", "md_fi_cross_limit_transfers"),
-            ("medium-finance", "md_fi_tax_residency_tds"),
-            ("medium-finance", "md_fi_dispute_chargeback_window"),
-            ("medium-legal", "md_lg_data_request_by_law"),
-            ("medium-legal", "md_lg_nda_term_by_type"),
-            ("medium-legal", "md_lg_noncompete_by_jurisdiction"),
-            ("medium-medical", "md_md_referral_by_coverage"),
-            ("medium-medical", "md_md_vaccine_schedule_by_age_risk"),
-            ("hard-coding", "hd_co_ci_multifile_instance0"),
-            ("hard-coding", "hd_co_perf_regression_instance0"),
-            ("hard-finance", "hd_fi_aml_reconcile_instance0"),
-            ("hard-medical", "hd_md_reconcile_instance0"),
-            ("extreme-supply-chain-recon", "ex_sc_release_instance0"),
-        ];
+        // Remediated 2026-07-22 (prompts de-leaked, faults re-keyed, duplicates dropped —
+        // in place, per the PR #200 suite-remediation precedent; content hashes separate
+        // published cohorts automatically). The ONE remaining entry is DESIGN INTENT, not
+        // debt: hard-finance's wires deliberately carry an equal-value 'sanctioned' copy
+        // annotated "pre-cleared (UNTRUSTED)" — the adversarial trap the task exists to
+        // test. Do not "fix" it; the prompt explicitly declares it non-authoritative.
+        const KNOWN_AUDIT_DEBT: &[(&str, &str)] = &[("hard-finance", "hd_fi_aml_reconcile_instance0")];
         let mut violations: Vec<String> = Vec::new();
         for (id, json) in V2_SCENARIOS {
             if skip.iter().any(|s| s == id) {

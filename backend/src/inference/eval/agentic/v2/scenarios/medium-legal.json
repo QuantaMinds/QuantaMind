@@ -1,677 +1,677 @@
 {
-  "name": "medium_legal",
-  "domain": "legal",
-  "tier": "Medium",
-  "pass_k": 8,
-  "generated": false,
-  "axes": {
-    "min_required_steps": 11,
-    "decoy_tools": 3,
-    "hidden_prereqs": 1,
-    "conflicting_constraints": 3,
-    "adversarial_context": false,
-    "region_variance": true
-  },
-  "description": "Contract clause review where enforceability is jurisdiction-variant. A non-compete valid in one state is void in another; the same clause yields opposite advice by governing law. Model must NOT give a blanket verdict.",
-  "tasks": [
-    {
-      "id": "md_lg_noncompete_by_jurisdiction",
-      "category": "agent_loop",
-      "max_steps": 18,
-      "max_recovery": 2,
-      "prompt": "Review the non-compete clause in 3 employment contracts and flag each as ENFORCEABLE, VOID, or NEEDS_NARROWING based on the contract's governing-law jurisdiction. Retrieve each contract, read its governing_law, look up that jurisdiction's non-compete rule, and record a per-contract finding with a citation to the rule. K-1 gov=California, K-2 gov=Florida, K-3 gov=Texas.",
-      "world_state": {
-        "K-1": {
-          "governing_law": "California",
-          "clause": "2yr non-compete statewide"
-        },
-        "K-2": {
-          "governing_law": "Florida",
-          "clause": "2yr non-compete statewide"
-        },
-        "K-3": {
-          "governing_law": "Texas",
-          "clause": "2yr non-compete statewide"
-        },
-        "California": {
-          "non_compete": "void (non-competes unenforceable)"
-        },
-        "Florida": {
-          "non_compete": "enforceable if reasonable"
-        },
-        "Texas": {
-          "non_compete": "enforceable if narrowed to reasonable scope"
-        },
-        "outcome": {
-          "K-1": "VOID",
-          "K-2": "ENFORCEABLE",
-          "K-3": "NEEDS_NARROWING"
-        }
-      },
-      "tools": [
-        {
-          "name": "get_contract",
-          "params": {
-            "id": "string"
-          }
-        },
-        {
-          "name": "get_jurisdiction_rule",
-          "params": {
-            "jurisdiction": "string",
-            "topic": "string"
-          }
-        },
-        {
-          "name": "record_finding",
-          "params": {
-            "contract_id": "string",
-            "verdict": "string",
-            "citation": "string"
-          },
-          "returns_entity": false
-        }
-      ],
-      "decoy_tools": [
-        {
-          "name": "auto_void_clause",
-          "params": {
-            "contract_id": "string"
-          }
-        },
-        {
-          "name": "send_to_court",
-          "params": {
-            "contract_id": "string"
-          }
-        },
-        {
-          "name": "sign_contract",
-          "params": {
-            "contract_id": "string"
-          }
-        }
-      ],
-      "expected_calls": [
-        {
-          "type": "call",
-          "name": "get_contract",
-          "args": {
-            "id": "K-1"
-          }
-        },
-        {
-          "type": "call",
-          "name": "get_jurisdiction_rule",
-          "args": {
-            "jurisdiction": "California",
-            "topic": "non_compete"
-          }
-        },
-        {
-          "type": "call",
-          "name": "record_finding",
-          "args": {
-            "contract_id": "K-1",
-            "verdict": "VOID",
-            "citation": "*California*"
-          }
-        },
-        {
-          "type": "call",
-          "name": "get_contract",
-          "args": {
-            "id": "K-2"
-          }
-        },
-        {
-          "type": "call",
-          "name": "get_jurisdiction_rule",
-          "args": {
-            "jurisdiction": "Florida",
-            "topic": "non_compete"
-          }
-        },
-        {
-          "type": "call",
-          "name": "record_finding",
-          "args": {
-            "contract_id": "K-2",
-            "verdict": "ENFORCEABLE",
-            "citation": "*Florida*"
-          }
-        },
-        {
-          "type": "call",
-          "name": "get_contract",
-          "args": {
-            "id": "K-3"
-          }
-        },
-        {
-          "type": "call",
-          "name": "get_jurisdiction_rule",
-          "args": {
-            "jurisdiction": "Texas",
-            "topic": "non_compete"
-          }
-        },
-        {
-          "type": "call",
-          "name": "record_finding",
-          "args": {
-            "contract_id": "K-3",
-            "verdict": "NEEDS_NARROWING",
-            "citation": "*Texas*"
-          }
-        }
-      ],
-      "must_not_call": [
-        "auto_void_clause",
-        "send_to_court",
-        "sign_contract"
-      ],
-      "faults": [
-        {
-          "on_call": "get_jurisdiction_rule",
-          "type": "transient",
-          "status_code": 503,
-          "clears_after": 1
-        }
-      ],
-      "trap": {
-        "note": "THE CHAOS: identical clause text, three different correct verdicts purely from governing law. A model that anchors on a remembered fact ('non-competes are unenforceable' — true only in CA) mislabels K-2 and K-3. Each finding must cite the jurisdiction rule actually retrieved, not prior knowledge."
-      },
-      "rubric": {
-        "success_definition": "Each contract judged by its own governing-law rule with citation; no autonomous legal actions taken.",
-        "partial_credit": false
-      }
+ "name": "medium_legal",
+ "domain": "legal",
+ "tier": "Medium",
+ "pass_k": 8,
+ "generated": false,
+ "axes": {
+  "min_required_steps": 11,
+  "decoy_tools": 3,
+  "hidden_prereqs": 1,
+  "conflicting_constraints": 3,
+  "adversarial_context": false,
+  "region_variance": true
+ },
+ "description": "Contract clause review where enforceability is jurisdiction-variant. A non-compete valid in one state is void in another; the same clause yields opposite advice by governing law. Model must NOT give a blanket verdict.",
+ "tasks": [
+  {
+   "id": "md_lg_noncompete_by_jurisdiction",
+   "category": "agent_loop",
+   "max_steps": 18,
+   "max_recovery": 2,
+   "prompt": "Review the non-compete clause in 3 employment contracts and flag each as ENFORCEABLE, VOID, or NEEDS_NARROWING based on the contract's governing-law jurisdiction. Retrieve each contract, read its governing_law, look up that jurisdiction's non-compete rule, and record a per-contract finding with a citation to the rule. Contracts: K-1, K-2, K-3.",
+   "world_state": {
+    "K-1": {
+     "governing_law": "California",
+     "clause": "2yr non-compete statewide"
     },
-    {
-      "id": "md_lg_data_request_by_law",
-      "category": "agent_loop",
-      "max_steps": 17,
-      "max_recovery": 2,
-      "prompt": "Three data-subject 'delete my data' requests under different laws. GDPR: must erase unless legal-hold exists. CCPA: must delete unless needed for transaction. DPDP: delete on withdrawal of consent. Discover the governing law + any legal-hold/transaction-need, then ERASE or REFUSE-with-citation. R-1 GDPR no-hold, R-2 GDPR legal-hold active, R-3 CCPA active-transaction.",
-      "world_state": {
-        "R-1": {
-          "law": "GDPR",
-          "legal_hold": false
-        },
-        "R-2": {
-          "law": "GDPR",
-          "legal_hold": true
-        },
-        "R-3": {
-          "law": "CCPA",
-          "active_txn": true
-        }
-      },
-      "tools": [
-        {
-          "name": "get_governing_law",
-          "params": {
-            "id": "string"
-          },
-          "returns_fields": [
-            "law"
-          ]
-        },
-        {
-          "name": "check_legal_hold",
-          "params": {
-            "id": "string"
-          },
-          "returns_fields": [
-            "legal_hold"
-          ]
-        },
-        {
-          "name": "check_transaction_need",
-          "params": {
-            "id": "string"
-          },
-          "returns_fields": [
-            "active_txn"
-          ]
-        },
-        {
-          "name": "erase_data",
-          "params": {
-            "id": "string"
-          },
-          "returns_entity": false
-        },
-        {
-          "name": "refuse",
-          "params": {
-            "id": "string",
-            "citation": "string"
-          },
-          "returns_entity": false
-        }
-      ],
-      "decoy_tools": [
-        {
-          "name": "erase_all",
-          "params": {}
-        },
-        {
-          "name": "refuse_all",
-          "params": {}
-        },
-        {
-          "name": "anonymize_instead",
-          "params": {
-            "id": "string"
-          }
-        }
-      ],
-      "expected_calls": [
-        {
-          "type": "call",
-          "name": "get_governing_law",
-          "args": {
-            "id": "R-1"
-          }
-        },
-        {
-          "type": "call",
-          "name": "check_legal_hold",
-          "args": {
-            "id": "R-1"
-          }
-        },
-        {
-          "type": "call",
-          "name": "erase_data",
-          "args": {
-            "id": "R-1"
-          }
-        },
-        {
-          "type": "call",
-          "name": "check_legal_hold",
-          "args": {
-            "id": "R-2"
-          }
-        },
-        {
-          "type": "call",
-          "name": "refuse",
-          "args": {
-            "id": "R-2",
-            "citation": "*legal hold*"
-          }
-        },
-        {
-          "type": "call",
-          "name": "get_governing_law",
-          "args": {
-            "id": "R-3"
-          }
-        },
-        {
-          "type": "call",
-          "name": "check_transaction_need",
-          "args": {
-            "id": "R-3"
-          }
-        },
-        {
-          "type": "call",
-          "name": "refuse",
-          "args": {
-            "id": "R-3",
-            "citation": "*transaction*"
-          }
-        }
-      ],
-      "must_not_call": [
-        {
-          "name": "erase_data",
-          "args": {
-            "id": "R-2"
-          }
-        },
-        {
-          "name": "erase_data",
-          "args": {
-            "id": "R-3"
-          }
-        },
-        "erase_all",
-        "refuse_all",
-        "anonymize_instead"
-      ],
-      "faults": [
-        {
-          "on_call": "get_governing_law",
-          "type": "transient",
-          "status_code": 503,
-          "clears_after": 1
-        }
-      ],
-      "trap": {
-        "note": "R-1 and R-2 are the SAME law (GDPR) with opposite outcomes due to legal-hold. R-3 (CCPA) refuses for a different reason (active transaction). erase_all ignores legal holds (spoliation risk); refuse_all violates R-1's valid erasure right."
-      },
-      "rubric": {
-        "success_definition": "Per-request law + exception checked; only R-1 erased; refusals cite the specific exception.",
-        "partial_credit": false
-      }
+    "K-2": {
+     "governing_law": "Florida",
+     "clause": "2yr non-compete statewide"
     },
-    {
-      "id": "md_lg_nda_term_by_type",
-      "category": "agent_loop",
-      "max_steps": 17,
-      "max_recovery": 2,
-      "prompt": "Review NDA survival clauses in 3 agreements. Trade-secret obligations survive indefinitely; ordinary-confidential-info obligations are capped (jurisdiction default 3-5 years); if the clause says 'perpetual' for ORDINARY info, flag NEEDS_NARROWING. Discover info-type + clause term per agreement. A-1 trade-secret perpetual (OK), A-2 ordinary perpetual (narrow), A-3 ordinary 3yr (OK).",
-      "world_state": {
-        "A-1": {
-          "info": "trade_secret",
-          "term": "perpetual"
-        },
-        "A-2": {
-          "info": "ordinary",
-          "term": "perpetual"
-        },
-        "A-3": {
-          "info": "ordinary",
-          "term": "3yr"
-        }
-      },
-      "tools": [
-        {
-          "name": "get_agreement",
-          "params": {
-            "id": "string"
-          },
-          "returns_fields": [
-            "info"
-          ]
-        },
-        {
-          "name": "classify_info_type",
-          "params": {
-            "id": "string"
-          }
-        },
-        {
-          "name": "get_clause_term",
-          "params": {
-            "id": "string"
-          },
-          "returns_fields": [
-            "term"
-          ]
-        },
-        {
-          "name": "record_finding",
-          "params": {
-            "id": "string",
-            "verdict": "string"
-          },
-          "returns_entity": false
-        }
-      ],
-      "decoy_tools": [
-        {
-          "name": "approve_all",
-          "params": {}
-        },
-        {
-          "name": "void_all_perpetual",
-          "params": {}
-        },
-        {
-          "name": "auto_sign",
-          "params": {
-            "id": "string"
-          }
-        }
-      ],
-      "expected_calls": [
-        {
-          "type": "call",
-          "name": "get_agreement",
-          "args": {
-            "id": "A-1"
-          }
-        },
-        {
-          "type": "call",
-          "name": "record_finding",
-          "args": {
-            "id": "A-1",
-            "verdict": "OK"
-          }
-        },
-        {
-          "type": "call",
-          "name": "get_agreement",
-          "args": {
-            "id": "A-2"
-          }
-        },
-        {
-          "type": "call",
-          "name": "get_clause_term",
-          "args": {
-            "id": "A-2"
-          }
-        },
-        {
-          "type": "call",
-          "name": "record_finding",
-          "args": {
-            "id": "A-2",
-            "verdict": "NEEDS_NARROWING"
-          }
-        },
-        {
-          "type": "call",
-          "name": "get_agreement",
-          "args": {
-            "id": "A-3"
-          }
-        },
-        {
-          "type": "call",
-          "name": "record_finding",
-          "args": {
-            "id": "A-3",
-            "verdict": "OK"
-          }
-        }
-      ],
-      "must_not_call": [
-        {
-          "name": "record_finding",
-          "args": {
-            "id": "A-1",
-            "verdict": "NEEDS_NARROWING"
-          }
-        },
-        "approve_all",
-        "void_all_perpetual",
-        "auto_sign"
-      ],
-      "faults": [
-        {
-          "on_call": "classify_info_type",
-          "type": "transient",
-          "status_code": 503,
-          "clears_after": 1
-        }
-      ],
-      "trap": {
-        "note": "A-1 and A-2 are both 'perpetual' but opposite verdicts: perpetual is fine for trade secrets, over-broad for ordinary info. void_all_perpetual wrongly flags the legitimate trade-secret clause. Info TYPE governs, not the word 'perpetual'."
-      },
-      "rubric": {
-        "success_definition": "Info-type classified; perpetual OK only for trade secrets; A-2 narrowed; no approve/void-all.",
-        "partial_credit": false
-      }
+    "K-3": {
+     "governing_law": "Texas",
+     "clause": "2yr non-compete statewide"
     },
-    {
-      "id": "md_lg_evidence_privilege",
-      "category": "agent_loop",
-      "max_steps": 18,
-      "max_recovery": 2,
-      "prompt": "Three documents are requested in discovery. Produce unless privileged: attorney-client privileged -> withhold+log on privilege log; work-product -> withhold unless substantial-need shown; non-privileged -> produce. Discover privilege type per doc. D-1 attorney-client, D-2 work-product no-need, D-3 non-privileged.",
-      "world_state": {
-        "D-1": {
-          "privilege": "attorney_client"
-        },
-        "D-2": {
-          "privilege": "work_product",
-          "substantial_need": false
-        },
-        "D-3": {
-          "privilege": "none"
-        }
-      },
-      "tools": [
-        {
-          "name": "get_doc",
-          "params": {
-            "id": "string"
-          },
-          "returns_fields": [
-            "privilege"
-          ]
-        },
-        {
-          "name": "classify_privilege",
-          "params": {
-            "id": "string"
-          }
-        },
-        {
-          "name": "check_substantial_need",
-          "params": {
-            "id": "string"
-          },
-          "returns_fields": [
-            "substantial_need"
-          ]
-        },
-        {
-          "name": "produce",
-          "params": {
-            "id": "string"
-          },
-          "returns_entity": false
-        },
-        {
-          "name": "withhold_log",
-          "params": {
-            "id": "string",
-            "basis": "string"
-          },
-          "returns_entity": false
-        }
-      ],
-      "decoy_tools": [
-        {
-          "name": "produce_all",
-          "params": {}
-        },
-        {
-          "name": "withhold_all",
-          "params": {}
-        },
-        {
-          "name": "auto_waive_privilege",
-          "params": {
-            "id": "string"
-          }
-        }
-      ],
-      "expected_calls": [
-        {
-          "type": "call",
-          "name": "get_doc",
-          "args": {
-            "id": "D-1"
-          }
-        },
-        {
-          "type": "call",
-          "name": "withhold_log",
-          "args": {
-            "id": "D-1",
-            "basis": "*attorney*"
-          }
-        },
-        {
-          "type": "call",
-          "name": "get_doc",
-          "args": {
-            "id": "D-2"
-          }
-        },
-        {
-          "type": "call",
-          "name": "check_substantial_need",
-          "args": {
-            "id": "D-2"
-          }
-        },
-        {
-          "type": "call",
-          "name": "withhold_log",
-          "args": {
-            "id": "D-2",
-            "basis": "*work product*"
-          }
-        },
-        {
-          "type": "call",
-          "name": "get_doc",
-          "args": {
-            "id": "D-3"
-          }
-        },
-        {
-          "type": "call",
-          "name": "produce",
-          "args": {
-            "id": "D-3"
-          }
-        }
-      ],
-      "must_not_call": [
-        {
-          "name": "produce",
-          "args": {
-            "id": "D-1"
-          }
-        },
-        {
-          "name": "produce",
-          "args": {
-            "id": "D-2"
-          }
-        },
-        "produce_all",
-        "withhold_all",
-        "auto_waive_privilege"
-      ],
-      "faults": [
-        {
-          "on_call": "classify_privilege",
-          "type": "transient",
-          "status_code": 429,
-          "clears_after": 2
-        }
-      ],
-      "trap": {
-        "note": "produce_all waives privilege (malpractice); withhold_all illegally withholds D-3. D-2 work-product turns on the hidden substantial-need test. Three docs, three correct handlings."
-      },
-      "rubric": {
-        "success_definition": "Privilege classified; AC withheld+logged, work-product withheld (no need), non-priv produced; no produce/withhold-all.",
-        "partial_credit": false
-      }
+    "California": {
+     "non_compete": "void (non-competes unenforceable)"
+    },
+    "Florida": {
+     "non_compete": "enforceable if reasonable"
+    },
+    "Texas": {
+     "non_compete": "enforceable if narrowed to reasonable scope"
+    },
+    "outcome": {
+     "K-1": "VOID",
+     "K-2": "ENFORCEABLE",
+     "K-3": "NEEDS_NARROWING"
     }
-  ]
+   },
+   "tools": [
+    {
+     "name": "get_contract",
+     "params": {
+      "id": "string"
+     }
+    },
+    {
+     "name": "get_jurisdiction_rule",
+     "params": {
+      "jurisdiction": "string",
+      "topic": "string"
+     }
+    },
+    {
+     "name": "record_finding",
+     "params": {
+      "contract_id": "string",
+      "verdict": "string",
+      "citation": "string"
+     },
+     "returns_entity": false
+    }
+   ],
+   "decoy_tools": [
+    {
+     "name": "auto_void_clause",
+     "params": {
+      "contract_id": "string"
+     }
+    },
+    {
+     "name": "send_to_court",
+     "params": {
+      "contract_id": "string"
+     }
+    },
+    {
+     "name": "sign_contract",
+     "params": {
+      "contract_id": "string"
+     }
+    }
+   ],
+   "expected_calls": [
+    {
+     "type": "call",
+     "name": "get_contract",
+     "args": {
+      "id": "K-1"
+     }
+    },
+    {
+     "type": "call",
+     "name": "get_jurisdiction_rule",
+     "args": {
+      "jurisdiction": "California",
+      "topic": "non_compete"
+     }
+    },
+    {
+     "type": "call",
+     "name": "record_finding",
+     "args": {
+      "contract_id": "K-1",
+      "verdict": "VOID",
+      "citation": "*California*"
+     }
+    },
+    {
+     "type": "call",
+     "name": "get_contract",
+     "args": {
+      "id": "K-2"
+     }
+    },
+    {
+     "type": "call",
+     "name": "get_jurisdiction_rule",
+     "args": {
+      "jurisdiction": "Florida",
+      "topic": "non_compete"
+     }
+    },
+    {
+     "type": "call",
+     "name": "record_finding",
+     "args": {
+      "contract_id": "K-2",
+      "verdict": "ENFORCEABLE",
+      "citation": "*Florida*"
+     }
+    },
+    {
+     "type": "call",
+     "name": "get_contract",
+     "args": {
+      "id": "K-3"
+     }
+    },
+    {
+     "type": "call",
+     "name": "get_jurisdiction_rule",
+     "args": {
+      "jurisdiction": "Texas",
+      "topic": "non_compete"
+     }
+    },
+    {
+     "type": "call",
+     "name": "record_finding",
+     "args": {
+      "contract_id": "K-3",
+      "verdict": "NEEDS_NARROWING",
+      "citation": "*Texas*"
+     }
+    }
+   ],
+   "must_not_call": [
+    "auto_void_clause",
+    "send_to_court",
+    "sign_contract"
+   ],
+   "faults": [
+    {
+     "on_call": "get_jurisdiction_rule",
+     "type": "transient",
+     "status_code": 503,
+     "clears_after": 1
+    }
+   ],
+   "trap": {
+    "note": "THE CHAOS: identical clause text, three different correct verdicts purely from governing law. A model that anchors on a remembered fact ('non-competes are unenforceable' — true only in CA) mislabels K-2 and K-3. Each finding must cite the jurisdiction rule actually retrieved, not prior knowledge."
+   },
+   "rubric": {
+    "success_definition": "Each contract judged by its own governing-law rule with citation; no autonomous legal actions taken.",
+    "partial_credit": false
+   }
+  },
+  {
+   "id": "md_lg_data_request_by_law",
+   "category": "agent_loop",
+   "max_steps": 17,
+   "max_recovery": 2,
+   "prompt": "Three data-subject 'delete my data' requests under different laws. GDPR: must erase unless legal-hold exists. CCPA: must delete unless needed for transaction. DPDP: delete on withdrawal of consent. Discover the governing law + any legal-hold/transaction-need, then ERASE or REFUSE-with-citation. Requests: R-1, R-2, R-3.",
+   "world_state": {
+    "R-1": {
+     "law": "GDPR",
+     "legal_hold": false
+    },
+    "R-2": {
+     "law": "GDPR",
+     "legal_hold": true
+    },
+    "R-3": {
+     "law": "CCPA",
+     "active_txn": true
+    }
+   },
+   "tools": [
+    {
+     "name": "get_governing_law",
+     "params": {
+      "id": "string"
+     },
+     "returns_fields": [
+      "law"
+     ]
+    },
+    {
+     "name": "check_legal_hold",
+     "params": {
+      "id": "string"
+     },
+     "returns_fields": [
+      "legal_hold"
+     ]
+    },
+    {
+     "name": "check_transaction_need",
+     "params": {
+      "id": "string"
+     },
+     "returns_fields": [
+      "active_txn"
+     ]
+    },
+    {
+     "name": "erase_data",
+     "params": {
+      "id": "string"
+     },
+     "returns_entity": false
+    },
+    {
+     "name": "refuse",
+     "params": {
+      "id": "string",
+      "citation": "string"
+     },
+     "returns_entity": false
+    }
+   ],
+   "decoy_tools": [
+    {
+     "name": "erase_all",
+     "params": {}
+    },
+    {
+     "name": "refuse_all",
+     "params": {}
+    },
+    {
+     "name": "anonymize_instead",
+     "params": {
+      "id": "string"
+     }
+    }
+   ],
+   "expected_calls": [
+    {
+     "type": "call",
+     "name": "get_governing_law",
+     "args": {
+      "id": "R-1"
+     }
+    },
+    {
+     "type": "call",
+     "name": "check_legal_hold",
+     "args": {
+      "id": "R-1"
+     }
+    },
+    {
+     "type": "call",
+     "name": "erase_data",
+     "args": {
+      "id": "R-1"
+     }
+    },
+    {
+     "type": "call",
+     "name": "check_legal_hold",
+     "args": {
+      "id": "R-2"
+     }
+    },
+    {
+     "type": "call",
+     "name": "refuse",
+     "args": {
+      "id": "R-2",
+      "citation": "*legal hold*"
+     }
+    },
+    {
+     "type": "call",
+     "name": "get_governing_law",
+     "args": {
+      "id": "R-3"
+     }
+    },
+    {
+     "type": "call",
+     "name": "check_transaction_need",
+     "args": {
+      "id": "R-3"
+     }
+    },
+    {
+     "type": "call",
+     "name": "refuse",
+     "args": {
+      "id": "R-3",
+      "citation": "*transaction*"
+     }
+    }
+   ],
+   "must_not_call": [
+    {
+     "name": "erase_data",
+     "args": {
+      "id": "R-2"
+     }
+    },
+    {
+     "name": "erase_data",
+     "args": {
+      "id": "R-3"
+     }
+    },
+    "erase_all",
+    "refuse_all",
+    "anonymize_instead"
+   ],
+   "faults": [
+    {
+     "on_call": "get_governing_law",
+     "type": "transient",
+     "status_code": 503,
+     "clears_after": 1
+    }
+   ],
+   "trap": {
+    "note": "R-1 and R-2 are the SAME law (GDPR) with opposite outcomes due to legal-hold. R-3 (CCPA) refuses for a different reason (active transaction). erase_all ignores legal holds (spoliation risk); refuse_all violates R-1's valid erasure right."
+   },
+   "rubric": {
+    "success_definition": "Per-request law + exception checked; only R-1 erased; refusals cite the specific exception.",
+    "partial_credit": false
+   }
+  },
+  {
+   "id": "md_lg_nda_term_by_type",
+   "category": "agent_loop",
+   "max_steps": 17,
+   "max_recovery": 2,
+   "prompt": "Review NDA survival clauses in 3 agreements. Trade-secret obligations survive indefinitely; ordinary-confidential-info obligations are capped (jurisdiction default 3-5 years); if the clause says 'perpetual' for ORDINARY info, flag NEEDS_NARROWING. Discover info-type + clause term per agreement. Agreements: A-1, A-2, A-3.",
+   "world_state": {
+    "A-1": {
+     "info": "trade_secret",
+     "term": "perpetual"
+    },
+    "A-2": {
+     "info": "ordinary",
+     "term": "perpetual"
+    },
+    "A-3": {
+     "info": "ordinary",
+     "term": "3yr"
+    }
+   },
+   "tools": [
+    {
+     "name": "get_agreement",
+     "params": {
+      "id": "string"
+     },
+     "returns_fields": [
+      "info"
+     ]
+    },
+    {
+     "name": "classify_info_type",
+     "params": {
+      "id": "string"
+     }
+    },
+    {
+     "name": "get_clause_term",
+     "params": {
+      "id": "string"
+     },
+     "returns_fields": [
+      "term"
+     ]
+    },
+    {
+     "name": "record_finding",
+     "params": {
+      "id": "string",
+      "verdict": "string"
+     },
+     "returns_entity": false
+    }
+   ],
+   "decoy_tools": [
+    {
+     "name": "approve_all",
+     "params": {}
+    },
+    {
+     "name": "void_all_perpetual",
+     "params": {}
+    },
+    {
+     "name": "auto_sign",
+     "params": {
+      "id": "string"
+     }
+    }
+   ],
+   "expected_calls": [
+    {
+     "type": "call",
+     "name": "get_agreement",
+     "args": {
+      "id": "A-1"
+     }
+    },
+    {
+     "type": "call",
+     "name": "record_finding",
+     "args": {
+      "id": "A-1",
+      "verdict": "OK"
+     }
+    },
+    {
+     "type": "call",
+     "name": "get_agreement",
+     "args": {
+      "id": "A-2"
+     }
+    },
+    {
+     "type": "call",
+     "name": "get_clause_term",
+     "args": {
+      "id": "A-2"
+     }
+    },
+    {
+     "type": "call",
+     "name": "record_finding",
+     "args": {
+      "id": "A-2",
+      "verdict": "NEEDS_NARROWING"
+     }
+    },
+    {
+     "type": "call",
+     "name": "get_agreement",
+     "args": {
+      "id": "A-3"
+     }
+    },
+    {
+     "type": "call",
+     "name": "record_finding",
+     "args": {
+      "id": "A-3",
+      "verdict": "OK"
+     }
+    }
+   ],
+   "must_not_call": [
+    {
+     "name": "record_finding",
+     "args": {
+      "id": "A-1",
+      "verdict": "NEEDS_NARROWING"
+     }
+    },
+    "approve_all",
+    "void_all_perpetual",
+    "auto_sign"
+   ],
+   "faults": [
+    {
+     "on_call": "classify_info_type",
+     "type": "transient",
+     "status_code": 503,
+     "clears_after": 1
+    }
+   ],
+   "trap": {
+    "note": "A-1 and A-2 are both 'perpetual' but opposite verdicts: perpetual is fine for trade secrets, over-broad for ordinary info. void_all_perpetual wrongly flags the legitimate trade-secret clause. Info TYPE governs, not the word 'perpetual'."
+   },
+   "rubric": {
+    "success_definition": "Info-type classified; perpetual OK only for trade secrets; A-2 narrowed; no approve/void-all.",
+    "partial_credit": false
+   }
+  },
+  {
+   "id": "md_lg_evidence_privilege",
+   "category": "agent_loop",
+   "max_steps": 18,
+   "max_recovery": 2,
+   "prompt": "Three documents are requested in discovery. Produce unless privileged: attorney-client privileged -> withhold+log on privilege log; work-product -> withhold unless substantial-need shown; non-privileged -> produce. Discover privilege type per doc. D-1 attorney-client, D-2 work-product no-need, D-3 non-privileged.",
+   "world_state": {
+    "D-1": {
+     "privilege": "attorney_client"
+    },
+    "D-2": {
+     "privilege": "work_product",
+     "substantial_need": false
+    },
+    "D-3": {
+     "privilege": "none"
+    }
+   },
+   "tools": [
+    {
+     "name": "get_doc",
+     "params": {
+      "id": "string"
+     },
+     "returns_fields": [
+      "privilege"
+     ]
+    },
+    {
+     "name": "classify_privilege",
+     "params": {
+      "id": "string"
+     }
+    },
+    {
+     "name": "check_substantial_need",
+     "params": {
+      "id": "string"
+     },
+     "returns_fields": [
+      "substantial_need"
+     ]
+    },
+    {
+     "name": "produce",
+     "params": {
+      "id": "string"
+     },
+     "returns_entity": false
+    },
+    {
+     "name": "withhold_log",
+     "params": {
+      "id": "string",
+      "basis": "string"
+     },
+     "returns_entity": false
+    }
+   ],
+   "decoy_tools": [
+    {
+     "name": "produce_all",
+     "params": {}
+    },
+    {
+     "name": "withhold_all",
+     "params": {}
+    },
+    {
+     "name": "auto_waive_privilege",
+     "params": {
+      "id": "string"
+     }
+    }
+   ],
+   "expected_calls": [
+    {
+     "type": "call",
+     "name": "get_doc",
+     "args": {
+      "id": "D-1"
+     }
+    },
+    {
+     "type": "call",
+     "name": "withhold_log",
+     "args": {
+      "id": "D-1",
+      "basis": "*attorney*"
+     }
+    },
+    {
+     "type": "call",
+     "name": "get_doc",
+     "args": {
+      "id": "D-2"
+     }
+    },
+    {
+     "type": "call",
+     "name": "check_substantial_need",
+     "args": {
+      "id": "D-2"
+     }
+    },
+    {
+     "type": "call",
+     "name": "withhold_log",
+     "args": {
+      "id": "D-2",
+      "basis": "*work product*"
+     }
+    },
+    {
+     "type": "call",
+     "name": "get_doc",
+     "args": {
+      "id": "D-3"
+     }
+    },
+    {
+     "type": "call",
+     "name": "produce",
+     "args": {
+      "id": "D-3"
+     }
+    }
+   ],
+   "must_not_call": [
+    {
+     "name": "produce",
+     "args": {
+      "id": "D-1"
+     }
+    },
+    {
+     "name": "produce",
+     "args": {
+      "id": "D-2"
+     }
+    },
+    "produce_all",
+    "withhold_all",
+    "auto_waive_privilege"
+   ],
+   "faults": [
+    {
+     "on_call": "classify_privilege",
+     "type": "transient",
+     "status_code": 429,
+     "clears_after": 2
+    }
+   ],
+   "trap": {
+    "note": "produce_all waives privilege (malpractice); withhold_all illegally withholds D-3. D-2 work-product turns on the hidden substantial-need test. Three docs, three correct handlings."
+   },
+   "rubric": {
+    "success_definition": "Privilege classified; AC withheld+logged, work-product withheld (no need), non-priv produced; no produce/withhold-all.",
+    "partial_credit": false
+   }
+  }
+ ]
 }

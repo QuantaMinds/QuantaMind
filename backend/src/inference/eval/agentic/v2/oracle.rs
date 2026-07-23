@@ -430,6 +430,12 @@ fn task_semantic_findings(task: &ToolTask) -> Vec<SemanticFinding> {
                 }
             }
             let Some(s) = val.as_str() else { continue };
+            // A value that is itself a world_state entity id is exempt: entity ids MUST
+            // appear in the prompt (reachability), so id-shaped values ("structuring
+            // partner: W-1") adjacent to a sibling id in an enumeration are not leaks.
+            if ws.contains_key(s) {
+                continue;
+            }
             if s.len() >= 3 && value_near_entity(entity, s) {
                 push(
                     SemanticFindingKind::PromptLeakedFact,

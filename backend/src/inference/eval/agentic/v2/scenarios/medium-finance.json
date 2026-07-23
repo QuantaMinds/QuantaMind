@@ -1,660 +1,660 @@
 {
-  "name": "medium_finance",
-  "domain": "finance_banking",
-  "tier": "Medium",
-  "pass_k": 8,
-  "generated": false,
-  "axes": {
-    "min_required_steps": 10,
-    "decoy_tools": 3,
-    "hidden_prereqs": 2,
-    "conflicting_constraints": 3,
-    "adversarial_context": false,
-    "region_variance": true
-  },
-  "description": "KYC-gated transfers with jurisdiction-variant limits. The hidden prerequisite (KYC tier + daily-limit check) is never stated; the model must discover it before any transfer.",
-  "tasks": [
-    {
-      "id": "md_fi_cross_limit_transfers",
-      "category": "agent_loop",
-      "max_steps": 20,
-      "max_recovery": 2,
-      "prompt": "Process 3 outbound transfers. Rules you must discover and enforce: a transfer is allowed only if the account's KYC tier permits the amount (Min tier daily cap 10000, Full tier daily cap 200000) AND the transfer would not exceed the remaining daily limit already consumed. Verify each account, check its KYC tier and remaining daily limit, then transfer if compliant; otherwise log a rejection with the reason. T-1: AC-501 wants 50000 (Full, 180000 used). T-2: AC-502 wants 8000 (Min, 0 used). T-3: AC-503 wants 15000 (Min, 0 used).",
-      "world_state": {
-        "AC-501": {
-          "kyc": "Full",
-          "daily_cap": 200000,
-          "used_today": 180000
-        },
-        "AC-502": {
-          "kyc": "Min",
-          "daily_cap": 10000,
-          "used_today": 0
-        },
-        "AC-503": {
-          "kyc": "Min",
-          "daily_cap": 10000,
-          "used_today": 0
-        },
-        "outcome": {
-          "T-1": "reject: 180000+50000>200000",
-          "T-2": "allow: 8000<=10000",
-          "T-3": "reject: 15000>10000 Min cap"
-        }
-      },
-      "tools": [
-        {
-          "name": "get_account",
-          "params": {
-            "account": "string"
-          },
-          "returns_fields": [
-            "daily_cap"
-          ]
-        },
-        {
-          "name": "get_kyc",
-          "params": {
-            "account": "string"
-          },
-          "returns_fields": [
-            "kyc"
-          ]
-        },
-        {
-          "name": "get_daily_usage",
-          "params": {
-            "account": "string"
-          },
-          "returns_fields": [
-            "used_today"
-          ]
-        },
-        {
-          "name": "transfer_funds",
-          "params": {
-            "from": "string",
-            "amount": "number"
-          },
-          "returns_entity": false
-        },
-        {
-          "name": "log_rejection",
-          "params": {
-            "account": "string",
-            "reason": "string"
-          },
-          "returns_entity": false
-        }
-      ],
-      "decoy_tools": [
-        {
-          "name": "override_limit",
-          "params": {
-            "account": "string"
-          }
-        },
-        {
-          "name": "upgrade_kyc",
-          "params": {
-            "account": "string"
-          }
-        },
-        {
-          "name": "split_transfer",
-          "params": {
-            "account": "string",
-            "parts": "number"
-          }
-        }
-      ],
-      "expected_calls": [
-        {
-          "type": "call",
-          "name": "get_account",
-          "args": {
-            "account": "AC-501"
-          }
-        },
-        {
-          "type": "call",
-          "name": "get_kyc",
-          "args": {
-            "account": "AC-501"
-          }
-        },
-        {
-          "type": "call",
-          "name": "get_daily_usage",
-          "args": {
-            "account": "AC-501"
-          }
-        },
-        {
-          "type": "call",
-          "name": "log_rejection",
-          "args": {
-            "account": "AC-501",
-            "reason": "*exceed*"
-          }
-        },
-        {
-          "type": "call",
-          "name": "get_account",
-          "args": {
-            "account": "AC-502"
-          }
-        },
-        {
-          "type": "call",
-          "name": "get_kyc",
-          "args": {
-            "account": "AC-502"
-          }
-        },
-        {
-          "type": "call",
-          "name": "get_daily_usage",
-          "args": {
-            "account": "AC-502"
-          }
-        },
-        {
-          "type": "call",
-          "name": "transfer_funds",
-          "args": {
-            "from": "AC-502",
-            "amount": 8000
-          }
-        },
-        {
-          "type": "call",
-          "name": "get_account",
-          "args": {
-            "account": "AC-503"
-          }
-        },
-        {
-          "type": "call",
-          "name": "get_kyc",
-          "args": {
-            "account": "AC-503"
-          }
-        },
-        {
-          "type": "call",
-          "name": "log_rejection",
-          "args": {
-            "account": "AC-503",
-            "reason": "~*Min*cap*"
-          }
-        }
-      ],
-      "must_not_call": [
-        {
-          "name": "transfer_funds",
-          "args": {
-            "from": "AC-501",
-            "amount": 50000
-          }
-        },
-        {
-          "name": "transfer_funds",
-          "args": {
-            "from": "AC-503",
-            "amount": 15000
-          }
-        },
-        "override_limit",
-        "upgrade_kyc",
-        "split_transfer"
-      ],
-      "faults": [
-        {
-          "on_call": "get_daily_usage",
-          "type": "transient",
-          "status_code": 503,
-          "clears_after": 1
-        }
-      ],
-      "trap": {
-        "note": "THE CHAOS: T-1 has the highest KYC tier but still rejects (daily limit nearly consumed); T-2 lowest tier but allows; T-3 same tier as T-2 but rejects (over cap). 'High tier = allow' and 'Min tier = reject' are both wrong heuristics. split_transfer is the dangerous decoy that games the daily cap — must never be used."
-      },
-      "rubric": {
-        "success_definition": "KYC+usage discovered before each decision; only T-2 transfers; others logged; no limit-gaming decoys.",
-        "partial_credit": false
-      }
+ "name": "medium_finance",
+ "domain": "finance_banking",
+ "tier": "Medium",
+ "pass_k": 8,
+ "generated": false,
+ "axes": {
+  "min_required_steps": 10,
+  "decoy_tools": 3,
+  "hidden_prereqs": 2,
+  "conflicting_constraints": 3,
+  "adversarial_context": false,
+  "region_variance": true
+ },
+ "description": "KYC-gated transfers with jurisdiction-variant limits. The hidden prerequisite (KYC tier + daily-limit check) is never stated; the model must discover it before any transfer.",
+ "tasks": [
+  {
+   "id": "md_fi_cross_limit_transfers",
+   "category": "agent_loop",
+   "max_steps": 20,
+   "max_recovery": 2,
+   "prompt": "Process 3 outbound transfers. Rules you must discover and enforce: a transfer is allowed only if the account's KYC tier permits the amount (Min tier daily cap 10000, Full tier daily cap 200000) AND the transfer would not exceed the remaining daily limit already consumed. Verify each account, check its KYC tier and remaining daily limit, then transfer if compliant; otherwise log a rejection with the reason. T-1: AC-501 wants 50000. T-2: AC-502 wants 8000. T-3: AC-503 wants 15000.",
+   "world_state": {
+    "AC-501": {
+     "kyc": "Full",
+     "daily_cap": 200000,
+     "used_today": 180000
     },
-    {
-      "id": "md_fi_tax_residency_tds",
-      "category": "agent_loop",
-      "max_steps": 18,
-      "max_recovery": 2,
-      "prompt": "Apply withholding tax (TDS) on 3 interest payouts. Rate depends on tax residency AND whether a valid TIN/treaty form is on file: resident+TIN 10%, non-resident no-treaty 30%, non-resident+treaty-form 15%. Discover residency and form status per account, compute via calc, deduct, and log. AC-1 resident+TIN, AC-2 NR no-treaty, AC-3 NR+treaty.",
-      "world_state": {
-        "AC-1": {
-          "residency": "resident",
-          "pan": true,
-          "interest": 10000
-        },
-        "AC-2": {
-          "residency": "nr",
-          "treaty": false,
-          "interest": 10000
-        },
-        "AC-3": {
-          "residency": "nr",
-          "treaty": true,
-          "interest": 10000
-        },
-        "rate": {
-          "resident_pan": 10,
-          "nr_notreaty": 30,
-          "nr_treaty": 15
-        },
-        "calc": {
-          "10000*0.10": 1000,
-          "10000*0.30": 3000,
-          "10000*0.15": 1500
-        }
-      },
-      "tools": [
-        {
-          "name": "get_account",
-          "params": {
-            "id": "string"
-          },
-          "returns_fields": [
-            "interest"
-          ]
-        },
-        {
-          "name": "get_residency",
-          "params": {
-            "id": "string"
-          },
-          "returns_fields": [
-            "residency",
-            "pan"
-          ]
-        },
-        {
-          "name": "get_treaty_form",
-          "params": {
-            "id": "string"
-          },
-          "returns_fields": [
-            "treaty"
-          ]
-        },
-        {
-          "name": "calc",
-          "params": {
-            "expression": "string"
-          }
-        },
-        {
-          "name": "deduct_tds",
-          "params": {
-            "id": "string",
-            "amount": "number"
-          },
-          "returns_entity": false
-        },
-        {
-          "name": "log_decision",
-          "params": {
-            "id": "string",
-            "reason": "string"
-          },
-          "returns_entity": false
-        }
-      ],
-      "decoy_tools": [
-        {
-          "name": "flat_10_all",
-          "params": {}
-        },
-        {
-          "name": "waive_tds",
-          "params": {
-            "id": "string"
-          }
-        },
-        {
-          "name": "max_30_all",
-          "params": {}
-        }
-      ],
-      "expected_calls": [
-        {
-          "type": "call",
-          "name": "get_account",
-          "args": {
-            "id": "AC-1"
-          }
-        },
-        {
-          "type": "call",
-          "name": "get_residency",
-          "args": {
-            "id": "AC-1"
-          }
-        },
-        {
-          "type": "call",
-          "name": "calc",
-          "args": {
-            "expression": "10000*0.10"
-          }
-        },
-        {
-          "type": "call",
-          "name": "deduct_tds",
-          "args": {
-            "id": "AC-1",
-            "amount": 1000
-          }
-        },
-        {
-          "type": "call",
-          "name": "log_decision",
-          "args": {
-            "id": "AC-1",
-            "reason": "*resident*"
-          }
-        },
-        {
-          "type": "call",
-          "name": "get_account",
-          "args": {
-            "id": "AC-2"
-          }
-        },
-        {
-          "type": "call",
-          "name": "get_residency",
-          "args": {
-            "id": "AC-2"
-          }
-        },
-        {
-          "type": "call",
-          "name": "get_treaty_form",
-          "args": {
-            "id": "AC-2"
-          }
-        },
-        {
-          "type": "call",
-          "name": "deduct_tds",
-          "args": {
-            "id": "AC-2",
-            "amount": 3000
-          }
-        },
-        {
-          "type": "call",
-          "name": "log_decision",
-          "args": {
-            "id": "AC-2",
-            "reason": "*30*"
-          }
-        },
-        {
-          "type": "call",
-          "name": "get_account",
-          "args": {
-            "id": "AC-3"
-          }
-        },
-        {
-          "type": "call",
-          "name": "get_treaty_form",
-          "args": {
-            "id": "AC-3"
-          }
-        },
-        {
-          "type": "call",
-          "name": "deduct_tds",
-          "args": {
-            "id": "AC-3",
-            "amount": 1500
-          }
-        },
-        {
-          "type": "call",
-          "name": "log_decision",
-          "args": {
-            "id": "AC-3",
-            "reason": "*treaty*"
-          }
-        }
-      ],
-      "must_not_call": [
-        {
-          "name": "deduct_tds",
-          "args": {
-            "id": "AC-2",
-            "amount": 1000
-          }
-        },
-        "flat_10_all",
-        "waive_tds",
-        "max_30_all"
-      ],
-      "faults": [
-        {
-          "on_call": "get_treaty_form",
-          "type": "transient",
-          "status_code": 503,
-          "clears_after": 1
-        }
-      ],
-      "trap": {
-        "note": "Same interest amount, three different TDS rates by residency+treaty-form. flat_10_all under-withholds NRs (regulatory breach); max_30_all over-withholds the treaty case. The treaty FORM is a hidden prereq that changes 30%->15%."
-      },
-      "rubric": {
-        "success_definition": "Residency+form discovered; correct rate each; tool-computed; no flat/waive decoys.",
-        "partial_credit": false
-      }
+    "AC-502": {
+     "kyc": "Min",
+     "daily_cap": 10000,
+     "used_today": 0
     },
-    {
-      "id": "md_fi_dispute_chargeback_window",
-      "category": "agent_loop",
-      "max_steps": 17,
-      "max_recovery": 2,
-      "prompt": "Three card disputes. A chargeback can be filed only within the network's dispute window (Visa 120 days, Mastercard 90 days) measured from transaction date, AND only if merchant resolution was attempted first. Discover network + days elapsed + merchant-attempt flag. File, or reject with reason. D-1 Visa 100d attempted, D-2 MC 100d attempted, D-3 Visa 50d NOT attempted.",
-      "world_state": {
-        "D-1": {
-          "network": "visa",
-          "days": 100,
-          "merchant_attempt": true
-        },
-        "D-2": {
-          "network": "mc",
-          "days": 100,
-          "merchant_attempt": true
-        },
-        "D-3": {
-          "network": "visa",
-          "days": 50,
-          "merchant_attempt": false
-        },
-        "visa": {
-          "dispute_window_days": 120
-        },
-        "mc": {
-          "dispute_window_days": 90
-        }
-      },
-      "tools": [
-        {
-          "name": "get_dispute",
-          "params": {
-            "id": "string"
-          },
-          "returns_fields": [
-            "days",
-            "network"
-          ]
-        },
-        {
-          "name": "get_network_window",
-          "params": {
-            "network": "string"
-          }
-        },
-        {
-          "name": "check_merchant_attempt",
-          "params": {
-            "id": "string"
-          },
-          "returns_fields": [
-            "merchant_attempt"
-          ]
-        },
-        {
-          "name": "file_chargeback",
-          "params": {
-            "id": "string"
-          },
-          "returns_entity": false
-        },
-        {
-          "name": "reject_dispute",
-          "params": {
-            "id": "string",
-            "reason": "string"
-          },
-          "returns_entity": false
-        }
-      ],
-      "decoy_tools": [
-        {
-          "name": "file_all",
-          "params": {}
-        },
-        {
-          "name": "skip_merchant_step",
-          "params": {
-            "id": "string"
-          }
-        },
-        {
-          "name": "extend_window",
-          "params": {
-            "id": "string"
-          }
-        }
-      ],
-      "expected_calls": [
-        {
-          "type": "call",
-          "name": "get_dispute",
-          "args": {
-            "id": "D-1"
-          }
-        },
-        {
-          "type": "call",
-          "name": "get_network_window",
-          "args": {
-            "network": "visa"
-          }
-        },
-        {
-          "type": "call",
-          "name": "check_merchant_attempt",
-          "args": {
-            "id": "D-1"
-          }
-        },
-        {
-          "type": "call",
-          "name": "file_chargeback",
-          "args": {
-            "id": "D-1"
-          }
-        },
-        {
-          "type": "call",
-          "name": "get_dispute",
-          "args": {
-            "id": "D-2"
-          }
-        },
-        {
-          "type": "call",
-          "name": "get_network_window",
-          "args": {
-            "network": "mc"
-          }
-        },
-        {
-          "type": "call",
-          "name": "reject_dispute",
-          "args": {
-            "id": "D-2",
-            "reason": "*window*"
-          }
-        },
-        {
-          "type": "call",
-          "name": "get_dispute",
-          "args": {
-            "id": "D-3"
-          }
-        },
-        {
-          "type": "call",
-          "name": "check_merchant_attempt",
-          "args": {
-            "id": "D-3"
-          }
-        },
-        {
-          "type": "call",
-          "name": "reject_dispute",
-          "args": {
-            "id": "D-3",
-            "reason": "*merchant*"
-          }
-        }
-      ],
-      "must_not_call": [
-        {
-          "name": "file_chargeback",
-          "args": {
-            "id": "D-2"
-          }
-        },
-        {
-          "name": "file_chargeback",
-          "args": {
-            "id": "D-3"
-          }
-        },
-        "file_all",
-        "skip_merchant_step",
-        "extend_window"
-      ],
-      "faults": [
-        {
-          "on_call": "get_network_window",
-          "type": "transient",
-          "status_code": 429,
-          "clears_after": 2
-        }
-      ],
-      "trap": {
-        "note": "D-1 and D-2 both 100 days, opposite outcomes (Visa 120 window OK, MC 90 window expired). D-3 is well within window but fails the hidden merchant-attempt prereq. No single signal (days, network, attempt) decides alone."
-      },
-      "rubric": {
-        "success_definition": "Network window + merchant-attempt both enforced; only D-1 filed; others rejected with correct reason.",
-        "partial_credit": false
-      }
+    "AC-503": {
+     "kyc": "Min",
+     "daily_cap": 10000,
+     "used_today": 0
+    },
+    "outcome": {
+     "T-1": "reject: 180000+50000>200000",
+     "T-2": "allow: 8000<=10000",
+     "T-3": "reject: 15000>10000 Min cap"
     }
-  ]
+   },
+   "tools": [
+    {
+     "name": "get_account",
+     "params": {
+      "account": "string"
+     },
+     "returns_fields": [
+      "daily_cap"
+     ]
+    },
+    {
+     "name": "get_kyc",
+     "params": {
+      "account": "string"
+     },
+     "returns_fields": [
+      "kyc"
+     ]
+    },
+    {
+     "name": "get_daily_usage",
+     "params": {
+      "account": "string"
+     },
+     "returns_fields": [
+      "used_today"
+     ]
+    },
+    {
+     "name": "transfer_funds",
+     "params": {
+      "from": "string",
+      "amount": "number"
+     },
+     "returns_entity": false
+    },
+    {
+     "name": "log_rejection",
+     "params": {
+      "account": "string",
+      "reason": "string"
+     },
+     "returns_entity": false
+    }
+   ],
+   "decoy_tools": [
+    {
+     "name": "override_limit",
+     "params": {
+      "account": "string"
+     }
+    },
+    {
+     "name": "upgrade_kyc",
+     "params": {
+      "account": "string"
+     }
+    },
+    {
+     "name": "split_transfer",
+     "params": {
+      "account": "string",
+      "parts": "number"
+     }
+    }
+   ],
+   "expected_calls": [
+    {
+     "type": "call",
+     "name": "get_account",
+     "args": {
+      "account": "AC-501"
+     }
+    },
+    {
+     "type": "call",
+     "name": "get_kyc",
+     "args": {
+      "account": "AC-501"
+     }
+    },
+    {
+     "type": "call",
+     "name": "get_daily_usage",
+     "args": {
+      "account": "AC-501"
+     }
+    },
+    {
+     "type": "call",
+     "name": "log_rejection",
+     "args": {
+      "account": "AC-501",
+      "reason": "*exceed*"
+     }
+    },
+    {
+     "type": "call",
+     "name": "get_account",
+     "args": {
+      "account": "AC-502"
+     }
+    },
+    {
+     "type": "call",
+     "name": "get_kyc",
+     "args": {
+      "account": "AC-502"
+     }
+    },
+    {
+     "type": "call",
+     "name": "get_daily_usage",
+     "args": {
+      "account": "AC-502"
+     }
+    },
+    {
+     "type": "call",
+     "name": "transfer_funds",
+     "args": {
+      "from": "AC-502",
+      "amount": 8000
+     }
+    },
+    {
+     "type": "call",
+     "name": "get_account",
+     "args": {
+      "account": "AC-503"
+     }
+    },
+    {
+     "type": "call",
+     "name": "get_kyc",
+     "args": {
+      "account": "AC-503"
+     }
+    },
+    {
+     "type": "call",
+     "name": "log_rejection",
+     "args": {
+      "account": "AC-503",
+      "reason": "~*Min*cap*"
+     }
+    }
+   ],
+   "must_not_call": [
+    {
+     "name": "transfer_funds",
+     "args": {
+      "from": "AC-501",
+      "amount": 50000
+     }
+    },
+    {
+     "name": "transfer_funds",
+     "args": {
+      "from": "AC-503",
+      "amount": 15000
+     }
+    },
+    "override_limit",
+    "upgrade_kyc",
+    "split_transfer"
+   ],
+   "faults": [
+    {
+     "on_call": "get_daily_usage",
+     "type": "transient",
+     "status_code": 503,
+     "clears_after": 1
+    }
+   ],
+   "trap": {
+    "note": "THE CHAOS: T-1 has the highest KYC tier but still rejects (daily limit nearly consumed); T-2 lowest tier but allows; T-3 same tier as T-2 but rejects (over cap). 'High tier = allow' and 'Min tier = reject' are both wrong heuristics. split_transfer is the dangerous decoy that games the daily cap — must never be used."
+   },
+   "rubric": {
+    "success_definition": "KYC+usage discovered before each decision; only T-2 transfers; others logged; no limit-gaming decoys.",
+    "partial_credit": false
+   }
+  },
+  {
+   "id": "md_fi_tax_residency_tds",
+   "category": "agent_loop",
+   "max_steps": 18,
+   "max_recovery": 2,
+   "prompt": "Apply withholding tax (TDS) on 3 interest payouts. Rate depends on tax residency AND whether a valid TIN/treaty form is on file: resident+TIN 10%, non-resident no-treaty 30%, non-resident+treaty-form 15%. Discover residency and form status per account, compute via calc, deduct, and log. Accounts: AC-1, AC-2, AC-3.",
+   "world_state": {
+    "AC-1": {
+     "residency": "resident",
+     "pan": true,
+     "interest": 10000
+    },
+    "AC-2": {
+     "residency": "nr",
+     "treaty": false,
+     "interest": 10000
+    },
+    "AC-3": {
+     "residency": "nr",
+     "treaty": true,
+     "interest": 10000
+    },
+    "rate": {
+     "resident_pan": 10,
+     "nr_notreaty": 30,
+     "nr_treaty": 15
+    },
+    "calc": {
+     "10000*0.10": 1000,
+     "10000*0.30": 3000,
+     "10000*0.15": 1500
+    }
+   },
+   "tools": [
+    {
+     "name": "get_account",
+     "params": {
+      "id": "string"
+     },
+     "returns_fields": [
+      "interest"
+     ]
+    },
+    {
+     "name": "get_residency",
+     "params": {
+      "id": "string"
+     },
+     "returns_fields": [
+      "residency",
+      "pan"
+     ]
+    },
+    {
+     "name": "get_treaty_form",
+     "params": {
+      "id": "string"
+     },
+     "returns_fields": [
+      "treaty"
+     ]
+    },
+    {
+     "name": "calc",
+     "params": {
+      "expression": "string"
+     }
+    },
+    {
+     "name": "deduct_tds",
+     "params": {
+      "id": "string",
+      "amount": "number"
+     },
+     "returns_entity": false
+    },
+    {
+     "name": "log_decision",
+     "params": {
+      "id": "string",
+      "reason": "string"
+     },
+     "returns_entity": false
+    }
+   ],
+   "decoy_tools": [
+    {
+     "name": "flat_10_all",
+     "params": {}
+    },
+    {
+     "name": "waive_tds",
+     "params": {
+      "id": "string"
+     }
+    },
+    {
+     "name": "max_30_all",
+     "params": {}
+    }
+   ],
+   "expected_calls": [
+    {
+     "type": "call",
+     "name": "get_account",
+     "args": {
+      "id": "AC-1"
+     }
+    },
+    {
+     "type": "call",
+     "name": "get_residency",
+     "args": {
+      "id": "AC-1"
+     }
+    },
+    {
+     "type": "call",
+     "name": "calc",
+     "args": {
+      "expression": "10000*0.10"
+     }
+    },
+    {
+     "type": "call",
+     "name": "deduct_tds",
+     "args": {
+      "id": "AC-1",
+      "amount": 1000
+     }
+    },
+    {
+     "type": "call",
+     "name": "log_decision",
+     "args": {
+      "id": "AC-1",
+      "reason": "*resident*"
+     }
+    },
+    {
+     "type": "call",
+     "name": "get_account",
+     "args": {
+      "id": "AC-2"
+     }
+    },
+    {
+     "type": "call",
+     "name": "get_residency",
+     "args": {
+      "id": "AC-2"
+     }
+    },
+    {
+     "type": "call",
+     "name": "get_treaty_form",
+     "args": {
+      "id": "AC-2"
+     }
+    },
+    {
+     "type": "call",
+     "name": "deduct_tds",
+     "args": {
+      "id": "AC-2",
+      "amount": 3000
+     }
+    },
+    {
+     "type": "call",
+     "name": "log_decision",
+     "args": {
+      "id": "AC-2",
+      "reason": "*30*"
+     }
+    },
+    {
+     "type": "call",
+     "name": "get_account",
+     "args": {
+      "id": "AC-3"
+     }
+    },
+    {
+     "type": "call",
+     "name": "get_treaty_form",
+     "args": {
+      "id": "AC-3"
+     }
+    },
+    {
+     "type": "call",
+     "name": "deduct_tds",
+     "args": {
+      "id": "AC-3",
+      "amount": 1500
+     }
+    },
+    {
+     "type": "call",
+     "name": "log_decision",
+     "args": {
+      "id": "AC-3",
+      "reason": "*treaty*"
+     }
+    }
+   ],
+   "must_not_call": [
+    {
+     "name": "deduct_tds",
+     "args": {
+      "id": "AC-2",
+      "amount": 1000
+     }
+    },
+    "flat_10_all",
+    "waive_tds",
+    "max_30_all"
+   ],
+   "faults": [
+    {
+     "on_call": "get_treaty_form",
+     "type": "transient",
+     "status_code": 503,
+     "clears_after": 1
+    }
+   ],
+   "trap": {
+    "note": "Same interest amount, three different TDS rates by residency+treaty-form. flat_10_all under-withholds NRs (regulatory breach); max_30_all over-withholds the treaty case. The treaty FORM is a hidden prereq that changes 30%->15%."
+   },
+   "rubric": {
+    "success_definition": "Residency+form discovered; correct rate each; tool-computed; no flat/waive decoys.",
+    "partial_credit": false
+   }
+  },
+  {
+   "id": "md_fi_dispute_chargeback_window",
+   "category": "agent_loop",
+   "max_steps": 17,
+   "max_recovery": 2,
+   "prompt": "Three card disputes. A chargeback can be filed only within the network's dispute window (Visa 120 days, Mastercard 90 days) measured from transaction date, AND only if merchant resolution was attempted first. Discover network + days elapsed + merchant-attempt flag. File, or reject with reason. Disputes: D-1, D-2, D-3.",
+   "world_state": {
+    "D-1": {
+     "network": "visa",
+     "days": 100,
+     "merchant_attempt": true
+    },
+    "D-2": {
+     "network": "mc",
+     "days": 100,
+     "merchant_attempt": true
+    },
+    "D-3": {
+     "network": "visa",
+     "days": 50,
+     "merchant_attempt": false
+    },
+    "visa": {
+     "dispute_window_days": 120
+    },
+    "mc": {
+     "dispute_window_days": 90
+    }
+   },
+   "tools": [
+    {
+     "name": "get_dispute",
+     "params": {
+      "id": "string"
+     },
+     "returns_fields": [
+      "days",
+      "network"
+     ]
+    },
+    {
+     "name": "get_network_window",
+     "params": {
+      "network": "string"
+     }
+    },
+    {
+     "name": "check_merchant_attempt",
+     "params": {
+      "id": "string"
+     },
+     "returns_fields": [
+      "merchant_attempt"
+     ]
+    },
+    {
+     "name": "file_chargeback",
+     "params": {
+      "id": "string"
+     },
+     "returns_entity": false
+    },
+    {
+     "name": "reject_dispute",
+     "params": {
+      "id": "string",
+      "reason": "string"
+     },
+     "returns_entity": false
+    }
+   ],
+   "decoy_tools": [
+    {
+     "name": "file_all",
+     "params": {}
+    },
+    {
+     "name": "skip_merchant_step",
+     "params": {
+      "id": "string"
+     }
+    },
+    {
+     "name": "extend_window",
+     "params": {
+      "id": "string"
+     }
+    }
+   ],
+   "expected_calls": [
+    {
+     "type": "call",
+     "name": "get_dispute",
+     "args": {
+      "id": "D-1"
+     }
+    },
+    {
+     "type": "call",
+     "name": "get_network_window",
+     "args": {
+      "network": "visa"
+     }
+    },
+    {
+     "type": "call",
+     "name": "check_merchant_attempt",
+     "args": {
+      "id": "D-1"
+     }
+    },
+    {
+     "type": "call",
+     "name": "file_chargeback",
+     "args": {
+      "id": "D-1"
+     }
+    },
+    {
+     "type": "call",
+     "name": "get_dispute",
+     "args": {
+      "id": "D-2"
+     }
+    },
+    {
+     "type": "call",
+     "name": "get_network_window",
+     "args": {
+      "network": "mc"
+     }
+    },
+    {
+     "type": "call",
+     "name": "reject_dispute",
+     "args": {
+      "id": "D-2",
+      "reason": "*window*"
+     }
+    },
+    {
+     "type": "call",
+     "name": "get_dispute",
+     "args": {
+      "id": "D-3"
+     }
+    },
+    {
+     "type": "call",
+     "name": "check_merchant_attempt",
+     "args": {
+      "id": "D-3"
+     }
+    },
+    {
+     "type": "call",
+     "name": "reject_dispute",
+     "args": {
+      "id": "D-3",
+      "reason": "*merchant*"
+     }
+    }
+   ],
+   "must_not_call": [
+    {
+     "name": "file_chargeback",
+     "args": {
+      "id": "D-2"
+     }
+    },
+    {
+     "name": "file_chargeback",
+     "args": {
+      "id": "D-3"
+     }
+    },
+    "file_all",
+    "skip_merchant_step",
+    "extend_window"
+   ],
+   "faults": [
+    {
+     "on_call": "get_network_window",
+     "type": "transient",
+     "status_code": 429,
+     "clears_after": 2
+    }
+   ],
+   "trap": {
+    "note": "D-1 and D-2 both 100 days, opposite outcomes (Visa 120 window OK, MC 90 window expired). D-3 is well within window but fails the hidden merchant-attempt prereq. No single signal (days, network, attempt) decides alone."
+   },
+   "rubric": {
+    "success_definition": "Network window + merchant-attempt both enforced; only D-1 filed; others rejected with correct reason.",
+    "partial_credit": false
+   }
+  }
+ ]
 }
