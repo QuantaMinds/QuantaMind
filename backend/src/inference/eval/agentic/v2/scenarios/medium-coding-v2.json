@@ -30,8 +30,8 @@
      "failing_test_file": "tests/test_round_paise.py",
      "result": "test_round_paise FAILS: round_paise(1.005) returned 100, expected 101 — amounts off by one paise on .5 boundaries"
     },
-    "test_round_paise": "def test_round_paise():\n    assert round_paise(1.005) == 101  # expects decimal quantize semantics, source must not use float round()",
-    "tests/test_round_paise.py": "def test_round_paise():\n    assert round_paise(1.005) == 101  # expects decimal quantize semantics, source must not use float round()",
+    "test_round_paise": "def test_round_paise():\n    assert round_paise(1.005) == 101  # expects Decimal ROUND_HALF_UP semantics (quantize or to_integral_value); source must not use float round()",
+    "tests/test_round_paise.py": "def test_round_paise():\n    assert round_paise(1.005) == 101  # expects Decimal ROUND_HALF_UP semantics (quantize or to_integral_value); source must not use float round()",
     "round_paise": "defined in payments/round.py; called from payments/invoice.py",
     "payments/round.py": "def round_paise(x):\n    return int(round(x * 100))  # float round() banker's-rounds .5 down — drops a paise"
    },
@@ -118,7 +118,7 @@
      "name": "write_file",
      "args": {
       "path": "payments/round.py",
-      "content": "*quantize*"
+      "content": "*ROUND_HALF_UP*"
      }
     },
     {
@@ -136,7 +136,7 @@
    ],
    "faults": [
     {
-     "on_call": "run_tests",
+     "on_call": "read_file",
      "type": "transient",
      "status_code": 503,
      "clears_after": 1
