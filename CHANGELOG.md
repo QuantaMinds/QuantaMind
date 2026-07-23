@@ -4,6 +4,26 @@ All notable changes to QuantaMind are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.2.4] — 2026-07-23
+
+CLI quality-of-life + eval-integrity release.
+
+### Added
+
+- **`--save-transcripts <dir>`** on `qm run`/`qm test` — every task's per-step trajectory (raw model output, injected tool results, timings) as JSONL, the same format the desktop app's trace store uses. Post-mortem failing runs straight from the CLI.
+- **Verdict line now shows `avg steps`**; every `--costs` row shows **`kv@peak`** — that task's own KV-cache size at its peak context (f16 baseline; dims-gated, `n/a` never a guess).
+- **Three new authoring validators** — prompt-leaked facts, cross-entity duplicate fields, faults on confirmation checkpoints — enforced everywhere a collection enters: `qm validate`, JSON import, MCP world validation, and the bundled-collection CI guards.
+- **`medium-coding-v2`**: the Medium coding collection re-authored so every checkpoint sits on the information-necessary path (the v1 defects made some tasks structurally unpassable; v1 stays bundled so saved runs keep resolving).
+
+### Changed
+
+- Suite-wide task de-leak: 15 tasks across 9 collections no longer state in the prompt the facts their checkpoints require discovering; two hard-coding faults re-keyed off confirmation calls. Verdicts on these collections are now honest capability signals.
+- The `qm-eval` GitHub Action defaults to `install: release` — prebuilt binary in seconds, no Rust toolchain (`install: source` remains, now building lean without GUI system deps).
+
+### macOS note (unsigned builds)
+
+Our macOS builds aren't Apple-signed yet. The **curl installer is unaffected** — use it. A browser-downloaded tarball gets quarantined and Gatekeeper blocks the binary; fix: `xattr -d com.apple.quarantine ./qm` (or right-click → Open). Integrity without Apple's stamp: every artifact is sha256-checksummed and carries a GitHub build attestation — `gh attestation verify <file> --owner QuantaMinds`.
+
 ## [0.2.3] — 2026-07-22
 
 First release of the headless `qm` CLI as **prebuilt binaries** — no Rust

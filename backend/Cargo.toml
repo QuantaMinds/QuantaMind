@@ -1,6 +1,6 @@
 [package]
 name = "quantamind"
-version = "0.2.3"
+version = "0.2.4"
 description = "QuantaMind — local LLM workspace"
 authors = ["quantamind-dev"]
 repository = "https://github.com/QuantaMinds/QuantaMind"
