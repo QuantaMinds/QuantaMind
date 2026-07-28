@@ -97,6 +97,16 @@ export const TaskTraceSchema = z.object({
 });
 export type TaskTrace = z.infer<typeof TaskTraceSchema>;
 
+/// One task's pass count at one rung across the swept positions (backend `TaskTally`).
+/// UNCAPPED (unlike `trace`), so the breakdown always covers every task — what lets a
+/// reader tell a broad collapse from one task breaking.
+export const TaskTallySchema = z.object({
+  task_id: z.string(),
+  passed: z.number().int(),
+  trials: z.number().int(),
+});
+export type TaskTally = z.infer<typeof TaskTallySchema>;
+
 /// One ladder rung (backend `CliffPoint`): requested vs VERIFIED depth, the
 /// worst-position composite, and the per-position breakdown.
 export const CliffRungSchema = z.object({
@@ -113,6 +123,8 @@ export const CliffRungSchema = z.object({
   per_depth: z.array(DepthScoreSchema),
   /// Per-task trace (system prompt + per-position outputs) for this rung, pass or fail.
   trace: z.array(TaskTraceSchema).default([]),
+  /// Per-task pass counts for this rung (uncapped). `default` — pre-field backends omit it.
+  by_task: z.array(TaskTallySchema).default([]),
 });
 export type CliffRung = z.infer<typeof CliffRungSchema>;
 
@@ -125,6 +137,9 @@ export const CliffReportSchema = z.object({
   /// The thinking-budget preset the probe ran under — present only for a thinking run,
   /// so a depth measured with a scratchpad is never conflated with one without.
   think_preset: ThinkPresetSchema.nullable().optional(),
+  /// The decoding temperature the probe ran at (0 = greedy default; >0 came from the
+  /// user's global params). Carried so a sampled depth is labeled as sampled.
+  temperature: z.number().nullable().optional(),
 });
 export type CliffReport = z.infer<typeof CliffReportSchema>;
 

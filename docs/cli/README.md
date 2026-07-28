@@ -482,13 +482,24 @@ deepest rung's scratchpad, and the probe refuses up front (`[QM-THINKING-UNSUPPO
 when the model/server can't actually reason — a preset must never silently no-op. The JSON report
 carries `think_preset` so a depth measured with a scratchpad is never conflated with one without.
 
-Output: one line per rung (`~N tok · accuracy X% (passed/trials)` — the tally shown only when
-measured) then a `STATUS:` line. A rung that would exceed the context window is dropped, never
+Output: one line per rung (`~N tok · accuracy X% (passed/trials over m tasks)` — the tally shown
+only when measured) plus, when a rung has failures, a `failures:` line naming each failing task
+with its per-task tally (so a one-task failure never reads as a broad collapse), then a `STATUS:`
+line. A rung that would exceed the context window is dropped, never
 scored (the verdict uses only real measurements).
 
 **Exit:** `0` no-cliff · `10` collapsed · `11` inconclusive (sample too small to resolve a cliff
 from noise — add tasks/repeats, don't trust a coin flip) · `20` broken baseline (fails at the
 smallest context — a tool-call failure, not a context limit) · `2`/`3` as usual.
+
+**The collapse verdict is statistically gated:** `collapsed` requires the ≥20pp point drop AND the
+drop's Wilson/Newcombe 95% interval excluding zero — a margin-sized drop the sample can't resolve
+exits `11`, never a coin-flip `10`. The `STATUS:` line carries the collapse rung's sample and
+Wilson interval ("11/15 over 5 tasks; Wilson 95%: 48–89%"), and when the failures concentrate in
+one task it appends a `low confidence` clause (exact exchangeability p + leave-one-task-out) —
+"collapse driven by that task — depth-general collapse NOT established" when removing it dissolves
+the verdict. A set `--temperature` is honored (params-first; greedy 0 is the default) and the
+report/output say so — sampled depths are never comparable with greedy ones.
 
 ## `validate` — prove the test before trusting it, and MCP worlds
 

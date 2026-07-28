@@ -1,4 +1,4 @@
-import type { TaskTrace } from "../../shared/ipc/eval/cliff";
+import type { TaskTally, TaskTrace } from "../../shared/ipc/eval/cliff";
 
 /// The cliff series the chart + read-out consume. The PADDING, ladder, needle
 /// sweep, and verify-and-adjust now live in the backend engine
@@ -16,6 +16,9 @@ export interface CliffPoint {
   /// Per-task trace (system prompt + per-position outputs) for this rung, pass or fail —
   /// surfaced per step via "View trace" so the user sees what the model saw and emitted.
   trace?: TaskTrace[];
+  /// Per-task pass counts for this rung (uncapped) — lets the table name WHICH tasks
+  /// drove a drop, so a one-task failure never reads as a broad collapse.
+  byTask?: TaskTally[];
 }
 
 /// Minimum baseline (unpadded, rung 0) composite for a probe to be a valid

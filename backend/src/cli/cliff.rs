@@ -68,11 +68,13 @@ pub fn cliff_exit(status: &CliffStatus) -> i32 {
 }
 
 /// Human render: one line per rung + the classified status (mirrors the Audit chart).
+/// A rung with failures names WHICH tasks failed (`by_task`), so a verdict driven by a
+/// single task is visible in the terminal, not only in the JSON.
 pub fn render_cliff(r: &CliffReport) -> String {
     let mut out = String::new();
     for (i, p) in r.points.iter().enumerate() {
         let tally = match (p.passed, p.trials) {
-            (Some(pass), Some(tr)) => format!("  ({pass}/{tr})"),
+            (Some(pass), Some(tr)) => format!("  ({pass}/{tr} over {} tasks)", p.by_task.len()),
             _ => String::new(), // sample size only when actually measured
         };
         let acc = p
@@ -80,16 +82,60 @@ pub fn render_cliff(r: &CliffReport) -> String {
             .map(|c| format!("accuracy {:>5.1}%{tally}", c * 100.0))
             .unwrap_or_else(|| "unmeasured".into());
         out.push_str(&format!("rung {}: ~{:>6} tok · {}\n", i + 1, p.verified_tokens, acc));
+        let failing: Vec<String> = p
+            .by_task
+            .iter()
+            .filter(|t| t.passed < t.trials)
+            .map(|t| format!("{} {}/{}", t.task_id, t.passed, t.trials))
+            .collect();
+        if !failing.is_empty() {
+            out.push_str(&format!("        failures: {}\n", failing.join(" · ")));
+        }
     }
     out.push_str(&match &r.status {
         CliffStatus::NoCliff { tested } => format!("STATUS: ✓ no cliff — accuracy maintained up to ≈{tested} tokens\n"),
-        CliffStatus::Collapsed { depth } => format!("STATUS: ✗ collapsed at ≈{depth} tokens\n"),
+        CliffStatus::Collapsed { depth, concentration } => {
+            let mut line = format!("STATUS: ✗ collapsed at ≈{depth} tokens");
+            // The collapse rung's Wilson 95% interval + sample, so the claim carries its
+            // own uncertainty (never a bare point estimate).
+            if let Some(p) = r.points.iter().find(|p| p.verified_tokens == *depth) {
+                if let (Some(pass), Some(tr)) = (p.passed, p.trials) {
+                    if let Some(w) = crate::inference::eval::cliff::stats::wilson_interval(pass, tr) {
+                        line.push_str(&format!(
+                            "  ({pass}/{tr} over {} tasks; Wilson 95%: {:.0}–{:.0}%)",
+                            p.by_task.len(),
+                            w.lo * 100.0,
+                            w.hi * 100.0
+                        ));
+                    }
+                }
+            }
+            line.push('\n');
+            if let Some(c) = concentration {
+                let verdict_note = if c.holds_without {
+                    "collapse driven by that task — depth-general collapse NOT established"
+                } else {
+                    "collapse persists without it"
+                };
+                line.push_str(&format!(
+                    "        low confidence — {} of {} failures from one task ({}, p≈{:.3}); {verdict_note}\n",
+                    c.task_failures,
+                    c.total_failures,
+                    c.task_id,
+                    c.p_value_milli as f64 / 1000.0
+                ));
+            }
+            line
+        }
         CliffStatus::Broken { tested } => format!("STATUS: ✗ broken baseline — failing at the smallest context (tested to ≈{tested})\n"),
         CliffStatus::Inconclusive { trials } => {
             format!("STATUS: ? inconclusive — {trials} trials/rung can't resolve a cliff from noise; add tasks or repeats\n")
         }
         CliffStatus::NotProbed => "STATUS: not probed\n".into(),
     });
+    if let Some(t) = r.temperature.filter(|t| *t > 0.0) {
+        out.push_str(&format!("        sampled at temperature {t} (from your params) — not comparable with greedy runs\n"));
+    }
     out
 }
 
@@ -155,6 +201,7 @@ pub async fn run_cliff_probe(opts: CliffOptions) -> AppResult<CliffOutcome> {
     if options.temperature.is_none() {
         options.temperature = Some(0.0);
     }
+    let options_temp = options.temperature;
     options.num_ctx = Some(needed_ctx);
 
     let cancel = CancellationToken::new();
@@ -204,5 +251,9 @@ pub async fn run_cliff_probe(opts: CliffOptions) -> AppResult<CliffOutcome> {
     };
     // `RunMode` is unused here (prompt-only probe) but kept on RunOptions for parity.
     let _ = RunMode::PromptBased;
+    let mut report = report;
+    // Stamp the decoding config the run actually used — greedy 0.0 unless the user's
+    // params set one (metric comparability: a sampled depth is labeled as sampled).
+    report.temperature = options_temp;
     Ok(CliffOutcome::Probed(report))
 }

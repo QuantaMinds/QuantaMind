@@ -20,7 +20,7 @@ fn cliff_path(dir: &Path, collection_id: &str) -> PathBuf {
 /// thing the old store ever recorded was a found collapse depth.
 fn status_from_value(v: &Value) -> Option<CliffStatus> {
     match v {
-        Value::Number(n) => n.as_u64().map(|d| CliffStatus::Collapsed { depth: d as u32 }),
+        Value::Number(n) => n.as_u64().map(|d| CliffStatus::Collapsed { depth: d as u32, concentration: None }),
         other => serde_json::from_value(other.clone()).ok(),
     }
 }

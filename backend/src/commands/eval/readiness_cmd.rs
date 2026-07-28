@@ -289,7 +289,7 @@ pub fn save_cliff_result(
         CliffStatus::Broken { tested }
     } else {
         match depth {
-            Some(d) => CliffStatus::Collapsed { depth: d },
+            Some(d) => CliffStatus::Collapsed { depth: d, concentration: None },
             None => CliffStatus::NoCliff { tested },
         }
     };
@@ -352,7 +352,16 @@ pub async fn run_context_cliff(
         }
         None => GenerateOptions::default(),
     };
-    options.temperature = Some(0.0);
+    // The probe starts from the user's GLOBAL params: a set temperature is honored
+    // (production parity — measure the config you deploy at; Miller's stated exception:
+    // studying the model AT a temperature is a legitimate purpose). Greedy 0 is the
+    // DEFAULT when unset, not a pin — same rule the CLI has always applied. The
+    // effective temperature is stamped on the report so a sampled depth is never
+    // conflated with a greedy one (metric comparability).
+    if options.temperature.is_none() {
+        options.temperature = Some(0.0);
+    }
+    let effective_temperature = options.temperature;
     let headroom = budget.headroom(max_tokens);
     let needed_ctx = max_tokens.saturating_add(headroom);
     if options.num_ctx.map_or(true, |c| c < needed_ctx) {
@@ -501,6 +510,12 @@ pub async fn run_context_cliff(
         };
         run_cliff_with(&turn, &model, &tasks, &source, &ladder, &DEFAULT_DEPTHS, needed_ctx, budget, &cancel, &mut on_rung, &mut on_step).await?
     };
+
+    // Stamp the decoding config the run actually used (greedy 0.0 unless the user's
+    // global params set one) — the report must label a sampled depth as sampled.
+    let mut report = report;
+    report.temperature = effective_temperature;
+    let report = report;
 
     // Persist the classified outcome (NotProbed is the absence of a record). A NATIVE cliff is
     // saved under a method-namespaced key so it never clobbers the prompt-based cliff the readiness
@@ -693,7 +708,7 @@ pub async fn assess_readiness(
         };
         let fits_in_vram = memory.as_ref().map(|m| m.fits);
         let vram_pressure = memory.as_ref().map(|m| m.pressure).unwrap_or(false);
-        let cliff = registry_get(&cliffs, &col.model).copied().unwrap_or_default();
+        let cliff = registry_get(&cliffs, &col.model).cloned().unwrap_or_default();
         // Real quant: the Ollama registry first, else parsed from the model name (a
         // GGUF/llama.cpp/MLX or offline-Ollama model) so the row can publish. Model-level —
         // shared across the column's per-path rows.

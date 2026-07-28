@@ -404,3 +404,73 @@ describe("thinking budget control", () => {
     expect(args[12]).toBe("deep"); // thinkPreset
   });
 });
+
+describe("per-task breakdown (by_task)", () => {
+  it("names the failing tasks under a rung's accuracy, with the task count", async () => {
+    const collapsed = {
+      ...rung(8845, 0.733),
+      passed: 11, trials: 15,
+      by_task: [
+        { task_id: "md_co_trace_root_cause", passed: 3, trials: 3 },
+        { task_id: "md_co_secret_rotation_by_svc", passed: 0, trials: 3 },
+        { task_id: "md_co_pii_log_redaction", passed: 2, trials: 3 },
+      ],
+    };
+    vi.mocked(runContextCliff).mockResolvedValue(
+      reportOf({ status: "Collapsed", depth: 8845 }, [rung(700, 1.0), collapsed], 700) as never,
+    );
+    render(<ContextCliffPanel />);
+    await waitFor(() => expect(screen.getByTestId("cliff-run")).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId("cliff-run"));
+
+    // The failing tasks — and ONLY those — are named on the collapse rung.
+    await waitFor(() => expect(screen.getByTestId("cliff-by-task-1")).toBeTruthy());
+    const line = screen.getByTestId("cliff-by-task-1");
+    expect(line).toHaveTextContent("md_co_secret_rotation_by_svc 0/3");
+    expect(line).toHaveTextContent("md_co_pii_log_redaction 2/3");
+    expect(line).not.toHaveTextContent("md_co_trace_root_cause");
+    // The clean rung shows no failure line.
+    expect(screen.queryByTestId("cliff-by-task-0")).toBeNull();
+  });
+});
+
+describe("concentration low-confidence labeling", () => {
+  it("carries the one-task clause on the read-out when the backend flags concentration", async () => {
+    vi.mocked(runContextCliff).mockResolvedValue(
+      reportOf(
+        {
+          status: "Collapsed",
+          depth: 8845,
+          concentration: {
+            task_id: "md_co_secret_rotation_by_svc",
+            task_failures: 3,
+            total_failures: 4,
+            p_value_milli: 44,
+            holds_without: true,
+          },
+        } as never,
+        [rung(700, 1.0), rung(8845, 0.733)],
+        700,
+      ) as never,
+    );
+    render(<ContextCliffPanel />);
+    await waitFor(() => expect(screen.getByTestId("cliff-run")).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId("cliff-run"));
+
+    await waitFor(() => expect(screen.getByTestId("cliff-read")).toHaveTextContent("low confidence"));
+    const read = screen.getByTestId("cliff-read");
+    expect(read).toHaveTextContent("3 of 4 failures from one task (md_co_secret_rotation_by_svc");
+    expect(read).toHaveTextContent("depth-general collapse not established");
+  });
+
+  it("renders a plain collapse unchanged when no concentration was flagged", async () => {
+    vi.mocked(runContextCliff).mockResolvedValue(
+      reportOf({ status: "Collapsed", depth: 8300 }, [rung(120, 1.0), rung(8300, 0.5)], 4200) as never,
+    );
+    render(<ContextCliffPanel />);
+    await waitFor(() => expect(screen.getByTestId("cliff-run")).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId("cliff-run"));
+    await waitFor(() => expect(screen.getByTestId("cliff-read")).toHaveTextContent("≈8000 context tokens"));
+    expect(screen.getByTestId("cliff-read")).not.toHaveTextContent("low confidence");
+  });
+});

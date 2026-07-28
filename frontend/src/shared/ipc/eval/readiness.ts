@@ -96,10 +96,25 @@ export type MemoryProfile = z.infer<typeof MemoryProfileSchema>;
 
 /// The context-cliff outcome (mirror of the Rust `CliffStatus`): not probed,
 /// no cliff up to `tested`, or collapsed at `depth`.
+/// Failure-concentration evidence on a collapse (mirror of Rust `CliffConcentration`):
+/// how much of the collapsing rung's failure mass sat in ONE task. `holds_without` =
+/// excluding that task, the remaining tasks no longer meet the collapse rule — the
+/// collapse was driven by one task and "depth-general collapse" is not established.
+/// Advisory labeling only; never a gate.
+export const CliffConcentrationSchema = z.object({
+  task_id: z.string(),
+  task_failures: z.number().int(),
+  total_failures: z.number().int(),
+  /// Exact exchangeability p-value × 1000 (uniform-failure null).
+  p_value_milli: z.number().int(),
+  holds_without: z.boolean(),
+});
+export type CliffConcentration = z.infer<typeof CliffConcentrationSchema>;
+
 export const CliffStatusSchema = z.discriminatedUnion("status", [
   z.object({ status: z.literal("NotProbed") }),
   z.object({ status: z.literal("NoCliff"), tested: z.number() }),
-  z.object({ status: z.literal("Collapsed"), depth: z.number() }),
+  z.object({ status: z.literal("Collapsed"), depth: z.number(), concentration: CliffConcentrationSchema.nullable().optional() }),
   z.object({ status: z.literal("Broken"), tested: z.number() }),
   /// The probe ran, but the collection is too small to resolve the collapse margin: with
   /// `trials` samples per rung the score moves in steps of 1/trials, so one sample flipping

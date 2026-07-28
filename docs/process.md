@@ -815,6 +815,26 @@ multi-arch image via docker.yml on release-publish — see
 - **npm package** — deliberately skipped: wrong audience, adds a maintenance
   surface without a user segment.
 
+### Cliff sampled-K repeats (deferred, with rationale)
+
+Miller (Anthropic 2024, "Adding Error Bars to Evals") recommends resampling K answers per
+question at the model's operating temperature to estimate conditional variance. The cliff
+deliberately does NOT do this by default: at temp 0, K>1 is deterministic replay (zero
+information), and raising temperature to manufacture variance changes the measurand — Miller's
+own carve-out ("unless the purpose is to study the model at the new temperature") is the probe's
+exact purpose at temp 0. A future opt-in `--repeats K` (meaningful only with a non-zero
+temperature from params) would add per-cell repeats; any such run MUST carry (K, temperature) on
+the report per the metric-comparability rule. **Activate when:** a user needs conditional-variance
+estimates (model noise vs task difficulty) rather than a reproducible deployment gate.
+
+### Cliff failure-KIND taxonomy per depth (deferred)
+
+The 2025–2026 community record shows "no tool call at depth" has ≥4 distinct causes (model
+behavior, template/parser wiring, engine kernels, silent truncation) that present identically.
+A per-depth failure-kind split — empty output vs wrong-channel (think-swallowed) vs looping vs
+truncated-JSON — would be the honest attribution layer no shipping tool has. **Activate when:**
+the cliff trace store carries finish reasons (needs `GenerateStats.finish_reason` plumbing).
+
 ### Latency⇢Tests link: deferred follow-ups
 
 From the inspector↔eval latency-link work (plan-reviewed 2026-07-20), deliberately

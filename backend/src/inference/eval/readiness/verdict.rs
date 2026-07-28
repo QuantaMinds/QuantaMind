@@ -68,7 +68,7 @@ pub fn assess(i: &ReadinessInputs, p: &ReadinessProfile) -> ReadinessVerdict {
     // incomplete probe (or an unprobed model) is not a pass.
     if let Some(min_tok) = p.min_context_tokens {
         match i.cliff {
-            CliffStatus::Collapsed { depth } if depth < min_tok => {
+            CliffStatus::Collapsed { depth, .. } if depth < min_tok => {
                 blocking.push(format!("reasoning cliff at {} < {} needed", depth, min_tok));
             }
             CliffStatus::NoCliff { tested } if tested < min_tok => {
