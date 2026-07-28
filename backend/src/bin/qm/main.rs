@@ -791,6 +791,15 @@ async fn run_cliff_cmd(args: CliffArgs) {
             );
             std::process::exit(2);
         }
+        Ok(CliffOutcome::NativeUnsupported { backend, model }) => {
+            let hint = match backend {
+                BackendKind::Ollama => "this model reports no `tools` capability (its template lacks .Tools) — use --mode prompt_based, or re-create the model with a tool-capable TEMPLATE",
+                BackendKind::Mlx => "MLX has no native tool-calling API — use --mode prompt_based",
+                _ => "the server can't run native tool-calling here — use --mode prompt_based",
+            };
+            eprintln!("[QM-NATIVE-UNSUPPORTED] --mode native won't run for '{model}' on {}: {hint}.", label(backend));
+            std::process::exit(2);
+        }
         Ok(CliffOutcome::ThinkingUnsupported { backend, model }) => {
             // Same hints as `qm run` — reasoning fails for different reasons per engine.
             let hint = match backend {

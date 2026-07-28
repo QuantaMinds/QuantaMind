@@ -53,7 +53,8 @@ type Status = { status: "Collapsed"; depth: number } | { status: "NoCliff"; test
 const reportOf = (status: Status, points: ReturnType<typeof rung>[], cliff_tokens: number | null = null) => ({ points, status, cliff_tokens });
 
 const dims = (context_length: number) => ({
-  available: true, note: null, template: "", capabilities: [], family: null,
+  // `tools` present: the representative Ollama model — the no-tools gate has its own tests.
+  available: true, note: null, template: "", capabilities: ["completion", "tools"], family: null,
   parameter_size: null, quantization: null, is_base_guess: false, base_reason: null,
   dims: { layers: 0, head_count: 0, head_count_kv: 0, embedding_length: 0, context_length },
 });
@@ -599,5 +600,37 @@ describe("llama.cpp running-window cap", () => {
     useSelectedModelStore.setState({ selectedModels: [{ name: "m", backend: "llama_cpp", size_bytes: 1 }] });
     render(<ContextCliffPanel />);
     await waitFor(() => expect(screen.getByTestId("cliff-no-server-hint")).toBeTruthy());
+  });
+});
+
+describe("Ollama native tool-capability gate", () => {
+  // Ollama grants `tools` only when the model's template references `.Tools` — an
+  // imported GGUF with a plain template never gets it, and every native run 400s.
+  // The ceiling must show BEFORE the click (same rule as the llama.cpp window cap):
+  // previously the panel defaulted to Native FC and refused post-click on every run,
+  // which read as "Ollama doesn't work with the stress test".
+  it("disables Native FC when /api/show reports no `tools`, falls back visibly, names the cause", async () => {
+    vi.mocked(inspectModel).mockResolvedValue({ ...dims(8192), capabilities: ["completion"] } as never);
+    render(<ContextCliffPanel />);
+    await waitFor(() => expect(screen.getByTestId("cliff-method-native")).toBeDisabled());
+    // Prompt-based becomes the EFFECTIVE method, shown active — never a silent no-op run.
+    expect(screen.getByTestId("cliff-method-prompt")).toBeEnabled();
+    expect(screen.getByTestId("cliff-native-unavailable")).toHaveTextContent("no native tool support");
+  });
+
+  it("keeps Native FC for an Ollama model WITH the tools capability", async () => {
+    vi.mocked(inspectModel).mockResolvedValue(dims(8192) as never);
+    render(<ContextCliffPanel />);
+    // Wait for the inspect round-trip so a late no-tools flip would be caught.
+    await waitFor(() => expect((screen.getByTestId("cliff-max-tokens") as HTMLInputElement).max).toBe("6144"));
+    expect(screen.getByTestId("cliff-method-native")).toBeEnabled();
+    expect(screen.queryByTestId("cliff-native-unavailable")).toBeNull();
+  });
+
+  it("fails OPEN while capabilities are unknown (backend gate still refuses honestly)", async () => {
+    vi.mocked(inspectModel).mockRejectedValue(new Error("ollama down"));
+    render(<ContextCliffPanel />);
+    await waitFor(() => expect(screen.getByTestId("cliff-method-native")).toBeEnabled());
+    expect(screen.queryByTestId("cliff-native-unavailable")).toBeNull();
   });
 });
