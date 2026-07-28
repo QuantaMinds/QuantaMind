@@ -272,6 +272,13 @@ pub struct CliffPoint {
     /// 0 = an old record that never measured it.
     #[serde(default)]
     pub max_output: u32,
+    /// Failing cells that died AT the cap (`finish == "length"`), rung-wide. THE third
+    /// bucket: these cells never enter a numerator or denominator that claims to
+    /// measure the model — when this is non-zero, `composite` is `None` and every
+    /// surface prints the passed / failed / died-at-cap triple instead of a rate
+    /// somebody had to define (dropping them overstates, folding them in understates).
+    #[serde(default)]
+    pub cap_deaths: u32,
 }
 
 /// The probe result: every rung, the classified status (mirrors the persisted
@@ -583,6 +590,12 @@ async fn probe_rung<T: ModelTurn, F: Fn(&ToolTask) -> T>(
         let mut trace: Vec<TaskTrace> = Vec::new();
         merge_pos_into_trace(&mut trace, 0.0, pos_traces);
         trace.truncate(MAX_TRACE_TASKS);
+        let cap_deaths: u32 = by_task.iter().map(|t| t.failed_cap_hits).sum();
+        // Three-bucket invariant: a POOLABLE rung with cap-deaths has NO single rate —
+        // one number either drops those cells (overstates) or folds them (understates).
+        // Non-poolable (mixed/single-turn) rungs keep their graded composite: a cascade
+        // can't net out cap cells (documented limit; the triple still renders).
+        let composite = if cap_deaths > 0 && tally.is_some() { None } else { composite };
         return Ok(CliffPoint {
             target_tokens: 0,
             verified_tokens: vt,
@@ -593,6 +606,7 @@ async fn probe_rung<T: ModelTurn, F: Fn(&ToolTask) -> T>(
             trace,
             by_task,
             max_output,
+            cap_deaths,
         });
     }
     // Seed from the learned rate (accurate) or the 4:1 fallback on the first padded rung,
@@ -624,16 +638,21 @@ async fn probe_rung<T: ModelTurn, F: Fn(&ToolTask) -> T>(
         );
     }
     let (per_depth, mean_tokens, worst, tally, trace, by_task) = last.expect("loop runs at least once");
+    let cap_deaths: u32 = by_task.iter().map(|t| t.failed_cap_hits).sum();
+    // Three-bucket invariant (see the baseline arm): no single rate on a POOLABLE
+    // cap-affected rung — the triple is the only reading nobody had to choose.
+    let composite = if cap_deaths > 0 && tally.is_some() { None } else { worst };
     Ok(CliffPoint {
         target_tokens: target,
         verified_tokens: mean_tokens,
-        composite: worst,
+        composite,
         passed: tally.map(|t| t.passed),
         trials: tally.map(|t| t.trials),
         per_depth,
         trace,
         by_task,
         max_output,
+        cap_deaths,
     })
 }
 
@@ -679,12 +698,21 @@ fn classify(points: &[CliffPoint]) -> (CliffStatus, Option<u32>) {
     };
     // A baseline failing purely at the output cap is budget-bound, not broken —
     // checked first, same rule as the per-rung check below.
+    // Judged on the FOLDED rate: "is the budget damage verdict-scale?" is a question
+    // about the whole rung, cap cells included — while Broken below stays a CONTENT
+    // question. A baseline that is only unhealthy because of cap deaths is budget-
+    // bound, never broken.
     if let Some(bl) = budget_limited(base) {
-        if base.composite.map_or(true, |c| c < BASELINE_PASS) {
+        if folded_rate(base).map_or(true, |c| c < BASELINE_PASS) {
             return (bl, None);
         }
     }
-    match base.composite {
+    // Health and collapse are judged on the CONTENT rate — cap-death cells measure the
+    // harness budget, not the model, so they enter neither numerator nor denominator
+    // (the three-bucket invariant). A baseline with a cap death but healthy content
+    // proceeds, anchored on its content counts; one with NO content-measurable cells
+    // was already handled by `budget_limited` above.
+    match content_rate(base) {
         // Can't establish a baseline (no signal, or below the floor) — a cliff number
         // here would be a fabrication, so report Broken and no cliff token.
         //
@@ -706,26 +734,29 @@ fn classify(points: &[CliffPoint]) -> (CliffStatus, Option<u32>) {
     if !can_resolve_margin(deepest_trials) {
         return (CliffStatus::Inconclusive { trials: deepest_trials.unwrap_or(0) }, None);
     }
-    let base_comp = base.composite.expect("checked Some above");
+    let base_comp = content_rate(base).expect("checked Some above");
     let mut largest_pass = base.verified_tokens;
     for p in &points[1..] {
-        if let Some(c) = p.composite {
+        // Pure-cap rung whose FOLDED rate crosses the margin: a verdict-scale budget
+        // event — BudgetLimited, decided before any model claim (the mis-attribution
+        // this feature exists to prevent). Gated on the length signal, never content.
+        if budget_limited(p).is_some() && folded_rate(p).is_some_and(|f| is_collapse(base_comp, f)) {
+            return (budget_limited(p).expect("checked above"), None);
+        }
+        // The collapse claim must survive on CONTENT failures alone: a mixed rung that
+        // only crosses the margin when its cap-deaths are folded in does not collapse —
+        // it stays visible as the passed/failed/died-at-cap triple and the ladder
+        // continues (deeper rungs may still show a real content collapse).
+        if let Some(c) = content_rate(p) {
             if is_collapse(base_comp, c) {
-                // Budget check FIRST: a rung whose every failure died at the output cap
-                // is a budget-bound measurement — classifying it as a model collapse is
-                // exactly the mis-attribution this feature exists to prevent. Gated on
-                // the length signal (finish == "length"), never on empty content.
-                if let Some(bl) = budget_limited(p) {
-                    return (bl, None);
-                }
                 // Statistical gate on top of the point margin: the drop's Newcombe interval
                 // must exclude zero, or the sample can't tell this collapse from noise —
                 // a margin-sized drop off a tiny baseline (e.g. 5 single-position trials)
                 // is a coin flip, not a finding (Bowyer et al., ICML 2025). Applies only
                 // when BOTH ends carry poolable k/n tallies; a mixed/single-turn rung has
                 // no summable counts, so it keeps the point-margin rule (documented limit).
-                let gated = match (base.passed, base.trials, p.passed, p.trials) {
-                    (Some(bp), Some(bn), Some(rp), Some(rn)) => {
+                let gated = match (content_counts(base), content_counts(p)) {
+                    (Some((bp, bn)), Some((rp, rn))) => {
                         stats::newcombe_drop_interval(bp, bn, rp, rn).is_some_and(|d| d.lo > 0.0)
                     }
                     _ => true,
@@ -741,6 +772,50 @@ fn classify(points: &[CliffPoint]) -> (CliffStatus, Option<u32>) {
     }
     let tested = points.last().map(|p| p.verified_tokens).unwrap_or(base.verified_tokens);
     (CliffStatus::NoCliff { tested }, Some(largest_pass))
+}
+
+/// The MODEL-measuring rate of a point: cap-death cells are excluded from BOTH the
+/// numerator and the denominator (they measure the harness budget, not the model).
+/// Poolable rungs compute it from counts; a mixed/single-turn rung falls back to its
+/// graded composite (its cells' cap info can't be netted out of a cascade — documented
+/// limit). `None` = nothing content-measurable (e.g. every cell died at the cap).
+fn content_rate(p: &CliffPoint) -> Option<f64> {
+    match (p.passed, p.trials) {
+        (Some(pass), Some(tr)) => {
+            let content_trials = tr.saturating_sub(cap_deaths_of(p));
+            (content_trials > 0).then(|| pass as f64 / content_trials as f64)
+        }
+        _ => p.composite,
+    }
+}
+
+/// The FOLDED rate — cap-deaths counted as failures. Never a model claim (that's
+/// `content_rate`); used only to judge whether a budget event is VERDICT-SCALE
+/// (a pure-cap rung whose folded rate crosses the margin is BudgetLimited).
+fn folded_rate(p: &CliffPoint) -> Option<f64> {
+    match (p.passed, p.trials) {
+        (Some(pass), Some(tr)) if tr > 0 => Some(pass as f64 / tr as f64),
+        _ => p.composite,
+    }
+}
+
+/// THE one source for a point's cap-death count: the per-task tallies. The serialized
+/// `cap_deaths` field is stamped FROM this sum for the wire; verdict math never reads
+/// the field, so a hand-built or historical point can't disagree with itself.
+fn cap_deaths_of(p: &CliffPoint) -> u32 {
+    p.by_task.iter().map(|t| t.failed_cap_hits).sum()
+}
+
+/// A point's (passed, content_trials) for interval math — cap-deaths excluded, same
+/// rule as `content_rate`. `None` when the point has no poolable counts.
+fn content_counts(p: &CliffPoint) -> Option<(u32, u32)> {
+    match (p.passed, p.trials) {
+        (Some(pass), Some(tr)) => {
+            let content_trials = tr.saturating_sub(cap_deaths_of(p));
+            (content_trials > 0).then_some((pass, content_trials))
+        }
+        _ => None,
+    }
 }
 
 /// A rung is budget-limited when it HAS failures and every one of them stopped at the
@@ -919,17 +994,25 @@ pub async fn run_cliff_with_factory<T: ModelTurn, F: Fn(&ToolTask) -> T>(
             break;
         }
         on_rung(i + 1, total, &point);
-        let comp = point.composite;
+        // Early-stop reads the same numbers classify will judge: CONTENT rate for
+        // model claims, FOLDED rate for budget-event scale — never a folded model claim.
+        let comp = content_rate(&point);
+        let folded = folded_rate(&point);
+        let pure_cap = budget_limited(&point).is_some();
         points.push(point);
 
         // Early-stop — skip the slowest deep rungs once the outcome is decided:
         if i == 0 {
             baseline_comp = comp;
-            // A broken / unmeasurable baseline can't have a "cliff" — stop before
-            // paying for any padded rung.
-            if comp.map_or(true, |c| c < BASELINE_PASS) {
+            // A baseline that is budget-dead (folded below the floor) or content-broken
+            // can't anchor a cliff — stop before paying for any padded rung.
+            if folded.map_or(true, |f| f < BASELINE_PASS) || comp.map_or(true, |c| c < BASELINE_PASS) {
                 break;
             }
+        } else if pure_cap && baseline_comp.zip(folded).is_some_and(|(b, f)| is_collapse(b, f)) {
+            // Verdict-scale pure-cap rung: classify returns BudgetLimited here — deeper
+            // rungs would only repeat the budget event at higher context cost.
+            break;
         } else if let (Some(b), Some(c)) = (baseline_comp, comp) {
             // First collapse IS the cliff (classify takes the first drop); deeper
             // rungs would only re-confirm failure at the highest context cost. Shares

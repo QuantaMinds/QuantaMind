@@ -75,14 +75,19 @@ pub fn cliff_exit(status: &CliffStatus) -> i32 {
 pub fn render_cliff(r: &CliffReport) -> String {
     let mut out = String::new();
     for (i, p) in r.points.iter().enumerate() {
-        let tally = match (p.passed, p.trials) {
-            (Some(pass), Some(tr)) => format!("  ({pass}/{tr} over {} tasks)", p.by_task.len()),
-            _ => String::new(), // sample size only when actually measured
+        // Three-bucket rule: a cap-affected rung prints passed / failed / died-at-cap —
+        // never a single rate (dropping cap cells overstates, folding them understates).
+        let acc = match (p.passed, p.trials) {
+            (Some(pass), Some(tr)) if p.cap_deaths > 0 => {
+                let failed = tr - pass - p.cap_deaths;
+                format!("{pass} passed · {failed} failed · {} died-at-cap  ({tr} cells over {} tasks)", p.cap_deaths, p.by_task.len())
+            }
+            (Some(pass), Some(tr)) => p
+                .composite
+                .map(|c| format!("accuracy {:>5.1}%  ({pass}/{tr} over {} tasks)", c * 100.0, p.by_task.len()))
+                .unwrap_or_else(|| "unmeasured".into()),
+            _ => p.composite.map(|c| format!("accuracy {:>5.1}%", c * 100.0)).unwrap_or_else(|| "unmeasured".into()),
         };
-        let acc = p
-            .composite
-            .map(|c| format!("accuracy {:>5.1}%{tally}", c * 100.0))
-            .unwrap_or_else(|| "unmeasured".into());
         out.push_str(&format!("rung {}: ~{:>6} tok · {}\n", i + 1, p.verified_tokens, acc));
         let failing: Vec<String> = p
             .by_task
@@ -113,7 +118,18 @@ pub fn render_cliff(r: &CliffReport) -> String {
         }
     }
     out.push_str(&match &r.status {
-        CliffStatus::NoCliff { tested } => format!("STATUS: ✓ no cliff — accuracy maintained up to ≈{tested} tokens\n"),
+        CliffStatus::NoCliff { tested } => {
+            let cap_total: u32 = r.points.iter().map(|p| p.cap_deaths).sum();
+            if cap_total > 0 {
+                format!(
+                    "STATUS: ✓ no cliff on content — maintained up to ≈{tested} tokens; {cap_total} cell(s) \
+                     died at the output cap along the way (budget events, excluded from the model claim — \
+                     raise the budget to measure them)\n"
+                )
+            } else {
+                format!("STATUS: ✓ no cliff — accuracy maintained up to ≈{tested} tokens\n")
+            }
+        }
         CliffStatus::Collapsed { depth, concentration } => {
             let mut line = format!("STATUS: ✗ collapsed at ≈{depth} tokens");
             // The collapse rung's Wilson 95% interval + sample, so the claim carries its

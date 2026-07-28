@@ -99,6 +99,9 @@ export function ContextCliffPanel() {
   // Budget-limited outcome of the LAST run — overrides the cliff read-out: a run whose
   // failures all died at the output cap must never read as a model collapse.
   const lastBudgetLimited = useCliffStore((s) => s.lastBudgetLimited);
+  // The backend's authoritative verdict for the last run — the read-out's primary
+  // source (the composite-based fallback below can't see cap-affected rungs).
+  const lastStatus = useCliffStore((s) => s.lastStatus);
   const runningModel = useCliffStore((s) => s.runningModel);
   const runProbe = useCliffStore((s) => s.runProbe);
   const stopProbe = useCliffStore((s) => s.stop);
@@ -444,7 +447,13 @@ export function ContextCliffPanel() {
             </thead>
             <tbody>
               {points.map((p, i) => {
-                const pct = p.composite != null ? `${(p.composite * 100).toFixed(1)}%` : "—";
+                // Three-bucket rule: a cap-affected rung shows the triple, never one rate.
+                const capDeaths = p.capDeaths ?? 0;
+                const triple =
+                  capDeaths > 0 && p.passed != null && p.trials != null
+                    ? `${p.passed} passed · ${p.trials - p.passed - capDeaths} failed · ${capDeaths} died-at-cap`
+                    : null;
+                const pct = triple ?? (p.composite != null ? `${(p.composite * 100).toFixed(1)}%` : "—");
                 // The threshold is CLIFF_BASELINE_PASS, not a re-typed 0.5 — the two drifting
                 // apart is how a chip and a verdict start disagreeing about the same rung.
                 const passed = p.composite != null && p.composite >= CLIFF_BASELINE_PASS;
@@ -504,7 +513,13 @@ export function ContextCliffPanel() {
                             Failure
                           </span>
                         )}
-                        {p.composite == null && (
+                        {p.composite == null && capDeaths > 0 && (
+                          // Cap-affected rung: a budget outcome, not an error and not a rate.
+                          <span style={{ ...failChipStyle, background: "#fffbeb", border: "1px solid #fde68a", color: "#92400e" }} data-testid={`cliff-budget-chip-${i}`}>
+                            Budget
+                          </span>
+                        )}
+                        {p.composite == null && capDeaths === 0 && (
                           <span style={{ color: "#64748b", fontSize: 12 }}>Error</span>
                         )}
                       </td>
@@ -636,6 +651,12 @@ export function ContextCliffPanel() {
           >
             {running
               ? "Running…"
+              : lastStatus?.status === "NoCliff"
+                ? lastStatus.tested > 0
+                  ? `Accuracy maintained up to ≈${Math.round(lastStatus.tested / 1000) * 1000} tokens${points.some((p) => (p.capDeaths ?? 0) > 0) ? " (content-only claim — some cells died at the output cap; see the rung table)" : ""}`
+                  : "Ran — context-token depth not reported"
+              : lastStatus?.status === "Broken"
+                ? "Fails at the smallest tested context — broken baseline (a tool-call failure, not a context-length limit)"
               : lastInconclusive != null
                 ? `Inconclusive — ${lastInconclusive} samples/rung can't resolve a ${Math.round(CLIFF_COLLAPSE_MARGIN * 100)}pp collapse; one flipped sample would be worth the whole margin. Probe a larger collection.`
               : lastBudgetLimited != null
@@ -654,7 +675,7 @@ export function ContextCliffPanel() {
                 : verdict.kind === "broken-baseline"
                   ? "Fails at the smallest tested context — broken baseline (a tool-call failure, not a context-length limit)"
                   : verdict.kind === "no-cliff" && maintainedTo > 0
-                    ? `Accuracy maintained up to ≈${Math.round(maintainedTo / 1000) * 1000} tokens`
+                    ? `Accuracy maintained up to ≈${Math.round(maintainedTo / 1000) * 1000} tokens${points.some((p) => (p.capDeaths ?? 0) > 0) ? " (content-only claim — some cells died at the output cap; see the rung table)" : ""}`
                     : points.length > 0
                       ? "Ran — context-token depth not reported"
                       : "Idle"}

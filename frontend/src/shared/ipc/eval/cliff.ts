@@ -142,6 +142,10 @@ export const CliffRungSchema = z.object({
   by_task: z.array(TaskTallySchema).default([]),
   /// The output cap every cell of this rung ran under — headroom's denominator.
   max_output: z.number().int().default(0),
+  /// Failing cells that died AT the cap, rung-wide — the third bucket. When non-zero
+  /// the rung has NO single rate (`composite` null on poolable rungs); surfaces print
+  /// passed / failed / died-at-cap instead.
+  cap_deaths: z.number().int().default(0),
 });
 export type CliffRung = z.infer<typeof CliffRungSchema>;
 

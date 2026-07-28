@@ -1448,7 +1448,17 @@ the cap. When a rung's failures ALL died at the cap, the verdict is **`BudgetLim
 — a budget-bound measurement, never `Collapsed`: published best practice demands stop-reason
 inspection before any collapse claim. Deliberately NOT a promise the model would pass with more
 room — cap-consumers split into starved (recover with budget) and looping (eat any cap; loops are
-an absorbing state), and re-running at a higher budget is the disambiguating probe. Caveat: burn
+an absorbing state), and re-running at a higher budget is the disambiguating probe. **The three-bucket invariant: budget-limited cells never enter a numerator or denominator that
+claims to measure the model.** A cap-affected (poolable) rung has NO single accuracy — dropping
+those cells overstates, folding them in as failures understates, and either choice reads as
+deliberate — so every surface prints the triple instead: `passed · failed · died-at-cap`. The
+verdict follows the same split: model claims (Broken, the collapse margin, the Newcombe gate,
+concentration) are judged on the CONTENT rate (cap cells excluded from both sides), while
+budget-event scale (BudgetLimited) is judged on the FOLDED rate — a pure-cap rung whose folded
+rate crosses the margin is a verdict-scale budget event, and a real content collapse is never
+laundered away by nearby cap deaths. Any future roll-up (pass^k, readiness) inherits this
+invariant, not a fold. Mixed/single-turn rungs keep their graded composite (a cascade can't net
+out cap cells — documented limit; the triple still renders beside it). Caveat: burn
 is measured under greedy at a fixed budget — a within-run comparison, not a cross-configuration
 constant; under sampling, within-task length spread is ~3×, so the amber flag is advisory there.
 
