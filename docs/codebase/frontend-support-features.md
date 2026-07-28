@@ -52,6 +52,7 @@ tab nav.
 | **Docs** | Tab (`docs`) | `docs/components/DocsPage`, `DocsSidebar`, `DocsContent`, `DocsSearch`; `docs/content` (authored guides), `docs/reference` (per-feature reference, folded in from the old Help tab), `docs/render` (inert markdown + TOC), `docs/search` (no-dep ranked search) | — (all content is bundled in the JS; no backend/IPC) | — (frontend-only) |
 | **Updater** | Settings section + startup overlay | `updater/components/UpdateChecker` (in Settings), `StartupUpdate` (overlay); `hooks/useUpdater`; `updateSchedule` | `@tauri-apps/plugin-updater` (`check`), `plugin-process` (`relaunch`), `get/set_user_settings` (`last_update_check_at`) | — (updater is a Tauri plugin) |
 | **Feedback** | Overlay (button + modal) | `feedback/components/FeedbackButton`, `FeedbackModal`; `hooks/useSubmitFeedback`; `shared/ipc/system/feedback` | `@tauri-apps/plugin-shell` (`open` mailto) | — (mailto, no backend cmd) |
+| **Community** | Header button + one-time popover | `community/components/CommunityButton`; `community/links` (pinned Discord/X URLs, mirrored in `capabilities/default.json`); `state/communityStore` | `@tauri-apps/plugin-shell` (`open`), `get/set_user_settings` (`community_prompt_shown`) | — (links only, nothing sent) |
 | **History** | Overlay (header-toggled drawer) | `history/components/HistoryPanel`, `HistoryRow`; `recordRun`; `state/historyStore` | `history_append/list/get/clear/remove_by_path` | [prompt-workspace-system](backend-prompt-workspace-system.md) (history) |
 | **Audit** | Tab (`audit`) | `audit/components/AuditPage` | `loadCollectionHistory` (eval matrix), batch CSV/JSON export | — (eval matrix, see eval docs) |
 
@@ -82,6 +83,7 @@ support feature that persists state):
 export const UserSettingsSchema = z.object({
   theme: z.string().nullable().optional(),
   first_run_complete: z.boolean().default(false),     // ← onboarding gate
+  community_prompt_shown: z.boolean().default(false),  // ← one-time community invite
   last_update_check_at: z.string().nullable().optional(), // ← updater 24h stamp
   models_folder: z.string().nullable().optional(),    // ← storage path
   stt_engine_dir: z.string().nullable().optional(),

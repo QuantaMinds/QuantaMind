@@ -13,6 +13,9 @@ pub struct UserSettings {
     pub theme: Option<String>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub first_run_complete: bool,
+    /// The one-time community invite popover (header Discord button) was shown.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub community_prompt_shown: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_update_check_at: Option<String>,
     /// Override for the shared GGUF weights folder (default `~/.quantamind/gguf`).

@@ -15,13 +15,13 @@ beforeEach(() => {
 
 describe("onboardingStore", () => {
   it("load reflects a fresh install (not complete)", async () => {
-    vi.mocked(getUserSettings).mockResolvedValue({ first_run_complete: false });
+    vi.mocked(getUserSettings).mockResolvedValue({ first_run_complete: false, community_prompt_shown: false });
     await useOnboardingStore.getState().load();
     expect(useOnboardingStore.getState().complete).toBe(false);
   });
 
   it("load reflects a returning user (complete)", async () => {
-    vi.mocked(getUserSettings).mockResolvedValue({ first_run_complete: true });
+    vi.mocked(getUserSettings).mockResolvedValue({ first_run_complete: true, community_prompt_shown: false });
     await useOnboardingStore.getState().load();
     expect(useOnboardingStore.getState().complete).toBe(true);
   });
@@ -33,7 +33,7 @@ describe("onboardingStore", () => {
   });
 
   it("finish flips the flag and persists it", async () => {
-    vi.mocked(getUserSettings).mockResolvedValue({ first_run_complete: false });
+    vi.mocked(getUserSettings).mockResolvedValue({ first_run_complete: false, community_prompt_shown: false });
     await useOnboardingStore.getState().finish();
     expect(useOnboardingStore.getState().complete).toBe(true);
     expect(setUserSettings).toHaveBeenCalledWith(expect.objectContaining({ first_run_complete: true }));

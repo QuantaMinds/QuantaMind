@@ -20,7 +20,7 @@ import { ModelsFolderSection } from "../ModelsFolderSection";
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(resolveModelsFolder).mockResolvedValue("/home/u/.quantamind/gguf");
-  vi.mocked(getUserSettings).mockResolvedValue({ first_run_complete: true });
+  vi.mocked(getUserSettings).mockResolvedValue({ first_run_complete: true, community_prompt_shown: false });
   vi.mocked(setUserSettings).mockResolvedValue(undefined);
 });
 
