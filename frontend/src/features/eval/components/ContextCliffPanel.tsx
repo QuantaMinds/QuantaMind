@@ -17,8 +17,10 @@ import { TOOL_HELP, METRIC_HELP } from "../help";
 import { classifyCliff, CLIFF_BASELINE_PASS, CLIFF_COLLAPSE_MARGIN } from "../cliff";
 import { ContextCliffChart } from "./ContextCliffChart";
 import type { BackendKind } from "../../../shared/ipc/models/storage";
-import type { AgentPath } from "../../../shared/ipc/eval/readiness";
-import { CLIFF_CTX_HEADROOM, usableCliffTokens, type CliffPreset } from "../../../shared/ipc/eval/cliff";
+import type { AgentPath, ThinkPreset } from "../../../shared/ipc/eval/readiness";
+import { cliffHeadroom, cliffThinkTokens, usableCliffTokens, type CliffPreset } from "../../../shared/ipc/eval/cliff";
+import { useModelSettingsStore } from "../../models/state/modelSettingsStore";
+import { isLikelyThinkingModel } from "../../../shared/models/classify";
 import { PRESSURE_FRACTION } from "../../../shared/memory/pressure";
 
 interface ProbeModel {
@@ -52,6 +54,10 @@ export function ContextCliffPanel() {
   // Which tool-calling path the probe runs — the USER picks it on this page (default native, like
   // the batch). MLX has no native tool API, so native falls back to prompt-based there.
   const [method, setMethod] = useState<AgentPath>("native_fc");
+  // Thinking budget (mirrors the Tests page presets): shown only for a thinking model.
+  // The scratchpad scales with each rung's DEPTH (≤4k Easy band … >16k Extreme band),
+  // so a deeper context grants more reasoning room — never a free-form slider.
+  const [thinkPreset, setThinkPreset] = useState<ThinkPreset>("standard");
   // The probe runs ONE of the global header models + global params. With 2+
   // selected (Ollama), a small dropdown picks which one; default the first. A
   // pre-fill request from the Matrix can OVERRIDE that with any batch-target model.
@@ -142,12 +148,19 @@ export function ContextCliffPanel() {
   // Cap the padding ladder at the model's real context window when known
   // (Ollama /api/show dims); fall back to a fixed ceiling otherwise. The cap is the
   // window MINUS the backend's headroom (`usableCliffTokens`): the backend runs at
-  // `maxTokens + CLIFF_CTX_HEADROOM`, so offering the full window would make the deepest
+  // `maxTokens + cliffHeadroom(...)`, so offering the full window would make the deepest
   // rung overflow it — Ollama silently clamps and truncates (deleting the needle) while
   // `prompt_eval_count` saturates at the window, so the rung fails and reports a
   // fabricated cliff depth. The ladder must stay inside what the model can actually hold.
   const { dims, kvBytes } = useVramFit(selected?.name, selected?.backend, maxTokens);
-  const sliderMax = dims?.context_length ? usableCliffTokens(dims.context_length) : FALLBACK_MAX_TOKENS;
+  // Is the probe model a thinking model? Explicit per-model toggle wins; else the name
+  // heuristic — the same resolution the Tests page batch uses (`isThinkingFor`).
+  const explicitThinking = useModelSettingsStore((s) => (selected ? s.byModel[selected.name]?.is_thinking : undefined));
+  const isThinking = explicitThinking ?? (selected ? isLikelyThinkingModel(selected.name) : false);
+  // The slider cap reserves THIS run's real headroom: base + the deepest rung's
+  // scratchpad when a thinking budget is on — otherwise the deepest rung overflows
+  // the window exactly when the budget is largest.
+  const sliderMax = dims?.context_length ? usableCliffTokens(dims.context_length, isThinking, thinkPreset) : FALLBACK_MAX_TOKENS;
   // Default Max Tokens to the deepest MEASURABLE depth once the window is known — a model's
   // cliff can sit anywhere up to its real window, so the probe should sweep as much as it
   // can actually measure (Run probe ↗ lands here pre-filled). Done once per model so a
@@ -221,7 +234,7 @@ export function ContextCliffPanel() {
     ? snapshot.total_memory_bytes
     : snapshot?.gpu?.vram_total_bytes ?? null;
   const weightsBytes = loaded.find((m) => m.name === selected?.name)?.size_bytes ?? null;
-  const neededCtxK = Math.round((maxTokens + CLIFF_CTX_HEADROOM) / 1000); // what the backend will request
+  const neededCtxK = Math.round((maxTokens + cliffHeadroom(maxTokens, isThinking, thinkPreset)) / 1000); // what the backend will request
   const footprint = kvBytes != null ? (weightsBytes ?? 0) + kvBytes : null;
   const fitWarning: string | null =
     // Threshold = the backend's PRESSURE_FRACTION planning constant (shared via
@@ -251,6 +264,8 @@ export function ContextCliffPanel() {
       params: globalParams,
       modelPath: selected.path, // llama.cpp: backend matches it to the running server
       method: effectiveMethod, // native vs prompt-based — the user's choice on this page
+      isThinking,
+      thinkPreset,
     });
   };
   const handleStop = () => stopProbe();
@@ -338,6 +353,7 @@ export function ContextCliffPanel() {
             steps: testSteps,
             source: preset,
             native: method === "native_fc",
+            thinking: isThinking ? thinkPreset : undefined,
             params: globalParams,
           })}
         />
@@ -660,6 +676,55 @@ export function ContextCliffPanel() {
         )}
       </div>
 
+      {/* ── Thinking budget (thinking models only) — mirrors the Tests page presets; the
+          scratchpad is banded to each rung's DEPTH, so deeper rungs get more room. ── */}
+      {isThinking && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 20px 0" }} data-testid="cliff-thinking">
+          <span
+            style={{
+              fontSize: 12,
+              color: "#64748b",
+              fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
+              whiteSpace: "nowrap",
+              minWidth: 70,
+            }}
+          >
+            Thinking
+          </span>
+          <div style={{ display: "flex", gap: 4 }}>
+            {(["lean", "standard", "deep"] as ThinkPreset[]).map((p) => {
+              const activeBtn = thinkPreset === p;
+              return (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setThinkPreset(p)}
+                  data-testid={`cliff-thinking-${p}`}
+                  title={`Reasoning scratchpad per turn at the current depth: +${cliffThinkTokens(maxTokens, true, p).toLocaleString()} tokens (scales with rung depth)`}
+                  style={{
+                    padding: "4px 12px",
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
+                    cursor: "pointer",
+                    border: `1px solid ${activeBtn ? "#2563eb" : "#cbd5e1"}`,
+                    background: activeBtn ? "#eff6ff" : "#ffffff",
+                    color: activeBtn ? "#1d4ed8" : "#475569",
+                    fontWeight: activeBtn ? 600 : 400,
+                    textTransform: "capitalize",
+                  }}
+                >
+                  {p}
+                </button>
+              );
+            })}
+          </div>
+          <span style={{ fontSize: 11, color: "#94a3b8", fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif" }} data-testid="cliff-thinking-budget">
+            +{cliffThinkTokens(maxTokens, true, thinkPreset).toLocaleString()} tokens at this depth
+          </span>
+        </div>
+      )}
+
       {/* ── Sliders ── */}
       <div
         style={{
@@ -693,7 +758,7 @@ export function ContextCliffPanel() {
             data-testid="cliff-max-tokens"
             title={
               dims?.context_length
-                ? `Capped at ${sliderMax} — the model's ${dims.context_length}-token context window minus ${CLIFF_CTX_HEADROOM} tokens of headroom for the tool schemas, the injected task, and the reply. Beyond this the prompt is truncated and the depth can't be measured.`
+                ? `Capped at ${sliderMax} — the model's ${dims.context_length}-token context window minus ${cliffHeadroom(sliderMax, isThinking, thinkPreset)} tokens of headroom for the tool schemas, the injected task, and the reply${isThinking ? " (including the thinking budget)" : ""}. Beyond this the prompt is truncated and the depth can't be measured.`
                 : "Model context window unknown — fixed ceiling"
             }
             style={sliderStyle}

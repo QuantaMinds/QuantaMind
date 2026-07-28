@@ -4,20 +4,17 @@
 //! path, greedy (temp 0) so the probe is reproducible run-to-run.
 
 use crate::cli::doctor::probe::probe_backend;
-use crate::cli::run::{RunMode, RunOptions};
+use crate::cli::run::{openai_reasons, RunMode, RunOptions};
 use crate::errors::AppResult;
 use crate::inference::backend::backend_kind::BackendKind;
 use crate::inference::backend::{endpoint, remote_config};
-use crate::inference::eval::agentic::difficulty::passk::answer_tokens_for;
+use crate::inference::eval::agentic::difficulty::passk::{answer_tokens_for, ThinkPreset};
 use crate::inference::eval::agentic::model_turn::BackendTurn;
 use crate::inference::eval::agentic::spec::Tier;
-use crate::inference::eval::cliff::{build_ladder, run_cliff_with, CliffReport, CliffSource, DEFAULT_DEPTHS};
+use crate::inference::eval::cliff::{build_ladder, run_cliff_with, CliffBudget, CliffReport, CliffSource, DEFAULT_DEPTHS};
 use crate::inference::eval::readiness::types::CliffStatus;
+use crate::inference::ollama::ollama_show::probe_supports_thinking;
 use tokio_util::sync::CancellationToken;
-
-/// Same headroom the GUI probe reserves above the deepest rung for system prompt,
-/// needle, and the answer (mirrors `readiness_cmd::CLIFF_CTX_HEADROOM`).
-const CTX_HEADROOM: u32 = 2048;
 
 pub struct CliffOptions {
     pub run: RunOptions,
@@ -52,6 +49,10 @@ pub enum CliffOutcome {
     ModelNotFound { backend: BackendKind, model: String, available: Vec<String> },
     UnknownCollection { id: String },
     BadCollectionFile { path: String, reason: String },
+    /// `--thinking standard|deep` where reasoning won't actually happen — refused
+    /// loudly (mirrors `RunOutcome::ThinkingUnsupported`) instead of probing a ladder
+    /// whose scratchpad silently no-ops.
+    ThinkingUnsupported { backend: BackendKind, model: String },
     Probed(CliffReport),
 }
 
@@ -126,10 +127,26 @@ pub async fn run_cliff_probe(opts: CliffOptions) -> AppResult<CliffOutcome> {
         _ => {}
     }
 
-    // A window that fits the deepest rung. Greedy (temp 0) by default so the probe
-    // reproduces run-to-run; user params sample instead. `num_ctx` is ALWAYS forced
-    // to the ladder window — a smaller user value would truncate the deepest rung.
-    let needed_ctx = opts.max_tokens.saturating_add(CTX_HEADROOM);
+    // `--thinking`: Lean = reasoning off (the pre-preset budget); Standard/Deep add a
+    // scratchpad banded to each rung's depth (same semantics as `qm run`). Guard first:
+    // a preset that can't actually reason must refuse loudly, not silently no-op.
+    let is_thinking = !matches!(opts.run.think, ThinkPreset::Lean);
+    if is_thinking {
+        let reasons = match opts.run.backend {
+            BackendKind::Ollama => probe_supports_thinking(&ep, &opts.run.model).await,
+            _ => openai_reasons(&ep, &opts.run.model, opts.run.api_key.as_deref()).await,
+        };
+        if !reasons {
+            return Ok(CliffOutcome::ThinkingUnsupported { backend: opts.run.backend, model: opts.run.model });
+        }
+    }
+    let budget = CliffBudget { is_thinking, preset: opts.run.think };
+
+    // A window that fits the deepest rung — plus, for a thinking run, the deepest
+    // rung's scratchpad. Greedy (temp 0) by default so the probe reproduces
+    // run-to-run; user params sample instead. `num_ctx` is ALWAYS forced to the
+    // ladder window — a smaller user value would truncate the deepest rung.
+    let needed_ctx = opts.max_tokens.saturating_add(budget.headroom(opts.max_tokens));
     let mut options = opts
         .params
         .as_ref()
@@ -159,12 +176,14 @@ pub async fn run_cliff_probe(opts: CliffOptions) -> AppResult<CliffOutcome> {
                 tools: task.tools.clone(),
                 options: Some(options.clone()),
                 terminal: cliff_terminal(task),
+                // Fallback only — the engine pins each rung's depth-banded budget on
+                // the spec, which wins the merge (see `merge_eval_options`).
                 max_tokens: answer_tokens_for(Tier::Easy),
-                is_thinking: false,
+                is_thinking,
             }
         };
         crate::inference::eval::cliff::run_cliff_with_factory(
-            &make_native, &opts.run.model, &tasks, &opts.source, &ladder, &DEFAULT_DEPTHS, needed_ctx, &cancel, &mut on_rung, &mut no_step,
+            &make_native, &opts.run.model, &tasks, &opts.source, &ladder, &DEFAULT_DEPTHS, needed_ctx, budget, &cancel, &mut on_rung, &mut no_step,
         )
         .await?
     } else {
@@ -175,13 +194,13 @@ pub async fn run_cliff_probe(opts: CliffOptions) -> AppResult<CliffOutcome> {
             cancel: cancel.clone(),
             options: Some(options),
             keep_alive: None,
-            is_thinking: false, // liveness probe at the answer floor, mirrors the GUI prompt path
+            is_thinking, // thinking runs reason before the call; Lean mirrors the old liveness probe
             max_tokens: answer_tokens_for(Tier::Easy),
             cpu_offloaded: false,
             ctx_ceiling: crate::inference::eval::agentic::runner::NUM_CTX_CEILING,
             stop_cache: Default::default(),
         };
-        run_cliff_with(&turn, &opts.run.model, &tasks, &opts.source, &ladder, &DEFAULT_DEPTHS, needed_ctx, &cancel, &mut on_rung, &mut no_step).await?
+        run_cliff_with(&turn, &opts.run.model, &tasks, &opts.source, &ladder, &DEFAULT_DEPTHS, needed_ctx, budget, &cancel, &mut on_rung, &mut no_step).await?
     };
     // `RunMode` is unused here (prompt-only probe) but kept on RunOptions for parity.
     let _ = RunMode::PromptBased;

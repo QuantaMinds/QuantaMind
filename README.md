@@ -117,7 +117,7 @@ QuantaMind is a workbench, not a chat app — each surface answers one question 
 - Tiered scenarios (Easy→Extreme) across nine domains, with a coding·finance·medical spine at every tier so a model stays comparable as difficulty rises.
 - Deterministic scoring: tool-call accuracy, pass^k, schema resilience — and failure modes named honestly (`ForbiddenCall`, `LoopCap`, `FakeDone`, …), never just pass/fail.
 - Run a whole collection or click one task to run just it; every lever (k, step caps, decoy tools, thinking budget, native/prompt method) applies unchanged.
-- A Context Stress Test finds where tool-call accuracy collapses — and only ever reports a depth it actually measured.
+- A Context Stress Test finds where tool-call accuracy collapses — and only ever reports a depth it actually measured. Reasoning models get a Lean/Standard/Deep thinking budget that scales with each rung's depth (same table as the test tiers).
 - Custom JSON collections are validated before import, with per-task fix-it messages — a fixture bug can't masquerade as "every model fails my task".
 
 **Agent Report**

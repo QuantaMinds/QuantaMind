@@ -1,5 +1,7 @@
+use super::budget::{CliffBudget, CLIFF_ANSWER_TOKENS};
 use super::padding::{build_padding, inject_at_depth};
 use super::presets::CliffSource;
+use crate::inference::eval::agentic::difficulty::passk::ThinkPreset;
 use crate::errors::{AppError, AppResult};
 use crate::inference::eval::agentic::model_turn::{ModelTurn, Progress};
 use crate::inference::eval::readiness::types::CliffStatus;
@@ -24,8 +26,11 @@ const BYTES_PER_TOKEN: usize = 4;
 const MAX_ADJUST_ATTEMPTS: usize = 1;
 /// Accept a rung when the measured depth is within ±5% of the requested target.
 const ADJUST_TOLERANCE: f64 = 0.05;
-/// Output token cap per probe turn — only a tool call is expected, never prose.
-const MAX_OUTPUT: u32 = 256;
+/// Output token floor per probe turn — only a tool call is expected, never prose.
+/// A thinking run adds a depth-banded scratchpad on top (see `budget::CliffBudget`);
+/// the per-rung cap is threaded through as `max_output`, never read from this const
+/// past `probe_rung`.
+const MAX_OUTPUT: u32 = CLIFF_ANSWER_TOKENS;
 /// The baseline rung must clear this composite or the run is `Broken` (the model
 /// can't even do the task unpadded — a cliff number would be meaningless).
 const BASELINE_PASS: f64 = 0.5;
@@ -198,6 +203,12 @@ pub struct CliffReport {
     pub points: Vec<CliffPoint>,
     pub status: CliffStatus,
     pub cliff_tokens: Option<u32>,
+    /// The thinking-budget preset this probe ran under — `Some` only for a thinking
+    /// run, so a depth measured with a scratchpad is never conflated with one without
+    /// (metric comparability: the mode flag rides with the number). Old serialized
+    /// reports (pre-preset) deserialize to `None`, which is exactly what they ran as.
+    #[serde(default)]
+    pub think_preset: Option<ThinkPreset>,
 }
 
 /// Did `task` FAIL this rung by the cliff's yardstick? A single-turn task must be fully
@@ -274,13 +285,16 @@ fn occupancy(stats: &GenerateStats) -> Option<u32> {
 }
 
 /// Run all tasks at one padding + one needle depth, returning each task's verdict
-/// and measured prompt tokens. Empty padding ⇒ the unpadded baseline.
+/// and measured prompt tokens. Empty padding ⇒ the unpadded baseline. `max_output`
+/// is this rung's per-turn output cap (answer floor + any depth-banded scratchpad).
+#[allow(clippy::too_many_arguments)]
 async fn run_position<T: ModelTurn, F: Fn(&ToolTask) -> T>(
     make_turn: &F,
     model: &str,
     tasks: &[ToolTask],
     padding: &str,
     depth: f32,
+    max_output: u32,
     on_task: &mut (dyn FnMut(usize, usize) + Send),
 ) -> AppResult<(Vec<TaskResult>, Vec<PosTrace>)> {
     let mut results = Vec::with_capacity(tasks.len());
@@ -301,7 +315,7 @@ async fn run_position<T: ModelTurn, F: Fn(&ToolTask) -> T>(
             // this temp 0 is the seam fallback the scripted test model also sees. The
             // anti-collapse repeat_penalty matches the other eval paths so the cliff
             // metric stays comparable; a header value still overrides it.
-            options: Some(GenerateOptions { temperature: Some(0.0), repeat_penalty: Some(EVAL_REPEAT_PENALTY), num_predict: Some(MAX_OUTPUT), ..Default::default() }),
+            options: Some(GenerateOptions { temperature: Some(0.0), repeat_penalty: Some(EVAL_REPEAT_PENALTY), num_predict: Some(max_output), ..Default::default() }),
             keep_alive: None,
             think: None,
         };
@@ -347,6 +361,7 @@ async fn sweep<T: ModelTurn, F: Fn(&ToolTask) -> T>(
     rung: usize,
     total_rungs: usize,
     target: u32,
+    max_output: u32,
     on_step: StepSink<'_>,
 ) -> AppResult<(Vec<DepthScore>, u32, Option<f64>, Option<PosTally>, Vec<TaskTrace>)> {
     let mut per_depth = Vec::with_capacity(depths.len());
@@ -363,7 +378,7 @@ async fn sweep<T: ModelTurn, F: Fn(&ToolTask) -> T>(
         let mut on_task = |task: usize, total_tasks: usize| {
             on_step(StepProgress { rung, total_rungs, target_tokens: target, position: pi + 1, total_positions, task, total_tasks });
         };
-        let (results, pos_traces) = run_position(make_turn, model, tasks, padding, depth, &mut on_task).await?;
+        let (results, pos_traces) = run_position(make_turn, model, tasks, padding, depth, max_output, &mut on_task).await?;
         let (composite, prompt_tokens, tally) = cliff_score(tasks, &results);
         let vt = prompt_tokens.map(|t| t.round() as u32).unwrap_or(0);
         if let Some(t) = prompt_tokens {
@@ -420,8 +435,8 @@ async fn sweep<T: ModelTurn, F: Fn(&ToolTask) -> T>(
 /// the same no matter how much padding is sent). Such a rung must never be scored, plotted,
 /// or persisted as a cliff. The command layer already refuses an over-deep request up front
 /// (`cliff_window_gate`); this is the last line, for a model whose declared window is wrong.
-fn measurable(mean_tokens: u32, ctx_limit: u32) -> bool {
-    mean_tokens > 0 && mean_tokens.saturating_add(MAX_OUTPUT) <= ctx_limit
+fn measurable(mean_tokens: u32, ctx_limit: u32, max_output: u32) -> bool {
+    mean_tokens > 0 && mean_tokens.saturating_add(max_output) <= ctx_limit
 }
 
 /// Clamp a padding byte-size to what the context window can actually hold, at the known
@@ -430,12 +445,12 @@ fn measurable(mean_tokens: u32, ctx_limit: u32) -> bool {
 /// prompt is fatal, not approximate: llama.cpp rejects the request ("the prompt is larger
 /// than the context window") and the whole probe dies, while Ollama truncates in silence.
 /// `NO_CTX_LIMIT` leaves the size untouched. Pure, so the bound is unit-tested directly.
-fn cap_bytes(bytes: usize, rate: f64, ctx_limit: u32) -> usize {
+fn cap_bytes(bytes: usize, rate: f64, ctx_limit: u32, max_output: u32) -> usize {
     if ctx_limit == NO_CTX_LIMIT || rate <= 0.0 {
         return bytes;
     }
     // Leave room for the reply on top of the prompt, mirroring `measurable`.
-    let ceiling_tokens = ctx_limit.saturating_sub(MAX_OUTPUT) as f64;
+    let ceiling_tokens = ctx_limit.saturating_sub(max_output) as f64;
     bytes.min((ceiling_tokens * rate).round() as usize)
 }
 
@@ -456,17 +471,21 @@ async fn probe_rung<T: ModelTurn, F: Fn(&ToolTask) -> T>(
     target: u32,
     depths: &[f32],
     ctx_limit: u32,
+    budget: CliffBudget,
     rate: &mut Option<f64>,
     rung: usize,
     total_rungs: usize,
     on_step: StepSink<'_>,
 ) -> AppResult<CliffPoint> {
+    // This rung's per-turn output cap: the answer floor, plus — for a thinking run —
+    // the scratchpad banded to THIS rung's depth (deeper context ⇒ bigger budget).
+    let max_output = budget.max_output_for(target);
     if target == 0 {
         // Baseline: unpadded, single position.
         let mut on_task = |task: usize, total_tasks: usize| {
             on_step(StepProgress { rung, total_rungs, target_tokens: 0, position: 1, total_positions: 1, task, total_tasks });
         };
-        let (results, pos_traces) = run_position(make_turn, model, tasks, "", 0.0, &mut on_task).await?;
+        let (results, pos_traces) = run_position(make_turn, model, tasks, "", 0.0, max_output, &mut on_task).await?;
         let (composite, prompt_tokens, tally) = cliff_score(tasks, &results);
         let vt = prompt_tokens.map(|t| t.round() as u32).unwrap_or(0);
         let mut trace: Vec<TaskTrace> = Vec::new();
@@ -485,11 +504,11 @@ async fn probe_rung<T: ModelTurn, F: Fn(&ToolTask) -> T>(
     // Seed from the learned rate (accurate) or the 4:1 fallback on the first padded rung,
     // never sizing past what the window can hold (`cap_bytes`).
     let seed_rate = rate.unwrap_or(BYTES_PER_TOKEN as f64);
-    let mut bytes = cap_bytes(((target as f64) * seed_rate).round() as usize, seed_rate, ctx_limit);
+    let mut bytes = cap_bytes(((target as f64) * seed_rate).round() as usize, seed_rate, ctx_limit, max_output);
     let mut last: Option<(Vec<DepthScore>, u32, Option<f64>, Option<PosTally>, Vec<TaskTrace>)> = None;
     for attempt in 0..=MAX_ADJUST_ATTEMPTS {
         let padding = build_padding(source_text, bytes);
-        let (per_depth, mean_tokens, worst, tally, trace) = sweep(make_turn, model, tasks, &padding, depths, rung, total_rungs, target, on_step).await?;
+        let (per_depth, mean_tokens, worst, tally, trace) = sweep(make_turn, model, tasks, &padding, depths, rung, total_rungs, target, max_output, on_step).await?;
         let measured_rate = (mean_tokens > 0).then(|| bytes as f64 / mean_tokens as f64);
         if let Some(r) = measured_rate {
             *rate = Some(r); // learn for the next rung
@@ -507,6 +526,7 @@ async fn probe_rung<T: ModelTurn, F: Fn(&ToolTask) -> T>(
             ((bytes as f64) * (target as f64) / (mean_tokens as f64)).round() as usize,
             measured_rate.unwrap_or(seed_rate),
             ctx_limit,
+            max_output,
         );
     }
     let (per_depth, mean_tokens, worst, tally, trace) = last.expect("loop runs at least once");
@@ -619,7 +639,7 @@ pub async fn run_cliff<M: ModelTurn + Sync>(
     ladder: &[u32],
     depths: &[f32],
 ) -> AppResult<CliffReport> {
-    run_cliff_with(turn, model, tasks, source, ladder, depths, NO_CTX_LIMIT, &CancellationToken::new(), &mut |_, _, _| {}, &mut no_step).await
+    run_cliff_with(turn, model, tasks, source, ladder, depths, NO_CTX_LIMIT, CliffBudget::default(), &CancellationToken::new(), &mut |_, _, _| {}, &mut no_step).await
 }
 
 /// Same as [`run_cliff`] but invokes `on_rung(done, total, point)` after each rung
@@ -639,6 +659,7 @@ pub async fn run_cliff_with<M: ModelTurn + Sync>(
     ladder: &[u32],
     depths: &[f32],
     ctx_limit: u32,
+    budget: CliffBudget,
     cancel: &CancellationToken,
     on_rung: &mut (dyn FnMut(usize, usize, &CliffPoint) + Send),
     on_step: StepSink<'_>,
@@ -646,7 +667,7 @@ pub async fn run_cliff_with<M: ModelTurn + Sync>(
     // One reused turn flows through the per-task factory seam via the blanket `&M` impl (the
     // factory ignores the task and hands back the shared reference). The native path calls
     // `run_cliff_with_factory` directly with a task-aware factory instead.
-    run_cliff_with_factory(&|_: &ToolTask| turn, model, tasks, source, ladder, depths, ctx_limit, cancel, on_rung, on_step).await
+    run_cliff_with_factory(&|_: &ToolTask| turn, model, tasks, source, ladder, depths, ctx_limit, budget, cancel, on_rung, on_step).await
 }
 
 /// The cliff engine over a per-task turn FACTORY: `make_turn(task)` yields the `ModelTurn` for
@@ -663,6 +684,7 @@ pub async fn run_cliff_with_factory<T: ModelTurn, F: Fn(&ToolTask) -> T>(
     ladder: &[u32],
     depths: &[f32],
     ctx_limit: u32,
+    budget: CliffBudget,
     cancel: &CancellationToken,
     on_rung: &mut (dyn FnMut(usize, usize, &CliffPoint) + Send),
     on_step: StepSink<'_>,
@@ -680,7 +702,7 @@ pub async fn run_cliff_with_factory<T: ModelTurn, F: Fn(&ToolTask) -> T>(
         if cancel.is_cancelled() {
             return Err(AppError::Inference("context-cliff probe cancelled".into()));
         }
-        let point = probe_rung(make_turn, model, tasks, source_text, target, depths, ctx_limit, &mut rate, i + 1, total, on_step).await?;
+        let point = probe_rung(make_turn, model, tasks, source_text, target, depths, ctx_limit, budget, &mut rate, i + 1, total, on_step).await?;
         // A Stop that fired DURING this rung leaves it half-generated (cancelled turns
         // return empty/partial text). Abort before emitting it, so a stopped/superseded
         // run never pushes a garbage rung into the chart or the report.
@@ -693,7 +715,7 @@ pub async fn run_cliff_with_factory<T: ModelTurn, F: Fn(&ToolTask) -> T>(
         // deeper rung saturates the same way. The ladder keeps the rungs that DID fit, so the
         // verdict is computed only from real measurements (an honest "held to <last measured>"
         // instead of a fabricated cliff at the window).
-        if i > 0 && !measurable(point.verified_tokens, ctx_limit) {
+        if i > 0 && !measurable(point.verified_tokens, ctx_limit, budget.max_output_for(target)) {
             break;
         }
         on_rung(i + 1, total, &point);
@@ -724,7 +746,9 @@ pub async fn run_cliff_with_factory<T: ModelTurn, F: Fn(&ToolTask) -> T>(
         return Err(AppError::Inference("context-cliff probe cancelled".into()));
     }
     let (status, cliff_tokens) = classify(&points);
-    Ok(CliffReport { points, status, cliff_tokens })
+    // The mode flag rides with the result: `Some(preset)` only when the scratchpad was on.
+    let think_preset = budget.is_thinking.then_some(budget.preset);
+    Ok(CliffReport { points, status, cliff_tokens, think_preset })
 }
 
 #[cfg(test)]

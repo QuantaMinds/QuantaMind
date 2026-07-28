@@ -10,13 +10,13 @@ use crate::inference::backend::backend_kind::BackendKind;
 use crate::inference::backend::endpoint;
 use crate::inference::vram_math::KvPrecision;
 use crate::commands::eval::batch_cmd::probe_native_tools;
-use crate::inference::eval::agentic::difficulty::passk::answer_tokens_for;
+use crate::inference::eval::agentic::difficulty::passk::{answer_tokens_for, ThinkPreset};
 use crate::inference::eval::agentic::model_turn::{BackendTurn, NativeToolTurn};
 use crate::inference::eval::agentic::sandbox::EndStateRule;
 use crate::inference::eval::agentic::spec::Tier;
 use crate::inference::eval::toolcall::prompt::TerminalGuidance;
 use crate::inference::eval::readiness::hardware::hwclass::{classify_bytes, default_required_tier, HardwareClass};
-use crate::inference::eval::cliff::{build_ladder, run_cliff_with, run_cliff_with_factory, CliffPoint, CliffReport, CliffSource, StepProgress, DEFAULT_DEPTHS};
+use crate::inference::eval::cliff::{build_ladder, run_cliff_with, run_cliff_with_factory, CliffBudget, CliffPoint, CliffReport, CliffSource, StepProgress, CLIFF_BASE_HEADROOM, DEFAULT_DEPTHS};
 use crate::inference::eval::agentic::v2::scenarios::{v2_header, v2_json};
 use crate::inference::eval::batch::BatchReport;
 use crate::inference::eval::readiness::inputs::{resolve_quant, verdicts_for_column};
@@ -90,7 +90,10 @@ struct CliffStep {
 /// Context window headroom over the deepest rung: the system prompt (tool schemas),
 /// the injected needle, and the output budget all sit on top of the padding, so the
 /// window must exceed the requested token depth or the backend truncates the padding.
-const CLIFF_CTX_HEADROOM: u32 = 2048;
+/// This is the NON-THINKING base (canonical in `cliff::budget`); a thinking run's real
+/// headroom is `CliffBudget::headroom(max_tokens)`, which adds the deepest rung's
+/// scratchpad — the gates below take that computed value, never this const.
+const CLIFF_CTX_HEADROOM: u32 = CLIFF_BASE_HEADROOM;
 
 /// llama.cpp isn't running the probe's model (or any) — guide the user to launch it at
 /// a window the probe needs, naming both so the fix is unambiguous. The probe never
@@ -106,8 +109,10 @@ fn start_with_model_msg(model: &str, needed_ctx: u32) -> String {
 
 /// The right model is loaded but its launch `-c` is too small for the requested depth.
 /// One honest line covering both "set it higher" and "this machine's memory caps it".
-fn raise_or_reduce_msg(running_ctx: u32, needed_ctx: u32) -> String {
-    let safe_depth = running_ctx.saturating_sub(CLIFF_CTX_HEADROOM);
+/// `headroom` is the RUN's computed reserve (base + any thinking scratchpad), so the
+/// suggested safe depth stays true when a thinking budget widens the reserve.
+fn raise_or_reduce_msg(running_ctx: u32, needed_ctx: u32, headroom: u32) -> String {
+    let safe_depth = running_ctx.saturating_sub(headroom);
     format!(
         "llama.cpp is running this model with a {running_ctx}-token context window, but \
          this probe needs about {needed_ctx}. Raise \"Context window\" and restart \
@@ -121,7 +126,7 @@ fn raise_or_reduce_msg(running_ctx: u32, needed_ctx: u32) -> String {
 /// dropped the GGUF path): it can never equal the running server's real path, so without this it
 /// would masquerade as `WrongModel` and emit the misleading "start with a bigger context"
 /// message. Fail honestly and distinctly instead.
-fn llama_cliff_gate(path: &str, readiness: LlamaProbeReadiness, model: &str, needed_ctx: u32) -> Option<AppError> {
+fn llama_cliff_gate(path: &str, readiness: LlamaProbeReadiness, model: &str, needed_ctx: u32, headroom: u32) -> Option<AppError> {
     if path.is_empty() {
         return Some(AppError::Inference(format!(
             "No model path was provided for the llama.cpp Context Stress Test of \"{model}\" — \
@@ -133,7 +138,7 @@ fn llama_cliff_gate(path: &str, readiness: LlamaProbeReadiness, model: &str, nee
             Some(AppError::Inference(start_with_model_msg(model, needed_ctx)))
         }
         LlamaProbeReadiness::Ready { ctx } if ctx < needed_ctx => {
-            Some(AppError::Inference(raise_or_reduce_msg(ctx, needed_ctx)))
+            Some(AppError::Inference(raise_or_reduce_msg(ctx, needed_ctx, headroom)))
         }
         LlamaProbeReadiness::Ready { .. } => None,
     }
@@ -141,13 +146,16 @@ fn llama_cliff_gate(path: &str, readiness: LlamaProbeReadiness, model: &str, nee
 
 /// The requested depth doesn't fit the model's own context window. Names the deepest
 /// Max Tokens that CAN be measured, so the fix is a concrete number, not a direction.
-fn cliff_window_msg(model: &str, context_length: u32, needed_ctx: u32) -> String {
-    let usable = context_length.saturating_sub(CLIFF_CTX_HEADROOM);
+/// `headroom` is the run's computed reserve — under a thinking budget it includes the
+/// scratchpad, so the suggested number stays achievable, never optimistic.
+fn cliff_window_msg(model: &str, context_length: u32, needed_ctx: u32, headroom: u32) -> String {
+    let usable = context_length.saturating_sub(headroom);
     format!(
         "This probe needs about {needed_ctx} tokens of context, but \"{model}\" only has a \
-         {context_length}-token window. The tool schemas, the injected task, and the reply all \
-         sit on top of the padding, so Max Tokens must stay about {CLIFF_CTX_HEADROOM} below the \
-         window. Reduce the Context Stress Test Max Tokens to {usable} or less."
+         {context_length}-token window. The tool schemas, the injected task, and the reply \
+         (including any thinking budget) all sit on top of the padding, so Max Tokens must stay \
+         about {headroom} below the window. Reduce the Context Stress Test Max Tokens to \
+         {usable} or less."
     )
 }
 
@@ -158,9 +166,9 @@ fn cliff_window_msg(model: &str, context_length: u32, needed_ctx: u32) -> String
 /// is a saturated counter (a fabricated number). Refuse up front instead. Pure over the
 /// probed window so it unit-tests without a server; `None` window ⇒ unmeasurable ⇒ never a
 /// guessed block (same rule as the VRAM gate).
-fn cliff_window_gate(context_length: Option<u32>, model: &str, needed_ctx: u32) -> Option<AppError> {
+fn cliff_window_gate(context_length: Option<u32>, model: &str, needed_ctx: u32, headroom: u32) -> Option<AppError> {
     match context_length {
-        Some(ctx) if needed_ctx > ctx => Some(AppError::Inference(cliff_window_msg(model, ctx, needed_ctx))),
+        Some(ctx) if needed_ctx > ctx => Some(AppError::Inference(cliff_window_msg(model, ctx, needed_ctx, headroom))),
         _ => None,
     }
 }
@@ -226,7 +234,7 @@ fn llama_profile_from_meta(
 /// real footprint vs the cap and an ESTIMATED safe Max-Tokens — KV grows ~linearly with
 /// context, so scaling the remaining budget is a fair estimate (labelled "about"), never a
 /// fabricated exact figure.
-fn cliff_vram_msg(model: &str, needed_ctx: u32, p: &MemoryProfile) -> String {
+fn cliff_vram_msg(model: &str, needed_ctx: u32, p: &MemoryProfile, headroom: u32) -> String {
     let gb = |b: u64| format!("{:.1} GB", b as f64 / (1024.0 * 1024.0 * 1024.0));
     let kv_budget = p.cap_bytes.saturating_sub(p.weights_bytes);
     let safe_ctx = if p.kv_cache_bytes > 0 {
@@ -234,7 +242,7 @@ fn cliff_vram_msg(model: &str, needed_ctx: u32, p: &MemoryProfile) -> String {
     } else {
         0
     };
-    let safe_tokens = safe_ctx.saturating_sub(CLIFF_CTX_HEADROOM);
+    let safe_tokens = safe_ctx.saturating_sub(headroom);
     format!(
         "This machine's memory ({cap}) can't hold a {needed_ctx}-token context for \"{model}\" \
          — it needs about {total} ({weights} weights + {kv} KV cache). Reduce the Context Stress \
@@ -320,13 +328,23 @@ pub async fn run_context_cliff(
     params: Option<InferenceParams>,
     model_path: Option<String>,
     run_native_fc: Option<bool>,
+    is_thinking: Option<bool>,
+    think_preset: Option<ThinkPreset>,
 ) -> Result<CliffReport, AppError> {
     validate_tasks(&tasks)?;
     let backend = backend.unwrap_or_default();
     let native = run_native_fc.unwrap_or(false);
+    // The probe's output budget: answer floor for every model; a thinking model adds a
+    // scratchpad banded to each rung's depth (mirrors the Tests page's tier presets).
+    // Absent args ⇒ the non-thinking default — byte-identical to the pre-preset probe.
+    let budget = CliffBudget {
+        is_thinking: is_thinking.unwrap_or(false),
+        preset: think_preset.unwrap_or_default(),
+    };
 
     // Start from the global header params, then force greedy (temp 0) and a context
-    // window that fits the deepest rung plus the system/needle/output overhead.
+    // window that fits the deepest rung plus the system/needle/output overhead —
+    // where "output" includes the deepest rung's thinking scratchpad when one is on.
     let mut options = match &params {
         Some(p) => {
             validate_params(p)?;
@@ -335,7 +353,8 @@ pub async fn run_context_cliff(
         None => GenerateOptions::default(),
     };
     options.temperature = Some(0.0);
-    let needed_ctx = max_tokens.saturating_add(CLIFF_CTX_HEADROOM);
+    let headroom = budget.headroom(max_tokens);
+    let needed_ctx = max_tokens.saturating_add(headroom);
     if options.num_ctx.map_or(true, |c| c < needed_ctx) {
         options.num_ctx = Some(needed_ctx);
     }
@@ -347,7 +366,7 @@ pub async fn run_context_cliff(
     // ignored by the single-model server). Ollama/MLX size per request, so skip them.
     if backend == BackendKind::LlamaCpp {
         let path = model_path.as_deref().unwrap_or("");
-        if let Some(err) = llama_cliff_gate(path, llama_state.probe_readiness(path), &model, needed_ctx) {
+        if let Some(err) = llama_cliff_gate(path, llama_state.probe_readiness(path), &model, needed_ctx, headroom) {
             return Err(err);
         }
     }
@@ -367,7 +386,7 @@ pub async fn run_context_cliff(
         // Gate 1 — the model's context window. Must run before the memory gate: a depth the
         // model physically cannot hold is wrong even on a machine with memory to spare, and
         // Ollama accepts the oversized `num_ctx` silently, so nothing downstream would catch it.
-        if let Some(err) = cliff_window_gate(probed.as_ref().map(|d| d.context_length as u32), &model, needed_ctx) {
+        if let Some(err) = cliff_window_gate(probed.as_ref().map(|d| d.context_length as u32), &model, needed_ctx, headroom) {
             return Err(err);
         }
 
@@ -390,7 +409,7 @@ pub async fn run_context_cliff(
             };
             if let Some(profile) = try_profile(w, dims, Some(needed_ctx), Some(cap), KvPrecision::F16) {
                 if !profile.fits {
-                    return Err(AppError::Inference(cliff_vram_msg(&model, needed_ctx, &profile)));
+                    return Err(AppError::Inference(cliff_vram_msg(&model, needed_ctx, &profile, headroom)));
                 }
             }
         }
@@ -456,12 +475,14 @@ pub async fn run_context_cliff(
             // Gate the answer-delivery mandate on act-vs-abstain, like the batch native pass, so a
             // native model on an ACT task is told to call the tool, not nudged into prose.
             terminal: cliff_terminal(task),
+            // Fallback only — the engine pins the per-rung depth-banded budget on the
+            // spec, which wins the merge (see `merge_eval_options`).
             max_tokens: answer_tokens_for(Tier::Easy),
-            is_thinking: false,
+            is_thinking: budget.is_thinking,
         };
         // `needed_ctx` is the window the run asked for and — the gates above having passed —
         // believes it got. A rung whose measured prompt reaches it was truncated, not measured.
-        run_cliff_with_factory(&make_native, &model, &tasks, &source, &ladder, &DEFAULT_DEPTHS, needed_ctx, &cancel, &mut on_rung, &mut on_step).await?
+        run_cliff_with_factory(&make_native, &model, &tasks, &source, &ladder, &DEFAULT_DEPTHS, needed_ctx, budget, &cancel, &mut on_rung, &mut on_step).await?
     } else {
         let turn = BackendTurn {
             backend,
@@ -470,15 +491,15 @@ pub async fn run_context_cliff(
             cancel: cancel.clone(),
             options: Some(options),
             keep_alive: None,
-            // Readiness is a minimal liveness probe, not a scored agentic run — keep the non-thinking
-            // budget, but at the answer floor so the probe's own tool call can't truncate.
-            is_thinking: false,
+            // A thinking probe reasons before its call (and gets the depth-banded scratchpad
+            // via the engine's per-rung spec budget); non-thinking keeps the answer floor.
+            is_thinking: budget.is_thinking,
             max_tokens: answer_tokens_for(Tier::Easy),
             cpu_offloaded: false, // liveness probe, not a scored run — no need to grant extra time
             ctx_ceiling: crate::inference::eval::agentic::runner::NUM_CTX_CEILING, // probe: fixed fallback window
             stop_cache: Default::default(),
         };
-        run_cliff_with(&turn, &model, &tasks, &source, &ladder, &DEFAULT_DEPTHS, needed_ctx, &cancel, &mut on_rung, &mut on_step).await?
+        run_cliff_with(&turn, &model, &tasks, &source, &ladder, &DEFAULT_DEPTHS, needed_ctx, budget, &cancel, &mut on_rung, &mut on_step).await?
     };
 
     // Persist the classified outcome (NotProbed is the absence of a record). A NATIVE cliff is
@@ -711,7 +732,7 @@ mod cliff_preflight_tests {
     /// though probe_readiness("") returns WrongModel.
     #[test]
     fn empty_path_yields_a_distinct_no_path_error_not_wrong_model() {
-        let err = llama_cliff_gate("", LlamaProbeReadiness::WrongModel, "qwen2.5-coder", 6144).unwrap();
+        let err = llama_cliff_gate("", LlamaProbeReadiness::WrongModel, "qwen2.5-coder", 6144, CLIFF_CTX_HEADROOM).unwrap();
         let msg = err.to_string();
         assert!(msg.contains("No model path was provided"), "honest distinct error: {msg}");
         assert!(!msg.contains("Context window of at least"), "must NOT be the start-with-model message: {msg}");
@@ -720,15 +741,15 @@ mod cliff_preflight_tests {
     #[test]
     fn llama_gate_maps_readiness_when_path_is_present() {
         // Wrong/absent model → start-with-model message.
-        assert!(llama_cliff_gate("/w/m.gguf", LlamaProbeReadiness::WrongModel, "m", 6144)
+        assert!(llama_cliff_gate("/w/m.gguf", LlamaProbeReadiness::WrongModel, "m", 6144, CLIFF_CTX_HEADROOM)
             .unwrap().to_string().contains("Start llama.cpp"));
-        assert!(llama_cliff_gate("/w/m.gguf", LlamaProbeReadiness::NotRunning, "m", 6144)
+        assert!(llama_cliff_gate("/w/m.gguf", LlamaProbeReadiness::NotRunning, "m", 6144, CLIFF_CTX_HEADROOM)
             .unwrap().to_string().contains("Start llama.cpp"));
         // Loaded but too small → raise/reduce message.
-        assert!(llama_cliff_gate("/w/m.gguf", LlamaProbeReadiness::Ready { ctx: 4096 }, "m", 6144)
+        assert!(llama_cliff_gate("/w/m.gguf", LlamaProbeReadiness::Ready { ctx: 4096 }, "m", 6144, CLIFF_CTX_HEADROOM)
             .unwrap().to_string().contains("Raise"));
         // Loaded with enough context → no error (the probe proceeds).
-        assert!(llama_cliff_gate("/w/m.gguf", LlamaProbeReadiness::Ready { ctx: 8192 }, "m", 6144).is_none());
+        assert!(llama_cliff_gate("/w/m.gguf", LlamaProbeReadiness::Ready { ctx: 8192 }, "m", 6144, CLIFF_CTX_HEADROOM).is_none());
     }
 
     /// The "wrong/no model" hand-off must name the model and the window so the user
@@ -745,7 +766,7 @@ mod cliff_preflight_tests {
     /// and a concrete safe depth = running window minus the cliff headroom.
     #[test]
     fn raise_or_reduce_msg_states_both_levers_and_a_safe_depth() {
-        let m = raise_or_reduce_msg(8192, 18_432);
+        let m = raise_or_reduce_msg(8192, 18_432, CLIFF_CTX_HEADROOM);
         assert!(m.contains("8192"), "names the running window: {m}");
         assert!(m.contains("18432"), "names the needed window: {m}");
         assert!(m.contains("Context window"), "names the raise lever: {m}");
@@ -763,7 +784,7 @@ mod cliff_preflight_tests {
     fn cliff_window_gate_refuses_a_depth_the_model_cannot_hold() {
         // Max Tokens = the full 32768 window → needed_ctx = 34816 > 32768. Verified live:
         // Ollama answers this request with n_ctx = 32768 and a truncated prompt.
-        let err = cliff_window_gate(Some(32_768), "qwen2.5:3b", 34_816).expect("must refuse");
+        let err = cliff_window_gate(Some(32_768), "qwen2.5:3b", 34_816, CLIFF_CTX_HEADROOM).expect("must refuse");
         let m = err.to_string();
         assert!(m.contains("32768"), "names the model's real window: {m}");
         assert!(m.contains("30720"), "names the deepest Max Tokens that fits (32768 - 2048): {m}");
@@ -775,15 +796,15 @@ mod cliff_preflight_tests {
     #[test]
     fn cliff_window_gate_allows_the_deepest_depth_that_fits() {
         // What the capped slider now produces: 30720 + 2048 headroom == the 32768 window.
-        assert!(cliff_window_gate(Some(32_768), "m", 30_720 + CLIFF_CTX_HEADROOM).is_none());
-        assert!(cliff_window_gate(Some(32_768), "m", 8_192).is_none());
+        assert!(cliff_window_gate(Some(32_768), "m", 30_720 + CLIFF_CTX_HEADROOM, CLIFF_CTX_HEADROOM).is_none());
+        assert!(cliff_window_gate(Some(32_768), "m", 8_192, CLIFF_CTX_HEADROOM).is_none());
     }
 
     /// An unknown window is UNMEASURABLE, never a guessed block — same rule as the VRAM
     /// gate (a missing input must not invent an alarm).
     #[test]
     fn cliff_window_gate_never_blocks_on_an_unknown_window() {
-        assert!(cliff_window_gate(None, "m", 999_999).is_none());
+        assert!(cliff_window_gate(None, "m", 999_999, CLIFF_CTX_HEADROOM).is_none());
     }
 
     fn nineb_meta() -> crate::inference::gguf::gguf::GgufMetadata {
@@ -901,7 +922,7 @@ mod cliff_preflight_tests {
             estimated: false,
             kv_precision: Default::default(),
         };
-        let m = cliff_vram_msg("gemma-3-12b", 16_384, &p);
+        let m = cliff_vram_msg("gemma-3-12b", 16_384, &p, CLIFF_CTX_HEADROOM);
         assert!(m.contains("gemma-3-12b"), "names the model: {m}");
         assert!(m.contains("16384"), "names the needed context: {m}");
         assert!(m.contains("6144"), "an estimated safe depth: {m}");

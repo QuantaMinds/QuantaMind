@@ -86,6 +86,7 @@ async fn a_rung_truncated_at_the_context_window_is_dropped_not_reported_as_a_cli
         &ladder,
         &DEFAULT_DEPTHS,
         window,
+        CliffBudget::default(),
         &CancellationToken::new(),
         &mut |_, _, p: &CliffPoint| emitted.push(p.verified_tokens),
         &mut |_| {},
@@ -98,7 +99,7 @@ async fn a_rung_truncated_at_the_context_window_is_dropped_not_reported_as_a_cli
     // Every rung that survived is a real measurement — none sits at or past the window.
     for p in &report.points {
         assert!(
-            measurable(p.verified_tokens, window),
+            measurable(p.verified_tokens, window, MAX_OUTPUT),
             "an unmeasurable rung reached the report: {} tokens vs a {window} window",
             p.verified_tokens,
         );
@@ -125,6 +126,7 @@ async fn rungs_that_fit_the_window_are_still_measured_and_can_still_find_a_real_
         &[0u32, 4_000, 8_000],
         &DEFAULT_DEPTHS,
         32_768,
+        CliffBudget::default(),
         &CancellationToken::new(),
         &mut |_, _, _| {},
         &mut |_| {},
@@ -328,6 +330,7 @@ async fn a_cancel_during_a_rung_aborts_before_emitting_that_rung() {
         &[0u32, 4000],
         &DEFAULT_DEPTHS,
         NO_CTX_LIMIT,
+        CliffBudget::default(),
         &cancel,
         &mut |_, _, _| {
             emitted += 1;
@@ -359,6 +362,7 @@ async fn a_per_task_turn_factory_scores_identically_to_a_shared_turn() {
         &ladder,
         &DEFAULT_DEPTHS,
         NO_CTX_LIMIT,
+        CliffBudget::default(),
         &CancellationToken::new(),
         &mut |_, _, _| {},
         &mut |_| {},
@@ -393,6 +397,7 @@ async fn progress_callback_fires_once_per_rung() {
         &ladder,
         &DEFAULT_DEPTHS,
         NO_CTX_LIMIT,
+        CliffBudget::default(),
         &CancellationToken::new(),
         &mut |done, total, _| {
             seen.push((done, total));
@@ -422,6 +427,7 @@ async fn step_callback_fires_per_task_with_rung_and_position_context() {
         &ladder,
         &DEFAULT_DEPTHS,
         NO_CTX_LIMIT,
+        CliffBudget::default(),
         &CancellationToken::new(),
         &mut |_, _, _| {},
         &mut |s| steps.push((s.rung, s.total_rungs, s.target_tokens, s.position, s.total_positions, s.task, s.total_tasks)),
@@ -455,6 +461,7 @@ async fn a_cancelled_token_aborts_the_sweep_with_an_error_and_no_classification(
         &ladder,
         &DEFAULT_DEPTHS,
         NO_CTX_LIMIT,
+        CliffBudget::default(),
         &cancel,
         &mut |_, _, _| {
             rungs += 1;
@@ -501,7 +508,7 @@ fn assert_live_report_is_honest(report: &CliffReport, ctx_limit: u32, label: &st
     }
     for p in &report.points {
         assert!(
-            measurable(p.verified_tokens, ctx_limit),
+            measurable(p.verified_tokens, ctx_limit, MAX_OUTPUT),
             "{label}: an unmeasurable rung reached the report — verified={} vs window {ctx_limit}. \
              A prompt at the window was TRUNCATED by the backend, so its score and its depth are \
              both artifacts.",
@@ -544,6 +551,7 @@ async fn live_cliff_ollama_reports_no_fabricated_cliff_at_the_window() {
     let ladder = build_ladder(max_tokens, 3);
     let report = run_cliff_with(
         &turn, &model, &[task()], &source(), &ladder, &DEFAULT_DEPTHS, window,
+        CliffBudget::default(),
         &CancellationToken::new(), &mut |_, _, _| {}, &mut |_| {},
     )
     .await
@@ -578,6 +586,7 @@ async fn live_cliff_llama_reports_no_fabricated_cliff_at_the_window() {
     let ladder = build_ladder(max_tokens, 3);
     let report = run_cliff_with(
         &turn, &model, &[task()], &source(), &ladder, &DEFAULT_DEPTHS, window,
+        CliffBudget::default(),
         &CancellationToken::new(), &mut |_, _, _| {}, &mut |_| {},
     )
     .await
@@ -625,6 +634,7 @@ async fn a_cache_served_prompt_is_measured_at_its_true_size_not_the_recomputed_p
         &[0u32, 4_000],
         &DEFAULT_DEPTHS,
         32_768,
+        CliffBudget::default(),
         &CancellationToken::new(),
         &mut |_, _, _| {},
         &mut |_| {},
@@ -648,16 +658,16 @@ fn cap_bytes_never_sizes_a_prompt_past_the_window() {
     let rate = 5.0; // bytes per token
     let window = 8_192u32;
     // An overshooting rebuild (10k tokens' worth) is clamped to what the window holds.
-    let capped = cap_bytes(50_000, rate, window);
+    let capped = cap_bytes(50_000, rate, window, MAX_OUTPUT);
     let projected_tokens = (capped as f64 / rate).round() as u32;
     assert!(
         projected_tokens.saturating_add(MAX_OUTPUT) <= window,
         "{projected_tokens} tokens + reply must fit the {window} window",
     );
     // A size that already fits is left exactly alone — the cap must not cost real depth.
-    assert_eq!(cap_bytes(10_000, rate, window), 10_000);
+    assert_eq!(cap_bytes(10_000, rate, window, MAX_OUTPUT), 10_000);
     // Scripted turns have no real window to clamp against.
-    assert_eq!(cap_bytes(usize::MAX, rate, NO_CTX_LIMIT), usize::MAX);
+    assert_eq!(cap_bytes(usize::MAX, rate, NO_CTX_LIMIT, MAX_OUTPUT), usize::MAX);
 }
 
 // ── sample resolution: the composite must be able to support its own verdict ──────────
@@ -719,6 +729,7 @@ async fn a_single_task_flip_at_one_position_is_not_a_cliff() {
     let model = OneFlipModel { flip_task: "Do step 3.".into(), at_depth: 0.5, good: GOOD.into() };
     let report = run_cliff_with(
         &model, "m", &tasks, &source(), &[0u32, 4_000], &DEFAULT_DEPTHS, NO_CTX_LIMIT,
+        CliffBudget::default(),
         &CancellationToken::new(), &mut |_, _, _| {}, &mut |_| {},
     )
     .await
@@ -746,6 +757,7 @@ async fn a_systematic_failure_at_one_position_is_still_a_cliff() {
     let model = CliffModel { threshold: 500, good: GOOD.into() };
     let report = run_cliff_with(
         &model, "m", &tasks, &source(), &[0u32, 4_000], &DEFAULT_DEPTHS, NO_CTX_LIMIT,
+        CliffBudget::default(),
         &CancellationToken::new(), &mut |_, _, _| {}, &mut |_| {},
     )
     .await
@@ -766,6 +778,7 @@ async fn a_single_task_collection_cannot_resolve_the_margin() {
     let model = CliffModel { threshold: 500, good: GOOD.into() }; // collapses when padded
     let report = run_cliff_with(
         &model, "m", &tasks, &source(), &[0u32, 4_000], &DEFAULT_DEPTHS, NO_CTX_LIMIT,
+        CliffBudget::default(),
         &CancellationToken::new(), &mut |_, _, _| {}, &mut |_| {},
     )
     .await
@@ -786,6 +799,7 @@ async fn a_rung_carries_its_measured_tally() {
     let model = CliffModel { threshold: u32::MAX, good: GOOD.into() };
     let report = run_cliff_with(
         &model, "m", &tasks, &source(), &[0u32, 4_000], &DEFAULT_DEPTHS, NO_CTX_LIMIT,
+        CliffBudget::default(),
         &CancellationToken::new(), &mut |_, _, _| {}, &mut |_| {},
     )
     .await
@@ -795,4 +809,92 @@ async fn a_rung_carries_its_measured_tally() {
     assert_eq!(padded.passed, Some(15), "a perfect model passes all of them");
     // The baseline is one position by construction, so its tally is smaller — carried honestly.
     assert_eq!(report.points[0].trials, Some(5));
+}
+
+// ── depth-scaled thinking budget ─────────────────────────────────────────────────────
+
+/// A healthy scripted model that RECORDS each turn's `num_predict`, so the test can
+/// assert what output budget the engine actually granted at every rung.
+struct BudgetRecorder {
+    good: String,
+    seen: std::sync::Mutex<Vec<u32>>,
+}
+
+impl ModelTurn for &BudgetRecorder {
+    async fn run(&self, spec: &GenerateSpec, _progress: &Progress) -> AppResult<(String, GenerateStats)> {
+        let np = spec.options.as_ref().and_then(|o| o.num_predict).unwrap_or(0);
+        self.seen.lock().unwrap().push(np);
+        let chars = spec.system.as_deref().map_or(0, |s| s.len()) + spec.prompt.len();
+        Ok((self.good.clone(), GenerateStats { prompt_eval_count: Some((chars / 4) as u32), ..Default::default() }))
+    }
+}
+
+/// The thinking budget must scale with the RUNG's depth (banded through the canonical
+/// tier table), while a non-thinking run keeps the flat answer floor at every depth —
+/// byte-identical to the pre-preset probe.
+#[tokio::test]
+async fn thinking_budget_scales_per_rung_and_non_thinking_stays_flat() {
+    use crate::inference::eval::agentic::difficulty::passk::ThinkPreset;
+    let ladder = [0u32, 6_000, 12_000];
+
+    let run = |budget: CliffBudget| async move {
+        let model = BudgetRecorder { good: GOOD.into(), seen: std::sync::Mutex::new(Vec::new()) };
+        run_cliff_with(
+            &&model,
+            "m",
+            &[task()],
+            &source(),
+            &ladder,
+            &DEFAULT_DEPTHS,
+            NO_CTX_LIMIT,
+            budget,
+            &CancellationToken::new(),
+            &mut |_, _, _| {},
+            &mut |_| {},
+        )
+        .await
+        .unwrap();
+        let seen = model.seen.lock().unwrap().clone();
+        seen
+    };
+
+    // Non-thinking: every turn runs at the flat answer floor.
+    let flat = run(CliffBudget::default()).await;
+    assert!(!flat.is_empty());
+    assert!(flat.iter().all(|&np| np == CLIFF_ANSWER_TOKENS), "non-thinking must stay flat: {flat:?}");
+
+    // Thinking (Standard): the granted budget grows band-by-band with the rung depth —
+    // baseline (Easy band) < 6k (Medium band) < 12k (Hard band).
+    let thinking = run(CliffBudget { is_thinking: true, preset: ThinkPreset::Standard }).await;
+    let mut distinct: Vec<u32> = thinking.clone();
+    distinct.dedup();
+    let expected: Vec<u32> = ladder.iter().map(|&t| CliffBudget { is_thinking: true, preset: ThinkPreset::Standard }.max_output_for(t)).collect();
+    assert_eq!(distinct, expected, "per-rung budgets must follow the depth bands: {thinking:?}");
+    assert!(expected.windows(2).all(|w| w[0] < w[1]), "budget must increase with depth: {expected:?}");
+}
+
+/// The mode flag rides with the result: a thinking probe stamps its preset on the
+/// report, a non-thinking probe stamps none — so a depth measured with a scratchpad
+/// can never be conflated with one measured without.
+#[tokio::test]
+async fn report_carries_the_think_preset_only_when_thinking() {
+    use crate::inference::eval::agentic::difficulty::passk::ThinkPreset;
+    let model = CliffModel { threshold: u32::MAX, good: GOOD.into() };
+    let plain = run_cliff_with(
+        &model, "m", &[task()], &source(), &[0u32, 2_000], &DEFAULT_DEPTHS, NO_CTX_LIMIT,
+        CliffBudget::default(),
+        &CancellationToken::new(), &mut |_, _, _| {}, &mut |_| {},
+    )
+    .await
+    .unwrap();
+    assert_eq!(plain.think_preset, None);
+
+    let thinking = run_cliff_with(
+        &model, "m", &[task()], &source(), &[0u32, 2_000], &DEFAULT_DEPTHS, NO_CTX_LIMIT,
+        CliffBudget { is_thinking: true, preset: ThinkPreset::Deep },
+        &CancellationToken::new(), &mut |_, _, _| {}, &mut |_| {},
+    )
+    .await
+    .unwrap();
+    assert_eq!(thinking.think_preset, Some(ThinkPreset::Deep));
 }
