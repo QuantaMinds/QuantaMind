@@ -17,6 +17,7 @@ pub const V2_SCENARIOS: &[(&str, &str)] = &[
     // reachable). The v1 file stays bundled so saved runs + its hash keep resolving —
     // answer-key changes NEVER edit a hashed collection in place (docs/process.md).
     ("medium-coding-v2", include_str!("scenarios/medium-coding-v2.json")),
+    ("medium-coding-v3", include_str!("scenarios/medium-coding-v3.json")),
     ("medium-finance", include_str!("scenarios/medium-finance.json")),
     ("medium-legal", include_str!("scenarios/medium-legal.json")),
     ("medium-medical", include_str!("scenarios/medium-medical.json")),
@@ -55,7 +56,7 @@ pub const CURATED_IDS: &[&str] = &[
     "easy-coding",
     "easy-finance",
     "easy-ecommerce",
-    "medium-coding-v2",
+    "medium-coding-v3",
     "medium-finance",
     "medium-medical",
     "hard-coding",
@@ -584,7 +585,7 @@ mod tests {
 
     #[test]
     fn every_bundled_v2_collection_loads_and_validates() {
-        assert_eq!(V2_SCENARIOS.len(), 23);
+        assert_eq!(V2_SCENARIOS.len(), 24);
         for (id, json) in V2_SCENARIOS {
             let tasks = load_v2_collection(json).unwrap_or_else(|e| panic!("collection '{id}' failed to load: {e}"));
             assert!(!tasks.is_empty(), "collection '{id}' has no tasks");
