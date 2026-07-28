@@ -6,6 +6,14 @@ All notable changes to QuantaMind are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Release pipeline was down since 0.2.4**: the dist workflow chained the Docker build
+  (#216) without granting the called workflow's permissions, so GitHub rejected the whole
+  file at parse time — every run since Jul 23 (PRs *and* any future `quantamind-v*` tag)
+  hit `startup_failure`. Fixed via `github-custom-job-permissions` in `dist-workspace.toml`
+  + `dist generate` (the file stays machine-generated, per the release-pipeline rule).
+
 ### Added
 
 - **Context Stress Test verdict honesty** (prompted by community review of a published run —
