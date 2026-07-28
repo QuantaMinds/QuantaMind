@@ -474,3 +474,35 @@ describe("concentration low-confidence labeling", () => {
     expect(screen.getByTestId("cliff-read")).not.toHaveTextContent("low confidence");
   });
 });
+
+describe("deliberation headroom", () => {
+  it("renders BudgetLimited as a budget outcome, never as a collapse, with cap and amber flags", async () => {
+    const deep = {
+      ...rung(8845, 0.733),
+      passed: 11, trials: 15, max_output: 256,
+      by_task: [
+        { task_id: "ok_task", passed: 3, trials: 3, failed_cap_hits: 0, min_pass_headroom_milli: 500 },
+        { task_id: "near_cap_task", passed: 3, trials: 3, failed_cap_hits: 0, min_pass_headroom_milli: 62 },
+        { task_id: "starved_task", passed: 0, trials: 3, failed_cap_hits: 3, min_pass_headroom_milli: null },
+        { task_id: "starved_too", passed: 2, trials: 3, failed_cap_hits: 1, min_pass_headroom_milli: 400 },
+      ],
+    };
+    vi.mocked(runContextCliff).mockResolvedValue(
+      reportOf({ status: "BudgetLimited", depth: 8845, cap: 256 } as never, [rung(700, 1.0), deep], null) as never,
+    );
+    render(<ContextCliffPanel />);
+    await waitFor(() => expect(screen.getByTestId("cliff-run")).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId("cliff-run"));
+
+    // Read-out: the budget outcome, with the disambiguating-probe instruction.
+    await waitFor(() => expect(screen.getByTestId("cliff-read")).toHaveTextContent("Budget-limited"));
+    expect(screen.getByTestId("cliff-read")).toHaveTextContent("256-token output cap");
+    expect(screen.getByTestId("cliff-read")).not.toHaveTextContent("context tokens —"); // not a collapse read-out
+    // Failing line marks the cap deaths; amber line names the near-cap passer only.
+    const failLine = screen.getByTestId("cliff-by-task-1");
+    expect(failLine).toHaveTextContent("starved_task 0/3 (3 died at cap)");
+    const amber = screen.getByTestId("cliff-near-cap-1");
+    expect(amber).toHaveTextContent("near_cap_task (62‰ headroom)");
+    expect(amber).not.toHaveTextContent("ok_task");
+  });
+});

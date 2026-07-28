@@ -827,6 +827,29 @@ temperature from params) would add per-cell repeats; any such run MUST carry (K,
 the report per the metric-comparability rule. **Activate when:** a user needs conditional-variance
 estimates (model noise vs task difficulty) rather than a reproducible deployment gate.
 
+### Cliff burn-curve analysis + extrapolative amber (deferred)
+
+Deliberation Headroom v1 captures per-cell consumption and ships the static flags. The
+follow-up: per-task burn CURVES across rungs — reported RELATIVE to each task's own
+unpadded-baseline consumption (which v1 already records), because a task can carry a high
+intercept (prior-conflict: expensive at zero padding) AND a steep slope (depth-load) at once,
+and one absolute curve confounds them; two numbers per task (baseline burn + relative slope)
+make the taxonomy computable. Plus the extrapolative amber (consumption grew rung-over-rung
+by more than remaining headroom), and — once sampled-K exists — DISTRIBUTIONAL headroom
+(percentiles of used/cap across repeats, not a binary: a p95 against the ceiling with a
+comfortable mean is the same failure mode as a test that only passes on retry; under greedy,
+v1's per-cell values + per-task minimum are the honest available spread). **Activate when:**
+the static flags have soaked on real runs.
+
+### Cliff forced-transition at cap approach (deferred)
+
+Qwen3-style graceful truncation: near the cap, inject the "answer from your thinking so far"
+transition instead of hard-stopping (s1's budget forcing; Qwen3's stop-thinking insertion).
+Published evidence says this converts many zero-output cap deaths into best-guess answers,
+separating "couldn't answer" from "wasn't allowed to answer". Inference-side mechanism —
+touches the turn layer, not the cliff. **Activate when:** BudgetLimited verdicts are common
+enough in the wild that the disambiguating re-run is a real cost.
+
 ### Cliff failure-KIND taxonomy per depth (deferred)
 
 The 2025–2026 community record shows "no tool call at depth" has ≥4 distinct causes (model

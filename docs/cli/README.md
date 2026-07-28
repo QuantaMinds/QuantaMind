@@ -489,8 +489,14 @@ line. A rung that would exceed the context window is dropped, never
 scored (the verdict uses only real measurements).
 
 **Exit:** `0` no-cliff · `10` collapsed · `11` inconclusive (sample too small to resolve a cliff
-from noise — add tasks/repeats, don't trust a coin flip) · `20` broken baseline (fails at the
-smallest context — a tool-call failure, not a context limit) · `2`/`3` as usual.
+from noise — add tasks/repeats, don't trust a coin flip) · `12` **budget-limited** (every failure
+on the rung died at the output cap — a config outcome: raise `--thinking`/the budget and re-run;
+recovery = starved, same failures = looping) · `20` broken baseline (fails at the smallest
+context — a tool-call failure, not a context limit) · `2`/`3` as usual.
+
+Every rung line carries the sample and per-task breakdown; failing tasks that died at the cap are
+marked `(N died at cap)`, and passing tasks within 150‰ of the cap get a `near-cap:` early-warning
+line (greedy-calibrated).
 
 **The collapse verdict is statistically gated:** `collapsed` requires the ≥20pp point drop AND the
 drop's Wilson/Newcombe 95% interval excluding zero — a margin-sized drop the sample can't resolve

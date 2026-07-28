@@ -952,7 +952,7 @@ async fn by_task_reports_every_task_even_when_the_trace_caps() {
 /// a real agentic rung. `spec`: (task_id, passed, trials) per task.
 fn point(tokens: u32, spec: &[(&str, u32, u32)]) -> CliffPoint {
     let by_task: Vec<TaskTally> =
-        spec.iter().map(|(id, p, n)| TaskTally { task_id: (*id).into(), passed: *p, trials: *n }).collect();
+        spec.iter().map(|(id, p, n)| TaskTally { task_id: (*id).into(), passed: *p, trials: *n, failed_cap_hits: 0, min_pass_headroom_milli: None }).collect();
     let (passed, trials) = by_task.iter().fold((0, 0), |(a, b), t| (a + t.passed, b + t.trials));
     CliffPoint {
         target_tokens: tokens,
@@ -963,6 +963,7 @@ fn point(tokens: u32, spec: &[(&str, u32, u32)]) -> CliffPoint {
         per_depth: vec![],
         trace: vec![],
         by_task,
+        max_output: 256,
     }
 }
 
@@ -1064,4 +1065,121 @@ fn old_collapsed_json_round_trips_with_concentration_defaulting_to_none() {
     };
     let json = serde_json::to_string(&full).unwrap();
     assert_eq!(serde_json::from_str::<CliffStatus>(&json).unwrap(), full);
+}
+
+// ── Deliberation Headroom: cap-hit capture, BudgetLimited verdict, amber math ────────
+
+/// Scripted model reproducing the wire shape of budget starvation: under `threshold`
+/// tokens of context it answers correctly (finish "stop"); past it, it emits NOTHING
+/// with finish "length" at exactly the cap — the signature measured live (all tokens
+/// burned in the reasoning channel, guillotined before the first call).
+struct CapStarvedModel {
+    threshold: u32,
+    good: String,
+}
+
+impl ModelTurn for CapStarvedModel {
+    async fn run(&self, spec: &GenerateSpec, _progress: &Progress) -> AppResult<(String, GenerateStats)> {
+        let chars = spec.system.as_deref().map_or(0, |s| s.len()) + spec.prompt.len();
+        let toks = (chars / 4) as u32;
+        let cap = spec.options.as_ref().and_then(|o| o.num_predict).unwrap_or(256);
+        if toks < self.threshold {
+            Ok((self.good.clone(), GenerateStats {
+                prompt_eval_count: Some(toks),
+                eval_count: Some(cap / 2),
+                finish_reason: Some("stop".into()),
+                ..Default::default()
+            }))
+        } else {
+            Ok((String::new(), GenerateStats {
+                prompt_eval_count: Some(toks),
+                eval_count: Some(cap),
+                finish_reason: Some("length".into()),
+                ..Default::default()
+            }))
+        }
+    }
+}
+
+/// End-to-end: a run whose deep-rung failures ALL died at the cap must classify
+/// BudgetLimited — never Collapsed — carrying the rung's cap. The exact
+/// mis-attribution this feature exists to prevent, exercised through capture →
+/// tally → classify, not constructed points.
+#[tokio::test]
+async fn all_cap_hit_failures_classify_budget_limited_not_collapsed() {
+    let model = CapStarvedModel { threshold: 3_000, good: GOOD.into() };
+    let tasks: Vec<ToolTask> = (0..5).map(|i| agentic_task(&format!("t{i}"))).collect();
+    let report = run_cliff(&model, "m", &tasks, &source(), &[0u32, 4_000], &DEFAULT_DEPTHS).await.unwrap();
+    match report.status {
+        CliffStatus::BudgetLimited { depth, cap } => {
+            assert!(depth > 3_000, "the budget-limited rung is the deep one: {depth}");
+            assert_eq!(cap, 256, "carries the cap in force (the non-thinking answer floor)");
+        }
+        other => panic!("cap-starved failures must never read as a model verdict: {other:?}"),
+    }
+    assert_eq!(report.cliff_tokens, None, "no collapse depth is established");
+    // The capture is visible per task: every deep failure is a counted cap-hit.
+    let deep = report.points.last().unwrap();
+    assert!(deep.by_task.iter().all(|t| t.trials - t.passed == t.failed_cap_hits));
+    assert_eq!(deep.max_output, 256);
+}
+
+/// One failure NOT at the cap breaks the attribution: the rung falls through to the
+/// normal (gated) collapse path. Absence of cap-hit data behaves the same — an old or
+/// uninstrumented record can never claim BudgetLimited.
+#[test]
+fn mixed_or_uninstrumented_failures_never_claim_budget_limited() {
+    let mk = |cap_hits: &[u32]| {
+        let mut p = point(8_845, &[("a", 3, 3), ("b", 0, 3), ("c", 0, 3), ("d", 2, 3), ("e", 3, 3)]);
+        for (t, &c) in p.by_task.iter_mut().zip(cap_hits) {
+            t.failed_cap_hits = c;
+        }
+        p
+    };
+    let base = point(704, &[("a", 1, 1), ("b", 1, 1), ("c", 1, 1), ("d", 1, 1), ("e", 1, 1)]);
+    // 7 failures, 6 cap-hits: one content failure ⇒ not budget-limited.
+    let (status, _) = classify(&[base.clone(), mk(&[0, 3, 2, 1, 0])]);
+    assert!(!matches!(status, CliffStatus::BudgetLimited { .. }), "mixed: {status:?}");
+    // No cap data at all (old record) ⇒ not budget-limited either.
+    let (status, _) = classify(&[base, mk(&[0, 0, 0, 0, 0])]);
+    assert!(!matches!(status, CliffStatus::BudgetLimited { .. }), "uninstrumented: {status:?}");
+}
+
+/// A baseline failing purely at the cap is BudgetLimited, not Broken — "fails from
+/// the start" must not be claimed when the harness never let it answer.
+#[test]
+fn cap_starved_baseline_is_budget_limited_not_broken() {
+    let mut base = point(704, &[("a", 0, 1), ("b", 0, 1), ("c", 1, 1), ("d", 0, 1), ("e", 0, 1)]);
+    for t in base.by_task.iter_mut() {
+        t.failed_cap_hits = t.trials - t.passed;
+    }
+    let (status, _) = classify(&[base]);
+    assert_eq!(status, CliffStatus::BudgetLimited { depth: 704, cap: 256 });
+}
+
+/// The amber math: headroom is ‰ of the cap left unused, folded as the MINIMUM over a
+/// task's passing cells only; failures never contribute a headroom number.
+#[test]
+fn tally_headroom_is_min_over_passing_cells_only() {
+    let pos = vec![
+        PosTrace { task_id: "t".into(), prompt: String::new(), output: "x".into(), passed: true, decoded: Some(200), thinking: None, cap_hit: Some(false) },
+        PosTrace { task_id: "t".into(), prompt: String::new(), output: "x".into(), passed: true, decoded: Some(240), thinking: None, cap_hit: Some(false) },
+        PosTrace { task_id: "t".into(), prompt: String::new(), output: String::new(), passed: false, decoded: Some(256), thinking: None, cap_hit: Some(true) },
+    ];
+    let mut tally: Vec<TaskTally> = Vec::new();
+    merge_pos_into_tally(&mut tally, &pos, 256);
+    let t = &tally[0];
+    assert_eq!((t.passed, t.trials, t.failed_cap_hits), (2, 3, 1));
+    // 240/256 used ⇒ 16/256 left ⇒ 62‰ (floor) — under the 150‰ amber line.
+    assert_eq!(t.min_pass_headroom_milli, Some(62));
+    assert!(t.min_pass_headroom_milli.unwrap() < AMBER_HEADROOM_MILLI);
+}
+
+/// BudgetLimited round-trips serde and is distinct from every model verdict.
+#[test]
+fn budget_limited_serde_round_trip() {
+    let s = CliffStatus::BudgetLimited { depth: 8845, cap: 256 };
+    let json = serde_json::to_string(&s).unwrap();
+    assert!(json.contains("BudgetLimited"));
+    assert_eq!(serde_json::from_str::<CliffStatus>(&json).unwrap(), s);
 }

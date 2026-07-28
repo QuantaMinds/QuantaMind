@@ -96,3 +96,11 @@ describe("CliffStatus concentration (mirror of Rust CliffConcentration)", () => 
     expect(CliffStatusSchema.parse(full)).toEqual(full);
   });
 });
+
+describe("CliffStatus BudgetLimited (mirror of Rust)", () => {
+  it("round-trips the budget-bound outcome distinctly from Collapsed", async () => {
+    const { CliffStatusSchema } = await import("../readiness");
+    const bl = { status: "BudgetLimited", depth: 8845, cap: 256 };
+    expect(CliffStatusSchema.parse(bl)).toEqual(bl);
+  });
+});

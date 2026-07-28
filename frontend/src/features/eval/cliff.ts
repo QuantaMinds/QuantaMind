@@ -19,6 +19,8 @@ export interface CliffPoint {
   /// Per-task pass counts for this rung (uncapped) — lets the table name WHICH tasks
   /// drove a drop, so a one-task failure never reads as a broad collapse.
   byTask?: TaskTally[];
+  /// The output cap this rung's cells ran under — headroom's denominator (0 = unmeasured).
+  maxOutput?: number;
 }
 
 /// Minimum baseline (unpadded, rung 0) composite for a probe to be a valid

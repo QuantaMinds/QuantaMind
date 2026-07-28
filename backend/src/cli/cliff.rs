@@ -63,6 +63,8 @@ pub fn cliff_exit(status: &CliffStatus) -> i32 {
         CliffStatus::NoCliff { .. } => 0,
         CliffStatus::Collapsed { .. } => 10,
         CliffStatus::Inconclusive { .. } => 11,
+        // Budget-bound measurement — a config outcome, distinct from every model verdict.
+        CliffStatus::BudgetLimited { .. } => 12,
         CliffStatus::Broken { .. } | CliffStatus::NotProbed => 20,
     }
 }
@@ -86,10 +88,28 @@ pub fn render_cliff(r: &CliffReport) -> String {
             .by_task
             .iter()
             .filter(|t| t.passed < t.trials)
-            .map(|t| format!("{} {}/{}", t.task_id, t.passed, t.trials))
+            .map(|t| {
+                let cap = if t.failed_cap_hits > 0 { format!(" ({} died at cap)", t.failed_cap_hits) } else { String::new() };
+                format!("{} {}/{}{}", t.task_id, t.passed, t.trials, cap)
+            })
             .collect();
         if !failing.is_empty() {
             out.push_str(&format!("        failures: {}\n", failing.join(" · ")));
+        }
+        // Amber early warning: passing tasks whose tightest cell sat within the headroom
+        // floor of the cap — likely to fail at the next rung (greedy-calibrated).
+        let near: Vec<String> = p
+            .by_task
+            .iter()
+            .filter(|t| t.passed == t.trials)
+            .filter_map(|t| {
+                t.min_pass_headroom_milli
+                    .filter(|h| *h < crate::inference::eval::cliff::engine::AMBER_HEADROOM_MILLI)
+                    .map(|h| format!("{} ({}\u{2030} headroom)", t.task_id, h))
+            })
+            .collect();
+        if !near.is_empty() {
+            out.push_str(&format!("        near-cap: {}\n", near.join(" · ")));
         }
     }
     out.push_str(&match &r.status {
@@ -127,6 +147,12 @@ pub fn render_cliff(r: &CliffReport) -> String {
             }
             line
         }
+        CliffStatus::BudgetLimited { depth, cap } => format!(
+            "STATUS: ⚠ budget-limited at ≈{depth} tokens — every failure died at the {cap}-token \
+             output cap (finish=length). This is a budget-bound measurement, not an established \
+             model collapse: raise the budget (--thinking, or a larger cap) and re-run — \
+             recovery means the model was starved; the same failures mean it loops.\n"
+        ),
         CliffStatus::Broken { tested } => format!("STATUS: ✗ broken baseline — failing at the smallest context (tested to ≈{tested})\n"),
         CliffStatus::Inconclusive { trials } => {
             format!("STATUS: ? inconclusive — {trials} trials/rung can't resolve a cliff from noise; add tasks or repeats\n")

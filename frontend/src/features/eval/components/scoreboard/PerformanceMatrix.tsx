@@ -222,6 +222,7 @@ export function PerformanceMatrix({
   const cliffBroken = useCliffStore((s) => (collectionId ? s.brokenBaseline[collectionId] : undefined));
   const cliffInconclusive = useCliffStore((s) => (collectionId ? s.inconclusive[collectionId] : undefined));
   const cliffConcentrated = useCliffStore((s) => (collectionId ? s.concentrated[collectionId] : undefined));
+  const cliffBudgetLimited = useCliffStore((s) => (collectionId ? s.budgetLimited[collectionId] : undefined));
   const cliffRunning = useCliffStore((s) => s.running);
   const cliffRunningModel = useCliffStore((s) => s.runningModel);
   const setCliffRequest = useCliffStore((s) => s.setRequest);
@@ -449,6 +450,18 @@ export function PerformanceMatrix({
                             title="Probed — accuracy was already failing at the smallest context (broken baseline), so no usable context window could be measured. This is a tool-call failure, not a context-length limit."
                           >
                             fails from start
+                          </span>
+                          <ReprobeBtn model={r.model} />
+                        </>
+                      ) : cliffBudgetLimited?.[r.model] != null ? (
+                        <>
+                          {/* Budget-bound measurement — never a collapse depth, never "no cliff". */}
+                          <span
+                            style={{ ...badgeStyle, background: "#fffbeb", border: "1px solid #fde68a", color: "#92400e", textTransform: "none" }}
+                            data-testid={`cliff-budget-limited-${r.model}`}
+                            title={`Every failure at ≈${cliffBudgetLimited[r.model].depth.toLocaleString()} tokens died at the ${cliffBudgetLimited[r.model].cap}-token output cap — raise the thinking budget and re-probe.`}
+                          >
+                            budget-limited
                           </span>
                           <ReprobeBtn model={r.model} />
                         </>

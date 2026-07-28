@@ -134,7 +134,7 @@ mod tests {
     use super::*;
 
     fn tally(id: &str, passed: u32, trials: u32) -> TaskTally {
-        TaskTally { task_id: id.into(), passed, trials }
+        TaskTally { task_id: id.into(), passed, trials, failed_cap_hits: 0, min_pass_headroom_milli: None }
     }
 
     #[test]

@@ -70,6 +70,19 @@ pub struct TraceOutput {
     /// Did this output PASS the cliff yardstick (single-turn: fully correct; agentic:
     /// emitted a well-formed tool call)?
     pub passed: bool,
+    /// Total tokens this cell decoded (backend `eval_count`). `None` = the backend
+    /// reported no count — never fabricated.
+    #[serde(default)]
+    pub decoded: Option<u32>,
+    /// Reasoning-channel tokens, measured only where the backend tokenizes them
+    /// (llama.cpp `/tokenize` over `reasoning_content`); `None` elsewhere — the split
+    /// is display-only, headroom math never depends on it.
+    #[serde(default)]
+    pub thinking: Option<u32>,
+    /// Did generation stop at the output cap (`finish_reason == "length"`)? A cell
+    /// that died here is HARNESS-limited, not model-limited. `None` = not reported.
+    #[serde(default)]
+    pub cap_hit: Option<bool>,
 }
 
 /// The full trace for one task at one rung: every needle position's padded input +
@@ -88,6 +101,9 @@ struct PosTrace {
     prompt: String,
     output: String,
     passed: bool,
+    decoded: Option<u32>,
+    thinking: Option<u32>,
+    cap_hit: Option<bool>,
 }
 
 /// One task's pass count at one rung, across every swept needle position. UNCAPPED —
@@ -99,18 +115,45 @@ pub struct TaskTally {
     pub task_id: String,
     pub passed: u32,
     pub trials: u32,
+    /// FAILING cells of this task that died at the output cap (`finish == length`).
+    /// When every failure in a rung is a cap-hit, the rung is budget-limited, not a
+    /// model collapse — the verdict reads this.
+    #[serde(default)]
+    pub failed_cap_hits: u32,
+    /// The tightest headroom (‰ of the cap left unused) over this task's PASSING
+    /// cells — the early-warning signal: a pass at <150‰ headroom is likely to fail
+    /// at the next rung. `None` = no passing cell reported a count.
+    #[serde(default)]
+    pub min_pass_headroom_milli: Option<u32>,
 }
 
 /// Fold one position's per-task results into the rung's per-task tally (first-seen order,
 /// same ordering rule as `merge_pos_into_trace`).
-fn merge_pos_into_tally(tally: &mut Vec<TaskTally>, pos: &[PosTrace]) {
+fn merge_pos_into_tally(tally: &mut Vec<TaskTally>, pos: &[PosTrace], cap: u32) {
     for pt in pos {
+        let fail_cap_hit = (!pt.passed && pt.cap_hit == Some(true)) as u32;
+        // Headroom (‰ of the cap unused) for a PASSING cell with a reported count.
+        let pass_headroom = match (pt.passed, pt.decoded) {
+            (true, Some(d)) if cap > 0 => Some((cap.saturating_sub(d) as u64 * 1000 / cap as u64) as u32),
+            _ => None,
+        };
         match tally.iter_mut().find(|t| t.task_id == pt.task_id) {
             Some(t) => {
                 t.trials += 1;
                 t.passed += pt.passed as u32;
+                t.failed_cap_hits += fail_cap_hit;
+                t.min_pass_headroom_milli = match (t.min_pass_headroom_milli, pass_headroom) {
+                    (Some(a), Some(b)) => Some(a.min(b)),
+                    (a, b) => a.or(b),
+                };
             }
-            None => tally.push(TaskTally { task_id: pt.task_id.clone(), passed: pt.passed as u32, trials: 1 }),
+            None => tally.push(TaskTally {
+                task_id: pt.task_id.clone(),
+                passed: pt.passed as u32,
+                trials: 1,
+                failed_cap_hits: fail_cap_hit,
+                min_pass_headroom_milli: pass_headroom,
+            }),
         }
     }
 }
@@ -142,7 +185,7 @@ fn truncate_middle(s: &str, max: usize) -> String {
 /// output under its task (preserving first-seen order), setting the system prompt once.
 fn merge_pos_into_trace(trace: &mut Vec<TaskTrace>, depth: f32, pos: Vec<PosTrace>) {
     for pt in pos {
-        let out = TraceOutput { depth, prompt: pt.prompt, output: pt.output, passed: pt.passed };
+        let out = TraceOutput { depth, prompt: pt.prompt, output: pt.output, passed: pt.passed, decoded: pt.decoded, thinking: pt.thinking, cap_hit: pt.cap_hit };
         match trace.iter_mut().find(|t| t.task_id == pt.task_id) {
             Some(t) => t.outputs.push(out),
             None => trace.push(TaskTrace { task_id: pt.task_id, outputs: vec![out] }),
@@ -224,6 +267,11 @@ pub struct CliffPoint {
     /// pre-field serialized reports still parse.
     #[serde(default)]
     pub by_task: Vec<TaskTally>,
+    /// The output-token cap every cell of this rung ran under (answer floor + any
+    /// depth-banded scratchpad) — the denominator of every headroom figure. `default`
+    /// 0 = an old record that never measured it.
+    #[serde(default)]
+    pub max_output: u32,
 }
 
 /// The probe result: every rung, the classified status (mirrors the persisted
@@ -372,6 +420,9 @@ async fn run_position<T: ModelTurn, F: Fn(&ToolTask) -> T>(
             prompt: truncate_middle(&spec.prompt, MAX_PROMPT_CHARS),
             output: truncate(&raw, MAX_OUTPUT_CHARS),
             passed: !cliff_failed(task, &verdict),
+            decoded: stats.eval_count,
+            thinking: stats.thinking_tokens,
+            cap_hit: stats.finish_reason.as_deref().map(|r| r == "length"),
         });
         results.push(TaskResult {
             id: task.id.clone(),
@@ -436,7 +487,7 @@ async fn sweep<T: ModelTurn, F: Fn(&ToolTask) -> T>(
             None => poolable = false,
         }
         per_depth.push(DepthScore { depth, composite, verified_tokens: vt });
-        merge_pos_into_tally(&mut by_task, &pos_traces);
+        merge_pos_into_tally(&mut by_task, &pos_traces, max_output);
         merge_pos_into_trace(&mut trace, depth, pos_traces);
     }
     trace.truncate(MAX_TRACE_TASKS);
@@ -528,7 +579,7 @@ async fn probe_rung<T: ModelTurn, F: Fn(&ToolTask) -> T>(
         let (composite, prompt_tokens, tally) = cliff_score(tasks, &results);
         let vt = prompt_tokens.map(|t| t.round() as u32).unwrap_or(0);
         let mut by_task: Vec<TaskTally> = Vec::new();
-        merge_pos_into_tally(&mut by_task, &pos_traces);
+        merge_pos_into_tally(&mut by_task, &pos_traces, max_output);
         let mut trace: Vec<TaskTrace> = Vec::new();
         merge_pos_into_trace(&mut trace, 0.0, pos_traces);
         trace.truncate(MAX_TRACE_TASKS);
@@ -541,6 +592,7 @@ async fn probe_rung<T: ModelTurn, F: Fn(&ToolTask) -> T>(
             per_depth: vec![DepthScore { depth: 0.0, composite, verified_tokens: vt }],
             trace,
             by_task,
+            max_output,
         });
     }
     // Seed from the learned rate (accurate) or the 4:1 fallback on the first padded rung,
@@ -581,6 +633,7 @@ async fn probe_rung<T: ModelTurn, F: Fn(&ToolTask) -> T>(
         per_depth,
         trace,
         by_task,
+        max_output,
     })
 }
 
@@ -624,6 +677,13 @@ fn classify(points: &[CliffPoint]) -> (CliffStatus, Option<u32>) {
     let Some(base) = points.first() else {
         return (CliffStatus::NotProbed, None);
     };
+    // A baseline failing purely at the output cap is budget-bound, not broken —
+    // checked first, same rule as the per-rung check below.
+    if let Some(bl) = budget_limited(base) {
+        if base.composite.map_or(true, |c| c < BASELINE_PASS) {
+            return (bl, None);
+        }
+    }
     match base.composite {
         // Can't establish a baseline (no signal, or below the floor) — a cliff number
         // here would be a fabrication, so report Broken and no cliff token.
@@ -651,6 +711,13 @@ fn classify(points: &[CliffPoint]) -> (CliffStatus, Option<u32>) {
     for p in &points[1..] {
         if let Some(c) = p.composite {
             if is_collapse(base_comp, c) {
+                // Budget check FIRST: a rung whose every failure died at the output cap
+                // is a budget-bound measurement — classifying it as a model collapse is
+                // exactly the mis-attribution this feature exists to prevent. Gated on
+                // the length signal (finish == "length"), never on empty content.
+                if let Some(bl) = budget_limited(p) {
+                    return (bl, None);
+                }
                 // Statistical gate on top of the point margin: the drop's Newcombe interval
                 // must exclude zero, or the sample can't tell this collapse from noise —
                 // a margin-sized drop off a tiny baseline (e.g. 5 single-position trials)
@@ -675,6 +742,23 @@ fn classify(points: &[CliffPoint]) -> (CliffStatus, Option<u32>) {
     let tested = points.last().map(|p| p.verified_tokens).unwrap_or(base.verified_tokens);
     (CliffStatus::NoCliff { tested }, Some(largest_pass))
 }
+
+/// A rung is budget-limited when it HAS failures and every one of them stopped at the
+/// output cap. Requires cap-hit data on all failing cells: an old/uninstrumented record
+/// (no counts) can never claim it — absence of measurement is never an attribution.
+fn budget_limited(p: &CliffPoint) -> Option<CliffStatus> {
+    let (fails, cap_fails) = p
+        .by_task
+        .iter()
+        .fold((0u32, 0u32), |(f, c), t| (f + (t.trials - t.passed), c + t.failed_cap_hits));
+    (fails > 0 && cap_fails == fails).then_some(CliffStatus::BudgetLimited { depth: p.verified_tokens, cap: p.max_output })
+}
+
+/// Amber early-warning line: a PASSING cell that used all but this many ‰ of its cap is
+/// statistically drifting toward the failure population (incorrect chains run 1.3–2.5×
+/// longer; consumption grows with depth). Calibrated for GREEDY decoding — under
+/// sampling, within-task length spread is ~3×, so the flag is advisory there.
+pub const AMBER_HEADROOM_MILLI: u32 = 150;
 
 /// Warn when the exact exchangeability p-value says the failure placement is this
 /// concentrated under a uniform-failure null less than 10% of the time.
