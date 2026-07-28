@@ -221,6 +221,7 @@ export function PerformanceMatrix({
   const cliffProbed = useCliffStore((s) => (collectionId ? s.probed[collectionId] : undefined));
   const cliffBroken = useCliffStore((s) => (collectionId ? s.brokenBaseline[collectionId] : undefined));
   const cliffInconclusive = useCliffStore((s) => (collectionId ? s.inconclusive[collectionId] : undefined));
+  const cliffConcentrated = useCliffStore((s) => (collectionId ? s.concentrated[collectionId] : undefined));
   const cliffRunning = useCliffStore((s) => s.running);
   const cliffRunningModel = useCliffStore((s) => s.runningModel);
   const setCliffRequest = useCliffStore((s) => s.setRequest);
@@ -456,6 +457,17 @@ export function PerformanceMatrix({
                           <span style={{ ...badgeStyle, background: "#f1f5f9", border: "1px solid #e2e8f0", color: "#334155", textTransform: "none" }} data-testid={`cliff-value-${r.model}`}>
                             {cliffResults[r.model].toLocaleString()} tok
                           </span>
+                          {cliffConcentrated?.[r.model] && (
+                            // A collapse driven by one task must not render like a broad one —
+                            // survives reload via the persisted CliffStatus concentration.
+                            <span
+                              style={{ ...badgeStyle, background: "#fffbeb", border: "1px solid #fde68a", color: "#92400e", textTransform: "none" }}
+                              data-testid={`cliff-concentrated-${r.model}`}
+                              title={`${cliffConcentrated[r.model].task_failures} of ${cliffConcentrated[r.model].total_failures} failures from one task (${cliffConcentrated[r.model].task_id}, p≈${(cliffConcentrated[r.model].p_value_milli / 1000).toFixed(2)})${cliffConcentrated[r.model].holds_without ? " — collapse driven by that task; depth-general collapse not established" : ""}`}
+                            >
+                              low confidence
+                            </span>
+                          )}
                           <ReprobeBtn model={r.model} />
                         </>
                       ) : cliffInconclusive?.[r.model] != null ? (

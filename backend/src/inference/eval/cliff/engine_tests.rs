@@ -160,7 +160,7 @@ async fn detects_the_cliff_and_reports_the_last_passing_depth() {
 
     let collapse_at = report.points.iter().find(|p| p.target_tokens == 8000).unwrap().verified_tokens;
     let last_pass = report.points.iter().find(|p| p.target_tokens == 2000).unwrap().verified_tokens;
-    assert_eq!(report.status, CliffStatus::Collapsed { depth: collapse_at });
+    assert_eq!(report.status, CliffStatus::Collapsed { depth: collapse_at, concentration: None });
     // cliff_tokens = the largest VERIFIED context that still passed across positions.
     assert_eq!(report.cliff_tokens, Some(last_pass));
 }
@@ -515,7 +515,7 @@ fn assert_live_report_is_honest(report: &CliffReport, ctx_limit: u32, label: &st
             p.verified_tokens,
         );
     }
-    if let CliffStatus::Collapsed { depth } = report.status {
+    if let CliffStatus::Collapsed { depth, .. } = report.status {
         assert!(
             depth < ctx_limit,
             "{label}: reported a cliff AT the context window ({depth} vs {ctx_limit}) — that is the \
@@ -897,4 +897,171 @@ async fn report_carries_the_think_preset_only_when_thinking() {
     .await
     .unwrap();
     assert_eq!(thinking.think_preset, Some(ThinkPreset::Deep));
+}
+
+// ── per-task tally (by_task): the verdict layer sees WHICH tasks drove a rung ─────────
+
+/// `by_task` must be the SAME measurement as the pooled rung tally, just grouped — on an
+/// agentic-only rung the per-task counts sum exactly to `passed/trials`. Two aggregates
+/// from one pass; if they can drift apart, the breakdown lies about the headline.
+#[tokio::test]
+async fn by_task_sums_to_the_pooled_rung_tally_and_names_the_failing_task() {
+    // Two agentic tasks: one healthy at any depth, one that collapses past 3000 tokens.
+    let model = CliffModel { threshold: 3_000, good: GOOD.into() };
+    let healthy = agentic_task("stays-flat");
+    let mut fragile = agentic_task("breaks-at-depth");
+    // Longer prompt pushes ONLY this task's chars/4 over the scripted threshold at depth.
+    fragile.prompt = "x".repeat(2_000);
+    let report = run_cliff(&model, "m", &[healthy, fragile], &source(), &[0u32, 2_800], &DEFAULT_DEPTHS).await.unwrap();
+
+    for p in &report.points {
+        // Grouped == pooled, on every rung.
+        let (sum_p, sum_t): (u32, u32) = p.by_task.iter().fold((0, 0), |(a, b), t| (a + t.passed, b + t.trials));
+        assert_eq!(Some(sum_p), p.passed, "by_task passed must sum to the rung tally");
+        assert_eq!(Some(sum_t), p.trials, "by_task trials must sum to the rung tally");
+    }
+    // The deep rung names the fragile task — and only it — as the failure source.
+    let deep = report.points.last().unwrap();
+    let failing: Vec<&str> = deep.by_task.iter().filter(|t| t.passed < t.trials).map(|t| t.task_id.as_str()).collect();
+    assert_eq!(failing, vec!["breaks-at-depth"], "deep rung: {:?}", deep.by_task);
+}
+
+/// `by_task` is UNCAPPED: a collection larger than the trace cap still reports every task,
+/// while `trace` keeps its `MAX_TRACE_TASKS` bound. Silent truncation of the breakdown would
+/// re-create the exact blindness this field exists to remove.
+#[tokio::test]
+async fn by_task_reports_every_task_even_when_the_trace_caps() {
+    let model = CliffModel { threshold: u32::MAX, good: GOOD.into() };
+    let tasks: Vec<ToolTask> = (0..35)
+        .map(|i| {
+            let mut t = task();
+            t.id = format!("t{i:02}");
+            t
+        })
+        .collect();
+    let report = run_cliff(&model, "m", &tasks, &source(), &[0u32], &DEFAULT_DEPTHS).await.unwrap();
+    let p = &report.points[0];
+    assert_eq!(p.trace.len(), 30, "trace stays capped at MAX_TRACE_TASKS");
+    assert_eq!(p.by_task.len(), 35, "by_task must carry every task");
+    assert!(p.by_task.iter().all(|t| t.trials == 1 && t.passed == 1));
+}
+
+// ── statistically honest collapse verdict: Newcombe gate + concentration ─────────────
+
+/// A CliffPoint with a pooled tally + per-task breakdown, positions × tasks shaped like
+/// a real agentic rung. `spec`: (task_id, passed, trials) per task.
+fn point(tokens: u32, spec: &[(&str, u32, u32)]) -> CliffPoint {
+    let by_task: Vec<TaskTally> =
+        spec.iter().map(|(id, p, n)| TaskTally { task_id: (*id).into(), passed: *p, trials: *n }).collect();
+    let (passed, trials) = by_task.iter().fold((0, 0), |(a, b), t| (a + t.passed, b + t.trials));
+    CliffPoint {
+        target_tokens: tokens,
+        verified_tokens: tokens,
+        composite: Some(passed as f64 / trials as f64),
+        passed: Some(passed),
+        trials: Some(trials),
+        per_depth: vec![],
+        trace: vec![],
+        by_task,
+    }
+}
+
+/// THE reviewed run, as data: 5-trial baseline (one position), a 27pp drop at depth with
+/// 3 of 4 failures in one task. The old verdict said "Collapsed at 8845"; the drop's
+/// Newcombe interval includes zero (a 5-trial baseline can't anchor it), so the honest
+/// verdict is Inconclusive — the exact over-claim the review caught.
+#[test]
+fn the_reviewed_runs_shape_is_inconclusive_not_a_collapse() {
+    let base = point(704, &[("a", 1, 1), ("b", 1, 1), ("secret", 1, 1), ("d", 1, 1), ("e", 1, 1)]);
+    let deep = point(8845, &[("a", 3, 3), ("b", 3, 3), ("secret", 0, 3), ("d", 3, 3), ("e", 2, 3)]);
+    let (status, cliff) = classify(&[base, deep]);
+    assert_eq!(status, CliffStatus::Inconclusive { trials: 15 }, "27pp off a 5-trial baseline is noise-indistinguishable");
+    assert_eq!(cliff, None);
+}
+
+/// At the planned 18-task scale the SAME proportions resolve — and the verdict then
+/// names the concentration: most failures from one task, with the leave-one-task-out
+/// check showing the collapse does not survive that task's removal.
+#[test]
+fn a_resolved_concentrated_collapse_names_the_task_and_its_leverage() {
+    // 18-task baseline all-pass; deep rung: one task 0/3, eleven other scattered failures
+    // spread one-per-task (total 14 failures over 54 → 40/54 ≈ 74%, a 26pp resolved drop).
+    let mut base_spec: Vec<(String, u32, u32)> = (0..18).map(|i| (format!("t{i:02}"), 1, 1)).collect();
+    let mut deep_spec: Vec<(String, u32, u32)> = (0..18)
+        .map(|i| {
+            let id = format!("t{i:02}");
+            if i == 7 { (id, 0, 3) } else if i < 12 { (id, 2, 3) } else { (id, 3, 3) }
+        })
+        .collect();
+    let to_refs = |v: &Vec<(String, u32, u32)>| v.iter().map(|(s, p, n)| (s.clone(), *p, *n)).collect::<Vec<_>>();
+    let (b, d) = (to_refs(&mut base_spec), to_refs(&mut deep_spec));
+    let base = point(704, &b.iter().map(|(s, p, n)| (s.as_str(), *p, *n)).collect::<Vec<_>>());
+    let deep = point(8845, &d.iter().map(|(s, p, n)| (s.as_str(), *p, *n)).collect::<Vec<_>>());
+    let (status, _) = classify(&[base, deep]);
+    match status {
+        CliffStatus::Collapsed { depth: 8845, concentration } => {
+            // 3 of 14 failures in one task is NOT ≥50%, and spread failures aren't
+            // improbable under the null — so no concentration flag here.
+            assert_eq!(concentration, None, "spread failures must not be flagged");
+        }
+        other => panic!("expected a resolved collapse, got {other:?}"),
+    }
+}
+
+/// The concentration machinery itself, on the reviewed run's exact shape: names the
+/// task, carries the hand-computed exact p (≈0.044 → 44 milli), and LOTO shows the
+/// collapse rule does not survive that task's removal.
+#[test]
+fn concentration_for_names_the_task_and_loto_shows_single_task_leverage() {
+    let base = point(704, &[("a", 1, 1), ("b", 1, 1), ("secret", 1, 1), ("d", 1, 1), ("e", 1, 1)]);
+    let deep = point(8845, &[("a", 3, 3), ("b", 3, 3), ("secret", 0, 3), ("d", 3, 3), ("e", 2, 3)]);
+    let c = concentration_for(&base, &deep).expect("3-of-4-in-one-task must flag");
+    assert_eq!(c.task_id, "secret");
+    assert_eq!((c.task_failures, c.total_failures), (3, 4));
+    assert_eq!(c.p_value_milli, 44, "exact exchangeability p ≈ 0.044");
+    assert!(c.holds_without, "excluding the task, the remaining tasks are flat — no collapse");
+}
+
+/// The path the interval gate CANNOT protect: a mixed/single-turn collection has no
+/// summable tally (`passed`/`trials` None), so a margin drop still classifies Collapsed —
+/// there the concentration label is the only honesty layer, and it must attach.
+#[test]
+fn no_tally_collapse_still_carries_the_concentration_label() {
+    let mut base = point(704, &[("a", 1, 1), ("b", 1, 1), ("secret", 1, 1), ("d", 1, 1), ("e", 1, 1)]);
+    let mut deep = point(8845, &[("a", 3, 3), ("b", 3, 3), ("secret", 0, 3), ("d", 3, 3), ("e", 2, 3)]);
+    // Mixed collection: the pooled tally is not summable, only the graded composite exists.
+    base.passed = None;
+    base.trials = None;
+    deep.passed = None;
+    deep.trials = None;
+    let (status, _) = classify(&[base, deep]);
+    match status {
+        CliffStatus::Collapsed { depth: 8845, concentration: Some(c) } => {
+            assert_eq!(c.task_id, "secret");
+            assert!(c.holds_without);
+        }
+        other => panic!("margin-only path must still label concentration: {other:?}"),
+    }
+}
+
+/// Old persisted JSON (pre-concentration) parses unchanged — the field defaults to None,
+/// and the legacy bare-number migration still lands on Collapsed.
+#[test]
+fn old_collapsed_json_round_trips_with_concentration_defaulting_to_none() {
+    let old = r#"{"status":"Collapsed","depth":8845}"#;
+    let parsed: CliffStatus = serde_json::from_str(old).unwrap();
+    assert_eq!(parsed, CliffStatus::Collapsed { depth: 8845, concentration: None });
+    // And a new record with concentration survives a round trip.
+    let full = CliffStatus::Collapsed {
+        depth: 8845,
+        concentration: Some(crate::inference::eval::readiness::types::CliffConcentration {
+            task_id: "secret_rotation".into(),
+            task_failures: 3,
+            total_failures: 4,
+            p_value_milli: 44,
+            holds_without: true,
+        }),
+    };
+    let json = serde_json::to_string(&full).unwrap();
+    assert_eq!(serde_json::from_str::<CliffStatus>(&json).unwrap(), full);
 }

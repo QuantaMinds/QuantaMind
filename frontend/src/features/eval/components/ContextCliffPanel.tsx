@@ -93,6 +93,9 @@ export function ContextCliffPanel() {
   // maintained up to ≈N tokens" — a finding its sample can't support, and the exact opposite
   // of what the Matrix and the Agent Report say about the same run.
   const lastInconclusive = useCliffStore((s) => s.lastInconclusive);
+  // Concentration on the LAST run's collapse — the low-confidence labeling that keeps a
+  // one-task failure from reading as a broad collapse (advisory, never a gate).
+  const lastConcentration = useCliffStore((s) => s.lastConcentration);
   const runningModel = useCliffStore((s) => s.runningModel);
   const runProbe = useCliffStore((s) => s.runProbe);
   const stopProbe = useCliffStore((s) => s.stop);
@@ -446,6 +449,10 @@ export function ContextCliffPanel() {
                 // A5: show the sample the percentage came from. "80.0%" from 4/5 and from
                 // 12/15 are different claims, and they used to render identically.
                 const tally = p.passed != null && p.trials != null ? `${p.passed} / ${p.trials}` : null;
+                // Which tasks drove a drop — so one task breaking never reads as a broad
+                // collapse. Only failing tasks are listed (the full set lives in the trace).
+                const failingTasks = (p.byTask ?? []).filter((t) => t.passed < t.trials);
+                const taskCount = p.byTask?.length ?? 0;
                 const isEven = i % 2 === 0;
                 const traceCount = p.trace?.length ?? 0;
                 const open = openTrace === i;
@@ -460,7 +467,15 @@ export function ContextCliffPanel() {
                       <td style={{ ...tdStyle, fontWeight: 600, color: "#1e293b" }}>
                         {pct}
                         {tally && (
-                          <span style={{ fontWeight: 400, color: "#94a3b8", marginLeft: 6, fontSize: 12 }}>{tally}</span>
+                          <span style={{ fontWeight: 400, color: "#94a3b8", marginLeft: 6, fontSize: 12 }}>
+                            {tally}
+                            {taskCount > 0 && ` over ${taskCount} tasks`}
+                          </span>
+                        )}
+                        {failingTasks.length > 0 && (
+                          <div data-testid={`cliff-by-task-${i}`} style={{ fontWeight: 400, color: "#b45309", fontSize: 11, marginTop: 2 }}>
+                            {failingTasks.map((t) => `${t.task_id} ${t.passed}/${t.trials}`).join(" · ")}
+                          </div>
                         )}
                       </td>
                       <td style={tdStyle}>
@@ -606,9 +621,13 @@ export function ContextCliffPanel() {
                 ? // A detected cliff ALWAYS reads as a cliff — when the collapse rung had no
                   // measured token count we say so, never falling through to a non-cliff message
                   // and never substituting a different rung's depth as if it were the cliff's.
-                  cliff != null
-                  ? `≈${Math.round(cliff / 1000) * 1000} context tokens`
-                  : "Cliff detected — context-token depth not reported"
+                  // A concentrated collapse carries its low-confidence clause inline.
+                  (cliff != null
+                    ? `≈${Math.round(cliff / 1000) * 1000} context tokens`
+                    : "Cliff detected — context-token depth not reported") +
+                  (lastConcentration
+                    ? ` — low confidence: ${lastConcentration.task_failures} of ${lastConcentration.total_failures} failures from one task (${lastConcentration.task_id}, p≈${(lastConcentration.p_value_milli / 1000).toFixed(2)}); ${lastConcentration.holds_without ? "collapse driven by that task — depth-general collapse not established" : "collapse persists without it"}`
+                    : "")
                 : verdict.kind === "broken-baseline"
                   ? "Fails at the smallest tested context — broken baseline (a tool-call failure, not a context-length limit)"
                   : verdict.kind === "no-cliff" && maintainedTo > 0

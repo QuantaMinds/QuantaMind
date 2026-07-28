@@ -249,7 +249,7 @@ pub fn verdicts_for_column(
         .into_iter()
         .map(|(path, source)| {
             let verdict =
-                assess(&from_source(source, path, native, fits_in_vram, vram_pressure, kv_downgraded, cliff), profile);
+                assess(&from_source(source, path, native, fits_in_vram, vram_pressure, kv_downgraded, cliff.clone()), profile);
             let (avg_steps, effort) =
                 source.map(|a| (a.avg_steps, a.avg_output_tokens_success)).unwrap_or((None, None));
             let primary = source.map(|a| a.by_tier.clone()).unwrap_or_default();
@@ -263,7 +263,7 @@ pub fn verdicts_for_column(
                 effort,
                 pass_k: source.and_then(|a| a.pass_k()),
                 quantization: quantization.clone(),
-                cliff,
+                cliff: cliff.clone(),
                 by_tier,
                 failures: source.map(|a| a.failures.clone()).unwrap_or_default(),
                 passes: source.map(|a| a.passes).unwrap_or(0),

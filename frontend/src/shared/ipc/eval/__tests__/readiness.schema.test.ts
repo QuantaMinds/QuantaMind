@@ -81,3 +81,18 @@ describe("Phase 9B readiness schema", () => {
     expect(ft.infinite_loop_hits).toBe(1); // the original fields still parse as numbers
   });
 });
+
+describe("CliffStatus concentration (mirror of Rust CliffConcentration)", () => {
+  it("parses old Collapsed records (no concentration) and new ones (with it)", async () => {
+    const { CliffStatusSchema } = await import("../readiness");
+    // Pre-field persisted record — must keep parsing.
+    expect(CliffStatusSchema.parse({ status: "Collapsed", depth: 8845 })).toEqual({ status: "Collapsed", depth: 8845 });
+    // New record round-trips the advisory evidence.
+    const full = {
+      status: "Collapsed",
+      depth: 8845,
+      concentration: { task_id: "secret", task_failures: 3, total_failures: 4, p_value_milli: 44, holds_without: true },
+    };
+    expect(CliffStatusSchema.parse(full)).toEqual(full);
+  });
+});

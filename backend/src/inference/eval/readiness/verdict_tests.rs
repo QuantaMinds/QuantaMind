@@ -175,7 +175,7 @@ fn measured_cliff_below_requirement_blocks_with_math() {
     let mut p = lenient();
     p.min_context_tokens = Some(8192);
     let mut i = clean_inputs();
-    i.cliff = CliffStatus::Collapsed { depth: 4096 };
+    i.cliff = CliffStatus::Collapsed { depth: 4096, concentration: None };
     let v = assess(&i, &p);
     assert!(v.blocking.contains(&"reasoning cliff at 4096 < 8192 needed".to_string()));
 }

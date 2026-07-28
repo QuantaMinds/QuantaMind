@@ -14,7 +14,7 @@ import { formatIpcError } from "../../../shared/ipc/core/error";
 import { type CliffPoint } from "../cliff";
 import type { ToolTask } from "../../../shared/ipc/eval/registry";
 import type { BackendKind } from "../../../shared/ipc/models/storage";
-import type { AgentPath, ThinkPreset } from "../../../shared/ipc/eval/readiness";
+import type { AgentPath, CliffConcentration, ThinkPreset } from "../../../shared/ipc/eval/readiness";
 import type { InferenceParams } from "../../../shared/ipc/workspace/prompts";
 
 /// What the Matrix carries to the Audit panel so the probe lands pre-filled
@@ -102,6 +102,12 @@ interface CliffStore {
   /// fallthrough reads "probed, not broken, no depth" as "✓ no cliff — accuracy held",
   /// which is the opposite of what this means. `trials` is kept so the cell can say WHY.
   inconclusive: Record<string, Record<string, number>>;
+  /// (collection → model) collapses whose failures concentrated in ONE task — the
+  /// low-confidence label the Matrix cell and panel read-out must carry, or a
+  /// one-task failure renders identically to a broad collapse after reload.
+  concentrated: Record<string, Record<string, CliffConcentration>>;
+  /// The LAST run's concentration (panel read-out), null when none/cleared.
+  lastConcentration: CliffConcentration | null;
 
   setRequest: (req: CliffRequest) => void;
   consumeRequest: () => CliffRequest | null;
@@ -120,6 +126,8 @@ interface CliffStore {
   /// The Matrix must check this BEFORE its "probed ⇒ ✓ no cliff" fallthrough, or an
   /// inconclusive probe renders as "accuracy held the whole range" — the opposite claim.
   inconclusiveTrials: (collectionId: string, model: string) => number | null;
+  /// Concentration evidence for a persisted/live collapse, else null.
+  concentrationFor: (collectionId: string, model: string) => CliffConcentration | null;
   runProbe: (args: RunProbeArgs) => Promise<void>;
   stop: () => void;
   reset: () => void;
@@ -163,11 +171,13 @@ export const useCliffStore = create<CliffStore>((set, get) => ({
   step: null,
   startedAt: null,
   lastInconclusive: null,
+  lastConcentration: null,
   error: null,
   results: {},
   probed: {},
   brokenBaseline: {},
   inconclusive: {},
+  concentrated: {},
 
   setRequest: (req) => set({ request: req }),
   consumeRequest: () => {
@@ -186,10 +196,16 @@ export const useCliffStore = create<CliffStore>((set, get) => ({
       const probed: Record<string, boolean> = {};
       const broken: Record<string, boolean> = {};
       const inconclusive: Record<string, number> = {};
+      const concentrated: Record<string, CliffConcentration> = {};
       for (const [m, st] of Object.entries(map)) {
         if (st.status === "NotProbed") continue;
         probed[m] = true;
-        if (st.status === "Collapsed") results[m] = st.depth;
+        if (st.status === "Collapsed") {
+          results[m] = st.depth;
+          // Without this a concentrated collapse re-renders as a clean one after
+          // reload — the warning silently disappearing exactly where it matters.
+          if (st.concentration) concentrated[m] = st.concentration;
+        }
         else if (st.status === "Broken") broken[m] = true;
         // Inconclusive MUST be carried, not left to the `probed` fallthrough: consumers read
         // "probed, not broken, no depth" as "✓ no cliff — accuracy held the whole range",
@@ -199,6 +215,7 @@ export const useCliffStore = create<CliffStore>((set, get) => ({
       }
       set((s) => ({
         results: { ...s.results, [collectionId]: results },
+        concentrated: { ...s.concentrated, [collectionId]: concentrated },
         probed: { ...s.probed, [collectionId]: probed },
         brokenBaseline: { ...s.brokenBaseline, [collectionId]: broken },
         inconclusive: { ...s.inconclusive, [collectionId]: inconclusive },
@@ -219,13 +236,14 @@ export const useCliffStore = create<CliffStore>((set, get) => ({
   wasProbed: (collectionId, model) => get().probed[collectionId]?.[model] === true,
   hasBrokenBaseline: (collectionId, model) => get().brokenBaseline[collectionId]?.[model] === true,
   inconclusiveTrials: (collectionId, model) => get().inconclusive[collectionId]?.[model] ?? null,
+  concentrationFor: (collectionId, model) => get().concentrated[collectionId]?.[model] ?? null,
 
   runProbe: async ({ model, backend, collectionId, tasks, maxTokens, steps, source, params, modelPath, method, isThinking, thinkPreset }) => {
     // GUARDRAIL 2: clear all prior state BEFORE dispatching — never append to a
     // stale series (that corrupts the chart and the persisted cliff).
     const myRun = ++activeRun;
     // `lastInconclusive: null` — a new run must not inherit the previous verdict.
-    set({ points: [], error: null, running: true, runningModel: model, progress: { done: 0, total: steps }, frac: 0, step: null, startedAt: Date.now(), lastInconclusive: null });
+    set({ points: [], error: null, running: true, runningModel: model, progress: { done: 0, total: steps }, frac: 0, step: null, startedAt: Date.now(), lastInconclusive: null, lastConcentration: null });
 
     // Live per-rung points stream from the backend engine over `cliff-progress`; the
     // engine owns the ladder, padding, verify-and-adjust, classification, and
@@ -244,7 +262,7 @@ export const useCliffStore = create<CliffStore>((set, get) => ({
           set((s) => ({
             // verified_tokens 0 ⇒ the backend reported no count for this rung — render
             // it as "not reported", never a fake ≈0-token depth.
-            points: [...s.points, { promptTokens: p.point.verified_tokens || null, composite: p.point.composite, passed: p.point.passed, trials: p.point.trials, trace: p.point.trace }],
+            points: [...s.points, { promptTokens: p.point.verified_tokens || null, composite: p.point.composite, passed: p.point.passed, trials: p.point.trials, trace: p.point.trace, byTask: p.point.by_task }],
             progress: { done: p.done, total: p.total },
             // Advance the bar to the just-completed rung's boundary; never backward.
             frac: Math.max(s.frac, progressFraction(p.done, p.total, s.step)),
@@ -268,13 +286,17 @@ export const useCliffStore = create<CliffStore>((set, get) => ({
 
       // The report is authoritative — replace the live series with its verified rungs
       // so the chart and the (backend-persisted) status can never disagree.
-      const points: CliffPoint[] = report.points.map((p) => ({ promptTokens: p.verified_tokens || null, composite: p.composite, passed: p.passed, trials: p.trials, trace: p.trace }));
+      const points: CliffPoint[] = report.points.map((p) => ({ promptTokens: p.verified_tokens || null, composite: p.composite, passed: p.passed, trials: p.trials, trace: p.trace, byTask: p.by_task }));
       const broken = report.status.status === "Broken";
       // The probe ran but its sample can't resolve the margin — must NOT fall through to the
       // Matrix's "✓ no cliff" branch. `null` clears a previous inconclusive on a re-run.
       const inconclusiveTrials = report.status.status === "Inconclusive" ? report.status.trials : null;
+      const concentration = report.status.status === "Collapsed" ? report.status.concentration ?? null : null;
       set((s) => {
         const col = { ...(s.results[collectionId] ?? {}) };
+        const conc = { ...(s.concentrated[collectionId] ?? {}) };
+        if (concentration) conc[model] = concentration;
+        else delete conc[model];
         // `results` holds GENUINE collapse depths only — set it for a real cliff, clear
         // it otherwise (no-cliff / broken render via their own flags, never a number).
         if (report.status.status === "Collapsed") col[model] = report.status.depth;
@@ -296,6 +318,8 @@ export const useCliffStore = create<CliffStore>((set, get) => ({
           })(),
           // The run's own verdict, for the panel read-out — cleared on a conclusive re-run.
           lastInconclusive: inconclusiveTrials,
+          lastConcentration: concentration,
+          concentrated: { ...s.concentrated, [collectionId]: conc },
           results: { ...s.results, [collectionId]: col },
         };
       });
@@ -323,6 +347,6 @@ export const useCliffStore = create<CliffStore>((set, get) => ({
     if (get().running) {
       void stopContextCliff().catch((e) => console.error("stop context-cliff failed:", e));
     }
-    set({ points: [], error: null, running: false, runningModel: null, progress: { done: 0, total: 0 }, frac: 0, step: null, startedAt: null, lastInconclusive: null });
+    set({ points: [], error: null, running: false, runningModel: null, progress: { done: 0, total: 0 }, frac: 0, step: null, startedAt: null, lastInconclusive: null, lastConcentration: null });
   },
 }));

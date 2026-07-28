@@ -1399,6 +1399,44 @@ back) and is **snapped to 1 on completion**, so an **early-stopped** probe — w
 rung — still reads 100% rather than freezing short. The ETA is a labelled `~` extrapolation from
 `elapsed ÷ frac`, never presented as exact.
 
+**Per-task breakdown (`by_task`).** Every rung carries an UNCAPPED per-task tally
+(`{task_id, passed, trials}` — unlike the char/task-capped trace), fed from the same pass/fail
+yardstick as the trace. The rung table names the failing tasks under the accuracy cell and shows
+the sample as "n / N over m tasks"; `qm cliff` prints a `failures:` line per rung. This is what
+lets a reader tell a broad collapse from ONE task breaking — the failure mode an external review
+caught in a published run, where 3 of a rung's 4 failures came from a single task.
+
+**The collapse rule is statistically gated (never a bare point estimate).** `Collapsed` requires
+BOTH the ≥20pp point drop (`COLLAPSE_MARGIN`, the effect-size bar — unchanged) AND the drop's
+Newcombe/Wilson difference interval excluding zero (`cliff/stats.rs` — closed-form, no deps; Wald/CLT
+intervals are invalid at these sample sizes and collapse to zero width at a perfect baseline, per
+Bowyer et al., ICML 2025). A margin-sized drop the sample can't resolve is the existing
+`Inconclusive`, never a coin-flip "Collapsed". The gate applies where the rung tallies are summable
+(agentic-only rungs); a mixed/single-turn rung has no k/n denominator and keeps the point-margin rule
+— its verdicts still carry the concentration label below. Positions within a task are a CLUSTER
+(Miller 2024: clustered SEs run 1.1–3× naive), which is why every rendered sample reads
+"n trials over m tasks", never a bare n.
+
+**Failure concentration (advisory, never a gate).** On a collapse, the engine checks whether the
+failures clustered in ONE task: an exact exchangeability p-value on the max-failures-in-one-task
+statistic (uniform-failure null, DP-computed — the reviewed real case, 3 of 4 failures in one task
+over 5 tasks × 3 positions, gives p≈0.044) plus a ≥50%-of-≥3-failures stopgap, and a
+leave-one-task-out re-run of the FULL collapse rule. The result rides ON the persisted
+`CliffStatus::Collapsed` (`concentration` — old records parse as "not assessed"), so the Matrix cell
+still shows "low confidence" after a reload; `holds_without: true` renders as "collapse driven by
+that task — depth-general collapse not established". It labels; it never changes the readiness gate.
+
+**Decoding: params-first, greedy default.** The probe starts from your GLOBAL Params: a set
+temperature is honored and stamped on the report (`temperature`), so a sampled depth is never
+conflated with a greedy one; unset ⇒ greedy 0 (the reproducible default). Two grounds for keeping
+greedy the default: (1) Miller's temperature rule has an explicit carve-out — he advises against
+changing temperature for the sake of variance reduction "unless the purpose is to study the model at
+the new temperature." A reproducible pre-deployment gate is that purpose. Cite it as a stated
+exception, not a deviation. (2) Wilson/Newcombe intervals over task×position already answer the
+task-sampling and concentration objection — the fix that matches the critique. Plainly: a greedy run
+cannot separate model noise from task difficulty (no conditional-variance estimate); its variance
+source is task×position only, and the intervals price exactly that.
+
 **Thinking budget (depth-scaled, mirrors the Tests page presets).** For a **thinking** probe model
 (the Tests page's per-model resolution: explicit toggle wins, else the name heuristic), the panel shows
 a **Lean / Standard / Deep** preset (default Standard). Each rung's output budget is the probe's answer

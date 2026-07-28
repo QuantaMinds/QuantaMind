@@ -3,7 +3,7 @@ use std::fs;
 use tempfile::tempdir;
 
 fn collapsed(d: u32) -> CliffStatus {
-    CliffStatus::Collapsed { depth: d }
+    CliffStatus::Collapsed { depth: d, concentration: None }
 }
 
 #[test]

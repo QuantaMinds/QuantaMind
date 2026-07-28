@@ -1,10 +1,11 @@
 use super::budget::{CliffBudget, CLIFF_ANSWER_TOKENS};
 use super::padding::{build_padding, inject_at_depth};
 use super::presets::CliffSource;
+use super::stats;
 use crate::inference::eval::agentic::difficulty::passk::ThinkPreset;
 use crate::errors::{AppError, AppResult};
 use crate::inference::eval::agentic::model_turn::{ModelTurn, Progress};
-use crate::inference::eval::readiness::types::CliffStatus;
+use crate::inference::eval::readiness::types::{CliffConcentration, CliffStatus};
 use crate::inference::eval::toolcall::eval::{aggregate, TaskResult};
 use crate::inference::eval::toolcall::parse::extract_calls;
 use crate::inference::eval::toolcall::prompt::{build_system_for, TerminalGuidance};
@@ -87,6 +88,31 @@ struct PosTrace {
     prompt: String,
     output: String,
     passed: bool,
+}
+
+/// One task's pass count at one rung, across every swept needle position. UNCAPPED —
+/// unlike `trace` (`MAX_TRACE_TASKS`), this is an id plus two ints per task, so the
+/// verdict layer can always see WHICH tasks drove a rung, however large the collection.
+/// Fed from the same `cliff_failed` yardstick as the trace's `passed` flag — one source.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct TaskTally {
+    pub task_id: String,
+    pub passed: u32,
+    pub trials: u32,
+}
+
+/// Fold one position's per-task results into the rung's per-task tally (first-seen order,
+/// same ordering rule as `merge_pos_into_trace`).
+fn merge_pos_into_tally(tally: &mut Vec<TaskTally>, pos: &[PosTrace]) {
+    for pt in pos {
+        match tally.iter_mut().find(|t| t.task_id == pt.task_id) {
+            Some(t) => {
+                t.trials += 1;
+                t.passed += pt.passed as u32;
+            }
+            None => tally.push(TaskTally { task_id: pt.task_id.clone(), passed: pt.passed as u32, trials: 1 }),
+        }
+    }
 }
 
 /// Char-safe truncation: keep the first `max` chars, append `…` when cut.
@@ -193,6 +219,11 @@ pub struct CliffPoint {
     /// Per-task trace (system prompt + per-position outputs) for THIS rung — every task,
     /// pass or fail (capped). Powers the per-step "View trace" in the UI.
     pub trace: Vec<TaskTrace>,
+    /// Per-task pass counts for THIS rung (uncapped — see `TaskTally`). What lets the
+    /// verdict and the reader tell a broad collapse from one task breaking. `default` so
+    /// pre-field serialized reports still parse.
+    #[serde(default)]
+    pub by_task: Vec<TaskTally>,
 }
 
 /// The probe result: every rung, the classified status (mirrors the persisted
@@ -209,6 +240,12 @@ pub struct CliffReport {
     /// reports (pre-preset) deserialize to `None`, which is exactly what they ran as.
     #[serde(default)]
     pub think_preset: Option<ThinkPreset>,
+    /// The decoding temperature the probe actually ran at, stamped by the command/CLI
+    /// layer (the engine never decides it). `Some(0.0)` = greedy (the default);
+    /// anything else came from the user's global params — carried so a sampled depth
+    /// is never conflated with a greedy one. `None` only on pre-field reports.
+    #[serde(default)]
+    pub temperature: Option<f32>,
 }
 
 /// Did `task` FAIL this rung by the cliff's yardstick? A single-turn task must be fully
@@ -363,7 +400,7 @@ async fn sweep<T: ModelTurn, F: Fn(&ToolTask) -> T>(
     target: u32,
     max_output: u32,
     on_step: StepSink<'_>,
-) -> AppResult<(Vec<DepthScore>, u32, Option<f64>, Option<PosTally>, Vec<TaskTrace>)> {
+) -> AppResult<(Vec<DepthScore>, u32, Option<f64>, Option<PosTally>, Vec<TaskTrace>, Vec<TaskTally>)> {
     let mut per_depth = Vec::with_capacity(depths.len());
     let mut tok_sum: u64 = 0;
     let mut tok_n: u64 = 0;
@@ -371,6 +408,7 @@ async fn sweep<T: ModelTurn, F: Fn(&ToolTask) -> T>(
     let mut pooled = PosTally { passed: 0, trials: 0 };
     let mut poolable = true;
     let mut trace: Vec<TaskTrace> = Vec::new();
+    let mut by_task: Vec<TaskTally> = Vec::new();
     for (pi, &depth) in depths.iter().enumerate() {
         // Wrap the per-task tick with this position's context so the panel can render
         // "rung r/N · position p/3 · task t/M" and weight an overall completion fraction.
@@ -398,6 +436,7 @@ async fn sweep<T: ModelTurn, F: Fn(&ToolTask) -> T>(
             None => poolable = false,
         }
         per_depth.push(DepthScore { depth, composite, verified_tokens: vt });
+        merge_pos_into_tally(&mut by_task, &pos_traces);
         merge_pos_into_trace(&mut trace, depth, pos_traces);
     }
     trace.truncate(MAX_TRACE_TASKS);
@@ -424,7 +463,7 @@ async fn sweep<T: ModelTurn, F: Fn(&ToolTask) -> T>(
         // positions cannot be summed. Keep the documented worst-of-positions there.
         None => worst,
     };
-    Ok((per_depth, mean_tokens, composite, tally, trace))
+    Ok((per_depth, mean_tokens, composite, tally, trace, by_task))
 }
 
 /// A rung is MEASURED only when the padded prompt plus its reply budget fit inside the
@@ -488,6 +527,8 @@ async fn probe_rung<T: ModelTurn, F: Fn(&ToolTask) -> T>(
         let (results, pos_traces) = run_position(make_turn, model, tasks, "", 0.0, max_output, &mut on_task).await?;
         let (composite, prompt_tokens, tally) = cliff_score(tasks, &results);
         let vt = prompt_tokens.map(|t| t.round() as u32).unwrap_or(0);
+        let mut by_task: Vec<TaskTally> = Vec::new();
+        merge_pos_into_tally(&mut by_task, &pos_traces);
         let mut trace: Vec<TaskTrace> = Vec::new();
         merge_pos_into_trace(&mut trace, 0.0, pos_traces);
         trace.truncate(MAX_TRACE_TASKS);
@@ -499,22 +540,23 @@ async fn probe_rung<T: ModelTurn, F: Fn(&ToolTask) -> T>(
             trials: tally.map(|t| t.trials),
             per_depth: vec![DepthScore { depth: 0.0, composite, verified_tokens: vt }],
             trace,
+            by_task,
         });
     }
     // Seed from the learned rate (accurate) or the 4:1 fallback on the first padded rung,
     // never sizing past what the window can hold (`cap_bytes`).
     let seed_rate = rate.unwrap_or(BYTES_PER_TOKEN as f64);
     let mut bytes = cap_bytes(((target as f64) * seed_rate).round() as usize, seed_rate, ctx_limit, max_output);
-    let mut last: Option<(Vec<DepthScore>, u32, Option<f64>, Option<PosTally>, Vec<TaskTrace>)> = None;
+    let mut last: Option<(Vec<DepthScore>, u32, Option<f64>, Option<PosTally>, Vec<TaskTrace>, Vec<TaskTally>)> = None;
     for attempt in 0..=MAX_ADJUST_ATTEMPTS {
         let padding = build_padding(source_text, bytes);
-        let (per_depth, mean_tokens, worst, tally, trace) = sweep(make_turn, model, tasks, &padding, depths, rung, total_rungs, target, max_output, on_step).await?;
+        let (per_depth, mean_tokens, worst, tally, trace, by_task) = sweep(make_turn, model, tasks, &padding, depths, rung, total_rungs, target, max_output, on_step).await?;
         let measured_rate = (mean_tokens > 0).then(|| bytes as f64 / mean_tokens as f64);
         if let Some(r) = measured_rate {
             *rate = Some(r); // learn for the next rung
         }
         let off = if target > 0 { (mean_tokens as f64 - target as f64).abs() / target as f64 } else { 0.0 };
-        last = Some((per_depth, mean_tokens, worst, tally, trace));
+        last = Some((per_depth, mean_tokens, worst, tally, trace, by_task));
         if mean_tokens == 0 || off <= ADJUST_TOLERANCE || attempt == MAX_ADJUST_ATTEMPTS {
             break;
         }
@@ -529,7 +571,7 @@ async fn probe_rung<T: ModelTurn, F: Fn(&ToolTask) -> T>(
             max_output,
         );
     }
-    let (per_depth, mean_tokens, worst, tally, trace) = last.expect("loop runs at least once");
+    let (per_depth, mean_tokens, worst, tally, trace, by_task) = last.expect("loop runs at least once");
     Ok(CliffPoint {
         target_tokens: target,
         verified_tokens: mean_tokens,
@@ -538,6 +580,7 @@ async fn probe_rung<T: ModelTurn, F: Fn(&ToolTask) -> T>(
         trials: tally.map(|t| t.trials),
         per_depth,
         trace,
+        by_task,
     })
 }
 
@@ -608,13 +651,86 @@ fn classify(points: &[CliffPoint]) -> (CliffStatus, Option<u32>) {
     for p in &points[1..] {
         if let Some(c) = p.composite {
             if is_collapse(base_comp, c) {
-                return (CliffStatus::Collapsed { depth: p.verified_tokens }, Some(largest_pass));
+                // Statistical gate on top of the point margin: the drop's Newcombe interval
+                // must exclude zero, or the sample can't tell this collapse from noise —
+                // a margin-sized drop off a tiny baseline (e.g. 5 single-position trials)
+                // is a coin flip, not a finding (Bowyer et al., ICML 2025). Applies only
+                // when BOTH ends carry poolable k/n tallies; a mixed/single-turn rung has
+                // no summable counts, so it keeps the point-margin rule (documented limit).
+                let gated = match (base.passed, base.trials, p.passed, p.trials) {
+                    (Some(bp), Some(bn), Some(rp), Some(rn)) => {
+                        stats::newcombe_drop_interval(bp, bn, rp, rn).is_some_and(|d| d.lo > 0.0)
+                    }
+                    _ => true,
+                };
+                if !gated {
+                    return (CliffStatus::Inconclusive { trials: p.trials.unwrap_or(0) }, None);
+                }
+                let concentration = concentration_for(base, p);
+                return (CliffStatus::Collapsed { depth: p.verified_tokens, concentration }, Some(largest_pass));
             }
             largest_pass = p.verified_tokens;
         }
     }
     let tested = points.last().map(|p| p.verified_tokens).unwrap_or(base.verified_tokens);
     (CliffStatus::NoCliff { tested }, Some(largest_pass))
+}
+
+/// Warn when the exact exchangeability p-value says the failure placement is this
+/// concentrated under a uniform-failure null less than 10% of the time.
+const CONCENTRATION_P_WARN: f64 = 0.10;
+/// Stopgap concentration flag independent of the p-value: one task holds ≥ half the
+/// rung's failures AND there are enough failures for "half" to mean something.
+const CONCENTRATION_MIN_FAILURES: u32 = 3;
+
+/// Failure-concentration evidence for a COLLAPSING rung — `Some` only when the rung's
+/// failures cluster in one task (exact p ≤ 0.10, or the ≥50%-of-≥3-failures stopgap).
+/// `holds_without` re-runs the FULL collapse rule (point margin + Newcombe gate) with
+/// the top task excluded from both the baseline and the rung: `true` means the collapse
+/// is not robust to that one task — "depth-general collapse" is not established, which
+/// is exactly the over-claim an external review caught in a published run.
+fn concentration_for(base: &CliffPoint, rung: &CliffPoint) -> Option<CliffConcentration> {
+    // With fewer than two tasks "all failures from one task" is trivially true —
+    // concentration is undefined, so no claim (mirrors `concentration_p_value`).
+    if rung.by_task.len() < 2 {
+        return None;
+    }
+    let top = rung.by_task.iter().max_by_key(|t| t.trials.saturating_sub(t.passed))?;
+    let task_failures = top.trials.saturating_sub(top.passed);
+    let total_failures: u32 = rung.by_task.iter().map(|t| t.trials.saturating_sub(t.passed)).sum();
+    if task_failures == 0 {
+        return None;
+    }
+    let p = stats::concentration_p_value(&rung.by_task);
+    let p_flags = p.is_some_and(|v| v <= CONCENTRATION_P_WARN);
+    let stopgap = task_failures * 2 >= total_failures && total_failures >= CONCENTRATION_MIN_FAILURES;
+    if !(p_flags || stopgap) {
+        return None;
+    }
+    // Leave-one-task-out: sum the OTHER tasks' tallies at both ends and re-apply the rule.
+    let excl = |point: &CliffPoint| -> (u32, u32) {
+        point
+            .by_task
+            .iter()
+            .filter(|t| t.task_id != top.task_id)
+            .fold((0, 0), |(p0, n0), t| (p0 + t.passed, n0 + t.trials))
+    };
+    let (bp, bn) = excl(base);
+    let (rp, rn) = excl(rung);
+    let holds_without = if bn > 0 && rn > 0 {
+        let margin = is_collapse(bp as f64 / bn as f64, rp as f64 / rn as f64);
+        let gate = stats::newcombe_drop_interval(bp, bn, rp, rn).is_some_and(|d| d.lo > 0.0);
+        !(margin && gate)
+    } else {
+        false // baseline breakdown unavailable — can't re-run the rule, so no claim
+    };
+    Some(CliffConcentration {
+        task_id: top.task_id.clone(),
+        task_failures,
+        total_failures,
+        p_value_milli: (p.unwrap_or(1.0) * 1000.0).round() as u32,
+        holds_without,
+    })
 }
 
 /// Build an ascending token ladder from 0 (the unpadded baseline) up to
@@ -748,7 +864,8 @@ pub async fn run_cliff_with_factory<T: ModelTurn, F: Fn(&ToolTask) -> T>(
     let (status, cliff_tokens) = classify(&points);
     // The mode flag rides with the result: `Some(preset)` only when the scratchpad was on.
     let think_preset = budget.is_thinking.then_some(budget.preset);
-    Ok(CliffReport { points, status, cliff_tokens, think_preset })
+    // `temperature` is stamped by the command/CLI layer, which owns the decoding config.
+    Ok(CliffReport { points, status, cliff_tokens, think_preset, temperature: None })
 }
 
 #[cfg(test)]

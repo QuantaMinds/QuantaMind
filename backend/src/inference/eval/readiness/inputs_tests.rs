@@ -119,10 +119,10 @@ fn context_cliff_gate_blocks_a_measured_shortfall_but_only_cautions_when_unmeasu
     let c = col(9, 10, 0, 0, Some(2.0)); // pass^k 0.9 clears the 0.5 bar
 
     // Gate OFF (None): the cliff is carried but never blocks → Ready.
-    assert_eq!(verdict_for(&c, None, false, CliffStatus::Collapsed { depth: 8000 }, &ctx_profile(None)).status, Readiness::Ready);
+    assert_eq!(verdict_for(&c, None, false, CliffStatus::Collapsed { depth: 8000, concentration: None }, &ctx_profile(None)).status, Readiness::Ready);
 
     // Gate ON, cliff BELOW the floor (MEASURED failure) → NotReady with the reason.
-    let below = verdict_for(&c, None, false, CliffStatus::Collapsed { depth: 8000 }, &ctx_profile(Some(16000)));
+    let below = verdict_for(&c, None, false, CliffStatus::Collapsed { depth: 8000, concentration: None }, &ctx_profile(Some(16000)));
     assert_eq!(below.status, Readiness::NotReady);
     assert!(below.blocking.iter().any(|b| b.contains("8000") && b.contains("16000")), "{:?}", below.blocking);
 
@@ -133,7 +133,7 @@ fn context_cliff_gate_blocks_a_measured_shortfall_but_only_cautions_when_unmeasu
     assert!(unmeasured.conditions.iter().any(|c| c.to_lowercase().contains("not measured")), "{:?}", unmeasured.conditions);
 
     // Gate ON, cliff ABOVE the floor → passes (Ready).
-    assert_eq!(verdict_for(&c, None, false, CliffStatus::Collapsed { depth: 32000 }, &ctx_profile(Some(16000))).status, Readiness::Ready);
+    assert_eq!(verdict_for(&c, None, false, CliffStatus::Collapsed { depth: 32000, concentration: None }, &ctx_profile(Some(16000))).status, Readiness::Ready);
 }
 
 fn agg(passes: u32, total: u32, loops: u32) -> AggAgentic {

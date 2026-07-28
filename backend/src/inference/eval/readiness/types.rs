@@ -16,13 +16,36 @@ pub const EPSILON: f64 = 1e-6;
 /// (absence in the store); `NoCliff { tested }` = accuracy held through `tested`
 /// tokens; `Collapsed { depth }` = tool-call accuracy fell off at `depth` tokens (a
 /// "broken baseline" maps here at the first rung — it fails from the start).
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// Failure-concentration evidence attached to a collapse: how much of the collapsing
+/// rung's failure mass sat in ONE task. `p_value_milli` is the exact exchangeability
+/// p-value (×1000) that failures this concentrated arise under a uniform-failure null
+/// (`cliff::stats::concentration_p_value`); `holds_without` = true means excluding the
+/// top task, the remaining tasks no longer meet the collapse rule — the collapse was
+/// driven entirely by that task, and "depth-general collapse" is not established.
+/// Advisory labeling ONLY — it never changes the readiness gate.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CliffConcentration {
+    pub task_id: String,
+    pub task_failures: u32,
+    pub total_failures: u32,
+    pub p_value_milli: u32,
+    pub holds_without: bool,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status")]
 pub enum CliffStatus {
     #[default]
     NotProbed,
     NoCliff { tested: u32 },
-    Collapsed { depth: u32 },
+    Collapsed {
+        depth: u32,
+        /// `Some` when the collapsing rung's failures concentrated in one task (see
+        /// `CliffConcentration`); `None` = not assessed (old records, spread failures,
+        /// or a sample the exact test refuses). `default` so pre-field JSON still parses.
+        #[serde(default)]
+        concentration: Option<CliffConcentration>,
+    },
     /// Tool-call accuracy was already failing at the SMALLEST tested context (a broken
     /// baseline) — there is no usable context window, distinct from a collapse partway
     /// through. `tested` = the deepest rung reached. Renders red "fails from start" and

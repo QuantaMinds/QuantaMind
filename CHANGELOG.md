@@ -4,6 +4,22 @@ All notable changes to QuantaMind are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Context Stress Test verdict honesty** (prompted by community review of a published run —
+  credit: community review): every rung now carries an uncapped per-task breakdown
+  (`by_task`; GUI table, `qm cliff` `failures:` lines, JSON); a collapse verdict requires the
+  drop's Wilson/Newcombe interval to exclude zero on top of the 20pp margin (else the honest
+  `Inconclusive`); and a collapse whose failures concentrate in one task is labeled
+  **low confidence** (exact exchangeability p-value + leave-one-task-out check), on the live
+  run, the persisted Matrix cell, and the CLI.
+- **Cliff thinking budget** — Lean/Standard/Deep presets whose reasoning scratchpad scales with
+  each rung's depth through the same per-tier table the Tests page uses; `qm cliff --thinking`.
+- **Cliff decoding is params-first** — a globally set temperature is honored (and stamped on
+  the report); greedy 0 stays the reproducible default.
+
 ## [0.2.4] — 2026-07-23
 
 CLI quality-of-life + eval-integrity release.
