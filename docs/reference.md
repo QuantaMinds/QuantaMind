@@ -1504,6 +1504,17 @@ window. No server running (or the probe unreachable) → the panel says so befor
 while the probe is still in flight it says nothing, so a loading gap never flashes as a false
 "no server" error.
 
+**Ollama: native FC is gated on the model's `tools` capability.** Ollama grants `tools` only
+when the model's chat template references `.Tools` (an imported GGUF with a plain template never
+gets it), and rejects native tool requests otherwise. The Method toggle reads the same
+`/api/show` capabilities the panel already fetches: no `tools` → Native FC disables with a hint
+naming the cause and both levers (probe Prompt-based, or re-create the Ollama model with a
+tool-capable TEMPLATE), and the probe runs prompt-based — shown active, never a silent switch.
+Previously the panel defaulted to Native FC and every run refused post-click, which read as
+"Ollama doesn't work with the stress test" (the CLI worked — `qm cliff` defaults to
+prompt-based). Capabilities unknown (probe failed / older Ollama) → fail open; the backend's
+own native gate still refuses honestly.
+
 The probe owns its own **Active Collection** picker (independent of the EvalManager editor), so it
 always has a real dataset to run. The **Max Tokens** control sets the deepest rung and is capped at the
 model's reported **context window** when known (Ollama `/api/show` dims), falling back to a fixed

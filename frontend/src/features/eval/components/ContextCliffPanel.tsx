@@ -162,7 +162,7 @@ export function ContextCliffPanel() {
   // rung overflow it — Ollama silently clamps and truncates (deleting the needle) while
   // `prompt_eval_count` saturates at the window, so the rung fails and reports a
   // fabricated cliff depth. The ladder must stay inside what the model can actually hold.
-  const { dims, kvBytes } = useVramFit(selected?.name, selected?.backend, maxTokens);
+  const { dims, kvBytes, capabilities } = useVramFit(selected?.name, selected?.backend, maxTokens);
   // llama.cpp pins its context at LAUNCH: the deepest measurable rung is bounded by the
   // RUNNING server's window, not the model's (much larger) GGUF maximum — the old slider
   // offered depths the server could never hold, and the user only found out from the
@@ -281,9 +281,14 @@ export function ContextCliffPanel() {
         : `High memory pressure: ~${neededCtxK}k tokens for ${selected.name} needs ≈${formatBytes(footprint)} of ${formatBytes(deviceCap)} — close to the limit, so the run may spill to CPU (slow).`
       : null;
 
-  // MLX has no native tool-calling API, so native isn't offered there — the run always uses the
-  // effective method (native falls back to prompt-based on MLX).
-  const nativeAvailable = selected?.backend !== "mlx";
+  // MLX has no native tool-calling API, so native isn't offered there. On Ollama, native
+  // works only when the model's template references `.Tools` — /api/show then reports the
+  // `tools` capability. An imported GGUF with a plain template never gets it, and every
+  // native run 400s: surface that ceiling HERE, before the click, not as a post-run error
+  // (the same discoverability rule as the llama.cpp window cap above). Capabilities still
+  // loading / unreported ⇒ fail OPEN — the backend's own gate refuses honestly if needed.
+  const ollamaNoTools = selected?.backend === "ollama" && capabilities != null && !capabilities.includes("tools");
+  const nativeAvailable = selected?.backend !== "mlx" && !ollamaNoTools;
   const effectiveMethod: AgentPath = nativeAvailable ? method : "prompt_based";
 
   const handleRun = () => {
@@ -737,7 +742,9 @@ export function ContextCliffPanel() {
                 data-testid={`cliff-method-${isNative ? "native" : "prompt"}`}
                 title={
                   disabled
-                    ? "MLX has no native tool-calling API — use Prompt-based"
+                    ? ollamaNoTools
+                      ? "This Ollama model reports no tool capability (its template lacks .Tools) — native calls are rejected. Probe Prompt-based, or re-create the model with a tool-capable TEMPLATE."
+                      : "MLX has no native tool-calling API — use Prompt-based"
                     : isNative
                       ? "Probe native function-calling (structured tool_calls)"
                       : "Probe the prompt-based JSON-in-text tool proxy"
@@ -760,8 +767,10 @@ export function ContextCliffPanel() {
           })}
         </div>
         {!nativeAvailable && (
-          <span style={{ fontSize: 11, color: "#94a3b8", fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif" }}>
-            MLX: prompt-based only
+          <span data-testid="cliff-native-unavailable" style={{ fontSize: 11, color: "#94a3b8", fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif" }}>
+            {ollamaNoTools
+              ? "This Ollama model has no native tool support (template lacks .Tools) — probing prompt-based"
+              : "MLX: prompt-based only"}
           </span>
         )}
       </div>

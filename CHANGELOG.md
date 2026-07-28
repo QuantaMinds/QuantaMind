@@ -32,6 +32,12 @@ All notable changes to QuantaMind are documented here. The format follows
   included) with an inline raise-or-reduce hint, and `qm cliff` preflights the same window
   (`[QM-WINDOW-TOO-SMALL]`, exit `2`) instead of dying mid-ladder. This was the "stress test
   maxes out at ~9K no matter what I set" report.
+- **Context Stress Test on Ollama: the native-FC ceiling shows before the click** — Ollama
+  grants the `tools` capability only when a model's template references `.Tools` (imported
+  GGUFs usually don't), and rejects native tool requests otherwise. The Method toggle now
+  disables Native FC for such a model with a hint naming the cause and both levers (probe
+  Prompt-based, or re-create the model with a tool-capable TEMPLATE) instead of refusing
+  post-click on every run. This was the "Ollama doesn't work with the stress test" report.
 - **Three-bucket cliff aggregate** — a cap-affected rung reports `passed · failed ·
   died-at-cap` and no single rate (dropping budget cells overstates, folding them
   understates); model claims run on the content rate, budget-event scale on the folded

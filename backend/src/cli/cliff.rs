@@ -58,6 +58,11 @@ pub enum CliffOutcome {
     /// previously this died mid-ladder on an opaque "prompt is larger than the context
     /// window" rejection, or silently dropped the deepest rungs.
     WindowTooSmall { running_ctx: u32, needed_ctx: u32, usable_max_tokens: u32 },
+    /// `--mode native` on a backend/model that can't run native tool-calling (MLX has no
+    /// tool API; an Ollama model whose template lacks `.Tools` 400s on every call).
+    /// Refused up front (mirrors the GUI gate in `run_context_cliff`) — previously this
+    /// died mid-ladder on an opaque `[QM-INTERNAL] … does not support tools` error.
+    NativeUnsupported { backend: BackendKind, model: String },
     Probed(CliffReport),
 }
 
@@ -234,6 +239,12 @@ pub async fn run_cliff_probe(opts: CliffOptions) -> AppResult<CliffOutcome> {
         }
     }
     let budget = CliffBudget { is_thinking, preset: opts.run.think };
+
+    // Native preflight: same gate as the GUI (`run_context_cliff`) — a model/backend that
+    // can't run native tool-calling must refuse loudly up front, not 400 mid-ladder.
+    if opts.native && !crate::inference::eval::batch::probe_native_tools(opts.run.backend, &ep, &opts.run.model).await {
+        return Ok(CliffOutcome::NativeUnsupported { backend: opts.run.backend, model: opts.run.model });
+    }
 
     // llama.cpp preflight: the server pins its window at launch — measure against the
     // RUNNING window, not the model's GGUF maximum. Without this the deepest rungs
