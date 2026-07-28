@@ -19,6 +19,11 @@ All notable changes to QuantaMind are documented here. The format follows
   each rung's depth through the same per-tier table the Tests page uses; `qm cliff --thinking`.
 - **Cliff decoding is params-first** — a globally set temperature is honored (and stamped on
   the report); greedy 0 stays the reproducible default.
+- **`medium-coding-v3`** — the Medium coding collection grows 5 → 18 tasks in three deliberate
+  complexity bands of six (shallow single-getter, medium binary-branch, deep conditional
+  chains), so one task moves a Context Stress Test rung ~5.5pp instead of 20 and the
+  depth×complexity interaction is measurable by design. v2 stays bundled (saved runs keep
+  resolving); the pickers offer v3.
 
 ## [0.2.4] — 2026-07-23
 

@@ -219,6 +219,18 @@ running you'll see "Ollama isn't running".
   and its own process group (R1), so QuantaMind's Stop control cleanly kills
   Ollama's whole tree without touching QuantaMind itself.
 
+### llama-server dies partway through a long Context Stress Test {#llama-cache-oom}
+
+**Symptom:** a long cliff probe (many rungs, or a large collection) fails mid-run with
+"error sending request" and llama-server is simply gone — no error in its log, it stops
+between two lines. **Cause:** recent llama-server keeps a prompt cache in RAM (default cap
+~8 GB); the probe feeds it dozens of distinct multi-KB prompts, so on a 16 GB machine the
+cache growth on top of the weights + KV eventually gets the process OOM-killed by the OS —
+reproduced twice at ~60 calls in. **Fix:** relaunch llama-server with a bounded cache, e.g.
+`--cache-ram 1024` (or `0` to disable). Re-prefill gets slower; the probe's measured depths
+are unaffected (`prompt_eval_count + cache_n` is the occupancy either way). The probe itself
+fails loudly and never fabricates a result from a dead server.
+
 ### llama.cpp won't stop / repeats forever {#llama-loops}
 
 If a llama.cpp run repeats the prompt or rambles until it hits the token limit
@@ -1398,6 +1410,12 @@ counters. `frac` is also kept **monotonic** across the run (a re-sweep holds the
 back) and is **snapped to 1 on completion**, so an **early-stopped** probe — which stops below the last
 rung — still reads 100% rather than freezing short. The ETA is a labelled `~` extrapolation from
 `elapsed ÷ frac`, never presented as exact.
+
+**Collection size matters (and Medium coding is banded for it).** With 5 tasks × 3 positions one
+task is worth exactly the 20pp collapse margin; `medium-coding-v3` ships 18 tasks in three
+complexity bands of six (shallow single-getter / medium binary-branch / deep conditional chains),
+making a rung's quantum ~1.9% and letting a depth×complexity interaction be measured on purpose —
+the banding is documented in the collection's own description field.
 
 **Per-task breakdown (`by_task`).** Every rung carries an UNCAPPED per-task tally
 (`{task_id, passed, trials}` — unlike the char/task-capped trace), fed from the same pass/fail

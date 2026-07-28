@@ -192,7 +192,7 @@ mod tests {
     #[test]
     fn a_listed_collection_is_labeled_by_domain_not_by_id() {
         let infos = list_builtin_collections();
-        let coding = infos.iter().find(|i| i.id == "medium-coding-v2").expect("medium-coding-v2 is offered");
+        let coding = infos.iter().find(|i| i.id == "medium-coding-v3").expect("medium-coding-v3 is offered");
         assert_eq!(coding.label, "Coding");
         assert_eq!(coding.tier, "medium");
     }
