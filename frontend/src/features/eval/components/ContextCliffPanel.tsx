@@ -8,6 +8,7 @@ import { getBuiltinCollection, loadCustomCollection, type ToolTask } from "../..
 import { useVramFit } from "../../../shared/memory/useVramFit";
 import { useHardwareSnapshot } from "../../models/hooks/useHardwareSnapshot";
 import { loadedModels, type LoadedModel } from "../../../shared/ipc/system/vram";
+import { llamaRunningWindow } from "../../../shared/ipc/models/llama_start";
 import { formatBytes } from "../../../shared/format/bytes";
 import { useCliffStore } from "../state/cliffStore";
 import { InfoButton } from "../../../shared/ui/InfoButton";
@@ -99,6 +100,9 @@ export function ContextCliffPanel() {
   // Budget-limited outcome of the LAST run — overrides the cliff read-out: a run whose
   // failures all died at the output cap must never read as a model collapse.
   const lastBudgetLimited = useCliffStore((s) => s.lastBudgetLimited);
+  // The backend's authoritative verdict for the last run — the read-out's primary
+  // source (the composite-based fallback below can't see cap-affected rungs).
+  const lastStatus = useCliffStore((s) => s.lastStatus);
   const runningModel = useCliffStore((s) => s.runningModel);
   const runProbe = useCliffStore((s) => s.runProbe);
   const stopProbe = useCliffStore((s) => s.stop);
@@ -159,6 +163,28 @@ export function ContextCliffPanel() {
   // `prompt_eval_count` saturates at the window, so the rung fails and reports a
   // fabricated cliff depth. The ladder must stay inside what the model can actually hold.
   const { dims, kvBytes } = useVramFit(selected?.name, selected?.backend, maxTokens);
+  // llama.cpp pins its context at LAUNCH: the deepest measurable rung is bounded by the
+  // RUNNING server's window, not the model's (much larger) GGUF maximum — the old slider
+  // offered depths the server could never hold, and the user only found out from the
+  // post-click gate error ("maxes out at ~9K no matter what I set").
+  // Three states: undefined = probe in flight (say NOTHING — a loading gap must never
+  // flash as a "no server" error), null = confirmed nothing running (or unreachable —
+  // same user action either way: start the server), number = the running window.
+  const [runningWindow, setRunningWindow] = useState<number | null | undefined>(undefined);
+  useEffect(() => {
+    if (selected?.backend !== "llama_cpp") {
+      setRunningWindow(undefined);
+      return;
+    }
+    let cancelled = false;
+    setRunningWindow(undefined);
+    llamaRunningWindow()
+      .then((w) => !cancelled && setRunningWindow(w?.ctx ?? null))
+      .catch(() => !cancelled && setRunningWindow(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [selected?.name, selected?.backend, running]);
   // Is the probe model a thinking model? Explicit per-model toggle wins; else the name
   // heuristic — the same resolution the Tests page batch uses (`isThinkingFor`).
   const explicitThinking = useModelSettingsStore((s) => (selected ? s.byModel[selected.name]?.is_thinking : undefined));
@@ -166,7 +192,11 @@ export function ContextCliffPanel() {
   // The slider cap reserves THIS run's real headroom: base + the deepest rung's
   // scratchpad when a thinking budget is on — otherwise the deepest rung overflows
   // the window exactly when the budget is largest.
-  const sliderMax = dims?.context_length ? usableCliffTokens(dims.context_length, isThinking, thinkPreset) : FALLBACK_MAX_TOKENS;
+  const modelMax = dims?.context_length ? usableCliffTokens(dims.context_length, isThinking, thinkPreset) : FALLBACK_MAX_TOKENS;
+  // The running server's window is the binding cap on llama.cpp (when known).
+  const serverMax = runningWindow != null ? usableCliffTokens(runningWindow, isThinking, thinkPreset) : null;
+  const sliderMax = serverMax != null ? Math.min(modelMax, serverMax) : modelMax;
+  const serverCapped = serverMax != null && serverMax < modelMax;
   // Default Max Tokens to the deepest MEASURABLE depth once the window is known — a model's
   // cliff can sit anywhere up to its real window, so the probe should sweep as much as it
   // can actually measure (Run probe ↗ lands here pre-filled). Done once per model so a
@@ -444,7 +474,13 @@ export function ContextCliffPanel() {
             </thead>
             <tbody>
               {points.map((p, i) => {
-                const pct = p.composite != null ? `${(p.composite * 100).toFixed(1)}%` : "—";
+                // Three-bucket rule: a cap-affected rung shows the triple, never one rate.
+                const capDeaths = p.capDeaths ?? 0;
+                const triple =
+                  capDeaths > 0 && p.passed != null && p.trials != null
+                    ? `${p.passed} passed · ${p.trials - p.passed - capDeaths} failed · ${capDeaths} died-at-cap`
+                    : null;
+                const pct = triple ?? (p.composite != null ? `${(p.composite * 100).toFixed(1)}%` : "—");
                 // The threshold is CLIFF_BASELINE_PASS, not a re-typed 0.5 — the two drifting
                 // apart is how a chip and a verdict start disagreeing about the same rung.
                 const passed = p.composite != null && p.composite >= CLIFF_BASELINE_PASS;
@@ -504,7 +540,13 @@ export function ContextCliffPanel() {
                             Failure
                           </span>
                         )}
-                        {p.composite == null && (
+                        {p.composite == null && capDeaths > 0 && (
+                          // Cap-affected rung: a budget outcome, not an error and not a rate.
+                          <span style={{ ...failChipStyle, background: "#fffbeb", border: "1px solid #fde68a", color: "#92400e" }} data-testid={`cliff-budget-chip-${i}`}>
+                            Budget
+                          </span>
+                        )}
+                        {p.composite == null && capDeaths === 0 && (
                           <span style={{ color: "#64748b", fontSize: 12 }}>Error</span>
                         )}
                       </td>
@@ -636,6 +678,12 @@ export function ContextCliffPanel() {
           >
             {running
               ? "Running…"
+              : lastStatus?.status === "NoCliff"
+                ? lastStatus.tested > 0
+                  ? `Accuracy maintained up to ≈${Math.round(lastStatus.tested / 1000) * 1000} tokens${points.some((p) => (p.capDeaths ?? 0) > 0) ? " (content-only claim — some cells died at the output cap; see the rung table)" : ""}`
+                  : "Ran — context-token depth not reported"
+              : lastStatus?.status === "Broken"
+                ? "Fails at the smallest tested context — broken baseline (a tool-call failure, not a context-length limit)"
               : lastInconclusive != null
                 ? `Inconclusive — ${lastInconclusive} samples/rung can't resolve a ${Math.round(CLIFF_COLLAPSE_MARGIN * 100)}pp collapse; one flipped sample would be worth the whole margin. Probe a larger collection.`
               : lastBudgetLimited != null
@@ -654,7 +702,7 @@ export function ContextCliffPanel() {
                 : verdict.kind === "broken-baseline"
                   ? "Fails at the smallest tested context — broken baseline (a tool-call failure, not a context-length limit)"
                   : verdict.kind === "no-cliff" && maintainedTo > 0
-                    ? `Accuracy maintained up to ≈${Math.round(maintainedTo / 1000) * 1000} tokens`
+                    ? `Accuracy maintained up to ≈${Math.round(maintainedTo / 1000) * 1000} tokens${points.some((p) => (p.capDeaths ?? 0) > 0) ? " (content-only claim — some cells died at the output cap; see the rung table)" : ""}`
                     : points.length > 0
                       ? "Ran — context-token depth not reported"
                       : "Idle"}
@@ -821,6 +869,22 @@ export function ContextCliffPanel() {
             {maxTokens}
           </span>
         </div>
+
+        {/* llama.cpp: the running server's launch window is the real ceiling — name it
+            and both levers, BEFORE the click instead of only in the post-click error. */}
+        {selected?.backend === "llama_cpp" && serverCapped && (
+          <div data-testid="cliff-server-window-hint" style={{ gridColumn: "1 / -1", fontSize: 11, color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 6, padding: "6px 10px", fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif" }}>
+            Depth is capped by the running llama-server window ({runningWindow?.toLocaleString()} tokens
+            {isThinking ? ", minus headroom incl. the thinking budget" : ""}). To probe deeper: Stop the
+            server, raise “Context window” in Params, then Start — memory permitting.
+          </div>
+        )}
+        {selected?.backend === "llama_cpp" && runningWindow === null && (
+          <div data-testid="cliff-no-server-hint" style={{ gridColumn: "1 / -1", fontSize: 11, color: "#64748b", fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif" }}>
+            No running llama-server detected — start it with this model before probing (llama.cpp pins its
+            context window at launch).
+          </div>
+        )}
 
         {/* Test Steps */}
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>

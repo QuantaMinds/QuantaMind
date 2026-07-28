@@ -53,6 +53,11 @@ pub enum CliffOutcome {
     /// loudly (mirrors `RunOutcome::ThinkingUnsupported`) instead of probing a ladder
     /// whose scratchpad silently no-ops.
     ThinkingUnsupported { backend: BackendKind, model: String },
+    /// llama.cpp pins its context at launch; the running server's window can't hold the
+    /// requested ladder. Refused up front with both levers (mirrors the GUI gate) —
+    /// previously this died mid-ladder on an opaque "prompt is larger than the context
+    /// window" rejection, or silently dropped the deepest rungs.
+    WindowTooSmall { running_ctx: u32, needed_ctx: u32, usable_max_tokens: u32 },
     Probed(CliffReport),
 }
 
@@ -75,14 +80,19 @@ pub fn cliff_exit(status: &CliffStatus) -> i32 {
 pub fn render_cliff(r: &CliffReport) -> String {
     let mut out = String::new();
     for (i, p) in r.points.iter().enumerate() {
-        let tally = match (p.passed, p.trials) {
-            (Some(pass), Some(tr)) => format!("  ({pass}/{tr} over {} tasks)", p.by_task.len()),
-            _ => String::new(), // sample size only when actually measured
+        // Three-bucket rule: a cap-affected rung prints passed / failed / died-at-cap —
+        // never a single rate (dropping cap cells overstates, folding them understates).
+        let acc = match (p.passed, p.trials) {
+            (Some(pass), Some(tr)) if p.cap_deaths > 0 => {
+                let failed = tr - pass - p.cap_deaths;
+                format!("{pass} passed · {failed} failed · {} died-at-cap  ({tr} cells over {} tasks)", p.cap_deaths, p.by_task.len())
+            }
+            (Some(pass), Some(tr)) => p
+                .composite
+                .map(|c| format!("accuracy {:>5.1}%  ({pass}/{tr} over {} tasks)", c * 100.0, p.by_task.len()))
+                .unwrap_or_else(|| "unmeasured".into()),
+            _ => p.composite.map(|c| format!("accuracy {:>5.1}%", c * 100.0)).unwrap_or_else(|| "unmeasured".into()),
         };
-        let acc = p
-            .composite
-            .map(|c| format!("accuracy {:>5.1}%{tally}", c * 100.0))
-            .unwrap_or_else(|| "unmeasured".into());
         out.push_str(&format!("rung {}: ~{:>6} tok · {}\n", i + 1, p.verified_tokens, acc));
         let failing: Vec<String> = p
             .by_task
@@ -113,7 +123,18 @@ pub fn render_cliff(r: &CliffReport) -> String {
         }
     }
     out.push_str(&match &r.status {
-        CliffStatus::NoCliff { tested } => format!("STATUS: ✓ no cliff — accuracy maintained up to ≈{tested} tokens\n"),
+        CliffStatus::NoCliff { tested } => {
+            let cap_total: u32 = r.points.iter().map(|p| p.cap_deaths).sum();
+            if cap_total > 0 {
+                format!(
+                    "STATUS: ✓ no cliff on content — maintained up to ≈{tested} tokens; {cap_total} cell(s) \
+                     died at the output cap along the way (budget events, excluded from the model claim — \
+                     raise the budget to measure them)\n"
+                )
+            } else {
+                format!("STATUS: ✓ no cliff — accuracy maintained up to ≈{tested} tokens\n")
+            }
+        }
         CliffStatus::Collapsed { depth, concentration } => {
             let mut line = format!("STATUS: ✗ collapsed at ≈{depth} tokens");
             // The collapse rung's Wilson 95% interval + sample, so the claim carries its
@@ -213,6 +234,19 @@ pub async fn run_cliff_probe(opts: CliffOptions) -> AppResult<CliffOutcome> {
         }
     }
     let budget = CliffBudget { is_thinking, preset: opts.run.think };
+
+    // llama.cpp preflight: the server pins its window at launch — measure against the
+    // RUNNING window, not the model's GGUF maximum. Without this the deepest rungs
+    // either 400 mid-ladder (killing the whole probe) or get dropped as unmeasurable.
+    if opts.run.backend == BackendKind::LlamaCpp {
+        let needed = opts.max_tokens.saturating_add(budget.headroom(opts.max_tokens));
+        if let Some((_path, running_ctx)) = crate::inference::llama::llama_props::probe_props(&ep, 1500).await {
+            if running_ctx < needed {
+                let usable = running_ctx.saturating_sub(budget.headroom(running_ctx));
+                return Ok(CliffOutcome::WindowTooSmall { running_ctx, needed_ctx: needed, usable_max_tokens: usable });
+            }
+        }
+    }
 
     // A window that fits the deepest rung — plus, for a thinking run, the deepest
     // rung's scratchpad. Greedy (temp 0) by default so the probe reproduces

@@ -50,6 +50,17 @@ export async function llamaServerInfo(): Promise<LlamaServerInfo> {
   return LlamaServerInfoSchema.parse(await invoke("llama_server_info"));
 }
 
+/// The RUNNING llama-server's model path + launch context window (app-spawned state
+/// first, `/props` probe for external servers). llama.cpp pins context at launch, so
+/// THIS — not the model's GGUF maximum — is the deepest window a Context Stress Test
+/// can actually measure against. `null` = nothing running.
+export const LlamaWindowSchema = z.object({ path: z.string(), ctx: z.number().int().nonnegative() }).nullable();
+export type LlamaWindow = z.infer<typeof LlamaWindowSchema>;
+
+export async function llamaRunningWindow(): Promise<LlamaWindow> {
+  return LlamaWindowSchema.parse(await invoke("llama_running_window"));
+}
+
 /// GGUF models discovered on disk for the llama.cpp backend.
 export async function listLlamaModels(): Promise<InstalledModelInfo[]> {
   const raw = await invoke("list_llama_models");

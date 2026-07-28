@@ -21,6 +21,9 @@ export interface CliffPoint {
   byTask?: TaskTally[];
   /// The output cap this rung's cells ran under — headroom's denominator (0 = unmeasured).
   maxOutput?: number;
+  /// Failing cells that died at the cap — when > 0 the rung renders the three-bucket
+  /// triple and carries no single rate.
+  capDeaths?: number;
 }
 
 /// Minimum baseline (unpadded, rung 0) composite for a probe to be a valid

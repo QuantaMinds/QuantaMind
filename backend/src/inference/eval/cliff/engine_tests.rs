@@ -964,6 +964,7 @@ fn point(tokens: u32, spec: &[(&str, u32, u32)]) -> CliffPoint {
         trace: vec![],
         by_task,
         max_output: 256,
+        cap_deaths: 0, // wire field only — verdict math derives from by_task
     }
 }
 
@@ -1182,4 +1183,72 @@ fn budget_limited_serde_round_trip() {
     let json = serde_json::to_string(&s).unwrap();
     assert!(json.contains("BudgetLimited"));
     assert_eq!(serde_json::from_str::<CliffStatus>(&json).unwrap(), s);
+}
+
+// ── three-bucket aggregate: cap-deaths enter neither numerator nor denominator ──────
+
+/// Build a point and stamp its wire cap_deaths from the tallies (as the engine does).
+fn point3(tokens: u32, spec: &[(&str, u32, u32, u32)]) -> CliffPoint {
+    let mut p = point(tokens, &spec.iter().map(|(id, ps, tr, _)| (*id, *ps, *tr)).collect::<Vec<_>>());
+    for (t, (_, _, _, cap)) in p.by_task.iter_mut().zip(spec) {
+        t.failed_cap_hits = *cap;
+    }
+    p.cap_deaths = p.by_task.iter().map(|t| t.failed_cap_hits).sum();
+    if p.cap_deaths > 0 {
+        p.composite = None; // the engine blanks poolable cap-affected rungs
+    }
+    p
+}
+
+/// A rung that crosses the margin ONLY when its cap-deaths are folded in as failures
+/// must not classify Collapsed — the collapse claim survives on content failures alone.
+/// Content here: 10/11 ≈ 91% (no collapse); folded: 10/15 = 67% (would have collapsed).
+#[test]
+fn mixed_rung_that_only_collapses_when_folded_is_not_a_collapse() {
+    let base = point(704, &[("a", 1, 1), ("b", 1, 1), ("c", 1, 1), ("d", 1, 1), ("e", 1, 1)]);
+    let deep = point3(8845, &[("a", 3, 3, 0), ("b", 0, 3, 3), ("c", 2, 3, 1), ("d", 3, 3, 0), ("e", 2, 3, 0)]);
+    let (status, _) = classify(&[base, deep.clone()]);
+    assert!(
+        matches!(status, CliffStatus::NoCliff { .. }),
+        "content 10/11 holds; folding 4 cap-deaths in would fabricate a collapse: {status:?}"
+    );
+    // And the rung carries the honest triple, with no single rate.
+    assert_eq!(deep.cap_deaths, 4);
+    assert_eq!(deep.composite, None, "a cap-affected poolable rung has no one-number rate");
+}
+
+/// A REAL content collapse stays Collapsed even with cap-deaths alongside — excluding
+/// the budget cells must never launder a genuine model collapse into health.
+#[test]
+fn content_collapse_survives_alongside_cap_deaths() {
+    // 18-task scale so the content drop resolves: content 40/52 ≈ 77% vs 18/18 baseline
+    // (>20pp, Newcombe-resolvable), plus 2 cap deaths that change nothing.
+    let base_spec: Vec<(String, u32, u32)> = (0..18).map(|i| (format!("t{i:02}"), 1, 1)).collect();
+    let mut deep_spec: Vec<(String, u32, u32, u32)> =
+        (0..18).map(|i| (format!("t{i:02}"), 3, 3, 0)).collect();
+    for i in 0..12 {
+        deep_spec[i] = (format!("t{i:02}"), 2, 3, 0); // 12 content failures
+    }
+    deep_spec[16] = ("t16".into(), 2, 3, 1); // plus two cap deaths elsewhere
+    deep_spec[17] = ("t17".into(), 2, 3, 1);
+    let base = point(704, &base_spec.iter().map(|(s, p, n)| (s.as_str(), *p, *n)).collect::<Vec<_>>());
+    let deep = point3(8845, &deep_spec.iter().map(|(s, p, n, c)| (s.as_str(), *p, *n, *c)).collect::<Vec<_>>());
+    let (status, _) = classify(&[base, deep]);
+    assert!(
+        matches!(status, CliffStatus::Collapsed { .. }),
+        "a content-resolved collapse must not be laundered by nearby cap deaths: {status:?}"
+    );
+}
+
+/// A healthy-content baseline with one cap death anchors the run on its CONTENT counts
+/// — it is neither Broken (content is fine) nor BudgetLimited (folded 4/5 ≥ floor).
+#[test]
+fn baseline_with_one_cap_death_and_healthy_content_still_anchors() {
+    let base = point3(704, &[("a", 1, 1, 0), ("b", 1, 1, 0), ("c", 0, 1, 1), ("d", 1, 1, 0), ("e", 1, 1, 0)]);
+    let deep = point(8845, &[("a", 3, 3), ("b", 3, 3), ("c", 3, 3), ("d", 3, 3), ("e", 3, 3)]);
+    let (status, _) = classify(&[base, deep]);
+    assert!(
+        matches!(status, CliffStatus::NoCliff { .. }),
+        "content 4/4 baseline anchors; one cap death is a budget note, not a verdict: {status:?}"
+    );
 }

@@ -482,6 +482,11 @@ deepest rung's scratchpad, and the probe refuses up front (`[QM-THINKING-UNSUPPO
 when the model/server can't actually reason — a preset must never silently no-op. The JSON report
 carries `think_preset` so a depth measured with a scratchpad is never conflated with one without.
 
+On llama.cpp the probe preflights the RUNNING server's `/props` window: a ladder the launch
+`-c` can't hold refuses up front (`[QM-WINDOW-TOO-SMALL]`, exit `2`) naming both levers —
+relaunch with a larger window, or reduce `--max-tokens` to the printed usable depth — instead
+of dying mid-ladder on an opaque context rejection.
+
 Output: one line per rung (`~N tok · accuracy X% (passed/trials over m tasks)` — the tally shown
 only when measured) plus, when a rung has failures, a `failures:` line naming each failing task
 with its per-task tally (so a one-task failure never reads as a broad collapse), then a `STATUS:`
