@@ -53,6 +53,11 @@ pub enum CliffOutcome {
     /// loudly (mirrors `RunOutcome::ThinkingUnsupported`) instead of probing a ladder
     /// whose scratchpad silently no-ops.
     ThinkingUnsupported { backend: BackendKind, model: String },
+    /// llama.cpp pins its context at launch; the running server's window can't hold the
+    /// requested ladder. Refused up front with both levers (mirrors the GUI gate) —
+    /// previously this died mid-ladder on an opaque "prompt is larger than the context
+    /// window" rejection, or silently dropped the deepest rungs.
+    WindowTooSmall { running_ctx: u32, needed_ctx: u32, usable_max_tokens: u32 },
     Probed(CliffReport),
 }
 
@@ -229,6 +234,19 @@ pub async fn run_cliff_probe(opts: CliffOptions) -> AppResult<CliffOutcome> {
         }
     }
     let budget = CliffBudget { is_thinking, preset: opts.run.think };
+
+    // llama.cpp preflight: the server pins its window at launch — measure against the
+    // RUNNING window, not the model's GGUF maximum. Without this the deepest rungs
+    // either 400 mid-ladder (killing the whole probe) or get dropped as unmeasurable.
+    if opts.run.backend == BackendKind::LlamaCpp {
+        let needed = opts.max_tokens.saturating_add(budget.headroom(opts.max_tokens));
+        if let Some((_path, running_ctx)) = crate::inference::llama::llama_props::probe_props(&ep, 1500).await {
+            if running_ctx < needed {
+                let usable = running_ctx.saturating_sub(budget.headroom(running_ctx));
+                return Ok(CliffOutcome::WindowTooSmall { running_ctx, needed_ctx: needed, usable_max_tokens: usable });
+            }
+        }
+    }
 
     // A window that fits the deepest rung — plus, for a thinking run, the deepest
     // rung's scratchpad. Greedy (temp 0) by default so the probe reproduces

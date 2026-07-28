@@ -27,6 +27,11 @@ All notable changes to QuantaMind are documented here. The format follows
   each rung's depth through the same per-tier table the Tests page uses; `qm cliff --thinking`.
 - **Cliff decoding is params-first** — a globally set temperature is honored (and stamped on
   the report); greedy 0 stays the reproducible default.
+- **Context Stress Test depth ceiling is now honest on llama.cpp** — the Max-Tokens slider
+  caps at the *running* llama-server's launch window (state or `/props`, external launches
+  included) with an inline raise-or-reduce hint, and `qm cliff` preflights the same window
+  (`[QM-WINDOW-TOO-SMALL]`, exit `2`) instead of dying mid-ladder. This was the "stress test
+  maxes out at ~9K no matter what I set" report.
 - **Three-bucket cliff aggregate** — a cap-affected rung reports `passed · failed ·
   died-at-cap` and no single rate (dropping budget cells overstates, folding them
   understates); model claims run on the content rate, budget-event scale on the folded

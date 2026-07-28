@@ -552,3 +552,52 @@ describe("every verdict state reaches the UI", () => {
     expect(screen.queryByText("Error")).toBeNull();
   });
 });
+
+vi.mock("../../../shared/ipc/models/llama_start", () => ({
+  // Default: no running server — pre-existing llama tests keep their old world; the
+  // running-window tests override per-case.
+  llamaRunningWindow: vi.fn().mockResolvedValue(null),
+}));
+
+describe("llama.cpp running-window cap", () => {
+  it("caps the slider at the RUNNING server's window and names both levers", async () => {
+    const { llamaRunningWindow } = await import("../../../shared/ipc/models/llama_start");
+    vi.mocked(llamaRunningWindow).mockResolvedValue({ path: "/w/m.gguf", ctx: 12288 });
+    useSelectedModelStore.setState({ selectedModels: [{ name: "m", backend: "llama_cpp", size_bytes: 1, path: "/w/m.gguf" } as never] });
+    render(<ContextCliffPanel />);
+
+    // usable(12288) = 12288 − 2048 = 10240 — the server window binds, not the 65536 fallback.
+    await waitFor(() => expect((screen.getByTestId("cliff-max-tokens") as HTMLInputElement).max).toBe("10240"));
+    const hint = screen.getByTestId("cliff-server-window-hint");
+    expect(hint).toHaveTextContent("12,288 tokens");
+    expect(hint).toHaveTextContent("raise “Context window”");
+  });
+
+  it("says plainly when no llama-server is running", async () => {
+    const { llamaRunningWindow } = await import("../../../shared/ipc/models/llama_start");
+    vi.mocked(llamaRunningWindow).mockResolvedValue(null);
+    useSelectedModelStore.setState({ selectedModels: [{ name: "m", backend: "llama_cpp", size_bytes: 1 }] });
+    render(<ContextCliffPanel />);
+    await waitFor(() => expect(screen.getByTestId("cliff-no-server-hint")).toBeTruthy());
+  });
+
+  it("shows NEITHER hint while the window probe is still in flight (no false 'no server' flash)", async () => {
+    const { llamaRunningWindow } = await import("../../../shared/ipc/models/llama_start");
+    // A probe that never resolves within the test — the panel must say nothing, not
+    // flash "No running llama-server detected" at a user whose server is fine.
+    vi.mocked(llamaRunningWindow).mockReturnValue(new Promise(() => {}));
+    useSelectedModelStore.setState({ selectedModels: [{ name: "m", backend: "llama_cpp", size_bytes: 1 }] });
+    render(<ContextCliffPanel />);
+    await waitFor(() => expect(screen.getByTestId("cliff-run")).toBeTruthy());
+    expect(screen.queryByTestId("cliff-no-server-hint")).toBeNull();
+    expect(screen.queryByTestId("cliff-server-window-hint")).toBeNull();
+  });
+
+  it("surfaces an IPC failure as the no-server hint (start the server either way)", async () => {
+    const { llamaRunningWindow } = await import("../../../shared/ipc/models/llama_start");
+    vi.mocked(llamaRunningWindow).mockRejectedValue(new Error("connection refused"));
+    useSelectedModelStore.setState({ selectedModels: [{ name: "m", backend: "llama_cpp", size_bytes: 1 }] });
+    render(<ContextCliffPanel />);
+    await waitFor(() => expect(screen.getByTestId("cliff-no-server-hint")).toBeTruthy());
+  });
+});

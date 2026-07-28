@@ -782,6 +782,15 @@ async fn run_cliff_cmd(args: CliffArgs) {
             eprintln!("[QM-BAD-COLLECTION] could not load collection file '{}': {reason}", redact_path(&path));
             std::process::exit(2);
         }
+        Ok(CliffOutcome::WindowTooSmall { running_ctx, needed_ctx, usable_max_tokens }) => {
+            eprintln!(
+                "[QM-WINDOW-TOO-SMALL] the running llama-server has a {running_ctx}-token context window, \
+                 but this ladder needs about {needed_ctx} (max-tokens + headroom incl. any thinking budget). \
+                 Either relaunch llama-server with a larger window (-c {needed_ctx} or more), or reduce \
+                 --max-tokens to {usable_max_tokens} or less."
+            );
+            std::process::exit(2);
+        }
         Ok(CliffOutcome::ThinkingUnsupported { backend, model }) => {
             // Same hints as `qm run` — reasoning fails for different reasons per engine.
             let hint = match backend {

@@ -141,6 +141,27 @@ pub fn llama_server_info(state: tauri::State<'_, LlamaServerState>) -> Option<Sp
     state.readout()
 }
 
+/// The RUNNING llama-server's `(model_path, launch ctx)` — app state first (an
+/// app-spawned server), else a `/props` probe (a manual/external launch the state
+/// knows nothing about). The cliff panel caps its Max-Tokens slider on THIS window:
+/// llama.cpp pins context at launch, so the model's own (much larger) GGUF window is
+/// not what the probe can actually measure against. `None` = nothing running.
+#[derive(serde::Serialize)]
+pub struct LlamaWindow {
+    pub path: String,
+    pub ctx: u32,
+}
+
+#[tauri::command]
+pub async fn llama_running_window(state: tauri::State<'_, LlamaServerState>) -> Result<Option<LlamaWindow>, crate::errors::AppError> {
+    if let Some((path, ctx)) = state.running_summary() {
+        return Ok(Some(LlamaWindow { path, ctx }));
+    }
+    Ok(crate::inference::llama::llama_props::probe_props(crate::inference::backend::endpoint::LLAMA_SERVER, 1200)
+        .await
+        .map(|(path, ctx)| LlamaWindow { path, ctx }))
+}
+
 #[cfg(test)]
 #[path = "llama_start_tests.rs"]
 mod tests;

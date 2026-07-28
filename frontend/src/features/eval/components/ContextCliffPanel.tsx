@@ -8,6 +8,7 @@ import { getBuiltinCollection, loadCustomCollection, type ToolTask } from "../..
 import { useVramFit } from "../../../shared/memory/useVramFit";
 import { useHardwareSnapshot } from "../../models/hooks/useHardwareSnapshot";
 import { loadedModels, type LoadedModel } from "../../../shared/ipc/system/vram";
+import { llamaRunningWindow } from "../../../shared/ipc/models/llama_start";
 import { formatBytes } from "../../../shared/format/bytes";
 import { useCliffStore } from "../state/cliffStore";
 import { InfoButton } from "../../../shared/ui/InfoButton";
@@ -162,6 +163,28 @@ export function ContextCliffPanel() {
   // `prompt_eval_count` saturates at the window, so the rung fails and reports a
   // fabricated cliff depth. The ladder must stay inside what the model can actually hold.
   const { dims, kvBytes } = useVramFit(selected?.name, selected?.backend, maxTokens);
+  // llama.cpp pins its context at LAUNCH: the deepest measurable rung is bounded by the
+  // RUNNING server's window, not the model's (much larger) GGUF maximum — the old slider
+  // offered depths the server could never hold, and the user only found out from the
+  // post-click gate error ("maxes out at ~9K no matter what I set").
+  // Three states: undefined = probe in flight (say NOTHING — a loading gap must never
+  // flash as a "no server" error), null = confirmed nothing running (or unreachable —
+  // same user action either way: start the server), number = the running window.
+  const [runningWindow, setRunningWindow] = useState<number | null | undefined>(undefined);
+  useEffect(() => {
+    if (selected?.backend !== "llama_cpp") {
+      setRunningWindow(undefined);
+      return;
+    }
+    let cancelled = false;
+    setRunningWindow(undefined);
+    llamaRunningWindow()
+      .then((w) => !cancelled && setRunningWindow(w?.ctx ?? null))
+      .catch(() => !cancelled && setRunningWindow(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [selected?.name, selected?.backend, running]);
   // Is the probe model a thinking model? Explicit per-model toggle wins; else the name
   // heuristic — the same resolution the Tests page batch uses (`isThinkingFor`).
   const explicitThinking = useModelSettingsStore((s) => (selected ? s.byModel[selected.name]?.is_thinking : undefined));
@@ -169,7 +192,11 @@ export function ContextCliffPanel() {
   // The slider cap reserves THIS run's real headroom: base + the deepest rung's
   // scratchpad when a thinking budget is on — otherwise the deepest rung overflows
   // the window exactly when the budget is largest.
-  const sliderMax = dims?.context_length ? usableCliffTokens(dims.context_length, isThinking, thinkPreset) : FALLBACK_MAX_TOKENS;
+  const modelMax = dims?.context_length ? usableCliffTokens(dims.context_length, isThinking, thinkPreset) : FALLBACK_MAX_TOKENS;
+  // The running server's window is the binding cap on llama.cpp (when known).
+  const serverMax = runningWindow != null ? usableCliffTokens(runningWindow, isThinking, thinkPreset) : null;
+  const sliderMax = serverMax != null ? Math.min(modelMax, serverMax) : modelMax;
+  const serverCapped = serverMax != null && serverMax < modelMax;
   // Default Max Tokens to the deepest MEASURABLE depth once the window is known — a model's
   // cliff can sit anywhere up to its real window, so the probe should sweep as much as it
   // can actually measure (Run probe ↗ lands here pre-filled). Done once per model so a
@@ -842,6 +869,22 @@ export function ContextCliffPanel() {
             {maxTokens}
           </span>
         </div>
+
+        {/* llama.cpp: the running server's launch window is the real ceiling — name it
+            and both levers, BEFORE the click instead of only in the post-click error. */}
+        {selected?.backend === "llama_cpp" && serverCapped && (
+          <div data-testid="cliff-server-window-hint" style={{ gridColumn: "1 / -1", fontSize: 11, color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 6, padding: "6px 10px", fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif" }}>
+            Depth is capped by the running llama-server window ({runningWindow?.toLocaleString()} tokens
+            {isThinking ? ", minus headroom incl. the thinking budget" : ""}). To probe deeper: Stop the
+            server, raise “Context window” in Params, then Start — memory permitting.
+          </div>
+        )}
+        {selected?.backend === "llama_cpp" && runningWindow === null && (
+          <div data-testid="cliff-no-server-hint" style={{ gridColumn: "1 / -1", fontSize: 11, color: "#64748b", fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif" }}>
+            No running llama-server detected — start it with this model before probing (llama.cpp pins its
+            context window at launch).
+          </div>
+        )}
 
         {/* Test Steps */}
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>

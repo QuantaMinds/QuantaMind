@@ -144,6 +144,7 @@ pub fn run() {
             commands::llama::llama_start::start_llama_server,
             commands::llama::llama_start::stop_llama_server,
             commands::llama::llama_start::llama_server_info,
+            commands::llama::llama_start::llama_running_window,
             commands::llama::llama_models::list_llama_models,
             commands::llama::llama_models::delete_llama_model,
             commands::stt::stt_start::start_whisper_server,

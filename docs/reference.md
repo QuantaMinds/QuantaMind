@@ -1494,6 +1494,16 @@ scratchpad (`CliffBudget::headroom`), the slider cap subtracts the same sum (`us
 the report carries `think_preset` so a depth measured with a scratchpad is never conflated with one
 measured without (metric comparability). CLI twin: `qm cliff --thinking lean|standard|deep`.
 
+**llama.cpp: the running server's window is the ceiling.** llama.cpp pins its context at
+launch, so the Max-Tokens slider is capped by the RUNNING llama-server's window (app state, or
+a `/props` probe for externally-launched servers) — not the model's much larger GGUF maximum —
+with an inline hint naming both levers (raise "Context window" and restart, or probe shallower).
+Previously the slider offered depths the server could never hold and the ceiling only surfaced
+as a post-click error ("maxes out at ~9K no matter what I set"). `qm cliff` preflights the same
+window. No server running (or the probe unreachable) → the panel says so before the click;
+while the probe is still in flight it says nothing, so a loading gap never flashes as a false
+"no server" error.
+
 The probe owns its own **Active Collection** picker (independent of the EvalManager editor), so it
 always has a real dataset to run. The **Max Tokens** control sets the deepest rung and is capped at the
 model's reported **context window** when known (Ollama `/api/show` dims), falling back to a fixed
