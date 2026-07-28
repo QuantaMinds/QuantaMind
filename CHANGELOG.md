@@ -27,6 +27,11 @@ All notable changes to QuantaMind are documented here. The format follows
   each rung's depth through the same per-tier table the Tests page uses; `qm cliff --thinking`.
 - **Cliff decoding is params-first** — a globally set temperature is honored (and stamped on
   the report); greedy 0 stays the reproducible default.
+- **Three-bucket cliff aggregate** — a cap-affected rung reports `passed · failed ·
+  died-at-cap` and no single rate (dropping budget cells overstates, folding them
+  understates); model claims run on the content rate, budget-event scale on the folded
+  rate, and the invariant — budget-limited cells never enter a numerator or denominator
+  that claims to measure the model — is documented for every future roll-up.
 - **Deliberation Headroom** — the Context Stress Test measures budget consumption per cell
   (decoded tokens vs the cap in force, thinking tokens where measurable, cap-hit stop reasons):
   passing tasks within 150‰ of the cap get an amber "likely to fail deeper" warning; failures

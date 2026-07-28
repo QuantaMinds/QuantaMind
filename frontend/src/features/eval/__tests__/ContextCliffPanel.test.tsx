@@ -506,3 +506,49 @@ describe("deliberation headroom", () => {
     expect(amber).not.toHaveTextContent("ok_task");
   });
 });
+
+describe("three-bucket aggregate", () => {
+  it("renders the triple — never a rate — on a cap-affected rung", async () => {
+    const deep = {
+      ...rung(9062, null), // composite blanked by the engine on cap-affected rungs
+      passed: 5, trials: 9, max_output: 256, cap_deaths: 4,
+      by_task: [
+        { task_id: "secret", passed: 1, trials: 3, failed_cap_hits: 2, min_pass_headroom_milli: 0 },
+        { task_id: "rollback", passed: 3, trials: 3, failed_cap_hits: 0, min_pass_headroom_milli: 200 },
+        { task_id: "flat", passed: 1, trials: 3, failed_cap_hits: 2, min_pass_headroom_milli: null },
+      ],
+    };
+    vi.mocked(runContextCliff).mockResolvedValue(
+      reportOf({ status: "NoCliff", tested: 9062 }, [rung(700, 1.0), deep], null) as never,
+    );
+    render(<ContextCliffPanel />);
+    await waitFor(() => expect(screen.getByTestId("cliff-run")).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId("cliff-run"));
+
+    await waitFor(() => expect(screen.getByTestId("cliff-read")).toHaveTextContent("content-only claim"));
+    // The rung row shows the triple, not a percentage.
+    expect(screen.getByText("5 passed · 0 failed · 4 died-at-cap")).toBeTruthy();
+  });
+});
+
+describe("every verdict state reaches the UI", () => {
+  it("cap-affected rung: Budget chip (never 'Error'), and the read-out stays authoritative when the baseline itself has a cap death", async () => {
+    // Baseline composite is null (cap-affected) — the frontend classifier would say
+    // "no-baseline"; the backend status must drive the read-out instead.
+    const base = { ...rung(732, null), passed: 2, trials: 3, max_output: 256, cap_deaths: 1,
+      by_task: [{ task_id: "flat", passed: 0, trials: 1, failed_cap_hits: 1, min_pass_headroom_milli: null },
+                { task_id: "a", passed: 1, trials: 1, failed_cap_hits: 0, min_pass_headroom_milli: 300 },
+                { task_id: "b", passed: 1, trials: 1, failed_cap_hits: 0, min_pass_headroom_milli: 400 }] };
+    vi.mocked(runContextCliff).mockResolvedValue(
+      reportOf({ status: "NoCliff", tested: 9062 }, [base, rung(9062, 1.0)], null) as never,
+    );
+    render(<ContextCliffPanel />);
+    await waitFor(() => expect(screen.getByTestId("cliff-run")).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId("cliff-run"));
+
+    await waitFor(() => expect(screen.getByTestId("cliff-read")).toHaveTextContent("Accuracy maintained up to ≈9000 tokens"));
+    expect(screen.getByTestId("cliff-read")).toHaveTextContent("content-only claim");
+    expect(screen.getByTestId("cliff-budget-chip-0")).toHaveTextContent("Budget");
+    expect(screen.queryByText("Error")).toBeNull();
+  });
+});

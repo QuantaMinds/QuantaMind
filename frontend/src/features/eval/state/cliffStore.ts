@@ -14,7 +14,7 @@ import { formatIpcError } from "../../../shared/ipc/core/error";
 import { type CliffPoint } from "../cliff";
 import type { ToolTask } from "../../../shared/ipc/eval/registry";
 import type { BackendKind } from "../../../shared/ipc/models/storage";
-import type { AgentPath, CliffConcentration, ThinkPreset } from "../../../shared/ipc/eval/readiness";
+import type { AgentPath, CliffConcentration, CliffStatus, ThinkPreset } from "../../../shared/ipc/eval/readiness";
 import type { InferenceParams } from "../../../shared/ipc/workspace/prompts";
 
 /// What the Matrix carries to the Audit panel so the probe lands pre-filled
@@ -113,6 +113,10 @@ interface CliffStore {
   budgetLimited: Record<string, Record<string, { depth: number; cap: number }>>;
   /// The LAST run's budget-limited outcome (panel read-out), null when none.
   lastBudgetLimited: { depth: number; cap: number } | null;
+  /// The backend's AUTHORITATIVE status for the last completed run. The panel read-out
+  /// renders from THIS, never from a frontend re-derivation — the frontend classifier
+  /// only sees composites, and cap-affected rungs deliberately carry none.
+  lastStatus: CliffStatus | null;
 
   setRequest: (req: CliffRequest) => void;
   consumeRequest: () => CliffRequest | null;
@@ -180,6 +184,7 @@ export const useCliffStore = create<CliffStore>((set, get) => ({
   lastInconclusive: null,
   lastConcentration: null,
   lastBudgetLimited: null,
+  lastStatus: null,
   error: null,
   results: {},
   probed: {},
@@ -258,7 +263,7 @@ export const useCliffStore = create<CliffStore>((set, get) => ({
     // stale series (that corrupts the chart and the persisted cliff).
     const myRun = ++activeRun;
     // `lastInconclusive: null` — a new run must not inherit the previous verdict.
-    set({ points: [], error: null, running: true, runningModel: model, progress: { done: 0, total: steps }, frac: 0, step: null, startedAt: Date.now(), lastInconclusive: null, lastConcentration: null, lastBudgetLimited: null });
+    set({ points: [], error: null, running: true, runningModel: model, progress: { done: 0, total: steps }, frac: 0, step: null, startedAt: Date.now(), lastInconclusive: null, lastConcentration: null, lastBudgetLimited: null, lastStatus: null });
 
     // Live per-rung points stream from the backend engine over `cliff-progress`; the
     // engine owns the ladder, padding, verify-and-adjust, classification, and
@@ -277,7 +282,7 @@ export const useCliffStore = create<CliffStore>((set, get) => ({
           set((s) => ({
             // verified_tokens 0 ⇒ the backend reported no count for this rung — render
             // it as "not reported", never a fake ≈0-token depth.
-            points: [...s.points, { promptTokens: p.point.verified_tokens || null, composite: p.point.composite, passed: p.point.passed, trials: p.point.trials, trace: p.point.trace, byTask: p.point.by_task, maxOutput: p.point.max_output }],
+            points: [...s.points, { promptTokens: p.point.verified_tokens || null, composite: p.point.composite, passed: p.point.passed, trials: p.point.trials, trace: p.point.trace, byTask: p.point.by_task, maxOutput: p.point.max_output, capDeaths: p.point.cap_deaths }],
             progress: { done: p.done, total: p.total },
             // Advance the bar to the just-completed rung's boundary; never backward.
             frac: Math.max(s.frac, progressFraction(p.done, p.total, s.step)),
@@ -301,7 +306,7 @@ export const useCliffStore = create<CliffStore>((set, get) => ({
 
       // The report is authoritative — replace the live series with its verified rungs
       // so the chart and the (backend-persisted) status can never disagree.
-      const points: CliffPoint[] = report.points.map((p) => ({ promptTokens: p.verified_tokens || null, composite: p.composite, passed: p.passed, trials: p.trials, trace: p.trace, byTask: p.by_task, maxOutput: p.max_output }));
+      const points: CliffPoint[] = report.points.map((p) => ({ promptTokens: p.verified_tokens || null, composite: p.composite, passed: p.passed, trials: p.trials, trace: p.trace, byTask: p.by_task, maxOutput: p.max_output, capDeaths: p.cap_deaths }));
       const broken = report.status.status === "Broken";
       // The probe ran but its sample can't resolve the margin — must NOT fall through to the
       // Matrix's "✓ no cliff" branch. `null` clears a previous inconclusive on a re-run.
@@ -339,6 +344,7 @@ export const useCliffStore = create<CliffStore>((set, get) => ({
           lastInconclusive: inconclusiveTrials,
           lastConcentration: concentration,
           lastBudgetLimited: budgetLtd,
+          lastStatus: report.status,
           concentrated: { ...s.concentrated, [collectionId]: conc },
           budgetLimited: { ...s.budgetLimited, [collectionId]: bl },
           results: { ...s.results, [collectionId]: col },
@@ -368,6 +374,6 @@ export const useCliffStore = create<CliffStore>((set, get) => ({
     if (get().running) {
       void stopContextCliff().catch((e) => console.error("stop context-cliff failed:", e));
     }
-    set({ points: [], error: null, running: false, runningModel: null, progress: { done: 0, total: 0 }, frac: 0, step: null, startedAt: null, lastInconclusive: null, lastConcentration: null, lastBudgetLimited: null });
+    set({ points: [], error: null, running: false, runningModel: null, progress: { done: 0, total: 0 }, frac: 0, step: null, startedAt: null, lastInconclusive: null, lastConcentration: null, lastBudgetLimited: null, lastStatus: null });
   },
 }));
