@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { z } from "zod";
-import { CliffStatusSchema, type CliffStatus } from "./readiness";
+import { CliffStatusSchema, ThinkPresetSchema, type CliffStatus, type ThinkPreset, type Tier } from "./readiness";
+import { THINK_PRESET_TOKENS } from "./batch";
 import { BackendKindSchema, type BackendKind } from "../models/storage";
 import type { ToolTask } from "./registry";
 import type { InferenceParams } from "../workspace/prompts";
@@ -22,11 +23,45 @@ export const EVENT_CLIFF_STEP = "cliff-step";
 /// `usableCliffTokens` is the single place that subtraction happens.
 export const CLIFF_CTX_HEADROOM = 2048;
 
+/// Depth band → the tier whose thinking budget a rung borrows (mirrors the backend's
+/// `cliff::budget::tier_for_depth` — same boundaries, same canonical per-tier table).
+/// ≤4k → easy, ≤8k → medium, ≤16k → hard, deeper → extreme.
+export function cliffTierForDepth(tokens: number): Tier {
+  if (tokens <= 4096) return "easy";
+  if (tokens <= 8192) return "medium";
+  if (tokens <= 16384) return "hard";
+  return "extreme";
+}
+
+/// The reasoning-scratchpad portion of the probe's output budget at a depth — 0 for a
+/// non-thinking run (mirrors `CliffBudget::scratchpad` through `THINK_PRESET_TOKENS`).
+export function cliffThinkTokens(depthTokens: number, isThinking: boolean, preset: ThinkPreset): number {
+  return isThinking ? THINK_PRESET_TOKENS[preset][cliffTierForDepth(depthTokens)] : 0;
+}
+
+/// The context reserve the backend adds on top of `maxTokens` for THIS run — the base
+/// (system + needle + answer floor) plus the deepest rung's thinking scratchpad
+/// (mirrors `CliffBudget::headroom`). The slider cap must use the same sum or the
+/// deepest rung overflows exactly when a thinking budget is on.
+export function cliffHeadroom(maxTokens: number, isThinking: boolean, preset: ThinkPreset): number {
+  return CLIFF_CTX_HEADROOM + cliffThinkTokens(maxTokens, isThinking, preset);
+}
+
 /// The deepest Max Tokens that still fits `contextLength` once the backend's headroom is
 /// added — i.e. the largest depth the probe can actually MEASURE on this model. Floored at
 /// the slider's 4096 minimum so a tiny/misreported window can't produce an inverted range.
-export function usableCliffTokens(contextLength: number): number {
-  return Math.max(4096, contextLength - CLIFF_CTX_HEADROOM);
+/// For a thinking run the headroom depends on the answer's own depth band, so the deepest
+/// self-consistent band wins; when no band is self-consistent (window right at a band
+/// boundary) the conservative larger reserve applies — a slightly shallower slider beats a
+/// truncated deepest rung.
+export function usableCliffTokens(contextLength: number, isThinking = false, preset: ThinkPreset = "standard"): number {
+  if (!isThinking) return Math.max(4096, contextLength - CLIFF_CTX_HEADROOM);
+  const bands: Tier[] = ["extreme", "hard", "medium", "easy"];
+  for (const band of bands) {
+    const candidate = contextLength - CLIFF_CTX_HEADROOM - THINK_PRESET_TOKENS[preset][band];
+    if (candidate > 0 && cliffTierForDepth(candidate) === band) return Math.max(4096, candidate);
+  }
+  return Math.max(4096, contextLength - CLIFF_CTX_HEADROOM - THINK_PRESET_TOKENS[preset].extreme);
 }
 
 /// Which embedded synthetic preset pads the probe (or the user's own text).
@@ -87,6 +122,9 @@ export const CliffReportSchema = z.object({
   points: z.array(CliffRungSchema),
   status: CliffStatusSchema,
   cliff_tokens: z.number().int().nullable(),
+  /// The thinking-budget preset the probe ran under — present only for a thinking run,
+  /// so a depth measured with a scratchpad is never conflated with one without.
+  think_preset: ThinkPresetSchema.nullable().optional(),
 });
 export type CliffReport = z.infer<typeof CliffReportSchema>;
 
@@ -143,9 +181,28 @@ export async function runContextCliff(
   /// prompt-based JSON-in-text proxy. The backend refuses native on a model/backend that
   /// can't do it (MLX / no tool template).
   runNativeFc?: boolean,
+  /// Thinking model + budget preset: when `isThinking`, each rung's output budget adds a
+  /// scratchpad banded to that rung's depth (mirrors the Tests page's tier presets).
+  /// Absent ⇒ the non-thinking answer floor, byte-identical to the pre-preset probe.
+  isThinking?: boolean,
+  thinkPreset?: ThinkPreset,
 ): Promise<CliffReport> {
   return CliffReportSchema.parse(
-    await invoke("run_context_cliff", { runId, model, backend, collectionId, tasks, source, maxTokens: Math.round(maxTokens), steps, params, modelPath: modelPath ?? null, runNativeFc: runNativeFc ?? false }),
+    await invoke("run_context_cliff", {
+      runId,
+      model,
+      backend,
+      collectionId,
+      tasks,
+      source,
+      maxTokens: Math.round(maxTokens),
+      steps,
+      params,
+      modelPath: modelPath ?? null,
+      runNativeFc: runNativeFc ?? false,
+      isThinking: isThinking ?? false,
+      thinkPreset: thinkPreset ?? null,
+    }),
   );
 }
 

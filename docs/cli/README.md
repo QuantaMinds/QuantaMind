@@ -470,8 +470,17 @@ Tauri-free engine the desktop Audit tab drives, prompt-based, **greedy (temp 0)*
 
 ```
 qm cliff [--backend <k>] [--model <m>] [--collection <id|file>]
-         [--max-tokens 4096] [--steps 4] [--source <corporate_policy|system_logs|financial_ledger>] [--json]
+         [--max-tokens 4096] [--steps 4] [--source <corporate_policy|system_logs|financial_ledger>]
+         [--thinking <lean|standard|deep>] [--mode <prompt_based|native>] [--json]
 ```
+
+`--thinking` (default `lean` = reasoning off) grants a reasoning model a per-turn scratchpad on
+top of the probe's answer floor — and the scratchpad **scales with each rung's depth** through
+the same per-tier table `run` uses (≤4k → Easy band, ≤8k Medium, ≤16k Hard, deeper Extreme), so a
+deeper context grants more reasoning room. The context reserve above `--max-tokens` grows by the
+deepest rung's scratchpad, and the probe refuses up front (`[QM-THINKING-UNSUPPORTED]`, exit `2`)
+when the model/server can't actually reason — a preset must never silently no-op. The JSON report
+carries `think_preset` so a depth measured with a scratchpad is never conflated with one without.
 
 Output: one line per rung (`~N tok · accuracy X% (passed/trials)` — the tally shown only when
 measured) then a `STATUS:` line. A rung that would exceed the context window is dropped, never

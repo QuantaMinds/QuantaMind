@@ -165,7 +165,7 @@ impl RunReport {
 /// A null/absent field means `--thinking` would silently no-op (the exact bug this
 /// catches). Fail-OPEN on any transport/parse error so a transient failure never
 /// false-blocks a legitimate run.
-async fn openai_reasons(ep: &str, model: &str, key: Option<&str>) -> bool {
+pub(crate) async fn openai_reasons(ep: &str, model: &str, key: Option<&str>) -> bool {
     let Ok(c) = reqwest::Client::builder().timeout(std::time::Duration::from_secs(8)).build() else {
         return true;
     };

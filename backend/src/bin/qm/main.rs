@@ -116,6 +116,10 @@ struct CliffArgs {
     /// Calling path: prompt_based (default) or native tool-calling.
     #[arg(long, value_enum, default_value = "prompt_based")]
     mode: ModeArg,
+    /// Thinking budget: lean (reasoning off) / standard / deep. The scratchpad scales
+    /// with each rung's depth (≤4k Easy-band … >16k Extreme-band), mirroring the GUI.
+    #[arg(long, value_enum, default_value = "lean")]
+    thinking: ThinkingArg,
     #[command(flatten)]
     params: ParamArgs,
     /// Emit the machine-readable CliffReport as JSON on stdout.
@@ -741,7 +745,7 @@ async fn run_cliff_cmd(args: CliffArgs) {
             api_key,
             k: None,
             tier: None,
-            think: ThinkPreset::Lean,
+            think: ThinkPreset::from(args.thinking),
             mode: RunMode::PromptBased, // ignored by the cliff engine; `native` below picks the path
             profile_id: "general-agent".into(),
             save_report: None,
@@ -776,6 +780,16 @@ async fn run_cliff_cmd(args: CliffArgs) {
         }
         Ok(CliffOutcome::BadCollectionFile { path, reason }) => {
             eprintln!("[QM-BAD-COLLECTION] could not load collection file '{}': {reason}", redact_path(&path));
+            std::process::exit(2);
+        }
+        Ok(CliffOutcome::ThinkingUnsupported { backend, model }) => {
+            // Same hints as `qm run` — reasoning fails for different reasons per engine.
+            let hint = match backend {
+                BackendKind::Ollama => "this model has no reasoning capability — use --thinking lean, or pick a reasoning model (e.g. one whose `ollama show` lists \"thinking\")",
+                BackendKind::LlamaCpp | BackendKind::Mlx => "the server returned no reasoning — relaunch it with `--jinja --reasoning-format deepseek` and use a reasoning model, or use --thinking lean",
+                _ => "the server returned no reasoning — enable its reasoning parser, or use --thinking lean",
+            };
+            eprintln!("[QM-THINKING-UNSUPPORTED] --thinking won't take effect for '{model}' on {}: {hint}.", label(backend));
             std::process::exit(2);
         }
         Ok(CliffOutcome::Probed(report)) => {

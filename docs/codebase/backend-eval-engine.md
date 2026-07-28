@@ -33,7 +33,7 @@ estimate or a 0 substituted for missing data.
 | **Single tool-call** | `run_toolcall_eval` | One model over a collection: parse / tool-select / arg / abstain | `toolcall::score` + cascaded `aggregate` |
 | **Model Results** | `run_collection_matrix` | Same collection across N models (sequential) | per-column `ToolCallReport` + mean composite |
 | **Agentic** | inside `run_batch_eval` (tasks `category == "agentic"`) | Multi-step sandboxed tool loop, Pass^k reliability | `agentic::report::AgenticReport` |
-| **Context Stress Test** | `run_context_cliff` | Largest verified prompt-token depth before accuracy collapses | per-rung composite vs baseline |
+| **Context Stress Test** | `run_context_cliff` | Largest verified prompt-token depth before accuracy collapses | per-rung composite vs baseline; per-rung output budget = answer floor + depth-banded thinking scratchpad (`cliff/budget.rs::CliffBudget`, reuses `think_tokens_for_preset`) |
 | **Readiness** | `assess_readiness` | A measured batch report + cliff + VRAM fit vs a use-case profile → Ready/Conditional/NotReady | `readiness::verdict::assess` |
 
 The **batch** mode (`run_batch_eval`) is the umbrella runner: it mixes single-turn

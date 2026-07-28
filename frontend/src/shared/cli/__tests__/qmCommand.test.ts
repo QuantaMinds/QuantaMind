@@ -124,3 +124,11 @@ describe("buildReportCommand", () => {
   });
 });
 
+
+describe("buildCliffCommand — thinking preset", () => {
+  it("emits --thinking only for a thinking probe, so the command reproduces the GUI run", () => {
+    const base = { backend: "llama_cpp" as const, model: "qwen3.5-9b-q4", collection: "medium-coding-v2", maxTokens: 9216, steps: 4, source: "corporate_policy" };
+    expect(buildCliffCommand(base).command).not.toContain("--thinking");
+    expect(buildCliffCommand({ ...base, thinking: "deep" }).command).toContain("--thinking deep");
+  });
+});

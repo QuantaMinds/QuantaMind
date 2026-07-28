@@ -367,3 +367,40 @@ describe("ContextCliffPanel", () => {
     expect(useCliffStore.getState().request).toBeNull(); // consumed
   });
 });
+
+describe("thinking budget control", () => {
+  it("stays hidden for a non-thinking model and dispatches the flat budget", async () => {
+    vi.mocked(runContextCliff).mockResolvedValue(reportOf({ status: "NoCliff", tested: 0 }, [rung(0, 1.0)]) as never);
+    render(<ContextCliffPanel />);
+    await waitFor(() => expect(screen.getByTestId("cliff-run")).not.toBeDisabled());
+    // "m" matches no reasoning marker → no thinking row on this probe.
+    expect(screen.queryByTestId("cliff-thinking")).toBeNull();
+    fireEvent.click(screen.getByTestId("cliff-run"));
+    await waitFor(() => expect(runContextCliff).toHaveBeenCalled());
+    const args = vi.mocked(runContextCliff).mock.calls[0];
+    expect(args[11]).toBe(false); // isThinking
+  });
+
+  it("shows the preset for a thinking model (default Standard) and sends the choice with the run", async () => {
+    useSelectedModelStore.setState({ selectedModels: [{ name: "qwen3.5-9b", backend: "ollama", size_bytes: 1 }] });
+    vi.mocked(runContextCliff).mockResolvedValue(reportOf({ status: "NoCliff", tested: 0 }, [rung(0, 1.0)]) as never);
+    render(<ContextCliffPanel />);
+    await waitFor(() => expect(screen.getByTestId("cliff-run")).not.toBeDisabled());
+
+    // The control is visible with Standard active, and the budget label shows the
+    // depth-banded scratchpad for the CURRENT Max Tokens (16384 → hard band).
+    expect(screen.getByTestId("cliff-thinking")).toBeTruthy();
+    expect(screen.getByTestId("cliff-thinking-budget")).toHaveTextContent(`+${(10240).toLocaleString()} tokens`);
+
+    // Pick Deep → the label follows the same band at the bigger preset…
+    fireEvent.click(screen.getByTestId("cliff-thinking-deep"));
+    expect(screen.getByTestId("cliff-thinking-budget")).toHaveTextContent(`+${(20480).toLocaleString()} tokens`);
+
+    // …and the run carries the thinking flag + chosen preset to the backend.
+    fireEvent.click(screen.getByTestId("cliff-run"));
+    await waitFor(() => expect(runContextCliff).toHaveBeenCalled());
+    const args = vi.mocked(runContextCliff).mock.calls[0];
+    expect(args[11]).toBe(true); // isThinking
+    expect(args[12]).toBe("deep"); // thinkPreset
+  });
+});

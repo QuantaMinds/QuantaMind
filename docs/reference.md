@@ -1399,6 +1399,18 @@ back) and is **snapped to 1 on completion**, so an **early-stopped** probe — w
 rung — still reads 100% rather than freezing short. The ETA is a labelled `~` extrapolation from
 `elapsed ÷ frac`, never presented as exact.
 
+**Thinking budget (depth-scaled, mirrors the Tests page presets).** For a **thinking** probe model
+(the Tests page's per-model resolution: explicit toggle wins, else the name heuristic), the panel shows
+a **Lean / Standard / Deep** preset (default Standard). Each rung's output budget is the probe's answer
+floor (`CLIFF_ANSWER_TOKENS` = 256) plus a reasoning scratchpad **banded to that rung's depth** through
+the SAME canonical `think_tokens_for_preset` table the batch uses — ≤4k → Easy band, ≤8k → Medium,
+≤16k → Hard, deeper → Extreme (`cliff::budget::tier_for_depth`) — so a deeper context grants more
+reasoning room, never a second table of numbers. A non-thinking run keeps the flat answer floor
+(byte-identical to the pre-preset probe). The run's context reserve grows by the **deepest rung's**
+scratchpad (`CliffBudget::headroom`), the slider cap subtracts the same sum (`usableCliffTokens`), and
+the report carries `think_preset` so a depth measured with a scratchpad is never conflated with one
+measured without (metric comparability). CLI twin: `qm cliff --thinking lean|standard|deep`.
+
 The probe owns its own **Active Collection** picker (independent of the EvalManager editor), so it
 always has a real dataset to run. The **Max Tokens** control sets the deepest rung and is capped at the
 model's reported **context window** when known (Ollama `/api/show` dims), falling back to a fixed

@@ -99,6 +99,7 @@ export interface CliffOpts {
   steps: number;
   source: string; // corporate_policy | system_logs | financial_ledger
   native?: boolean; // true → --mode native (default prompt_based)
+  thinking?: string; // lean | standard | deep — set only for a thinking probe model
   params?: InferenceParams; // sampling params (cliff is greedy unless --temperature set)
 }
 
@@ -116,6 +117,9 @@ export function buildCliffCommand(o: CliffOpts): QmCommand {
     flag("source", o.source),
   ];
   if (o.native) parts.push(flag("mode", "native"));
+  // Thinking-budget preset (thinking probe only). CLI default is lean (= reasoning off),
+  // so standard/deep must be explicit for the command to reproduce the GUI run.
+  if (o.thinking) parts.push(flag("thinking", o.thinking));
   parts.push(...paramFlags(o.params));
   return { command: parts.join(" "), incomplete };
 }
