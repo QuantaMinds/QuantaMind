@@ -17,7 +17,7 @@ import { getUserSettings, setUserSettings } from "../../../shared/ipc/settings/u
 
 beforeEach(() => vi.clearAllMocks());
 
-const settings = (over = {}) => ({ first_run_complete: false, ...over });
+const settings = (over = {}) => ({ first_run_complete: false, community_prompt_shown: false, ...over });
 
 describe("StartupUpdate", () => {
   it("does not check when within the 24h window", async () => {

@@ -207,6 +207,7 @@ Found a vulnerability? Please open a [private security advisory](https://github.
 ## Community
 
 - 💬 [Discord](https://discord.gg/6CjSJyZTfG) — talk directly to the core team
+  (also one click away in the app — the **Discord** button in the header)
 - 🐦 [𝕏 (Twitter)](https://x.com/QuantaMind_2025)
 - 🐛 [Issues](https://github.com/QuantaMinds/QuantaMind/issues) — setup bugs are real bugs
 
