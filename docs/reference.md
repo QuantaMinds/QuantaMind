@@ -1435,6 +1435,23 @@ Bowyer et al., ICML 2025). A margin-sized drop the sample can't resolve is the e
 (Miller 2024: clustered SEs run 1.1–3× naive), which is why every rendered sample reads
 "n trials over m tasks", never a bare n.
 
+**Deliberation Headroom (budget consumption is a first-class measurement).** Every cell records
+its total decoded tokens, its measured thinking tokens (llama.cpp `/tokenize` over the reasoning
+channel; Ollama has no tokenize endpoint — shown "Not available", never estimated), and whether
+generation stopped AT the output cap (`finish == "length"` / `done_reason: "length"` — gated on
+the length signal, never on empty content, because a cap hit mid-reasoning legitimately produces
+empty content with real reasoning behind it). Two flags derive from it: **amber** on a passing
+task whose tightest cell left <150‰ of the cap unused ("passed, 241/256 — likely to fail at the
+next rung"; incorrect reasoning chains run 1.3–2.5× longer than correct ones, so near-cap
+consumption is drift toward the failure population), and **red** on any failing cell that died at
+the cap. When a rung's failures ALL died at the cap, the verdict is **`BudgetLimited`** (exit 12)
+— a budget-bound measurement, never `Collapsed`: published best practice demands stop-reason
+inspection before any collapse claim. Deliberately NOT a promise the model would pass with more
+room — cap-consumers split into starved (recover with budget) and looping (eat any cap; loops are
+an absorbing state), and re-running at a higher budget is the disambiguating probe. Caveat: burn
+is measured under greedy at a fixed budget — a within-run comparison, not a cross-configuration
+constant; under sampling, within-task length spread is ~3×, so the amber flag is advisory there.
+
 **Failure concentration (advisory, never a gate).** On a collapse, the engine checks whether the
 failures clustered in ONE task: an exact exchangeability p-value on the max-failures-in-one-task
 statistic (uniform-failure null, DP-computed — the reviewed real case, 3 of 4 failures in one task

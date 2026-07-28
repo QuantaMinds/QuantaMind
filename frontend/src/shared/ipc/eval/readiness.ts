@@ -115,6 +115,10 @@ export const CliffStatusSchema = z.discriminatedUnion("status", [
   z.object({ status: z.literal("NotProbed") }),
   z.object({ status: z.literal("NoCliff"), tested: z.number() }),
   z.object({ status: z.literal("Collapsed"), depth: z.number(), concentration: CliffConcentrationSchema.nullable().optional() }),
+  /// Every failure on the rung died AT the output cap (finish == "length") — a
+  /// budget-bound measurement, never an established model collapse. Re-running at a
+  /// higher budget separates starved (recovers) from looping (doesn't).
+  z.object({ status: z.literal("BudgetLimited"), depth: z.number(), cap: z.number() }),
   z.object({ status: z.literal("Broken"), tested: z.number() }),
   /// The probe ran, but the collection is too small to resolve the collapse margin: with
   /// `trials` samples per rung the score moves in steps of 1/trials, so one sample flipping

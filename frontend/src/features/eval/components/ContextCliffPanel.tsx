@@ -18,7 +18,7 @@ import { classifyCliff, CLIFF_BASELINE_PASS, CLIFF_COLLAPSE_MARGIN } from "../cl
 import { ContextCliffChart } from "./ContextCliffChart";
 import type { BackendKind } from "../../../shared/ipc/models/storage";
 import type { AgentPath, ThinkPreset } from "../../../shared/ipc/eval/readiness";
-import { cliffHeadroom, cliffThinkTokens, usableCliffTokens, type CliffPreset } from "../../../shared/ipc/eval/cliff";
+import { AMBER_HEADROOM_MILLI, cliffHeadroom, cliffThinkTokens, usableCliffTokens, type CliffPreset } from "../../../shared/ipc/eval/cliff";
 import { useModelSettingsStore } from "../../models/state/modelSettingsStore";
 import { isLikelyThinkingModel } from "../../../shared/models/classify";
 import { PRESSURE_FRACTION } from "../../../shared/memory/pressure";
@@ -96,6 +96,9 @@ export function ContextCliffPanel() {
   // Concentration on the LAST run's collapse — the low-confidence labeling that keeps a
   // one-task failure from reading as a broad collapse (advisory, never a gate).
   const lastConcentration = useCliffStore((s) => s.lastConcentration);
+  // Budget-limited outcome of the LAST run — overrides the cliff read-out: a run whose
+  // failures all died at the output cap must never read as a model collapse.
+  const lastBudgetLimited = useCliffStore((s) => s.lastBudgetLimited);
   const runningModel = useCliffStore((s) => s.runningModel);
   const runProbe = useCliffStore((s) => s.runProbe);
   const stopProbe = useCliffStore((s) => s.stop);
@@ -452,6 +455,11 @@ export function ContextCliffPanel() {
                 // Which tasks drove a drop — so one task breaking never reads as a broad
                 // collapse. Only failing tasks are listed (the full set lives in the trace).
                 const failingTasks = (p.byTask ?? []).filter((t) => t.passed < t.trials);
+                // Amber early warning (greedy-calibrated): passing tasks whose tightest cell
+                // left < 150‰ of the cap unused — likely to fail at the next rung.
+                const nearCap = (p.byTask ?? []).filter(
+                  (t) => t.passed === t.trials && t.min_pass_headroom_milli != null && t.min_pass_headroom_milli < AMBER_HEADROOM_MILLI,
+                );
                 const taskCount = p.byTask?.length ?? 0;
                 const isEven = i % 2 === 0;
                 const traceCount = p.trace?.length ?? 0;
@@ -474,7 +482,14 @@ export function ContextCliffPanel() {
                         )}
                         {failingTasks.length > 0 && (
                           <div data-testid={`cliff-by-task-${i}`} style={{ fontWeight: 400, color: "#b45309", fontSize: 11, marginTop: 2 }}>
-                            {failingTasks.map((t) => `${t.task_id} ${t.passed}/${t.trials}`).join(" · ")}
+                            {failingTasks
+                              .map((t) => `${t.task_id} ${t.passed}/${t.trials}${t.failed_cap_hits > 0 ? ` (${t.failed_cap_hits} died at cap)` : ""}`)
+                              .join(" · ")}
+                          </div>
+                        )}
+                        {nearCap.length > 0 && (
+                          <div data-testid={`cliff-near-cap-${i}`} style={{ fontWeight: 400, color: "#b45309", fontSize: 11, marginTop: 2 }}>
+                            near cap: {nearCap.map((t) => `${t.task_id} (${t.min_pass_headroom_milli}‰ headroom)`).join(" · ")}
                           </div>
                         )}
                       </td>
@@ -521,6 +536,12 @@ export function ContextCliffPanel() {
                                     {/* Rung 0 is the unpadded baseline — no padding is injected there. */}
                                     {i === 0 ? "Unpadded baseline" : `Needle at ${Math.round(o.depth * 100)}%`}{" "}
                                     <span style={o.passed ? passChipStyle : failChipStyle}>{o.passed ? "Pass" : "Failure"}</span>
+                                    {o.decoded != null && (
+                                      <span style={{ fontWeight: 400, color: o.cap_hit ? "#dc2626" : "#94a3b8", marginLeft: 6, textTransform: "none" }}>
+                                        {o.decoded}{p.maxOutput ? `/${p.maxOutput}` : ""} tok{o.cap_hit ? " — died at cap" : ""}
+                                        {o.thinking != null ? ` (${o.thinking} thinking)` : ""}
+                                      </span>
+                                    )}
                                   </div>
                                   <div style={traceSubLabelStyle}>{i === 0 ? "Input (no padding)" : "Padded input (context + needle)"}</div>
                                   <pre style={tracePreStyle}>{(o.prompt ?? "").trim() === "" ? "(none)" : o.prompt}</pre>
@@ -617,6 +638,8 @@ export function ContextCliffPanel() {
               ? "Running…"
               : lastInconclusive != null
                 ? `Inconclusive — ${lastInconclusive} samples/rung can't resolve a ${Math.round(CLIFF_COLLAPSE_MARGIN * 100)}pp collapse; one flipped sample would be worth the whole margin. Probe a larger collection.`
+              : lastBudgetLimited != null
+                ? `Budget-limited at ≈${Math.round(lastBudgetLimited.depth / 1000) * 1000} tokens — every failure died at the ${lastBudgetLimited.cap}-token output cap. Raise the thinking budget and re-run: recovery = starved, same failures = looping.`
               : verdict.kind === "cliff"
                 ? // A detected cliff ALWAYS reads as a cliff — when the collapse rung had no
                   // measured token count we say so, never falling through to a non-cliff message

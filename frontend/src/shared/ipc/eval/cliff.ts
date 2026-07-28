@@ -79,6 +79,12 @@ export const DepthScoreSchema = z.object({
 /// One model output at one needle position within a rung (backend `TraceOutput`).
 export const TraceOutputSchema = z.object({
   depth: z.number(),
+  /// Deliberation Headroom capture (absent on pre-field reports): total decoded
+  /// tokens, measured thinking tokens (llama.cpp only — null elsewhere, never
+  /// estimated), and whether generation stopped AT the cap (finish == "length").
+  decoded: z.number().nullable().optional(),
+  thinking: z.number().nullable().optional(),
+  cap_hit: z.boolean().nullable().optional(),
   /// The exact padded user prompt sent at this position (padding + injected needle),
   /// head+tail-capped — so the trace shows the context the model actually read.
   prompt: z.string(),
@@ -104,7 +110,16 @@ export const TaskTallySchema = z.object({
   task_id: z.string(),
   passed: z.number().int(),
   trials: z.number().int(),
+  /// Failing cells that died at the output cap — the BudgetLimited attribution input.
+  failed_cap_hits: z.number().int().default(0),
+  /// Tightest headroom (‰ of cap unused) over PASSING cells — the amber early warning.
+  min_pass_headroom_milli: z.number().int().nullable().optional(),
 });
+
+/// Amber floor: a passing task whose tightest cell left less than this many ‰ of the
+/// cap unused is likely to fail at the next rung (mirrors `engine::AMBER_HEADROOM_MILLI`;
+/// greedy-calibrated — advisory under sampling).
+export const AMBER_HEADROOM_MILLI = 150;
 export type TaskTally = z.infer<typeof TaskTallySchema>;
 
 /// One ladder rung (backend `CliffPoint`): requested vs VERIFIED depth, the
@@ -125,6 +140,8 @@ export const CliffRungSchema = z.object({
   trace: z.array(TaskTraceSchema).default([]),
   /// Per-task pass counts for this rung (uncapped). `default` — pre-field backends omit it.
   by_task: z.array(TaskTallySchema).default([]),
+  /// The output cap every cell of this rung ran under — headroom's denominator.
+  max_output: z.number().int().default(0),
 });
 export type CliffRung = z.infer<typeof CliffRungSchema>;
 
