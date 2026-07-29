@@ -340,6 +340,8 @@ pub async fn run_context_cliff(
     let budget = CliffBudget {
         is_thinking: is_thinking.unwrap_or(false),
         preset: think_preset.unwrap_or_default(),
+        // Flat-cap is a CLI-only experimental control; the GUI always runs banded.
+        flat_cap: None,
     };
 
     // Start from the global header params, then force greedy (temp 0) and a context

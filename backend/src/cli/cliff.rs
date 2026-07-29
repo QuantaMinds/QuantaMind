@@ -28,6 +28,9 @@ pub struct CliffOptions {
     /// Sampling params. `None` → greedy temp-0 (reproducible). When set,
     /// temperature/top_p/… sample; `num_ctx` is still forced to the ladder window.
     pub params: Option<crate::persistence::prompts::schema::InferenceParams>,
+    /// Flat per-turn output cap for EVERY rung (experimental control) — overrides
+    /// the depth-banded thinking budget, so depth is the only variable that moves.
+    pub cap: Option<u32>,
 }
 
 /// The answer-delivery mandate per task — MustUseTools for a stateful/ordered
@@ -238,7 +241,7 @@ pub async fn run_cliff_probe(opts: CliffOptions) -> AppResult<CliffOutcome> {
             return Ok(CliffOutcome::ThinkingUnsupported { backend: opts.run.backend, model: opts.run.model });
         }
     }
-    let budget = CliffBudget { is_thinking, preset: opts.run.think };
+    let budget = CliffBudget { is_thinking, preset: opts.run.think, flat_cap: opts.cap };
 
     // Native preflight: same gate as the GUI (`run_context_cliff`) — a model/backend that
     // can't run native tool-calling must refuse loudly up front, not 400 mid-ladder.

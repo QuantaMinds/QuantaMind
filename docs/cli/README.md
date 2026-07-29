@@ -471,7 +471,7 @@ Tauri-free engine the desktop Audit tab drives, prompt-based, **greedy (temp 0)*
 ```
 qm cliff [--backend <k>] [--model <m>] [--collection <id|file>]
          [--max-tokens 4096] [--steps 4] [--source <corporate_policy|system_logs|financial_ledger>]
-         [--thinking <lean|standard|deep>] [--mode <prompt_based|native>] [--json]
+         [--thinking <lean|standard|deep>] [--cap <tokens>] [--mode <prompt_based|native>] [--json]
 ```
 
 `--thinking` (default `lean` = reasoning off) grants a reasoning model a per-turn scratchpad on
@@ -481,6 +481,14 @@ deeper context grants more reasoning room. The context reserve above `--max-toke
 deepest rung's scratchpad, and the probe refuses up front (`[QM-THINKING-UNSUPPORTED]`, exit `2`)
 when the model/server can't actually reason — a preset must never silently no-op. The JSON report
 carries `think_preset` so a depth measured with a scratchpad is never conflated with one without.
+
+`--cap <tokens>` (experimental control) pins ONE flat output cap at every rung, overriding the
+depth-banded budget above. The banded caps are the right product default, but a cap that rises
+with the padding co-varies with the variable under test — a "no cliff" under rising caps can't
+distinguish "depth didn't hurt" from "the budget kept pace with the hurt". For a publishable
+ablation, hold the cap constant (`--cap 4096`) so depth is the only thing that moves. Per-rung
+`max_output` is stamped in the JSON either way, so a flat-cap run is never conflated with a
+banded one.
 
 On llama.cpp the probe preflights the RUNNING server's `/props` window: a ladder the launch
 `-c` can't hold refuses up front (`[QM-WINDOW-TOO-SMALL]`, exit `2`) naming both levers —

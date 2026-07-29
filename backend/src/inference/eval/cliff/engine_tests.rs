@@ -865,10 +865,10 @@ async fn thinking_budget_scales_per_rung_and_non_thinking_stays_flat() {
 
     // Thinking (Standard): the granted budget grows band-by-band with the rung depth —
     // baseline (Easy band) < 6k (Medium band) < 12k (Hard band).
-    let thinking = run(CliffBudget { is_thinking: true, preset: ThinkPreset::Standard }).await;
+    let thinking = run(CliffBudget { is_thinking: true, preset: ThinkPreset::Standard, flat_cap: None }).await;
     let mut distinct: Vec<u32> = thinking.clone();
     distinct.dedup();
-    let expected: Vec<u32> = ladder.iter().map(|&t| CliffBudget { is_thinking: true, preset: ThinkPreset::Standard }.max_output_for(t)).collect();
+    let expected: Vec<u32> = ladder.iter().map(|&t| CliffBudget { is_thinking: true, preset: ThinkPreset::Standard, flat_cap: None }.max_output_for(t)).collect();
     assert_eq!(distinct, expected, "per-rung budgets must follow the depth bands: {thinking:?}");
     assert!(expected.windows(2).all(|w| w[0] < w[1]), "budget must increase with depth: {expected:?}");
 }
@@ -891,7 +891,7 @@ async fn report_carries_the_think_preset_only_when_thinking() {
 
     let thinking = run_cliff_with(
         &model, "m", &[task()], &source(), &[0u32, 2_000], &DEFAULT_DEPTHS, NO_CTX_LIMIT,
-        CliffBudget { is_thinking: true, preset: ThinkPreset::Deep },
+        CliffBudget { is_thinking: true, preset: ThinkPreset::Deep, flat_cap: None },
         &CancellationToken::new(), &mut |_, _, _| {}, &mut |_| {},
     )
     .await

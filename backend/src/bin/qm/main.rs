@@ -120,6 +120,11 @@ struct CliffArgs {
     /// with each rung's depth (≤4k Easy-band … >16k Extreme-band), mirroring the GUI.
     #[arg(long, value_enum, default_value = "lean")]
     thinking: ThinkingArg,
+    /// Flat per-turn output cap applied at EVERY rung (experimental control) —
+    /// overrides the depth-banded --thinking budget so depth is the only variable.
+    /// A cap that rises with the padding can mask a growing output cost.
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
+    cap: Option<u32>,
     #[command(flatten)]
     params: ParamArgs,
     /// Emit the machine-readable CliffReport as JSON on stdout.
@@ -760,6 +765,7 @@ async fn run_cliff_cmd(args: CliffArgs) {
         source: CliffSource::from(args.source),
         native: matches!(args.mode, ModeArg::Native),
         params: args.params.resolve(),
+        cap: args.cap,
     };
     match cliff::run_cliff_probe(opts).await {
         Err(e) => {
