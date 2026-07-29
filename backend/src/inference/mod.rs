@@ -12,6 +12,7 @@ pub mod mcp;
 pub mod mlx;
 pub mod ollama;
 pub mod openai;
+pub mod params;
 pub mod pull;
 pub mod sglang;
 pub mod stt;

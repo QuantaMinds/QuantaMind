@@ -1,22 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, PartialEq, Debug, Clone, Default)]
-pub struct InferenceParams {
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub temperature: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub top_p: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub top_k: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub max_tokens: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub repeat_penalty: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub seed: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub num_ctx: Option<u32>,
-}
+// The type lives in the domain (`inference/params.rs`) per the layering law —
+// the eval engine stamps it on reports — re-exported here for the storage/IPC
+// call sites that address it by its persistence-schema path.
+pub use crate::inference::params::InferenceParams;
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct PromptFile {

@@ -509,8 +509,9 @@ map the spine sits above. `inference/mod.rs` declares 19 submodules:
 
 `backend`, `chat`, `compare`, `create`, `eval`, `generate`, `gguf`, `hf`,
 `http`, `llama`, `mlx`, `ollama`, `openai` (the shared OpenAI SSE codec),
-`pull`, `sglang`, `stt`, `vllm`, plus two leaf files `token_handler.rs` and
-`vram_math.rs`.
+`pull`, `sglang`, `stt`, `vllm`, plus three leaf files `params.rs`
+(`InferenceParams` — the domain home of the sampling params, re-exported by
+`persistence::prompts::schema`), `token_handler.rs` and `vram_math.rs`.
 
 Relationship to commands: a `commands::<group>` module is the **thin** IPC layer
 (deserialize args, manage state, emit events, map errors) that delegates the real

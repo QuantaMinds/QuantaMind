@@ -13,7 +13,7 @@ use crate::inference::eval::agentic::step::TrajectoryStep;
 use crate::inference::eval::agentic::v2::generator;
 use crate::inference::eval::toolcall::eval::{aggregate, trace_one_with, TaskResult, ToolCallReport, TraceResult};
 use crate::inference::eval::toolcall::matrix::ModelTarget;
-use crate::persistence::prompts::schema::InferenceParams;
+use crate::inference::params::InferenceParams;
 use crate::inference::eval::toolcall::score::verdict_passed;
 use crate::inference::eval::toolcall::tasks::{is_agentic, ToolTask};
 use crate::inference::eval::run_summary::RunSummary;
