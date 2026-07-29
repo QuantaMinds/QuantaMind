@@ -58,7 +58,7 @@ the hash covers the full extended row deterministically.
 |---|---|---|---|
 | `save_readiness_image(path, bytes)` | `export_cmd.rs` | always built | Offline: write the readiness card PNG to disk. No auth, no network. |
 | `start_login(app, state)` | `identity/login_cmd.rs` | `not(enterprise)` | PKCE browser sign-in → caches access token, stores rotated refresh token. |
-| `preview_publish_payload(verdicts, params, collection_id, collection_hash)` | `preview_cmd.rs` | `not(enterprise)` | Build the exact payload (rows + canonical JSON + hash + cohort + excluded count + first validation error). `collection_id` stamps the display name; `collection_hash` is the RUN-VERIFIED hash (from the report) that gates publishability — `None` for custom/edited collections. Offline. |
+| `preview_publish_payload(verdicts, params, collection_id, collection_hash)` | `preview_cmd.rs` | `not(enterprise)` | Build the exact payload (rows + canonical JSON + hash + cohort + excluded count + first validation error). `collection_id` stamps the display name; `collection_hash` is the RUN-VERIFIED hash (from the report) that gates publishability — `None` for custom/edited collections; `params` is the RUN-STAMPED `BatchReport.params` (threaded by the frontend), never the live global header. Offline. |
 | `publish_to_board(state, verdicts, params, collection_id, link)` | `publish_cmd.rs` | `not(enterprise)` | Validate → resolve token → POST one batch to `api.quantamind.co`. |
 
 ### Managed state & the enterprise gate
@@ -476,7 +476,8 @@ User clicks Publish (Agent Report → PublishButton/PublishDialog)
    │     store_refresh_token (keychain|session) ; AuthState.set(access)        │
    │                                                                            │
    ▼                                                                            │
-preview_publish_payload(verdicts)  ◄── ModelVerdict from eval engine           │
+preview_publish_payload(verdicts, params ◄── the RUN-stamped BatchReport.params,│
+   never the live global header)    ◄── ModelVerdict from eval engine          │
    cohort_key(snapshot())  ;  PublishRow::project (needs pass_k + quantization) │
    pre_validate → invalid?  ;  canonical_json + SHA-256 hash  → shown to user   │
    │                                                                            │

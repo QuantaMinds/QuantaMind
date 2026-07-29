@@ -169,6 +169,7 @@ fn skeleton_report(collection_id: &str, targets: &[ModelTarget]) -> BatchReport 
         ollama_version: None,
         collection_hash: None, // set on the FINAL report only (content-verified); intermediates stay unpublishable
         think_preset: None,    // stamped on the final report
+        params: None,          // stamped on the final report
         columns: targets
             .iter()
             .map(|t| BatchColumn {
@@ -549,6 +550,9 @@ pub(crate) async fn run_passes(
         }
     }
     report.num_ctx = config.params.as_ref().and_then(|p| p.num_ctx);
+    // The FULL params this run sent, stamped like num_ctx — publish reads the report's params
+    // (never the live global header, which may have been edited since the run).
+    report.params = config.params.clone();
     // The batch-wide Thinking-Budget preset (reasoning scratchpad allowance) — carried to the report
     // so the verdict/report/publish can show "Ready @ Standard" and size `think_budget`.
     report.think_preset = Some(config.think_preset);

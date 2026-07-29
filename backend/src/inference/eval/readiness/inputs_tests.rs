@@ -207,6 +207,7 @@ fn ranking_puts_a_ready_model_first_regardless_of_column_order() {
         collection_id: "c".into(),
         num_ctx: None, ollama_version: None, collection_hash: None,
         think_preset: None,
+        params: None,
         columns: vec![
             // NotReady first (no agentic → the core pass^k gate blocks)…
             BatchColumn {
@@ -303,6 +304,7 @@ fn assess_report_grades_clean_models_and_short_circuits_errors() {
         collection_id: "c".into(),
         num_ctx: None, ollama_version: None, collection_hash: None,
         think_preset: None,
+        params: None,
         columns: vec![
             col(5, 5, 0, 0, Some(2.0)), // clean → Ready
             BatchColumn {
@@ -349,7 +351,7 @@ fn model_verdict_carries_by_tier_and_failures_from_the_native_first_source() {
     native.failures = FailureTracker { forbidden_calls: 3, ..Default::default() };
     c.agentic_native_fc = Some(native);
 
-    let report = BatchReport { collection_id: "c".into(), num_ctx: None, ollama_version: None, collection_hash: None, think_preset: None, columns: vec![c] };
+    let report = BatchReport { collection_id: "c".into(), num_ctx: None, ollama_version: None, collection_hash: None, think_preset: None, params: None, columns: vec![c] };
     let v = &assess_report(&report, &general)[0];
     assert_eq!(v.by_tier.len(), 1);
     assert_eq!(v.by_tier[0].tier, Tier::Hard); // native, NOT the prompt's Easy
@@ -446,6 +448,7 @@ fn report_with(model: &str, backend: BackendKind, tiers: Vec<crate::inference::e
         collection_id: "x".into(),
         num_ctx: None, ollama_version: None, collection_hash: None,
         think_preset: None,
+        params: None,
         columns: vec![BatchColumn {
             model: model.into(),
             backend,
@@ -525,7 +528,7 @@ fn model_verdict_by_tier_falls_back_to_prompt_when_native_absent() {
         failures: FailureTracker { unknown_tool_calls: 4, ..Default::default() },
     }];
     c.agentic.as_mut().unwrap().failures = FailureTracker { unknown_tool_calls: 4, ..Default::default() };
-    let report = BatchReport { collection_id: "c".into(), num_ctx: None, ollama_version: None, collection_hash: None, think_preset: None, columns: vec![c] };
+    let report = BatchReport { collection_id: "c".into(), num_ctx: None, ollama_version: None, collection_hash: None, think_preset: None, params: None, columns: vec![c] };
     let v = &assess_report(&report, &general)[0];
     assert_eq!(v.by_tier.len(), 1);
     assert_eq!(v.by_tier[0].tier, Tier::Medium);

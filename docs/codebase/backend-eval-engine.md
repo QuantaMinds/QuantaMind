@@ -1249,7 +1249,10 @@ agentic tasks, with VRAM isolation between models and durable crash-resume.
   (Phase 9B: `agg_agentic` buckets reports by tier and computes per-tier `avg_steps`
   + merged `failures` alongside the strict Pass^k — feeding the Agent Report deep-dive);
   `BatchColumn{model, backend, toolcall, agentic, agentic_native_fc, error}`;
-  `BatchReport{collection_id, columns, num_ctx}`.
+  `BatchReport{collection_id, columns, num_ctx, ollama_version, collection_hash,
+  think_preset, params}` — `params` is the run's full inference params, stamped by the
+  command layer (like `num_ctx`) so publish reads what the run used, never the live
+  global header.
 - **Functions:** `run_batch` (test wrapper, no gate), `run_batch_resumable`
   (the VRAM-safe resumable loop — folds `prior` units silently, runs the rest,
   streams + records), `fold_report` (repaint Matrix from completed units only,

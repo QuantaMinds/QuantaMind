@@ -206,6 +206,7 @@ fn skeleton(collection_id: &str, targets: &[ModelTarget]) -> BatchReport {
         ollama_version: None,
         collection_hash: None,
         think_preset: None,
+        params: None,
         columns: targets
             .iter()
             .map(|t| BatchColumn {
@@ -518,6 +519,9 @@ pub async fn run_suite(opts: RunOptions) -> AppResult<RunOutcome> {
         }
     }
     report.think_preset = Some(preset);
+    // The params this run sent (mirrors the GUI batch command) — a saved report stays
+    // self-describing for later `qm report`/publish reads.
+    report.params = opts.params.clone();
     // Stamp the measured placement facts via the SHARED helper — the same one the GUI's
     // batch command uses, so `qm --costs` and the app's Latency view can never drift.
     // (llama-server launch facts stay unstamped here: the CLI never spawns servers, and

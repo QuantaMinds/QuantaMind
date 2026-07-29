@@ -198,7 +198,7 @@ Index: `history`, `io`, `schema`, `tree`.
 
 ### File: `prompts/schema.rs`
 **Responsibility:** the prompt-file serde contract. **What:**
-- `InferenceParams { temperature, top_p, top_k, max_tokens, repeat_penalty, seed, num_ctx }` — all `Option`, skip-serialized when `None`. Reused by `prompts::history` and `jobs::queue`.
+- `InferenceParams { temperature, top_p, top_k, max_tokens, repeat_penalty, seed, num_ctx }` — all `Option`, skip-serialized when `None`. Reused by `prompts::history` and `jobs::queue`. **Defined in the domain** (`inference/params.rs`, so the eval engine can stamp it on `BatchReport` without breaching the layering law) and re-exported here for the storage/IPC call sites.
 - `PromptFile { name, system, user, model?, params, created_at, updated_at, auto_rerun }`. **Why this shape:** `params` is **read-tolerant but never written back** (`#[serde(default, skip_serializing)]`) — global params are now the single source (frontend `paramsStore`); an old file with a `params` block still loads but loses it on next save.
 
 ```rust
