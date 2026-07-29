@@ -95,7 +95,7 @@ async fn a_rung_truncated_at_the_context_window_is_dropped_not_reported_as_a_cli
     .unwrap();
 
     // No fabricated cliff: the model was healthy everywhere it could actually be measured.
-    assert_eq!(report.status, CliffStatus::NoCliff { tested: report.points.last().unwrap().verified_tokens });
+    assert_eq!(report.status, CliffStatus::NoCliff { tested: report.points.last().unwrap().verified_tokens, saturated: true });
     // Every rung that survived is a real measurement — none sits at or past the window.
     for p in &report.points {
         assert!(
@@ -195,7 +195,7 @@ async fn a_model_that_holds_throughout_reports_no_cliff() {
     let ladder = [0u32, 2000, 8000];
     let report = run_cliff(&model, "m", &tasks, &source(), &ladder, &DEFAULT_DEPTHS).await.unwrap();
     let deepest = report.points.last().unwrap().verified_tokens;
-    assert_eq!(report.status, CliffStatus::NoCliff { tested: deepest });
+    assert_eq!(report.status, CliffStatus::NoCliff { tested: deepest, saturated: true });
     assert_eq!(report.cliff_tokens, Some(deepest));
 }
 
@@ -865,10 +865,10 @@ async fn thinking_budget_scales_per_rung_and_non_thinking_stays_flat() {
 
     // Thinking (Standard): the granted budget grows band-by-band with the rung depth —
     // baseline (Easy band) < 6k (Medium band) < 12k (Hard band).
-    let thinking = run(CliffBudget { is_thinking: true, preset: ThinkPreset::Standard }).await;
+    let thinking = run(CliffBudget { is_thinking: true, preset: ThinkPreset::Standard, flat_cap: None }).await;
     let mut distinct: Vec<u32> = thinking.clone();
     distinct.dedup();
-    let expected: Vec<u32> = ladder.iter().map(|&t| CliffBudget { is_thinking: true, preset: ThinkPreset::Standard }.max_output_for(t)).collect();
+    let expected: Vec<u32> = ladder.iter().map(|&t| CliffBudget { is_thinking: true, preset: ThinkPreset::Standard, flat_cap: None }.max_output_for(t)).collect();
     assert_eq!(distinct, expected, "per-rung budgets must follow the depth bands: {thinking:?}");
     assert!(expected.windows(2).all(|w| w[0] < w[1]), "budget must increase with depth: {expected:?}");
 }
@@ -891,7 +891,7 @@ async fn report_carries_the_think_preset_only_when_thinking() {
 
     let thinking = run_cliff_with(
         &model, "m", &[task()], &source(), &[0u32, 2_000], &DEFAULT_DEPTHS, NO_CTX_LIMIT,
-        CliffBudget { is_thinking: true, preset: ThinkPreset::Deep },
+        CliffBudget { is_thinking: true, preset: ThinkPreset::Deep, flat_cap: None },
         &CancellationToken::new(), &mut |_, _, _| {}, &mut |_| {},
     )
     .await
@@ -1183,6 +1183,154 @@ fn budget_limited_serde_round_trip() {
     let json = serde_json::to_string(&s).unwrap();
     assert!(json.contains("BudgetLimited"));
     assert_eq!(serde_json::from_str::<CliffStatus>(&json).unwrap(), s);
+}
+
+// ── baseline cap-headroom gate: a grazing baseline refuses the ladder at rung 0 ──────
+
+/// Scripted model that always answers correctly but reports decoding `used` tokens
+/// (finish "stop") — the wire shape of the live Leg-1 trap: a baseline that "passes
+/// clean" while sitting at the edge of its output cap.
+struct GrazingModel {
+    used: u32,
+    good: String,
+}
+
+impl ModelTurn for GrazingModel {
+    async fn run(&self, spec: &GenerateSpec, _progress: &Progress) -> AppResult<(String, GenerateStats)> {
+        let chars = spec.system.as_deref().map_or(0, |s| s.len()) + spec.prompt.len();
+        Ok((self.good.clone(), GenerateStats {
+            prompt_eval_count: Some((chars / 4) as u32),
+            eval_count: Some(self.used),
+            finish_reason: Some("stop".into()),
+            ..Default::default()
+        }))
+    }
+}
+
+/// THE trap, as measured live (Qwen3.5-9B q4: a 5/5 baseline at 0‰ headroom turned
+/// every deeper rung into cap-deaths): a baseline that passes AT the cap must refuse
+/// the ladder at rung 0 — CapMarginal, with no padded rung paid for.
+#[tokio::test]
+async fn grazing_baseline_refuses_the_ladder_at_rung_zero() {
+    let model = GrazingModel { used: 256, good: GOOD.into() };
+    let tasks: Vec<ToolTask> = (0..5).map(|i| agentic_task(&format!("t{i}"))).collect();
+    let report = run_cliff(&model, "m", &tasks, &source(), &[0u32, 4_000, 8_000], &DEFAULT_DEPTHS).await.unwrap();
+    assert_eq!(report.status, CliffStatus::CapMarginal { cap: 256, used_milli: 1000 });
+    assert_eq!(report.points.len(), 1, "no padded rung may be paid for after a grazing baseline");
+    assert_eq!(report.cliff_tokens, None, "nothing above the baseline was measured");
+}
+
+/// The ≥0.9 boundary, pinned through a FLAT cap of 1000 (also exercising `--cap` in
+/// the engine): "used 0.9 of the cap" rejects (the reviewer's rule verbatim), one
+/// token under proceeds and measures the whole ladder.
+#[tokio::test]
+async fn cap_marginal_fires_at_exactly_nine_tenths_and_not_below() {
+    let tasks: Vec<ToolTask> = (0..5).map(|i| agentic_task(&format!("t{i}"))).collect();
+    let budget = CliffBudget { flat_cap: Some(1000), ..Default::default() };
+    let probe = |used: u32| {
+        let tasks = tasks.clone();
+        async move {
+            let model = GrazingModel { used, good: GOOD.into() };
+            run_cliff_with(&model, "m", &tasks, &source(), &[0u32, 4_000, 8_000], &DEFAULT_DEPTHS, NO_CTX_LIMIT, budget, &CancellationToken::new(), &mut |_, _, _| {}, &mut |_| {})
+                .await
+                .unwrap()
+        }
+    };
+    // 900/1000 ⇒ headroom exactly 100‰ ⇒ used_milli 900 — fires.
+    let at = probe(900).await;
+    assert_eq!(at.status, CliffStatus::CapMarginal { cap: 1000, used_milli: 900 });
+    assert_eq!(at.points.len(), 1);
+    // 899/1000 ⇒ 101‰ headroom — proceeds and the full ladder is measured.
+    let under = probe(899).await;
+    assert!(matches!(under.status, CliffStatus::NoCliff { .. }), "one token under the line must proceed: {:?}", under.status);
+    assert_eq!(under.points.len(), 3, "every rung is paid for and measured");
+}
+
+/// Absence of measurement is never an attribution: a baseline whose cells reported no
+/// decoded count (old/uninstrumented records — `point()` leaves headroom `None`) can
+/// never fire the gate, however healthy or tight it might really have been.
+#[test]
+fn cap_marginal_never_fires_without_counts() {
+    let base = point(704, &[("a", 1, 1), ("b", 1, 1), ("c", 1, 1), ("d", 1, 1), ("e", 1, 1)]);
+    let (status, _) = classify(&[base]);
+    assert!(!matches!(status, CliffStatus::CapMarginal { .. }), "uninstrumented: {status:?}");
+}
+
+/// CapMarginal round-trips serde (the persisted store and the GUI read this shape).
+#[test]
+fn cap_marginal_serde_round_trip() {
+    let s = CliffStatus::CapMarginal { cap: 256, used_milli: 1000 };
+    let json = serde_json::to_string(&s).unwrap();
+    assert!(json.contains("CapMarginal"));
+    assert_eq!(serde_json::from_str::<CliffStatus>(&json).unwrap(), s);
+}
+
+/// A NoCliff that SAW failures (just not collapse-scale ones) is not saturated: the
+/// instrument engaged, so the plain "✓ no cliff to depth" render is earned. Only the
+/// zero-failures-anywhere ladder gets the ceiling-not-located caveat.
+#[test]
+fn no_cliff_with_observed_failures_is_not_saturated() {
+    let base = point(704, &[("a", 1, 1), ("b", 1, 1), ("c", 1, 1), ("d", 1, 1), ("e", 1, 1)]);
+    // 13/15 — real failures, but nowhere near the 20pp margin off a 1.0 baseline...
+    let deep = point(8845, &[("a", 3, 3), ("b", 2, 3), ("c", 3, 3), ("d", 2, 3), ("e", 3, 3)]);
+    let (status, _) = classify(&[base.clone(), deep]);
+    assert_eq!(status, CliffStatus::NoCliff { tested: 8845, saturated: false });
+    // ...while the all-pass ladder IS saturated: the probe never engaged the limit.
+    let perfect = point(8845, &[("a", 3, 3), ("b", 3, 3), ("c", 3, 3), ("d", 3, 3), ("e", 3, 3)]);
+    let (status, _) = classify(&[base, perfect]);
+    assert_eq!(status, CliffStatus::NoCliff { tested: 8845, saturated: true });
+}
+
+// ── truncated-pass gate: a cell cut at the cap can never be scored a pass ────────────
+
+/// Scripted model that emits a CORRECT, parseable call but reports `finish == "length"`
+/// past `threshold` context — the wire shape of the contamination: the call is
+/// well-formed, but the generation was guillotined, so whatever came next (a wrong
+/// follow-up call, a self-correction) is censored. Under `threshold` it finishes clean.
+struct TruncatedPassModel {
+    threshold: u32,
+    good: String,
+}
+
+impl ModelTurn for TruncatedPassModel {
+    async fn run(&self, spec: &GenerateSpec, _progress: &Progress) -> AppResult<(String, GenerateStats)> {
+        let chars = spec.system.as_deref().map_or(0, |s| s.len()) + spec.prompt.len();
+        let toks = (chars / 4) as u32;
+        let cap = spec.options.as_ref().and_then(|o| o.num_predict).unwrap_or(256);
+        let truncated = toks >= self.threshold;
+        Ok((self.good.clone(), GenerateStats {
+            prompt_eval_count: Some(toks),
+            eval_count: Some(if truncated { cap } else { cap / 4 }),
+            finish_reason: Some(if truncated { "length" } else { "stop" }.into()),
+            ..Default::default()
+        }))
+    }
+}
+
+/// Well-formed is not the same as complete: a rung whose cells all emit the CORRECT
+/// call but die at the cap must classify BudgetLimited — the passes are artifacts of
+/// censoring, never a measured NoCliff. Before the gate, this exact shape scored
+/// 15/15 and the curve was part artifact (6 such cells sat in the live Leg-1 rung 2).
+#[tokio::test]
+async fn truncated_correct_output_never_scores_a_pass() {
+    let model = TruncatedPassModel { threshold: 3_000, good: GOOD.into() };
+    let tasks: Vec<ToolTask> = (0..5).map(|i| agentic_task(&format!("t{i}"))).collect();
+    let report = run_cliff(&model, "m", &tasks, &source(), &[0u32, 4_000, 8_000], &DEFAULT_DEPTHS).await.unwrap();
+    match report.status {
+        CliffStatus::BudgetLimited { depth, cap } => {
+            assert!(depth > 3_000, "the budget event is the deep rung: {depth}");
+            assert_eq!(cap, 256);
+        }
+        other => panic!("truncated passes must read as a budget event, not a model verdict: {other:?}"),
+    }
+    // Every truncated cell is a died-at-cap, none is a pass — and the baseline
+    // (clean finishes, quarter-cap usage) stays a full pass, so the gate cuts
+    // exactly the censored cells and nothing else.
+    let deep = report.points.last().unwrap();
+    assert_eq!(deep.passed, Some(0), "a censored fragment is never a pass");
+    assert_eq!(cap_deaths_of(deep), deep.trials.unwrap(), "all cells fold into died-at-cap");
+    assert_eq!(report.points[0].passed, Some(5), "clean-finish baseline cells still pass");
+    assert_eq!(report.cliff_tokens, None);
 }
 
 // ── three-bucket aggregate: cap-deaths enter neither numerator nor denominator ──────

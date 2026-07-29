@@ -17,8 +17,8 @@ fn round_trips_a_colon_bearing_model_verbatim() {
 #[test]
 fn no_cliff_status_round_trips() {
     let dir = tempdir().unwrap();
-    save(dir.path(), "c", "m", CliffStatus::NoCliff { tested: 4000 }).unwrap();
-    assert_eq!(load(dir.path(), "c").unwrap().get("m"), Some(&CliffStatus::NoCliff { tested: 4000 }));
+    save(dir.path(), "c", "m", CliffStatus::NoCliff { tested: 4000, saturated: false }).unwrap();
+    assert_eq!(load(dir.path(), "c").unwrap().get("m"), Some(&CliffStatus::NoCliff { tested: 4000, saturated: false }));
 }
 
 #[test]
@@ -32,10 +32,10 @@ fn broken_status_round_trips() {
 fn second_save_merges_and_does_not_clobber_other_models() {
     let dir = tempdir().unwrap();
     save(dir.path(), "finance", "a:1", collapsed(1000)).unwrap();
-    save(dir.path(), "finance", "b:2", CliffStatus::NoCliff { tested: 2000 }).unwrap();
+    save(dir.path(), "finance", "b:2", CliffStatus::NoCliff { tested: 2000, saturated: false }).unwrap();
     let map = load(dir.path(), "finance").unwrap();
     assert_eq!(map.get("a:1"), Some(&collapsed(1000))); // first model survives the second save
-    assert_eq!(map.get("b:2"), Some(&CliffStatus::NoCliff { tested: 2000 }));
+    assert_eq!(map.get("b:2"), Some(&CliffStatus::NoCliff { tested: 2000, saturated: false }));
 
     // Last-write-wins per model.
     save(dir.path(), "finance", "a:1", collapsed(1500)).unwrap();

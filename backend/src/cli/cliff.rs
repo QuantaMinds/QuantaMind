@@ -28,6 +28,9 @@ pub struct CliffOptions {
     /// Sampling params. `None` → greedy temp-0 (reproducible). When set,
     /// temperature/top_p/… sample; `num_ctx` is still forced to the ladder window.
     pub params: Option<crate::persistence::prompts::schema::InferenceParams>,
+    /// Flat per-turn output cap for EVERY rung (experimental control) — overrides
+    /// the depth-banded thinking budget, so depth is the only variable that moves.
+    pub cap: Option<u32>,
 }
 
 /// The answer-delivery mandate per task — MustUseTools for a stateful/ordered
@@ -75,6 +78,8 @@ pub fn cliff_exit(status: &CliffStatus) -> i32 {
         CliffStatus::Inconclusive { .. } => 11,
         // Budget-bound measurement — a config outcome, distinct from every model verdict.
         CliffStatus::BudgetLimited { .. } => 12,
+        // Baseline grazed the cap — refused before any padded rung; also a config outcome.
+        CliffStatus::CapMarginal { .. } => 13,
         CliffStatus::Broken { .. } | CliffStatus::NotProbed => 20,
     }
 }
@@ -128,13 +133,21 @@ pub fn render_cliff(r: &CliffReport) -> String {
         }
     }
     out.push_str(&match &r.status {
-        CliffStatus::NoCliff { tested } => {
+        CliffStatus::NoCliff { tested, saturated } => {
             let cap_total: u32 = r.points.iter().map(|p| p.cap_deaths).sum();
             if cap_total > 0 {
                 format!(
                     "STATUS: ✓ no cliff on content — maintained up to ≈{tested} tokens; {cap_total} cell(s) \
                      died at the output cap along the way (budget events, excluded from the model claim — \
                      raise the budget to measure them)\n"
+                )
+            } else if *saturated {
+                // Held-to-depth is certified; the CEILING is not — zero failures means the
+                // ladder never engaged the limit, and a clean ✓ would read as a clean bill.
+                format!(
+                    "STATUS: ✓ no cliff to ≈{tested} tokens — but zero failures anywhere on the ladder: \
+                     the probe never engaged the model's limit, so no ceiling was located. Extend \
+                     --max-tokens or use a harder collection to find it.\n"
                 )
             } else {
                 format!("STATUS: ✓ no cliff — accuracy maintained up to ≈{tested} tokens\n")
@@ -178,6 +191,12 @@ pub fn render_cliff(r: &CliffReport) -> String {
              output cap (finish=length). This is a budget-bound measurement, not an established \
              model collapse: raise the budget (--thinking, or a larger cap) and re-run — \
              recovery means the model was starved; the same failures mean it loops.\n"
+        ),
+        CliffStatus::CapMarginal { cap, used_milli } => format!(
+            "STATUS: ⚠ cap-marginal baseline — the tightest passing cell used {used_milli}‰ of the \
+             {cap}-token output cap (gate: ≥900‰). The baseline only passed by grazing the cap, so \
+             padded rungs would measure the output budget, not the model — none were run. Raise the \
+             budget (--thinking standard/deep, or --cap) and re-run.\n"
         ),
         CliffStatus::Broken { tested } => format!("STATUS: ✗ broken baseline — failing at the smallest context (tested to ≈{tested})\n"),
         CliffStatus::Inconclusive { trials } => {
@@ -238,7 +257,7 @@ pub async fn run_cliff_probe(opts: CliffOptions) -> AppResult<CliffOutcome> {
             return Ok(CliffOutcome::ThinkingUnsupported { backend: opts.run.backend, model: opts.run.model });
         }
     }
-    let budget = CliffBudget { is_thinking, preset: opts.run.think };
+    let budget = CliffBudget { is_thinking, preset: opts.run.think, flat_cap: opts.cap };
 
     // Native preflight: same gate as the GUI (`run_context_cliff`) — a model/backend that
     // can't run native tool-calling must refuse loudly up front, not 400 mid-ladder.

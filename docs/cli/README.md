@@ -471,7 +471,7 @@ Tauri-free engine the desktop Audit tab drives, prompt-based, **greedy (temp 0)*
 ```
 qm cliff [--backend <k>] [--model <m>] [--collection <id|file>]
          [--max-tokens 4096] [--steps 4] [--source <corporate_policy|system_logs|financial_ledger>]
-         [--thinking <lean|standard|deep>] [--mode <prompt_based|native>] [--json]
+         [--thinking <lean|standard|deep>] [--cap <tokens>] [--mode <prompt_based|native>] [--json]
 ```
 
 `--thinking` (default `lean` = reasoning off) grants a reasoning model a per-turn scratchpad on
@@ -481,6 +481,14 @@ deeper context grants more reasoning room. The context reserve above `--max-toke
 deepest rung's scratchpad, and the probe refuses up front (`[QM-THINKING-UNSUPPORTED]`, exit `2`)
 when the model/server can't actually reason — a preset must never silently no-op. The JSON report
 carries `think_preset` so a depth measured with a scratchpad is never conflated with one without.
+
+`--cap <tokens>` (experimental control) pins ONE flat output cap at every rung, overriding the
+depth-banded budget above. The banded caps are the right product default, but a cap that rises
+with the padding co-varies with the variable under test — a "no cliff" under rising caps can't
+distinguish "depth didn't hurt" from "the budget kept pace with the hurt". For a publishable
+ablation, hold the cap constant (`--cap 4096`) so depth is the only thing that moves. Per-rung
+`max_output` is stamped in the JSON either way, so a flat-cap run is never conflated with a
+banded one.
 
 On llama.cpp the probe preflights the RUNNING server's `/props` window: a ladder the launch
 `-c` can't hold refuses up front (`[QM-WINDOW-TOO-SMALL]`, exit `2`) naming both levers —
@@ -493,15 +501,24 @@ with its per-task tally (so a one-task failure never reads as a broad collapse),
 line. A rung that would exceed the context window is dropped, never
 scored (the verdict uses only real measurements).
 
+A no-cliff ladder with **zero failures at any rung** is reported as *saturated*: "held to ≈N"
+stands (the rungs were measured), but the STATUS line says no ceiling was located and names the
+levers (extend `--max-tokens`, or a harder collection) — never a clean ✓ for a probe whose
+instrument never engaged. Exit stays `0` (the headroom claim is real).
+
 **Exit:** `0` no-cliff · `10` collapsed · `11` inconclusive (sample too small to resolve a cliff
 from noise — add tasks/repeats, don't trust a coin flip) · `12` **budget-limited** (every failure
 on the rung died at the output cap — a config outcome: raise `--thinking`/the budget and re-run;
-recovery = starved, same failures = looping) · `20` broken baseline (fails at the smallest
+recovery = starved, same failures = looping) · `13` **cap-marginal** (the baseline only passed by
+grazing the cap — its tightest passing cell used ≥90% of it — so padded rungs would measure the
+budget, not the model; refused at rung 0 before any padded rung is paid for: raise
+`--thinking`/`--cap` and re-run) · `20` broken baseline (fails at the smallest
 context — a tool-call failure, not a context limit) · `2`/`3` as usual.
 
 Every rung line carries the sample and per-task breakdown; failing tasks that died at the cap are
 marked `(N died at cap)`, and passing tasks within 150‰ of the cap get a `near-cap:` early-warning
-line (greedy-calibrated).
+line (greedy-calibrated). A generation cut at the cap (`finish == "length"`) is **never scored a
+pass**, whatever parsed out of the fragment — well-formed ≠ complete; it counts as died-at-cap.
 
 **The collapse verdict is statistically gated:** `collapsed` requires the ≥20pp point drop AND the
 drop's Wilson/Newcombe 95% interval excluding zero — a margin-sized drop the sample can't resolve

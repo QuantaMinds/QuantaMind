@@ -1454,7 +1454,13 @@ empty content with real reasoning behind it). Two flags derive from it: **amber*
 task whose tightest cell left <150‰ of the cap unused ("passed, 241/256 — likely to fail at the
 next rung"; incorrect reasoning chains run 1.3–2.5× longer than correct ones, so near-cap
 consumption is drift toward the failure population), and **red** on any failing cell that died at
-the cap. When a rung's failures ALL died at the cap, the verdict is **`BudgetLimited`** (exit 12)
+the cap. **A truncated generation can never be scored a pass**: well-formed is not the same as
+complete — the cap censors whatever came next (a wrong follow-up call, a self-correction), so a
+key match on the fragment is systematically biased toward pass. The grader gates on
+`finish == "length"` BEFORE the answer-key match, and the cell folds into the same died-at-cap
+bucket as a cap-hit failure (the cause is identical: the harness cap, not the model). This is the
+mirror of the failing-cap-hit rule — counting censored passes while excluding censored failures
+would bias every score upward. When a rung's failures ALL died at the cap, the verdict is **`BudgetLimited`** (exit 12)
 — a budget-bound measurement, never `Collapsed`: published best practice demands stop-reason
 inspection before any collapse claim. Deliberately NOT a promise the model would pass with more
 room — cap-consumers split into starved (recover with budget) and looping (eat any cap; loops are
@@ -1471,6 +1477,25 @@ invariant, not a fold. Mixed/single-turn rungs keep their graded composite (a ca
 out cap cells — documented limit; the triple still renders beside it). Caveat: burn
 is measured under greedy at a fixed budget — a within-run comparison, not a cross-configuration
 constant; under sampling, within-task length spread is ~3×, so the amber flag is advisory there.
+
+**Saturated no-cliff (ceiling not located).** A `NoCliff` whose ladder saw ZERO failures at any
+rung carries `saturated: true`: the held-to-depth claim stands — the rungs were measured, so the
+readiness headroom gate is untouched — but the probe never engaged the model's limit, so the
+ceiling was NOT located. Every render (CLI STATUS, panel read-out, Agent Report) replaces the
+clean ✓ with "no ceiling located — extend the ladder or use a harder collection". A no-cliff
+that DID see failures (just not collapse-scale ones) is not saturated: the instrument engaged.
+
+**The baseline cap-headroom gate (`CapMarginal`, exit 13).** A baseline that passes only by
+GRAZING its output cap — tightest passing cell used ≥900‰ (0.9) of it — cannot anchor a ladder:
+the smallest cap that "passes clean" sits at the edge by construction, so every padded rung
+would measure the output budget, not the model. Live-proven (Qwen3.5-9B q4): a 5/5 baseline at
+0‰ headroom turned every deeper rung into cap-deaths and the ~9k rung was never measured. The
+probe refuses at rung 0, BEFORE any padded rung is paid for — the amber near-cap warning moved
+in front of the spend. Like every gate (window, native, thinking), it refuses loudly and names
+the levers (`--thinking standard/deep`, `--cap`); it never auto-escalates — a silently raised
+budget would make two runs differ in a flag the user never set. The statistic is the MAX
+used-over-cap across the baseline's passing cells (n = task count; at n=5 a "p95" would just be
+the max wearing a costume, so it's named honestly).
 
 **Failure concentration (advisory, never a gate).** On a collapse, the engine checks whether the
 failures clustered in ONE task: an exact exchangeability p-value on the max-failures-in-one-task

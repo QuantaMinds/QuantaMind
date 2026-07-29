@@ -33,18 +33,29 @@ pub fn tier_for_depth(target_tokens: u32) -> Tier {
 pub struct CliffBudget {
     pub is_thinking: bool,
     pub preset: ThinkPreset,
+    /// Experimental control: ONE cap applied at every rung, replacing the whole
+    /// depth-banded cap (answer floor included). A cap that rises with depth
+    /// co-varies with the variable under test, so a published ablation needs the
+    /// cap held constant — this is that lever (`qm cliff --cap`). `None` (the
+    /// default, and the GUI's only mode) keeps the banded behavior.
+    pub flat_cap: Option<u32>,
 }
 
 impl CliffBudget {
     /// `num_predict` for one probe turn at this rung's target depth.
     pub fn max_output_for(self, target_tokens: u32) -> u32 {
-        CLIFF_ANSWER_TOKENS + self.scratchpad(target_tokens)
+        match self.flat_cap {
+            Some(cap) => cap,
+            None => CLIFF_ANSWER_TOKENS + self.scratchpad(target_tokens),
+        }
     }
 
     /// Context headroom the run must reserve above `max_tokens` (the deepest rung):
-    /// base (system + needle + answer floor) plus the deepest rung's scratchpad.
+    /// base (system + needle + answer floor) plus whatever the deepest rung's cap
+    /// allows past the answer floor. One identity for both banded and flat caps:
+    /// headroom = base + (max_output − answer floor).
     pub fn headroom(self, max_tokens: u32) -> u32 {
-        CLIFF_BASE_HEADROOM + self.scratchpad(max_tokens)
+        CLIFF_BASE_HEADROOM + self.max_output_for(max_tokens).saturating_sub(CLIFF_ANSWER_TOKENS)
     }
 
     /// The reasoning-scratchpad portion at a depth — 0 for a non-thinking run.
@@ -84,13 +95,13 @@ mod tests {
     #[test]
     fn thinking_budget_scales_monotonically_with_depth_and_preset() {
         for preset in [ThinkPreset::Lean, ThinkPreset::Standard, ThinkPreset::Deep] {
-            let b = CliffBudget { is_thinking: true, preset };
+            let b = CliffBudget { is_thinking: true, preset, flat_cap: None };
             let by_depth: Vec<u32> = [0, 6144, 12288, 32768].iter().map(|&d| b.max_output_for(d)).collect();
             for w in by_depth.windows(2) {
                 assert!(w[0] < w[1], "budget must grow with depth: {by_depth:?}");
             }
         }
-        let at = |p, d| CliffBudget { is_thinking: true, preset: p }.max_output_for(d);
+        let at = |p, d| CliffBudget { is_thinking: true, preset: p, flat_cap: None }.max_output_for(d);
         for d in [0, 6144, 12288, 32768] {
             assert!(at(ThinkPreset::Lean, d) < at(ThinkPreset::Standard, d));
             assert!(at(ThinkPreset::Standard, d) < at(ThinkPreset::Deep, d));
@@ -98,8 +109,24 @@ mod tests {
     }
 
     #[test]
+    fn flat_cap_overrides_the_banded_table_at_every_depth_and_keeps_the_headroom_identity() {
+        // The experimental control: one number at every rung, thinking or not.
+        for is_thinking in [false, true] {
+            let b = CliffBudget { is_thinking, preset: ThinkPreset::Standard, flat_cap: Some(4096) };
+            for depth in [0, 4096, 9216, 65536] {
+                assert_eq!(b.max_output_for(depth), 4096, "flat cap must not vary with depth");
+            }
+            // Same identity as the banded path: headroom = base + (max_output − answer floor).
+            assert_eq!(b.headroom(9216), CLIFF_BASE_HEADROOM + 4096 - CLIFF_ANSWER_TOKENS);
+        }
+        // A cap below the answer floor saturates instead of underflowing.
+        let tiny = CliffBudget { flat_cap: Some(64), ..Default::default() };
+        assert_eq!(tiny.headroom(9216), CLIFF_BASE_HEADROOM);
+    }
+
+    #[test]
     fn thinking_headroom_reserves_the_deepest_rungs_scratchpad() {
-        let b = CliffBudget { is_thinking: true, preset: ThinkPreset::Standard };
+        let b = CliffBudget { is_thinking: true, preset: ThinkPreset::Standard, flat_cap: None };
         // 9216 falls in the Hard band → Standard scratchpad 10240 on top of the base.
         assert_eq!(b.headroom(9216), CLIFF_BASE_HEADROOM + 10240);
         // Matches the budget identity: headroom = base + (max_output − answer floor).

@@ -71,7 +71,7 @@ pub fn assess(i: &ReadinessInputs, p: &ReadinessProfile) -> ReadinessVerdict {
             CliffStatus::Collapsed { depth, .. } if depth < min_tok => {
                 blocking.push(format!("reasoning cliff at {} < {} needed", depth, min_tok));
             }
-            CliffStatus::NoCliff { tested } if tested < min_tok => {
+            CliffStatus::NoCliff { tested, .. } if tested < min_tok => {
                 blocking.push(format!("only probed to {} tok < {} needed (no cliff, but headroom unproven)", tested, min_tok));
             }
             CliffStatus::Broken { .. } => {
@@ -89,6 +89,22 @@ pub fn assess(i: &ReadinessInputs, p: &ReadinessProfile) -> ReadinessVerdict {
                 conditions.push(format!(
                     "context headroom inconclusive — {} samples/rung can't resolve the collapse margin; probe a larger collection to certify {} tok",
                     trials, min_tok
+                ));
+            }
+            // Both budget outcomes measured the OUTPUT CAP, not context headroom — the
+            // same unmeasured-≠-failure rule as NotProbed/Inconclusive, stated explicitly
+            // for the same reason: the `_` arm would silently certify headroom nothing
+            // measured. (BudgetLimited previously fell through `_` and read as a pass.)
+            CliffStatus::BudgetLimited { depth, cap } => {
+                conditions.push(format!(
+                    "context headroom unproven — the probe went budget-limited at {} tok (every failure died at the {}-token output cap); raise the thinking budget and re-probe to certify {} tok",
+                    depth, cap, min_tok
+                ));
+            }
+            CliffStatus::CapMarginal { cap, .. } => {
+                conditions.push(format!(
+                    "context headroom not measured — the probe's baseline grazed the {}-token output cap and no padded rung ran; raise the thinking budget and re-probe to certify {} tok",
+                    cap, min_tok
                 ));
             }
             _ => {} // Collapsed{depth >= min} or NoCliff{tested >= min} → pass

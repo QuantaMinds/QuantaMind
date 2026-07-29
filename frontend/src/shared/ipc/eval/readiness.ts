@@ -113,12 +113,19 @@ export type CliffConcentration = z.infer<typeof CliffConcentrationSchema>;
 
 export const CliffStatusSchema = z.discriminatedUnion("status", [
   z.object({ status: z.literal("NotProbed") }),
-  z.object({ status: z.literal("NoCliff"), tested: z.number() }),
+  /// `saturated` = zero failures at ANY rung: held-to-depth is certified, but the
+  /// ceiling was never located — render with the extend-the-ladder caveat, not a
+  /// clean ✓. Optional: pre-field reports parse as not-saturated.
+  z.object({ status: z.literal("NoCliff"), tested: z.number(), saturated: z.boolean().optional() }),
   z.object({ status: z.literal("Collapsed"), depth: z.number(), concentration: CliffConcentrationSchema.nullable().optional() }),
   /// Every failure on the rung died AT the output cap (finish == "length") — a
   /// budget-bound measurement, never an established model collapse. Re-running at a
   /// higher budget separates starved (recovers) from looping (doesn't).
   z.object({ status: z.literal("BudgetLimited"), depth: z.number(), cap: z.number() }),
+  /// The BASELINE only passed by grazing the output cap (tightest passing cell used
+  /// ≥900‰ of it) — the probe refused before paying for any padded rung, so nothing
+  /// above rung 0 was measured. A config outcome: raise the budget and re-run.
+  z.object({ status: z.literal("CapMarginal"), cap: z.number(), used_milli: z.number() }),
   z.object({ status: z.literal("Broken"), tested: z.number() }),
   /// The probe ran, but the collection is too small to resolve the collapse margin: with
   /// `trials` samples per rung the score moves in steps of 1/trials, so one sample flipping

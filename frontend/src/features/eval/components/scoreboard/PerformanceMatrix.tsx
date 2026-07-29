@@ -223,6 +223,7 @@ export function PerformanceMatrix({
   const cliffInconclusive = useCliffStore((s) => (collectionId ? s.inconclusive[collectionId] : undefined));
   const cliffConcentrated = useCliffStore((s) => (collectionId ? s.concentrated[collectionId] : undefined));
   const cliffBudgetLimited = useCliffStore((s) => (collectionId ? s.budgetLimited[collectionId] : undefined));
+  const cliffCapMarginal = useCliffStore((s) => (collectionId ? s.capMarginal[collectionId] : undefined));
   const cliffRunning = useCliffStore((s) => s.running);
   const cliffRunningModel = useCliffStore((s) => s.runningModel);
   const setCliffRequest = useCliffStore((s) => s.setRequest);
@@ -462,6 +463,19 @@ export function PerformanceMatrix({
                             title={`Every failure at ≈${cliffBudgetLimited[r.model].depth.toLocaleString()} tokens died at the ${cliffBudgetLimited[r.model].cap}-token output cap — raise the thinking budget and re-probe.`}
                           >
                             budget-limited
+                          </span>
+                          <ReprobeBtn model={r.model} />
+                        </>
+                      ) : cliffCapMarginal?.[r.model] != null ? (
+                        <>
+                          {/* Refused at rung 0: the baseline grazed the cap, so nothing above it
+                              was measured — never "✓ no cliff". */}
+                          <span
+                            style={{ ...badgeStyle, background: "#fffbeb", border: "1px solid #fde68a", color: "#92400e", textTransform: "none" }}
+                            data-testid={`cliff-cap-marginal-${r.model}`}
+                            title={`The baseline's tightest passing cell used ${(cliffCapMarginal[r.model].usedMilli / 10).toFixed(0)}% of the ${cliffCapMarginal[r.model].cap}-token output cap, so padded rungs would have measured the budget, not the model. Raise the thinking budget and re-probe.`}
+                          >
+                            cap-marginal
                           </span>
                           <ReprobeBtn model={r.model} />
                         </>
