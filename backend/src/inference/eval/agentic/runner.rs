@@ -148,6 +148,7 @@ fn unsatisfied_checkpoints(
     satisfied: &[bool],
     next_cp: usize,
     faulted_tools: &[(String, String)],
+    near_miss_tools: &[(String, String)],
 ) -> Option<String> {
     let cps: Vec<&TaskCheckpoint> = match end_state {
         EndStateRule::RequireAll(cps) => cps.iter().zip(satisfied).filter(|(_, &s)| !s).map(|(c, _)| c).collect(),
@@ -167,7 +168,15 @@ fn unsatisfied_checkpoints(
         }
         match faulted_tools.iter().find(|(t, _)| *t == cp.tool) {
             Some((_, err)) => parts.push(format!("{} (attempted — {err}, not retried)", cp.tool)),
-            None => parts.push(format!("{} (never called)", cp.tool)),
+            // Right tool, wrong args (e.g. a `reason` missing a required factor) — the call
+            // HAPPENED, so "(never called)" would misstate the run; quote both sides instead.
+            None => match near_miss_tools.iter().find(|(t, _)| *t == cp.tool) {
+                Some((_, got)) => parts.push(format!(
+                    "{} (called, but args didn't match — required {}, got {got})",
+                    cp.tool, cp.args
+                )),
+                None => parts.push(format!("{} (never called)", cp.tool)),
+            },
         }
     }
     Some(format!(
@@ -568,6 +577,10 @@ async fn run_steps<M: ModelTurn>(
     // checkpoint instead of mislabeling it "never called" (a faulted emit leaves satisfied[]
     // false, indistinguishable from a skip without this).
     let mut faulted_tools: Vec<(String, String)> = Vec::new();
+    // Right-tool/wrong-args attempts against still-open checkpoints (tool → the call's args
+    // JSON). Same role as `faulted_tools`: keeps the hallucinated-done note honest — a call
+    // that HAPPENED but missed the required args must not read "(never called)".
+    let mut near_miss_tools: Vec<(String, String)> = Vec::new();
     // Per-run MUTABLE web-UI state (Slice 3) — fresh each run, NEVER in the shared sandbox (which
     // holds only the immutable spec). Mirrors the per-run `SandboxState` lifecycle.
     let mut web_ui = match &sandbox.responder {
@@ -851,7 +864,7 @@ async fn run_steps<M: ModelTurn>(
                     // (the honest cause), not just "hallucinated". Only for this kind — the others
                     // (empty/dialect/malformed) are self-describing.
                     let note = (kind == StepKind::HallucinatedCompletion)
-                        .then(|| unsatisfied_checkpoints(&sandbox.end_state, &satisfied, next_cp, &faulted_tools))
+                        .then(|| unsatisfied_checkpoints(&sandbox.end_state, &satisfied, next_cp, &faulted_tools, &near_miss_tools))
                         .flatten();
                     send(kind, note, EnvView::None);
                     return Ok(RunOutcome::failure(step_index + 1, output_tokens, failure)
@@ -995,10 +1008,24 @@ async fn run_steps<M: ModelTurn>(
                     next_cp == cps.len()
                 }
                 EndStateRule::RequireAll(cps) => {
+                    let mut consumed = false;
                     for (i, cp) in cps.iter().enumerate() {
                         if !satisfied[i] && endstate::checkpoint_matches_v2(cp, call) {
                             satisfied[i] = true;
+                            consumed = true;
                             break; // a call consumes at most one checkpoint
+                        }
+                    }
+                    // Near miss: right tool, wrong args, against a still-open checkpoint of
+                    // that tool. Recorded so a hallucinated-done note can say "called, but
+                    // args didn't match" instead of the false "(never called)" — the same
+                    // honesty split faulted_tools gives fault-recovery failures. Last write
+                    // wins (the freshest attempt is the one worth quoting).
+                    if !consumed && cps.iter().zip(&satisfied).any(|(cp, &s)| !s && cp.tool == call.name) {
+                        let got = call.args.to_string();
+                        match near_miss_tools.iter_mut().find(|(t, _)| *t == call.name) {
+                            Some(e) => e.1 = got,
+                            None => near_miss_tools.push((call.name.clone(), got)),
                         }
                     }
                     satisfied.iter().all(|&s| s)
