@@ -1472,6 +1472,18 @@ out cap cells — documented limit; the triple still renders beside it). Caveat:
 is measured under greedy at a fixed budget — a within-run comparison, not a cross-configuration
 constant; under sampling, within-task length spread is ~3×, so the amber flag is advisory there.
 
+**The baseline cap-headroom gate (`CapMarginal`, exit 13).** A baseline that passes only by
+GRAZING its output cap — tightest passing cell used ≥900‰ (0.9) of it — cannot anchor a ladder:
+the smallest cap that "passes clean" sits at the edge by construction, so every padded rung
+would measure the output budget, not the model. Live-proven (Qwen3.5-9B q4): a 5/5 baseline at
+0‰ headroom turned every deeper rung into cap-deaths and the ~9k rung was never measured. The
+probe refuses at rung 0, BEFORE any padded rung is paid for — the amber near-cap warning moved
+in front of the spend. Like every gate (window, native, thinking), it refuses loudly and names
+the levers (`--thinking standard/deep`, `--cap`); it never auto-escalates — a silently raised
+budget would make two runs differ in a flag the user never set. The statistic is the MAX
+used-over-cap across the baseline's passing cells (n = task count; at n=5 a "p95" would just be
+the max wearing a costume, so it's named honestly).
+
 **Failure concentration (advisory, never a gate).** On a collapse, the engine checks whether the
 failures clustered in ONE task: an exact exchangeability p-value on the max-failures-in-one-task
 statistic (uniform-failure null, DP-computed — the reviewed real case, 3 of 4 failures in one task

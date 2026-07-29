@@ -50,6 +50,11 @@ function cliffLabel(c: ModelVerdict["cliff"]): string {
   // The probe ran but its sample can't resolve the collapse margin — so it found nothing,
   // which is NOT the same as finding nothing wrong. Say which.
   if (c.status === "Inconclusive") return `inconclusive (${c.trials} samples/rung)`;
+  // Budget outcomes are CONFIG results, never model collapses — before these arms,
+  // BudgetLimited fell through below and rendered as "Collapsed at N tok", naming a
+  // model failure the probe never established.
+  if (c.status === "BudgetLimited") return `budget-limited at ${c.depth.toLocaleString()} tok (${c.cap}-tok cap)`;
+  if (c.status === "CapMarginal") return `cap-marginal baseline (${c.cap}-tok cap)`;
   return `Collapsed at ${c.depth.toLocaleString()} tok`;
 }
 
@@ -58,6 +63,8 @@ function cliffColor(c: ModelVerdict["cliff"]): string {
   // Inconclusive is UNMEASURED, not failed — it must never render red beside a real collapse.
   // Same neutral treatment as NotProbed; the default below is the failure colour.
   if (c.status === "Inconclusive") return "text-slate-800";
+  // Budget outcomes are config warnings, not model failures — amber, never rose.
+  if (c.status === "BudgetLimited" || c.status === "CapMarginal") return "text-amber-600";
   return c.status === "NoCliff" ? "text-emerald-600" : "text-rose-600";
 }
 

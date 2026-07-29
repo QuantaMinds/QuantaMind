@@ -504,7 +504,10 @@ scored (the verdict uses only real measurements).
 **Exit:** `0` no-cliff · `10` collapsed · `11` inconclusive (sample too small to resolve a cliff
 from noise — add tasks/repeats, don't trust a coin flip) · `12` **budget-limited** (every failure
 on the rung died at the output cap — a config outcome: raise `--thinking`/the budget and re-run;
-recovery = starved, same failures = looping) · `20` broken baseline (fails at the smallest
+recovery = starved, same failures = looping) · `13` **cap-marginal** (the baseline only passed by
+grazing the cap — its tightest passing cell used ≥90% of it — so padded rungs would measure the
+budget, not the model; refused at rung 0 before any padded rung is paid for: raise
+`--thinking`/`--cap` and re-run) · `20` broken baseline (fails at the smallest
 context — a tool-call failure, not a context limit) · `2`/`3` as usual.
 
 Every rung line carries the sample and per-task breakdown; failing tasks that died at the cap are

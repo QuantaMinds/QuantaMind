@@ -53,6 +53,15 @@ pub enum CliffStatus {
     /// re-running at a higher budget is the disambiguating probe. `depth` = the rung's
     /// verified tokens; `cap` = the output cap in force there.
     BudgetLimited { depth: u32, cap: u32 },
+    /// The BASELINE passed only by grazing the output cap: its tightest passing cell
+    /// used ≥900‰ of the cap (`used_milli` carries the measured value). The smallest
+    /// cap that "passes clean" sits at the edge by construction, so every padded rung
+    /// would have measured the budget, not the model — the probe refuses at rung 0,
+    /// BEFORE any padded rung is paid for. A config outcome like `BudgetLimited`, and
+    /// like it never an auto-escalation: the fix (a bigger `--thinking` preset or
+    /// `--cap`) is named, never silently applied — two runs must not differ in a flag
+    /// the user didn't set. `cap` = the output cap in force at the baseline.
+    CapMarginal { cap: u32, used_milli: u32 },
     /// Tool-call accuracy was already failing at the SMALLEST tested context (a broken
     /// baseline) — there is no usable context window, distinct from a collapse partway
     /// through. `tested` = the deepest rung reached. Renders red "fails from start" and

@@ -78,6 +78,8 @@ pub fn cliff_exit(status: &CliffStatus) -> i32 {
         CliffStatus::Inconclusive { .. } => 11,
         // Budget-bound measurement — a config outcome, distinct from every model verdict.
         CliffStatus::BudgetLimited { .. } => 12,
+        // Baseline grazed the cap — refused before any padded rung; also a config outcome.
+        CliffStatus::CapMarginal { .. } => 13,
         CliffStatus::Broken { .. } | CliffStatus::NotProbed => 20,
     }
 }
@@ -181,6 +183,12 @@ pub fn render_cliff(r: &CliffReport) -> String {
              output cap (finish=length). This is a budget-bound measurement, not an established \
              model collapse: raise the budget (--thinking, or a larger cap) and re-run — \
              recovery means the model was starved; the same failures mean it loops.\n"
+        ),
+        CliffStatus::CapMarginal { cap, used_milli } => format!(
+            "STATUS: ⚠ cap-marginal baseline — the tightest passing cell used {used_milli}‰ of the \
+             {cap}-token output cap (gate: ≥900‰). The baseline only passed by grazing the cap, so \
+             padded rungs would measure the output budget, not the model — none were run. Raise the \
+             budget (--thinking standard/deep, or --cap) and re-run.\n"
         ),
         CliffStatus::Broken { tested } => format!("STATUS: ✗ broken baseline — failing at the smallest context (tested to ≈{tested})\n"),
         CliffStatus::Inconclusive { trials } => {

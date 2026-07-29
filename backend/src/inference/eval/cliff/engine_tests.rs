@@ -1185,6 +1185,86 @@ fn budget_limited_serde_round_trip() {
     assert_eq!(serde_json::from_str::<CliffStatus>(&json).unwrap(), s);
 }
 
+// ── baseline cap-headroom gate: a grazing baseline refuses the ladder at rung 0 ──────
+
+/// Scripted model that always answers correctly but reports decoding `used` tokens
+/// (finish "stop") — the wire shape of the live Leg-1 trap: a baseline that "passes
+/// clean" while sitting at the edge of its output cap.
+struct GrazingModel {
+    used: u32,
+    good: String,
+}
+
+impl ModelTurn for GrazingModel {
+    async fn run(&self, spec: &GenerateSpec, _progress: &Progress) -> AppResult<(String, GenerateStats)> {
+        let chars = spec.system.as_deref().map_or(0, |s| s.len()) + spec.prompt.len();
+        Ok((self.good.clone(), GenerateStats {
+            prompt_eval_count: Some((chars / 4) as u32),
+            eval_count: Some(self.used),
+            finish_reason: Some("stop".into()),
+            ..Default::default()
+        }))
+    }
+}
+
+/// THE trap, as measured live (Qwen3.5-9B q4: a 5/5 baseline at 0‰ headroom turned
+/// every deeper rung into cap-deaths): a baseline that passes AT the cap must refuse
+/// the ladder at rung 0 — CapMarginal, with no padded rung paid for.
+#[tokio::test]
+async fn grazing_baseline_refuses_the_ladder_at_rung_zero() {
+    let model = GrazingModel { used: 256, good: GOOD.into() };
+    let tasks: Vec<ToolTask> = (0..5).map(|i| agentic_task(&format!("t{i}"))).collect();
+    let report = run_cliff(&model, "m", &tasks, &source(), &[0u32, 4_000, 8_000], &DEFAULT_DEPTHS).await.unwrap();
+    assert_eq!(report.status, CliffStatus::CapMarginal { cap: 256, used_milli: 1000 });
+    assert_eq!(report.points.len(), 1, "no padded rung may be paid for after a grazing baseline");
+    assert_eq!(report.cliff_tokens, None, "nothing above the baseline was measured");
+}
+
+/// The ≥0.9 boundary, pinned through a FLAT cap of 1000 (also exercising `--cap` in
+/// the engine): "used 0.9 of the cap" rejects (the reviewer's rule verbatim), one
+/// token under proceeds and measures the whole ladder.
+#[tokio::test]
+async fn cap_marginal_fires_at_exactly_nine_tenths_and_not_below() {
+    let tasks: Vec<ToolTask> = (0..5).map(|i| agentic_task(&format!("t{i}"))).collect();
+    let budget = CliffBudget { flat_cap: Some(1000), ..Default::default() };
+    let probe = |used: u32| {
+        let tasks = tasks.clone();
+        async move {
+            let model = GrazingModel { used, good: GOOD.into() };
+            run_cliff_with(&model, "m", &tasks, &source(), &[0u32, 4_000, 8_000], &DEFAULT_DEPTHS, NO_CTX_LIMIT, budget, &CancellationToken::new(), &mut |_, _, _| {}, &mut |_| {})
+                .await
+                .unwrap()
+        }
+    };
+    // 900/1000 ⇒ headroom exactly 100‰ ⇒ used_milli 900 — fires.
+    let at = probe(900).await;
+    assert_eq!(at.status, CliffStatus::CapMarginal { cap: 1000, used_milli: 900 });
+    assert_eq!(at.points.len(), 1);
+    // 899/1000 ⇒ 101‰ headroom — proceeds and the full ladder is measured.
+    let under = probe(899).await;
+    assert!(matches!(under.status, CliffStatus::NoCliff { .. }), "one token under the line must proceed: {:?}", under.status);
+    assert_eq!(under.points.len(), 3, "every rung is paid for and measured");
+}
+
+/// Absence of measurement is never an attribution: a baseline whose cells reported no
+/// decoded count (old/uninstrumented records — `point()` leaves headroom `None`) can
+/// never fire the gate, however healthy or tight it might really have been.
+#[test]
+fn cap_marginal_never_fires_without_counts() {
+    let base = point(704, &[("a", 1, 1), ("b", 1, 1), ("c", 1, 1), ("d", 1, 1), ("e", 1, 1)]);
+    let (status, _) = classify(&[base]);
+    assert!(!matches!(status, CliffStatus::CapMarginal { .. }), "uninstrumented: {status:?}");
+}
+
+/// CapMarginal round-trips serde (the persisted store and the GUI read this shape).
+#[test]
+fn cap_marginal_serde_round_trip() {
+    let s = CliffStatus::CapMarginal { cap: 256, used_milli: 1000 };
+    let json = serde_json::to_string(&s).unwrap();
+    assert!(json.contains("CapMarginal"));
+    assert_eq!(serde_json::from_str::<CliffStatus>(&json).unwrap(), s);
+}
+
 // ── three-bucket aggregate: cap-deaths enter neither numerator nor denominator ──────
 
 /// Build a point and stamp its wire cap_deaths from the tallies (as the engine does).

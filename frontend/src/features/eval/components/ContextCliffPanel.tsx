@@ -100,6 +100,7 @@ export function ContextCliffPanel() {
   // Budget-limited outcome of the LAST run — overrides the cliff read-out: a run whose
   // failures all died at the output cap must never read as a model collapse.
   const lastBudgetLimited = useCliffStore((s) => s.lastBudgetLimited);
+  const lastCapMarginal = useCliffStore((s) => s.lastCapMarginal);
   // The backend's authoritative verdict for the last run — the read-out's primary
   // source (the composite-based fallback below can't see cap-affected rungs).
   const lastStatus = useCliffStore((s) => s.lastStatus);
@@ -693,6 +694,8 @@ export function ContextCliffPanel() {
                 ? `Inconclusive — ${lastInconclusive} samples/rung can't resolve a ${Math.round(CLIFF_COLLAPSE_MARGIN * 100)}pp collapse; one flipped sample would be worth the whole margin. Probe a larger collection.`
               : lastBudgetLimited != null
                 ? `Budget-limited at ≈${Math.round(lastBudgetLimited.depth / 1000) * 1000} tokens — every failure died at the ${lastBudgetLimited.cap}-token output cap. Raise the thinking budget and re-run: recovery = starved, same failures = looping.`
+              : lastCapMarginal != null
+                ? `Cap-marginal baseline — the tightest passing cell used ${(lastCapMarginal.usedMilli / 10).toFixed(0)}% of the ${lastCapMarginal.cap}-token output cap, so padded rungs would have measured the budget, not the model. None were run — raise the thinking budget and re-run.`
               : verdict.kind === "cliff"
                 ? // A detected cliff ALWAYS reads as a cliff — when the collapse rung had no
                   // measured token count we say so, never falling through to a non-cliff message

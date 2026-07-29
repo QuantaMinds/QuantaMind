@@ -104,3 +104,11 @@ describe("CliffStatus BudgetLimited (mirror of Rust)", () => {
     expect(CliffStatusSchema.parse(bl)).toEqual(bl);
   });
 });
+
+describe("CliffStatus CapMarginal (mirror of Rust)", () => {
+  it("round-trips the rung-0 refusal — a config outcome, never a model verdict", async () => {
+    const { CliffStatusSchema } = await import("../readiness");
+    const cm = { status: "CapMarginal", cap: 256, used_milli: 1000 };
+    expect(CliffStatusSchema.parse(cm)).toEqual(cm);
+  });
+});

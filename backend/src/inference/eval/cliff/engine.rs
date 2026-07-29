@@ -725,6 +725,13 @@ fn classify(points: &[CliffPoint]) -> (CliffStatus, Option<u32>) {
         Some(c) if c < BASELINE_PASS => return (CliffStatus::Broken { tested: base.verified_tokens }, None),
         Some(_) => {}
     }
+    // A healthy baseline that only passed by grazing the cap can't anchor a ladder:
+    // every deeper rung would measure the budget, not the model. Refused here (and at
+    // rung 0 in the run loop, same `cap_marginal` source) — a padded-rung comparison
+    // against an edge-sitting baseline is the confound this gate exists to prevent.
+    if let Some(used_milli) = cap_marginal(base) {
+        return (CliffStatus::CapMarginal { cap: base.max_output, used_milli }, None);
+    }
     // The baseline is healthy, so the remaining question is "did it collapse?" — and THAT is
     // measured against `COLLAPSE_MARGIN`. If one flipped sample is worth a whole margin,
     // "collapsed" and "held" are the same measurement, so neither may be claimed. Read the
@@ -834,6 +841,26 @@ fn budget_limited(p: &CliffPoint) -> Option<CliffStatus> {
 /// longer; consumption grows with depth). Calibrated for GREEDY decoding — under
 /// sampling, within-task length spread is ~3×, so the flag is advisory there.
 pub const AMBER_HEADROOM_MILLI: u32 = 150;
+
+/// The baseline cap-headroom gate: a baseline whose tightest PASSING cell used at
+/// least this much of the cap (‰) only passed by grazing it — the smallest cap that
+/// "passes clean" sits at the edge by construction, so every padded rung would then
+/// measure the output budget, not the model (live-proven: a 5/5 baseline at 0‰
+/// headroom turned every deeper rung into cap-deaths). Such a run is refused BEFORE
+/// any padded rung is paid for. ≥ is load-bearing: "used 0.9 of the cap" rejects.
+pub const CAP_MARGINAL_USED_MILLI: u32 = 900;
+
+/// `Some(used_milli)` when the BASELINE passed only by grazing its output cap — the
+/// tightest passing cell's used-over-cap is ≥ `CAP_MARGINAL_USED_MILLI`. THE one
+/// source for the gate: the run loop stops on it at rung 0 (before any padded rung
+/// is paid for) and `classify` returns the verdict from it, so the two can never
+/// disagree. Cells that reported no count never fire it — absence of measurement is
+/// never an attribution.
+fn cap_marginal(p: &CliffPoint) -> Option<u32> {
+    let min_headroom = p.by_task.iter().filter_map(|t| t.min_pass_headroom_milli).min()?;
+    let used = 1000 - min_headroom.min(1000);
+    (used >= CAP_MARGINAL_USED_MILLI).then_some(used)
+}
 
 /// Warn when the exact exchangeability p-value says the failure placement is this
 /// concentrated under a uniform-failure null less than 10% of the time.
@@ -1007,6 +1034,12 @@ pub async fn run_cliff_with_factory<T: ModelTurn, F: Fn(&ToolTask) -> T>(
             // A baseline that is budget-dead (folded below the floor) or content-broken
             // can't anchor a cliff — stop before paying for any padded rung.
             if folded.map_or(true, |f| f < BASELINE_PASS) || comp.map_or(true, |c| c < BASELINE_PASS) {
+                break;
+            }
+            // Cap-marginal baseline (passed, but only by grazing the cap): every padded
+            // rung would measure the budget, not the model — stop before paying for any.
+            // Same `cap_marginal` source `classify` reads, so loop and verdict agree.
+            if cap_marginal(points.last().expect("baseline just pushed")).is_some() {
                 break;
             }
         } else if pure_cap && baseline_comp.zip(folded).is_some_and(|(b, f)| is_collapse(b, f)) {

@@ -113,6 +113,13 @@ interface CliffStore {
   budgetLimited: Record<string, Record<string, { depth: number; cap: number }>>;
   /// The LAST run's budget-limited outcome (panel read-out), null when none.
   lastBudgetLimited: { depth: number; cap: number } | null;
+  /// (collection → model) cap-marginal outcomes: the baseline only passed by GRAZING
+  /// the output cap (tightest passing cell ≥900‰ used), so the probe refused before
+  /// any padded rung — a config outcome that must never render as "✓ no cliff":
+  /// nothing above the baseline was measured.
+  capMarginal: Record<string, Record<string, { cap: number; usedMilli: number }>>;
+  /// The LAST run's cap-marginal outcome (panel read-out), null when none.
+  lastCapMarginal: { cap: number; usedMilli: number } | null;
   /// The backend's AUTHORITATIVE status for the last completed run. The panel read-out
   /// renders from THIS, never from a frontend re-derivation — the frontend classifier
   /// only sees composites, and cap-affected rungs deliberately carry none.
@@ -184,6 +191,7 @@ export const useCliffStore = create<CliffStore>((set, get) => ({
   lastInconclusive: null,
   lastConcentration: null,
   lastBudgetLimited: null,
+  lastCapMarginal: null,
   lastStatus: null,
   error: null,
   results: {},
@@ -192,6 +200,7 @@ export const useCliffStore = create<CliffStore>((set, get) => ({
   inconclusive: {},
   concentrated: {},
   budgetLimited: {},
+  capMarginal: {},
 
   setRequest: (req) => set({ request: req }),
   consumeRequest: () => {
@@ -212,6 +221,7 @@ export const useCliffStore = create<CliffStore>((set, get) => ({
       const inconclusive: Record<string, number> = {};
       const concentrated: Record<string, CliffConcentration> = {};
       const budgetLimited: Record<string, { depth: number; cap: number }> = {};
+      const capMarginal: Record<string, { cap: number; usedMilli: number }> = {};
       for (const [m, st] of Object.entries(map)) {
         if (st.status === "NotProbed") continue;
         probed[m] = true;
@@ -230,11 +240,15 @@ export const useCliffStore = create<CliffStore>((set, get) => ({
         // Budget-limited must be carried on its own: falling through to `probed` would
         // render "✓ no cliff" for a run whose failures the harness itself capped.
         else if (st.status === "BudgetLimited") budgetLimited[m] = { depth: st.depth, cap: st.cap };
+        // Cap-marginal likewise: the probe refused at the baseline, so "probed" alone
+        // would read as "held the whole range" when nothing above rung 0 was measured.
+        else if (st.status === "CapMarginal") capMarginal[m] = { cap: st.cap, usedMilli: st.used_milli };
       }
       set((s) => ({
         results: { ...s.results, [collectionId]: results },
         concentrated: { ...s.concentrated, [collectionId]: concentrated },
         budgetLimited: { ...s.budgetLimited, [collectionId]: budgetLimited },
+        capMarginal: { ...s.capMarginal, [collectionId]: capMarginal },
         probed: { ...s.probed, [collectionId]: probed },
         brokenBaseline: { ...s.brokenBaseline, [collectionId]: broken },
         inconclusive: { ...s.inconclusive, [collectionId]: inconclusive },
@@ -263,7 +277,7 @@ export const useCliffStore = create<CliffStore>((set, get) => ({
     // stale series (that corrupts the chart and the persisted cliff).
     const myRun = ++activeRun;
     // `lastInconclusive: null` — a new run must not inherit the previous verdict.
-    set({ points: [], error: null, running: true, runningModel: model, progress: { done: 0, total: steps }, frac: 0, step: null, startedAt: Date.now(), lastInconclusive: null, lastConcentration: null, lastBudgetLimited: null, lastStatus: null });
+    set({ points: [], error: null, running: true, runningModel: model, progress: { done: 0, total: steps }, frac: 0, step: null, startedAt: Date.now(), lastInconclusive: null, lastConcentration: null, lastBudgetLimited: null, lastCapMarginal: null, lastStatus: null });
 
     // Live per-rung points stream from the backend engine over `cliff-progress`; the
     // engine owns the ladder, padding, verify-and-adjust, classification, and
@@ -313,6 +327,7 @@ export const useCliffStore = create<CliffStore>((set, get) => ({
       const inconclusiveTrials = report.status.status === "Inconclusive" ? report.status.trials : null;
       const concentration = report.status.status === "Collapsed" ? report.status.concentration ?? null : null;
       const budgetLtd = report.status.status === "BudgetLimited" ? { depth: report.status.depth, cap: report.status.cap } : null;
+      const capMarg = report.status.status === "CapMarginal" ? { cap: report.status.cap, usedMilli: report.status.used_milli } : null;
       set((s) => {
         const col = { ...(s.results[collectionId] ?? {}) };
         const conc = { ...(s.concentrated[collectionId] ?? {}) };
@@ -321,6 +336,9 @@ export const useCliffStore = create<CliffStore>((set, get) => ({
         const bl = { ...(s.budgetLimited[collectionId] ?? {}) };
         if (budgetLtd) bl[model] = budgetLtd;
         else delete bl[model];
+        const cm = { ...(s.capMarginal[collectionId] ?? {}) };
+        if (capMarg) cm[model] = capMarg;
+        else delete cm[model];
         // `results` holds GENUINE collapse depths only — set it for a real cliff, clear
         // it otherwise (no-cliff / broken render via their own flags, never a number).
         if (report.status.status === "Collapsed") col[model] = report.status.depth;
@@ -344,9 +362,11 @@ export const useCliffStore = create<CliffStore>((set, get) => ({
           lastInconclusive: inconclusiveTrials,
           lastConcentration: concentration,
           lastBudgetLimited: budgetLtd,
+          lastCapMarginal: capMarg,
           lastStatus: report.status,
           concentrated: { ...s.concentrated, [collectionId]: conc },
           budgetLimited: { ...s.budgetLimited, [collectionId]: bl },
+          capMarginal: { ...s.capMarginal, [collectionId]: cm },
           results: { ...s.results, [collectionId]: col },
         };
       });
@@ -374,6 +394,6 @@ export const useCliffStore = create<CliffStore>((set, get) => ({
     if (get().running) {
       void stopContextCliff().catch((e) => console.error("stop context-cliff failed:", e));
     }
-    set({ points: [], error: null, running: false, runningModel: null, progress: { done: 0, total: 0 }, frac: 0, step: null, startedAt: null, lastInconclusive: null, lastConcentration: null, lastBudgetLimited: null, lastStatus: null });
+    set({ points: [], error: null, running: false, runningModel: null, progress: { done: 0, total: 0 }, frac: 0, step: null, startedAt: null, lastInconclusive: null, lastConcentration: null, lastBudgetLimited: null, lastCapMarginal: null, lastStatus: null });
   },
 }));

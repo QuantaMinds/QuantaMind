@@ -201,6 +201,26 @@ fn no_cliff_probed_short_of_the_requirement_blocks() {
 }
 
 #[test]
+fn budget_outcomes_are_conditional_caveats_never_silent_passes() {
+    // Both budget verdicts measured the OUTPUT CAP, not context headroom. Before this
+    // arm existed, BudgetLimited fell through `_` and silently CERTIFIED headroom the
+    // probe never measured — the exact wildcard hazard the Inconclusive arm documents.
+    let mut p = lenient();
+    p.min_context_tokens = Some(8192);
+    for (cliff, needle) in [
+        (CliffStatus::BudgetLimited { depth: 6047, cap: 256 }, "budget-limited at 6047 tok"),
+        (CliffStatus::CapMarginal { cap: 256, used_milli: 1000 }, "baseline grazed the 256-token output cap"),
+    ] {
+        let mut i = clean_inputs();
+        i.cliff = cliff;
+        let v = assess(&i, &p);
+        assert_eq!(v.status, Readiness::Conditional, "unmeasured ≠ failure, but never a silent pass");
+        assert!(v.blocking.is_empty(), "a budget outcome must not red-block");
+        assert!(v.conditions.iter().any(|c| c.contains(needle)), "conditions: {:?}", v.conditions);
+    }
+}
+
+#[test]
 fn broken_baseline_blocks_a_context_gate() {
     let mut p = lenient();
     p.min_context_tokens = Some(2048);
