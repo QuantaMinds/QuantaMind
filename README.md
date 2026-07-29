@@ -10,7 +10,7 @@ Benchmark any **Ollama**, **llama.cpp**, or **MLX** model for *agentic readiness
 
 <br/>
 
-[![Discord](https://img.shields.io/badge/Discord-Get%20help%20from%20the%20team-5865F2?logo=discord&logoColor=white)](https://discord.gg/6CjSJyZTfG)
+[![Discord](https://img.shields.io/badge/Discord-Get%20help%20from%20the%20team-5865F2?logo=discord&logoColor=white)](https://discord.gg/qN5uTn9KKA)
 [![Repo](https://img.shields.io/badge/GitHub-QuantaMinds%2FQuantaMind-181717?logo=github)](https://github.com/QuantaMinds/QuantaMind)
 [![Website](https://img.shields.io/badge/Website-quantamind.co-2563EB?logo=googlechrome&logoColor=white)](https://quantamind.co/)
 
@@ -69,7 +69,7 @@ In the **desktop app**: open the **Tests** tab, pick your model, run a built-in 
 
 Full CLI reference, container images, checksums + attestation verification: **[CLI quickstart](./docs/cli/README.md#quickstart--three-commands-to-your-first-verdict)**.
 
-> 💬 **Hit a snag?** [Troubleshooting](./docs/reference.md#troubleshooting) covers the common ones — including macOS's ["developer cannot be verified" dialog](./docs/reference.md#macos-gatekeeper). Setup bugs are real bugs: [open an issue](https://github.com/QuantaMinds/QuantaMind/issues) or ask in [Discord](https://discord.gg/6CjSJyZTfG).
+> 💬 **Hit a snag?** [Troubleshooting](./docs/reference.md#troubleshooting) covers the common ones — including macOS's ["developer cannot be verified" dialog](./docs/reference.md#macos-gatekeeper). Setup bugs are real bugs: [open an issue](https://github.com/QuantaMinds/QuantaMind/issues) or ask in [Discord](https://discord.gg/qN5uTn9KKA).
 
 ---
 
@@ -206,7 +206,9 @@ Found a vulnerability? Please open a [private security advisory](https://github.
 
 ## Community
 
-- 💬 [Discord](https://discord.gg/6CjSJyZTfG) — talk directly to the core team
+- ⭐ [Star the repo](https://github.com/QuantaMinds/QuantaMind) — if QuantaMind is useful
+  to you, a star is the single best way to help others find it
+- 💬 [Discord](https://discord.gg/qN5uTn9KKA) — talk directly to the core team
   (also one click away in the app — the **Discord** button in the header)
 - 🐦 [𝕏 (Twitter)](https://x.com/QuantaMind_2025)
 - 🐛 [Issues](https://github.com/QuantaMinds/QuantaMind/issues) — setup bugs are real bugs

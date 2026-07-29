@@ -16,6 +16,10 @@ All notable changes to QuantaMind are documented here. The format follows
 
 ### Added
 
+- **Community popover: Star-on-GitHub** — the header community popover gains a
+  ⭐ Star on GitHub button (new Discord invite link too), and a guard test now keeps
+  `community/links.ts` and the `shell:allow-open` capability allowlist in sync — a URL
+  missing from the allowlist used to fail only at runtime.
 - **Context Stress Test verdict honesty** (prompted by community review of a published run —
   credit: community review): every rung now carries an uncapped per-task breakdown
   (`by_task`; GUI table, `qm cliff` `failures:` lines, JSON); a collapse verdict requires the

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { open as openUrl } from "@tauri-apps/plugin-shell";
-import { DISCORD_INVITE_URL, X_PROFILE_URL } from "../links";
+import { DISCORD_INVITE_URL, GITHUB_REPO_URL, X_PROFILE_URL } from "../links";
 import { useCommunityStore } from "../state/communityStore";
 
 function DiscordMark() {
@@ -75,12 +75,13 @@ export function CommunityButton() {
           <div className="text-sm font-semibold mb-1">Help build QuantaMind</div>
           <p className="text-xs text-gray-600 mb-2">
             This tool is shaped by user feedback — join the Discord to tell us what works and
-            what to build next, or use the Feedback button (bottom right) any time.
+            what to build next, or use the Feedback button (bottom right) any time. If
+            QuantaMind is useful to you, starring it on GitHub helps others find it. ⭐
           </p>
           <p className="text-xs text-gray-400 mb-2">
             These buttons only open your browser. Nothing about you or your machine is sent.
           </p>
-          <div className="flex items-center gap-2 justify-end">
+          <div className="flex flex-wrap items-center gap-2 justify-end">
             <button
               type="button"
               onClick={dismiss}
@@ -96,6 +97,14 @@ export function CommunityButton() {
               className="text-xs px-3 py-1 border rounded hover:bg-gray-50"
             >
               Follow on X
+            </button>
+            <button
+              type="button"
+              onClick={() => go(GITHUB_REPO_URL)}
+              data-testid="community-github"
+              className="text-xs px-3 py-1 border rounded hover:bg-gray-50"
+            >
+              ⭐ Star on GitHub
             </button>
             <button
               type="button"
