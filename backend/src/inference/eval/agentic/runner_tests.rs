@@ -2967,13 +2967,13 @@ fn unsatisfied_checkpoints_names_the_skipped_tools() {
         TaskCheckpoint { tool: "check_structuring".into(), args: json!({ "account": "AC-901" }) },
     ]);
     // Never called → "(never called)".
-    let note = super::unsatisfied_checkpoints(&end, &[true, false], 0, &[]).expect("one unsatisfied");
+    let note = super::unsatisfied_checkpoints(&end, &[true, false], 0, &[], &[]).expect("one unsatisfied");
     assert!(note.contains("check_structuring (never called)"), "names the skipped tool: {note}");
     assert!(!note.contains("get_wire"), "the satisfied tool is omitted: {note}");
     // All satisfied → no false "missing" note.
-    assert!(super::unsatisfied_checkpoints(&end, &[true, true], 0, &[]).is_none());
+    assert!(super::unsatisfied_checkpoints(&end, &[true, true], 0, &[], &[]).is_none());
     // A world-oracle end state has no discrete tool checkpoints → None (never fabricated).
-    assert!(super::unsatisfied_checkpoints(&EndStateRule::RequireWorldOracle, &[], 0, &[]).is_none());
+    assert!(super::unsatisfied_checkpoints(&EndStateRule::RequireWorldOracle, &[], 0, &[], &[]).is_none());
 }
 
 /// A checkpoint whose only call was fault-trapped (Driver B) and never retried must read
@@ -2986,9 +2986,32 @@ fn unsatisfied_checkpoints_distinguishes_faulted_from_skipped() {
         TaskCheckpoint { tool: "file_sar".into(), args: json!({ "id": "W-1" }) },
     ]);
     let faulted = [("check_structuring".to_string(), "HTTP 429 Service Unavailable".to_string())];
-    let note = super::unsatisfied_checkpoints(&end, &[false, false], 0, &faulted).expect("two unsatisfied");
+    let note = super::unsatisfied_checkpoints(&end, &[false, false], 0, &faulted, &[]).expect("two unsatisfied");
     assert!(note.contains("check_structuring (attempted — HTTP 429 Service Unavailable, not retried)"), "faulted: {note}");
     assert!(note.contains("file_sar (never called)"), "genuinely skipped tool stays 'never called': {note}");
+}
+
+/// A checkpoint whose tool WAS called but with non-matching args (the vaccine case:
+/// `refer_specialist` called, `reason` missing the required "live" factor) must read
+/// "called, but args didn't match" — quoting required vs got — NOT "never called".
+/// Precedence: a faulted attempt still wins its own label (recovery ≠ near miss).
+#[test]
+fn unsatisfied_checkpoints_labels_wrong_args_as_a_near_miss_not_a_skip() {
+    let end = EndStateRule::RequireAll(vec![
+        TaskCheckpoint { tool: "refer_specialist".into(), args: json!({ "id": "P-3", "reason": "~*immunocompromised*live*" }) },
+        TaskCheckpoint { tool: "check_pcp_referral".into(), args: json!({ "id": "P-1" }) },
+    ]);
+    let near = [("refer_specialist".to_string(), r#"{"id":"P-3","reason":"immunocompromised"}"#.to_string())];
+    let note = super::unsatisfied_checkpoints(&end, &[false, false], 0, &[], &near).expect("two unsatisfied");
+    assert!(
+        note.contains(r#"refer_specialist (called, but args didn't match — required {"id":"P-3","reason":"~*immunocompromised*live*"}, got {"id":"P-3","reason":"immunocompromised"})"#),
+        "near miss quotes required vs got: {note}"
+    );
+    assert!(note.contains("check_pcp_referral (never called)"), "genuinely skipped stays 'never called': {note}");
+    // A tool that both faulted and near-missed keeps the fault label (the actionable cause).
+    let faulted = [("refer_specialist".to_string(), "HTTP 503 Service Unavailable".to_string())];
+    let note = super::unsatisfied_checkpoints(&end, &[false, false], 0, &faulted, &near).expect("two unsatisfied");
+    assert!(note.contains("refer_specialist (attempted — HTTP 503 Service Unavailable, not retried)"), "fault label wins: {note}");
 }
 
 /// End-to-end through the runner: a model that yields prose on turn one (skipping the

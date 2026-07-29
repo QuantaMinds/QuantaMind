@@ -8,6 +8,14 @@ All notable changes to QuantaMind are documented here. The format follows
 
 ### Fixed
 
+- **Checkpoint near-misses are labeled honestly** — a required call made with the right
+  tool but non-matching args (e.g. a `reason` missing a required factor) now reads
+  `(called, but args didn't match — required …, got …)` instead of the false
+  `(never called)`. And `md_md_vaccine_schedule_by_age_risk` now pins its reason
+  requirement in the prompt ("defer/refer reasons must name the vaccine type and the
+  blocking factor") — the `~*immunocompromised*live*` answer key was demanding a token
+  the sandbox's own contraindication text never provides (checkpoint brittleness);
+  live-verified 3/3 native pass^k on the re-run.
 - **GUI eval runs silently dropped three task fields** — the task round-trip
   (frontend → `run_batch_eval`) stripped `field_projections`, `payload_noise`, and `mcp`
   from the zod schema, so GUI runs served whole entity blobs from field-scoped getters

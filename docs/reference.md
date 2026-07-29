@@ -662,7 +662,12 @@ Error), with a click-through Trace Debugger. See [the workspace](#eval-runner).
   the model calls each in order (same structural arg-equality the tool-call scorer
   uses). A model that yields with `{"status":"task_complete"}` without finishing the
   sequence is logged as a **hallucinated completion**, never a pass — it can't be
-  gamed by claiming done. `ExpectAbstainingText` is the inverse: success is a correct
+  gamed by claiming done. The hallucinated-done note names how each open checkpoint
+  came up short, in three honest flavors: `(never called)` — a genuine skip;
+  `(attempted — <fault>, not retried)` — the call was fault-trapped and never retried;
+  `(called, but args didn't match — required …, got …)` — right tool, wrong args
+  (e.g. a `reason` missing a required factor). A near-miss must never read as a skip.
+  `ExpectAbstainingText` is the inverse: success is a correct
   plain-text refusal with **no** tool call (so a robust planner that declines an
   unsafe/unnecessary action isn't mis-scored as lazy); acting anyway fails.
 - **Pass^k consistency.** The loop runs `k` times (default 5) with absolute
