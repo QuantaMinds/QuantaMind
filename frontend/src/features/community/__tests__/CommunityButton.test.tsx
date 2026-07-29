@@ -9,7 +9,7 @@ vi.mock("../../../shared/ipc/settings/userSettings", () => ({
 
 import { CommunityButton } from "../components/CommunityButton";
 import { useCommunityStore } from "../state/communityStore";
-import { DISCORD_INVITE_URL, X_PROFILE_URL } from "../links";
+import { DISCORD_INVITE_URL, GITHUB_REPO_URL, X_PROFILE_URL } from "../links";
 import { open } from "@tauri-apps/plugin-shell";
 import { getUserSettings, setUserSettings } from "../../../shared/ipc/settings/userSettings";
 
@@ -69,6 +69,14 @@ describe("CommunityButton", () => {
     await waitFor(() => expect(screen.getByTestId("community-popover")).toBeTruthy());
     fireEvent.click(screen.getByTestId("community-x"));
     expect(open).toHaveBeenCalledWith(X_PROFILE_URL);
+  });
+
+  it("Star on GitHub opens the repo in the OS browser and closes the popover", async () => {
+    render(<CommunityButton />);
+    await waitFor(() => expect(screen.getByTestId("community-popover")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("community-github"));
+    expect(open).toHaveBeenCalledWith(GITHUB_REPO_URL);
+    expect(screen.queryByTestId("community-popover")).toBeNull();
   });
 
   it("Escape dismisses the popover", async () => {

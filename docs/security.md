@@ -58,9 +58,10 @@ The rule-7 invariants from `CLAUDE.md`. Every change must uphold all of them:
   future XSS = attacker-in-webview). It cannot touch disk or network directly: there is NO
   `tauri-plugin-fs` and NO `tauri-plugin-http`. All file/network access is funneled through
   typed `#[tauri::command]` functions that validate at the boundary. `shell` is limited to a
-  URL-scoped `shell:allow-open` allowlist (docs/model hosts plus two pinned community URLs —
-  the Discord invite and the X profile — opened by the header community button, which sends
-  nothing). A restrictive CSP (`default-src 'self'`,
+  URL-scoped `shell:allow-open` allowlist (docs/model hosts plus three pinned community URLs —
+  the Discord invite, the X profile, and the GitHub repo — opened by the header community
+  button, which sends nothing; a guard test keeps `community/links.ts` and the capability
+  allowlist in sync). A restrictive CSP (`default-src 'self'`,
   `script-src 'self'`, no remote origins) is the backstop — set in `tauri.conf.json` with a
   relaxed `devCsp` for Vite HMR. There is no remote font and no CDN script: the Inter font is
   dropped in favour of the native system stack, and the Monaco editor is **self-hosted**
