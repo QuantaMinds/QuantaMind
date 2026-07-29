@@ -1454,7 +1454,13 @@ empty content with real reasoning behind it). Two flags derive from it: **amber*
 task whose tightest cell left <150‰ of the cap unused ("passed, 241/256 — likely to fail at the
 next rung"; incorrect reasoning chains run 1.3–2.5× longer than correct ones, so near-cap
 consumption is drift toward the failure population), and **red** on any failing cell that died at
-the cap. When a rung's failures ALL died at the cap, the verdict is **`BudgetLimited`** (exit 12)
+the cap. **A truncated generation can never be scored a pass**: well-formed is not the same as
+complete — the cap censors whatever came next (a wrong follow-up call, a self-correction), so a
+key match on the fragment is systematically biased toward pass. The grader gates on
+`finish == "length"` BEFORE the answer-key match, and the cell folds into the same died-at-cap
+bucket as a cap-hit failure (the cause is identical: the harness cap, not the model). This is the
+mirror of the failing-cap-hit rule — counting censored passes while excluding censored failures
+would bias every score upward. When a rung's failures ALL died at the cap, the verdict is **`BudgetLimited`** (exit 12)
 — a budget-bound measurement, never `Collapsed`: published best practice demands stop-reason
 inspection before any collapse claim. Deliberately NOT a promise the model would pass with more
 room — cap-consumers split into starved (recover with budget) and looping (eat any cap; loops are

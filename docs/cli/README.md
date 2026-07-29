@@ -512,7 +512,8 @@ context — a tool-call failure, not a context limit) · `2`/`3` as usual.
 
 Every rung line carries the sample and per-task breakdown; failing tasks that died at the cap are
 marked `(N died at cap)`, and passing tasks within 150‰ of the cap get a `near-cap:` early-warning
-line (greedy-calibrated).
+line (greedy-calibrated). A generation cut at the cap (`finish == "length"`) is **never scored a
+pass**, whatever parsed out of the fragment — well-formed ≠ complete; it counts as died-at-cap.
 
 **The collapse verdict is statistically gated:** `collapsed` requires the ≥20pp point drop AND the
 drop's Wilson/Newcombe 95% interval excluding zero — a margin-sized drop the sample can't resolve

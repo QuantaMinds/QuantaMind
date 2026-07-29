@@ -417,7 +417,20 @@ async fn run_position<T: ModelTurn, F: Fn(&ToolTask) -> T>(
         // scoring stays byte-identical across the two paths.
         let turn = make_turn(task);
         let (raw, stats) = turn.run(&spec, &Progress::new()).await?;
-        let verdict = score(&task.expected, extract_calls(&raw).as_deref());
+        let cap_hit = stats.finish_reason.as_deref().map(|r| r == "length");
+        // A truncated generation (`finish == "length"`) can never PASS, regardless of
+        // what parses out of the fragment: the cap censors whatever came next (a wrong
+        // follow-up call, a self-correction), so a key match on the fragment is biased
+        // toward pass. Gated HERE, before the answer-key match — the mirror of the
+        // failing-cap-hit rule, which already refuses to count those cells as model
+        // failures. Both land in the same died-at-cap bucket: the cause is the harness
+        // cap, not the model. An unreported finish scores normally — absence of
+        // measurement is never an attribution.
+        let verdict = if cap_hit == Some(true) {
+            Verdict { parsed: false, tool_match: false, args_match: false, abstain_correct: None }
+        } else {
+            score(&task.expected, extract_calls(&raw).as_deref())
+        };
         // Keep the padded input + raw completion for EVERY task (pass or fail), so the
         // rung's "View trace" shows exactly what the model saw and emitted at this step.
         // `passed` is the cliff yardstick (`cliff_failed`). The system prompt is the same
@@ -429,7 +442,7 @@ async fn run_position<T: ModelTurn, F: Fn(&ToolTask) -> T>(
             passed: !cliff_failed(task, &verdict),
             decoded: stats.eval_count,
             thinking: stats.thinking_tokens,
-            cap_hit: stats.finish_reason.as_deref().map(|r| r == "length"),
+            cap_hit,
         });
         results.push(TaskResult {
             id: task.id.clone(),

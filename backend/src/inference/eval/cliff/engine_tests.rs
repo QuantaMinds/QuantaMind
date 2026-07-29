@@ -1265,6 +1265,58 @@ fn cap_marginal_serde_round_trip() {
     assert_eq!(serde_json::from_str::<CliffStatus>(&json).unwrap(), s);
 }
 
+// ── truncated-pass gate: a cell cut at the cap can never be scored a pass ────────────
+
+/// Scripted model that emits a CORRECT, parseable call but reports `finish == "length"`
+/// past `threshold` context — the wire shape of the contamination: the call is
+/// well-formed, but the generation was guillotined, so whatever came next (a wrong
+/// follow-up call, a self-correction) is censored. Under `threshold` it finishes clean.
+struct TruncatedPassModel {
+    threshold: u32,
+    good: String,
+}
+
+impl ModelTurn for TruncatedPassModel {
+    async fn run(&self, spec: &GenerateSpec, _progress: &Progress) -> AppResult<(String, GenerateStats)> {
+        let chars = spec.system.as_deref().map_or(0, |s| s.len()) + spec.prompt.len();
+        let toks = (chars / 4) as u32;
+        let cap = spec.options.as_ref().and_then(|o| o.num_predict).unwrap_or(256);
+        let truncated = toks >= self.threshold;
+        Ok((self.good.clone(), GenerateStats {
+            prompt_eval_count: Some(toks),
+            eval_count: Some(if truncated { cap } else { cap / 4 }),
+            finish_reason: Some(if truncated { "length" } else { "stop" }.into()),
+            ..Default::default()
+        }))
+    }
+}
+
+/// Well-formed is not the same as complete: a rung whose cells all emit the CORRECT
+/// call but die at the cap must classify BudgetLimited — the passes are artifacts of
+/// censoring, never a measured NoCliff. Before the gate, this exact shape scored
+/// 15/15 and the curve was part artifact (6 such cells sat in the live Leg-1 rung 2).
+#[tokio::test]
+async fn truncated_correct_output_never_scores_a_pass() {
+    let model = TruncatedPassModel { threshold: 3_000, good: GOOD.into() };
+    let tasks: Vec<ToolTask> = (0..5).map(|i| agentic_task(&format!("t{i}"))).collect();
+    let report = run_cliff(&model, "m", &tasks, &source(), &[0u32, 4_000, 8_000], &DEFAULT_DEPTHS).await.unwrap();
+    match report.status {
+        CliffStatus::BudgetLimited { depth, cap } => {
+            assert!(depth > 3_000, "the budget event is the deep rung: {depth}");
+            assert_eq!(cap, 256);
+        }
+        other => panic!("truncated passes must read as a budget event, not a model verdict: {other:?}"),
+    }
+    // Every truncated cell is a died-at-cap, none is a pass — and the baseline
+    // (clean finishes, quarter-cap usage) stays a full pass, so the gate cuts
+    // exactly the censored cells and nothing else.
+    let deep = report.points.last().unwrap();
+    assert_eq!(deep.passed, Some(0), "a censored fragment is never a pass");
+    assert_eq!(cap_deaths_of(deep), deep.trials.unwrap(), "all cells fold into died-at-cap");
+    assert_eq!(report.points[0].passed, Some(5), "clean-finish baseline cells still pass");
+    assert_eq!(report.cliff_tokens, None);
+}
+
 // ── three-bucket aggregate: cap-deaths enter neither numerator nor denominator ──────
 
 /// Build a point and stamp its wire cap_deaths from the tallies (as the engine does).
