@@ -13,6 +13,7 @@ use crate::inference::eval::agentic::step::TrajectoryStep;
 use crate::inference::eval::agentic::v2::generator;
 use crate::inference::eval::toolcall::eval::{aggregate, trace_one_with, TaskResult, ToolCallReport, TraceResult};
 use crate::inference::eval::toolcall::matrix::ModelTarget;
+use crate::persistence::prompts::schema::InferenceParams;
 use crate::inference::eval::toolcall::score::verdict_passed;
 use crate::inference::eval::toolcall::tasks::{is_agentic, ToolTask};
 use crate::inference::eval::run_summary::RunSummary;
@@ -364,6 +365,11 @@ pub struct BatchReport {
     /// existed. `#[serde(default)]`.
     #[serde(default)]
     pub think_preset: Option<ThinkPreset>,
+    /// The full inference params THIS batch ran with, stamped at run time like `num_ctx` —
+    /// publish reads THESE (never the live global header, which the user may have edited since
+    /// the run). `None` = the run sent no params (backend defaults) or a pre-this-field report.
+    #[serde(default)]
+    pub params: Option<InferenceParams>,
 }
 
 fn mean_f64(xs: &[f64]) -> Option<f64> {
@@ -730,7 +736,7 @@ where
     }
     // The engine is param-agnostic; the command layer stamps `num_ctx`/`ollama_version`/reasoning
     // budget after.
-    Ok(BatchReport { collection_id: collection_id.to_string(), columns, num_ctx: None, ollama_version: None, collection_hash: None, think_preset: None })
+    Ok(BatchReport { collection_id: collection_id.to_string(), columns, num_ctx: None, ollama_version: None, collection_hash: None, think_preset: None, params: None })
 }
 
 /// Build a partial `BatchReport` from already-completed units ONLY — no execution.
@@ -777,7 +783,7 @@ pub fn fold_report(
             }
         })
         .collect();
-    BatchReport { collection_id: collection_id.to_string(), columns, num_ctx: None, ollama_version: None, collection_hash: None, think_preset: None }
+    BatchReport { collection_id: collection_id.to_string(), columns, num_ctx: None, ollama_version: None, collection_hash: None, think_preset: None, params: None }
 }
 
 fn unit_of(target: &ModelTarget, task: &ToolTask, outcome: TaskOutcome, is_native: bool) -> CompletedUnit {

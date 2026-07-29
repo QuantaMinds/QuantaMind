@@ -1853,10 +1853,11 @@ so results compare only across an identical scenario set), build provenance
 (`schema_version`, `engine_version`, `build_hash` — a short git commit from `build.rs`),
 and the **inference `params`** the run used (temperature, top-p/k, max_tokens,
 repeat_penalty, seed, num_ctx) so the board knows the sampling/context a `pass_k` was
-measured under. The params are the **global-header** snapshot in effect at publish time
-(the single source every run reads — architecture.md rule 7); only keys the user
-actually set are sent (each field skip-serializes when unset), so an empty `{}` honestly
-means "ran on the backend defaults" — never a fabricated value. **Never sent:** task
+measured under. The params are **stamped on the batch report at run time** (like
+`collection_hash`) and publish reads the report's copy — never the live global header,
+which the user may have edited since the run; only keys the run actually set are sent
+(each field skip-serializes when unset), so an empty `{}` honestly means "ran on the
+backend defaults / not recorded on a pre-stamp report" — never a fabricated value. **Never sent:** task
 content, prompts, file names, raw model output, traces, verdict reasons, results on
 **custom (non-built-in) collections** (dropped by the `collection_hash` gate), or any
 identity beyond the GitHub handle. The payload is built in Rust

@@ -445,6 +445,7 @@ pub async fn run_mcp_byo_batch(
         ollama_version: None,
         collection_hash: None, // never publishable — no answer key
         think_preset: None,
+        params: None,
     };
     log_emit(&app, EVENT_BATCH_COMPLETE, BatchCompletePayload { report: full.clone(), r#final: true });
 

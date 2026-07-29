@@ -11,6 +11,7 @@ fn report(collection_id: &str, passes: u32) -> BatchReport {
         ollama_version: None,
         collection_hash: None,
         think_preset: None,
+        params: None,
         columns: vec![BatchColumn {
             model: "qwen".into(),
             backend: BackendKind::Ollama,

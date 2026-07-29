@@ -456,6 +456,24 @@ async fn n1_records_once_per_task_in_task_index_order() {
     assert_eq!(*rec.lock().unwrap(), vec!["t0", "t1", "t2"], "N=1 records exactly once per task, in task order");
 }
 
+// A report saved BEFORE the run-params stamp (no `params` key) must still load — and a
+// stamped report must round-trip the exact params, since publish reads them from here.
+#[test]
+fn report_params_round_trip_and_pre_field_reports_load_as_none() {
+    let old = json!({ "collection_id": "c", "columns": [] });
+    let loaded: BatchReport = serde_json::from_value(old).unwrap();
+    assert_eq!(loaded.params, None, "a pre-params report loads with params = None");
+
+    let mut report = loaded;
+    report.params = Some(crate::persistence::prompts::schema::InferenceParams {
+        temperature: Some(0.2),
+        num_ctx: Some(8192),
+        ..Default::default()
+    });
+    let round: BatchReport = serde_json::from_str(&serde_json::to_string(&report).unwrap()).unwrap();
+    assert_eq!(round.params, report.params, "stamped run params must survive save/load unchanged");
+}
+
 // Gate 2 — N=3 order-deterministic: the SAME batch at concurrency=3 EQUALS the N=1 report, and
 // the durable `record` append order is task-INDEX order despite REVERSED completion (the
 // staggered mock finishes higher indices first). Proves the commit is index-ordered, not
@@ -794,6 +812,7 @@ fn ollama_version_makes_a_native_garble_diagnosable_on_the_report() {
         ollama_version: Some("0.11.10".into()),
         collection_hash: None,
         think_preset: None,
+        params: None,
         columns: vec![BatchColumn {
             model: "qwen3".into(),
             backend: BackendKind::Ollama,
@@ -848,6 +867,7 @@ async fn live_diag_app_native_pass_for_gemma4() {
         ollama_version: None,
         collection_hash: None,
         think_preset: None,
+        params: None,
         columns: vec![BatchColumn {
             model: GEMMA.into(),
             backend: BackendKind::Ollama,

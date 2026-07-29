@@ -42,22 +42,24 @@ beforeEach(() => {
 
 describe("PublishButton", () => {
   it("opens the privacy dialog on click", async () => {
-    render(<><PublishButton verdicts={VERDICTS} collectionId="easy-coding" collectionHash="abc" /><ToastHost /></>);
+    render(<><PublishButton verdicts={VERDICTS} collectionId="easy-coding" collectionHash="abc" runParams={{ temperature: 0.2 }} /><ToastHost /></>);
     fireEvent.click(screen.getByTestId("publish-open"));
     expect(await screen.findByTestId("publish-dialog")).toBeInTheDocument();
   });
 
   it("toasts success and opens the board url on ok", async () => {
     vi.mocked(publishToBoard).mockResolvedValue({ kind: "ok", board_url: "https://quantamind.co/b/1" });
-    render(<><PublishButton verdicts={VERDICTS} collectionId="easy-coding" collectionHash="abc" /><ToastHost /></>);
+    render(<><PublishButton verdicts={VERDICTS} collectionId="easy-coding" collectionHash="abc" runParams={{ temperature: 0.2 }} /><ToastHost /></>);
     await openDialogAndAgree();
     await waitFor(() => expect(screen.getByTestId("toast")).toHaveTextContent("Published"));
     expect(openUrl).toHaveBeenCalledWith("https://quantamind.co/b/1");
+    // The RUN-stamped params (threaded from the batch report) are what get published.
+    expect(publishToBoard).toHaveBeenCalledWith(VERDICTS, { temperature: 0.2 }, "easy-coding", "abc", "");
   });
 
   it("surfaces the failing row index on invalid, without crashing", async () => {
     vi.mocked(publishToBoard).mockResolvedValue({ kind: "invalid", index: 2 });
-    render(<><PublishButton verdicts={VERDICTS} collectionId="easy-coding" collectionHash="abc" /><ToastHost /></>);
+    render(<><PublishButton verdicts={VERDICTS} collectionId="easy-coding" collectionHash="abc" runParams={{ temperature: 0.2 }} /><ToastHost /></>);
     await openDialogAndAgree();
     await waitFor(() => expect(screen.getByTestId("toast")).toHaveTextContent("Row 2"));
   });
@@ -66,7 +68,7 @@ describe("PublishButton", () => {
     vi.mocked(publishToBoard)
       .mockResolvedValueOnce({ kind: "needs_auth" })
       .mockResolvedValueOnce({ kind: "ok", board_url: "https://quantamind.co/b/2" });
-    render(<><PublishButton verdicts={VERDICTS} collectionId="easy-coding" collectionHash="abc" /><ToastHost /></>);
+    render(<><PublishButton verdicts={VERDICTS} collectionId="easy-coding" collectionHash="abc" runParams={{ temperature: 0.2 }} /><ToastHost /></>);
     await openDialogAndAgree();
     await waitFor(() => expect(startLogin).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.getByTestId("toast")).toHaveTextContent("Published"));
@@ -79,7 +81,7 @@ describe("PublishButton", () => {
     vi.mocked(publishToBoard)
       .mockResolvedValueOnce({ kind: "needs_auth" })
       .mockResolvedValueOnce({ kind: "ok", board_url: "https://quantamind.co/b/3" });
-    render(<><PublishButton verdicts={VERDICTS} collectionId="easy-coding" collectionHash="abc" /><ToastHost /></>);
+    render(<><PublishButton verdicts={VERDICTS} collectionId="easy-coding" collectionHash="abc" runParams={{ temperature: 0.2 }} /><ToastHost /></>);
     await openDialogAndAgree();
     await waitFor(() => expect(screen.getByTestId("toast")).toHaveTextContent("this session"));
     await waitFor(() => expect(screen.getByTestId("toast")).toHaveTextContent("Published"));
@@ -87,7 +89,7 @@ describe("PublishButton", () => {
 
   it("stops after one retry if sign-in still leaves needs_auth", async () => {
     vi.mocked(publishToBoard).mockResolvedValue({ kind: "needs_auth" });
-    render(<><PublishButton verdicts={VERDICTS} collectionId="easy-coding" collectionHash="abc" /><ToastHost /></>);
+    render(<><PublishButton verdicts={VERDICTS} collectionId="easy-coding" collectionHash="abc" runParams={{ temperature: 0.2 }} /><ToastHost /></>);
     await openDialogAndAgree();
     await waitFor(() => expect(screen.getByTestId("toast")).toHaveTextContent("didn't complete"));
     expect(startLogin).toHaveBeenCalledTimes(1);
@@ -97,7 +99,7 @@ describe("PublishButton", () => {
   it("toasts the login error when sign-in itself fails", async () => {
     vi.mocked(publishToBoard).mockResolvedValue({ kind: "needs_auth" });
     vi.mocked(startLogin).mockRejectedValue(new Error("browser closed"));
-    render(<><PublishButton verdicts={VERDICTS} collectionId="easy-coding" collectionHash="abc" /><ToastHost /></>);
+    render(<><PublishButton verdicts={VERDICTS} collectionId="easy-coding" collectionHash="abc" runParams={{ temperature: 0.2 }} /><ToastHost /></>);
     await openDialogAndAgree();
     await waitFor(() => expect(screen.getByTestId("toast")).toHaveTextContent("browser closed"));
     expect(publishToBoard).toHaveBeenCalledTimes(1);
@@ -105,14 +107,14 @@ describe("PublishButton", () => {
 
   it("toasts a friendly message on rate_limited", async () => {
     vi.mocked(publishToBoard).mockResolvedValue({ kind: "rate_limited" });
-    render(<><PublishButton verdicts={VERDICTS} collectionId="easy-coding" collectionHash="abc" /><ToastHost /></>);
+    render(<><PublishButton verdicts={VERDICTS} collectionId="easy-coding" collectionHash="abc" runParams={{ temperature: 0.2 }} /><ToastHost /></>);
     await openDialogAndAgree();
     await waitFor(() => expect(screen.getByTestId("toast")).toHaveTextContent("try again shortly"));
   });
 
   it("never throws when the IPC itself rejects", async () => {
     vi.mocked(publishToBoard).mockRejectedValue(new Error("backend down"));
-    render(<><PublishButton verdicts={VERDICTS} collectionId="easy-coding" collectionHash="abc" /><ToastHost /></>);
+    render(<><PublishButton verdicts={VERDICTS} collectionId="easy-coding" collectionHash="abc" runParams={{ temperature: 0.2 }} /><ToastHost /></>);
     await openDialogAndAgree();
     await waitFor(() => expect(screen.getByTestId("toast")).toHaveTextContent("Publish failed"));
   });

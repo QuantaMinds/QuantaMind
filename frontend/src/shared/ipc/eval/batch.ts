@@ -4,7 +4,7 @@ import { BackendKindSchema } from "../models/storage";
 import { ToolCallReportSchema, TraceResultSchema } from "./toolcall";
 import type { ModelTarget } from "./matrix";
 import type { ToolTask } from "./registry";
-import type { InferenceParams } from "../workspace/prompts";
+import { InferenceParamsSchema, type InferenceParams } from "../workspace/prompts";
 import type { Tier } from "./readiness";
 
 export const EVENT_BATCH_PROGRESS = "batch-progress";
@@ -400,6 +400,10 @@ export const BatchReportSchema = z.object({
   // this to publish — it's the single source of truth for publishability (the backend never
   // re-derives it). Nullish so older reports parse (as not-publishable).
   collection_hash: z.string().nullish(),
+  // The FULL inference params THIS run sent, stamped at run time like num_ctx. Publish reads
+  // THESE (never the live global header, which may have been edited since the run). Nullish:
+  // older reports / a run that sent no params (backend defaults) omit it.
+  params: InferenceParamsSchema.nullish(),
 });
 export type BatchReport = z.infer<typeof BatchReportSchema>;
 

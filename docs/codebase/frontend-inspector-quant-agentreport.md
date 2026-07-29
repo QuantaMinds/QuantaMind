@@ -432,7 +432,11 @@ board. Default-OFF opt-in, aggregate-only.
 **Responsibility:** build the **exact** payload preview in Rust
 (`preview_publish_payload(verdicts)`), show the user precisely what will and won't
 leave the machine (`WhatsSharedPanel`) plus the raw canonical JSON, and require an
-explicit tick + an allow-listed write-up link before Publish enables. **Why:** a
+explicit tick + an allow-listed write-up link before Publish enables. The inference
+`params` it previews/publishes arrive as a **prop threaded from the batch report**
+(`AgentReportPage` passes `batchReport?.params ?? {}` → `PublishButton runParams` →
+dialog `params`) — the params the RUN was stamped with, never `paramsStore`'s live
+global header, so editing the header after a run can't change what's published. **Why:** a
 result is only publishable once it has a *measured Pass^k* and a *known
 quantization*; the empty/excluded states explain why a model was dropped, and
 `disabledReason` is surfaced as the button tooltip so a greyed-out Publish is

@@ -564,7 +564,7 @@ export function AgentReportPage() {
               hardware={hardware}
               cardRef={cardRef}
             />
-            <PublishButton verdicts={verdicts} collectionId={selected} collectionHash={batchReport?.collection_hash ?? null} />
+            <PublishButton verdicts={verdicts} collectionId={selected} collectionHash={batchReport?.collection_hash ?? null} runParams={batchReport?.params ?? {}} />
           </div>
         )}
       </footer>

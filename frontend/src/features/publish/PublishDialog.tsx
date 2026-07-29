@@ -3,7 +3,6 @@ import { formatIpcError } from "../../shared/ipc/core/error";
 import { previewPublishPayload, type PublishPreview } from "../../shared/ipc/publish/preview";
 import type { ModelVerdict } from "../../shared/ipc/eval/readiness";
 import type { InferenceParams } from "../../shared/ipc/workspace/prompts";
-import { useParamsStore } from "../../shared/state/paramsStore";
 import { WhatsSharedPanel } from "./WhatsSharedPanel";
 import { isAllowedWriteupLink } from "./writeupLink";
 
@@ -15,6 +14,10 @@ interface Props {
   /// bundled collection, null for custom/imported OR any edit. The backend uses THIS to exclude
   /// non-publishable rows (never re-derives from the id) — so an edited collection can't publish.
   collectionHash: string | null;
+  /// The inference params the RUN actually used, stamped on the batch report at run time (like
+  /// `collection_hash`). Never the live global header — editing the header after a run must not
+  /// change what's published. `{}` = the run sent none (backend defaults) / older report.
+  params: InferenceParams;
   onClose: () => void;
   /// Invoked with the agreed preview, the (optional, allow-listed) write-up link, and
   /// the exact params snapshot the preview was built from — so what's published is
@@ -25,16 +28,12 @@ interface Props {
 /// The privacy gate: build the exact payload preview in Rust, show the user what
 /// will (and won't) leave their machine plus the raw JSON, and require an explicit
 /// default-OFF opt-in before Publish enables. Aggregate-only, community-reported.
-export function PublishDialog({ verdicts, collectionId, collectionHash, onClose, onPublish }: Props) {
+export function PublishDialog({ verdicts, collectionId, collectionHash, params, onClose, onPublish }: Props) {
   const [preview, setPreview] = useState<PublishPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [agreed, setAgreed] = useState(false);
   const [link, setLink] = useState("");
   const linkOk = isAllowedWriteupLink(link);
-  // The global header is the single source every run reads (architecture.md rule 7), so
-  // the published params are exactly what the eval used — assuming the header is unchanged
-  // since the run. Reactive: editing the header rebuilds the preview so it never goes stale.
-  const params = useParamsStore((s) => s.globalParams);
 
   useEffect(() => {
     let live = true;
