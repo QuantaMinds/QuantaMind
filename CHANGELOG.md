@@ -8,6 +8,13 @@ All notable changes to QuantaMind are documented here. The format follows
 
 ### Fixed
 
+- **GUI eval runs silently dropped three task fields** — the task round-trip
+  (frontend → `run_batch_eval`) stripped `field_projections`, `payload_noise`, and `mcp`
+  from the zod schema, so GUI runs served whole entity blobs from field-scoped getters
+  (a getter could leak another tool's answer key → false FAKE-DONE on
+  `md_md_referral_by_coverage`), ran noisy tasks clean, and lost MCP world configs — while
+  the CLI and backend tests stayed green. A new drift guard reads the real Rust
+  `AgenticSpec` and goes red whenever it gains a field the TS schema doesn't list.
 - **Release pipeline was down since 0.2.4**: the dist workflow chained the Docker build
   (#216) without granting the called workflow's permissions, so GitHub rejected the whole
   file at parse time — every run since Jul 23 (PRs *and* any future `quantamind-v*` tag)

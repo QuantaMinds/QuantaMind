@@ -1023,7 +1023,12 @@ in CI, from one shared implementation.
    — model a resource read through disjoint endpoints (`get_service` → `class`,
    `check_sessions` → `active_sessions`) so a model must call the RIGHT endpoint
    for each fact instead of reading everything from one. Absent → the whole blob;
-   a field missing from an entity yields `{}` (never a fabricated value).
+   a field missing from an entity yields `{}` (never a fabricated value). The
+   projection (like every opaque backend field) must survive the GUI task
+   round-trip: `AgenticSpecSchema` lists it verbatim, and a drift-guard test
+   (`registry.driftguard.test.ts`) reads the real Rust `AgenticSpec` and fails
+   whenever a new field is missing from the TS schema — an unlisted field is
+   silently stripped and the sandbox would leak whole blobs again.
 5. **Decoys are traps, not information.** `decoy_tools` are shown to the model
    alongside real tools but excluded from the getter set — calling one yields an
    unknown-tool nudge, never data. Pair each decoy with `must_not_call` (bare
