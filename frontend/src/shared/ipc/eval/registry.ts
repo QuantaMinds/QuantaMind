@@ -104,6 +104,17 @@ export const AgenticSpecSchema = z.object({
   /// task round-trip → the backend re-receives it as `Entity` → the fs env never activates
   /// (read_file acks empty, no visual replay). Opaque to the frontend; preserved verbatim.
   environment: z.string().optional(),
+  /// Leaky-getter remediation: getter tool name → the field subset it surfaces. MUST be
+  /// listed or `z.object()` strips it on the round-trip → the sandbox serves WHOLE entity
+  /// blobs and a getter leaks other tools' answer keys (the md_md_referral_by_coverage
+  /// false FAKE-DONE). Opaque to the frontend; preserved verbatim.
+  field_projections: z.record(z.string(), z.array(z.string())).optional(),
+  /// Payload-noise flag: wraps getter blobs in messy JSON. Same strip hazard — losing it
+  /// silently runs the easy (clean-payload) variant of a noisy task. Preserved verbatim.
+  payload_noise: z.boolean().optional(),
+  /// MCP world config. Same strip hazard — an MCP task re-received without it runs
+  /// against the wrong world. Opaque to the frontend; preserved verbatim.
+  mcp: z.unknown().optional(),
 });
 export type AgenticSpec = z.infer<typeof AgenticSpecSchema>;
 
