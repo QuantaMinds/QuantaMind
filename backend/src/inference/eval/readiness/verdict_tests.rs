@@ -26,7 +26,7 @@ fn clean_inputs() -> ReadinessInputs {
         pass_k: Some(0.95),
         avg_steps: Some(2.0),
         ms_per_step: Some(800),
-        cliff: CliffStatus::NoCliff { tested: 16_384 },
+        cliff: CliffStatus::NoCliff { tested: 16_384, saturated: false },
         fits_in_vram: Some(true),
         vram_pressure: false,
         kv_downgraded: false,
@@ -185,7 +185,7 @@ fn no_cliff_tested_to_the_requirement_passes() {
     let mut p = lenient();
     p.min_context_tokens = Some(2048);
     let mut i = clean_inputs();
-    i.cliff = CliffStatus::NoCliff { tested: 4096 }; // held past the requirement
+    i.cliff = CliffStatus::NoCliff { tested: 4096, saturated: false }; // held past the requirement
     assert_eq!(assess(&i, &p).status, Readiness::Ready);
 }
 
@@ -194,7 +194,7 @@ fn no_cliff_probed_short_of_the_requirement_blocks() {
     let mut p = lenient();
     p.min_context_tokens = Some(2048);
     let mut i = clean_inputs();
-    i.cliff = CliffStatus::NoCliff { tested: 1024 }; // an incomplete probe is not a pass
+    i.cliff = CliffStatus::NoCliff { tested: 1024, saturated: false }; // an incomplete probe is not a pass
     let v = assess(&i, &p);
     assert_eq!(v.status, Readiness::NotReady);
     assert!(v.blocking.iter().any(|b| b.contains("only probed to 1024 tok < 2048 needed")));

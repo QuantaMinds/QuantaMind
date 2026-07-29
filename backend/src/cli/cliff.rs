@@ -133,13 +133,21 @@ pub fn render_cliff(r: &CliffReport) -> String {
         }
     }
     out.push_str(&match &r.status {
-        CliffStatus::NoCliff { tested } => {
+        CliffStatus::NoCliff { tested, saturated } => {
             let cap_total: u32 = r.points.iter().map(|p| p.cap_deaths).sum();
             if cap_total > 0 {
                 format!(
                     "STATUS: ✓ no cliff on content — maintained up to ≈{tested} tokens; {cap_total} cell(s) \
                      died at the output cap along the way (budget events, excluded from the model claim — \
                      raise the budget to measure them)\n"
+                )
+            } else if *saturated {
+                // Held-to-depth is certified; the CEILING is not — zero failures means the
+                // ladder never engaged the limit, and a clean ✓ would read as a clean bill.
+                format!(
+                    "STATUS: ✓ no cliff to ≈{tested} tokens — but zero failures anywhere on the ladder: \
+                     the probe never engaged the model's limit, so no ceiling was located. Extend \
+                     --max-tokens or use a harder collection to find it.\n"
                 )
             } else {
                 format!("STATUS: ✓ no cliff — accuracy maintained up to ≈{tested} tokens\n")

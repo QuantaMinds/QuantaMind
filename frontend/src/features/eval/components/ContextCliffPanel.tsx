@@ -686,7 +686,7 @@ export function ContextCliffPanel() {
               ? "Running…"
               : lastStatus?.status === "NoCliff"
                 ? lastStatus.tested > 0
-                  ? `Accuracy maintained up to ≈${Math.round(lastStatus.tested / 1000) * 1000} tokens${points.some((p) => (p.capDeaths ?? 0) > 0) ? " (content-only claim — some cells died at the output cap; see the rung table)" : ""}`
+                  ? `Accuracy maintained up to ≈${Math.round(lastStatus.tested / 1000) * 1000} tokens${points.some((p) => (p.capDeaths ?? 0) > 0) ? " (content-only claim — some cells died at the output cap; see the rung table)" : ""}${lastStatus.saturated ? " — zero failures anywhere on the ladder, so no ceiling was located: extend the ladder or use a harder collection to find it" : ""}`
                   : "Ran — context-token depth not reported"
               : lastStatus?.status === "Broken"
                 ? "Fails at the smallest tested context — broken baseline (a tool-call failure, not a context-length limit)"

@@ -290,7 +290,7 @@ pub fn save_cliff_result(
     } else {
         match depth {
             Some(d) => CliffStatus::Collapsed { depth: d, concentration: None },
-            None => CliffStatus::NoCliff { tested },
+            None => CliffStatus::NoCliff { tested, saturated: false }, // primitive path — cannot claim zero failures
         }
     };
     cliff::save(&cliff_dir(&app)?, &collection_id, &model, status)

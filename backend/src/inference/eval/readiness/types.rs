@@ -37,7 +37,16 @@ pub struct CliffConcentration {
 pub enum CliffStatus {
     #[default]
     NotProbed,
-    NoCliff { tested: u32 },
+    NoCliff {
+        tested: u32,
+        /// True when NO failure was observed at ANY rung: the ladder never engaged the
+        /// model's limit. "Held to `tested`" stays certified (the rungs WERE measured,
+        /// so the readiness headroom gate is untouched) — but the CEILING was not
+        /// located, so every render carries the extend-the-ladder caveat instead of a
+        /// clean ✓. `#[serde(default)]` = pre-field records parse as not-saturated.
+        #[serde(default)]
+        saturated: bool,
+    },
     Collapsed {
         depth: u32,
         /// `Some` when the collapsing rung's failures concentrated in one task (see

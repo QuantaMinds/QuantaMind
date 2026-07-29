@@ -1478,6 +1478,13 @@ out cap cells — documented limit; the triple still renders beside it). Caveat:
 is measured under greedy at a fixed budget — a within-run comparison, not a cross-configuration
 constant; under sampling, within-task length spread is ~3×, so the amber flag is advisory there.
 
+**Saturated no-cliff (ceiling not located).** A `NoCliff` whose ladder saw ZERO failures at any
+rung carries `saturated: true`: the held-to-depth claim stands — the rungs were measured, so the
+readiness headroom gate is untouched — but the probe never engaged the model's limit, so the
+ceiling was NOT located. Every render (CLI STATUS, panel read-out, Agent Report) replaces the
+clean ✓ with "no ceiling located — extend the ladder or use a harder collection". A no-cliff
+that DID see failures (just not collapse-scale ones) is not saturated: the instrument engaged.
+
 **The baseline cap-headroom gate (`CapMarginal`, exit 13).** A baseline that passes only by
 GRAZING its output cap — tightest passing cell used ≥900‰ (0.9) of it — cannot anchor a ladder:
 the smallest cap that "passes clean" sits at the edge by construction, so every padded rung

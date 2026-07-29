@@ -71,7 +71,7 @@ pub fn assess(i: &ReadinessInputs, p: &ReadinessProfile) -> ReadinessVerdict {
             CliffStatus::Collapsed { depth, .. } if depth < min_tok => {
                 blocking.push(format!("reasoning cliff at {} < {} needed", depth, min_tok));
             }
-            CliffStatus::NoCliff { tested } if tested < min_tok => {
+            CliffStatus::NoCliff { tested, .. } if tested < min_tok => {
                 blocking.push(format!("only probed to {} tok < {} needed (no cliff, but headroom unproven)", tested, min_tok));
             }
             CliffStatus::Broken { .. } => {

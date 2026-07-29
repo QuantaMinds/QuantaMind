@@ -105,6 +105,16 @@ describe("CliffStatus BudgetLimited (mirror of Rust)", () => {
   });
 });
 
+describe("CliffStatus NoCliff saturated flag (mirror of Rust)", () => {
+  it("parses with and without the flag — pre-field reports stay readable", async () => {
+    const { CliffStatusSchema } = await import("../readiness");
+    const saturated = { status: "NoCliff", tested: 8859, saturated: true };
+    expect(CliffStatusSchema.parse(saturated)).toEqual(saturated);
+    const legacy = { status: "NoCliff", tested: 4033 };
+    expect(CliffStatusSchema.parse(legacy)).toEqual(legacy);
+  });
+});
+
 describe("CliffStatus CapMarginal (mirror of Rust)", () => {
   it("round-trips the rung-0 refusal — a config outcome, never a model verdict", async () => {
     const { CliffStatusSchema } = await import("../readiness");

@@ -45,7 +45,8 @@ const tok = (x: number | null | undefined) => (x == null ? "N/A" : `${Math.round
 
 function cliffLabel(c: ModelVerdict["cliff"]): string {
   if (!c || c.status === "NotProbed") return "N/A";
-  if (c.status === "NoCliff") return `✓ No cliff (≥${c.tested.toLocaleString()} tok)`;
+  // Saturated = zero failures anywhere: held-to-depth stands, ceiling not located.
+  if (c.status === "NoCliff") return `✓ No cliff (≥${c.tested.toLocaleString()} tok)${c.saturated ? " · ceiling not located" : ""}`;
   if (c.status === "Broken") return "fails from start";
   // The probe ran but its sample can't resolve the collapse margin — so it found nothing,
   // which is NOT the same as finding nothing wrong. Say which.

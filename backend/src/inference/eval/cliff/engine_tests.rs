@@ -95,7 +95,7 @@ async fn a_rung_truncated_at_the_context_window_is_dropped_not_reported_as_a_cli
     .unwrap();
 
     // No fabricated cliff: the model was healthy everywhere it could actually be measured.
-    assert_eq!(report.status, CliffStatus::NoCliff { tested: report.points.last().unwrap().verified_tokens });
+    assert_eq!(report.status, CliffStatus::NoCliff { tested: report.points.last().unwrap().verified_tokens, saturated: true });
     // Every rung that survived is a real measurement — none sits at or past the window.
     for p in &report.points {
         assert!(
@@ -195,7 +195,7 @@ async fn a_model_that_holds_throughout_reports_no_cliff() {
     let ladder = [0u32, 2000, 8000];
     let report = run_cliff(&model, "m", &tasks, &source(), &ladder, &DEFAULT_DEPTHS).await.unwrap();
     let deepest = report.points.last().unwrap().verified_tokens;
-    assert_eq!(report.status, CliffStatus::NoCliff { tested: deepest });
+    assert_eq!(report.status, CliffStatus::NoCliff { tested: deepest, saturated: true });
     assert_eq!(report.cliff_tokens, Some(deepest));
 }
 
@@ -1263,6 +1263,22 @@ fn cap_marginal_serde_round_trip() {
     let json = serde_json::to_string(&s).unwrap();
     assert!(json.contains("CapMarginal"));
     assert_eq!(serde_json::from_str::<CliffStatus>(&json).unwrap(), s);
+}
+
+/// A NoCliff that SAW failures (just not collapse-scale ones) is not saturated: the
+/// instrument engaged, so the plain "✓ no cliff to depth" render is earned. Only the
+/// zero-failures-anywhere ladder gets the ceiling-not-located caveat.
+#[test]
+fn no_cliff_with_observed_failures_is_not_saturated() {
+    let base = point(704, &[("a", 1, 1), ("b", 1, 1), ("c", 1, 1), ("d", 1, 1), ("e", 1, 1)]);
+    // 13/15 — real failures, but nowhere near the 20pp margin off a 1.0 baseline...
+    let deep = point(8845, &[("a", 3, 3), ("b", 2, 3), ("c", 3, 3), ("d", 2, 3), ("e", 3, 3)]);
+    let (status, _) = classify(&[base.clone(), deep]);
+    assert_eq!(status, CliffStatus::NoCliff { tested: 8845, saturated: false });
+    // ...while the all-pass ladder IS saturated: the probe never engaged the limit.
+    let perfect = point(8845, &[("a", 3, 3), ("b", 3, 3), ("c", 3, 3), ("d", 3, 3), ("e", 3, 3)]);
+    let (status, _) = classify(&[base, perfect]);
+    assert_eq!(status, CliffStatus::NoCliff { tested: 8845, saturated: true });
 }
 
 // ── truncated-pass gate: a cell cut at the cap can never be scored a pass ────────────

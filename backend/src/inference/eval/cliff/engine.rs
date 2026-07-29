@@ -791,7 +791,11 @@ fn classify(points: &[CliffPoint]) -> (CliffStatus, Option<u32>) {
         }
     }
     let tested = points.last().map(|p| p.verified_tokens).unwrap_or(base.verified_tokens);
-    (CliffStatus::NoCliff { tested }, Some(largest_pass))
+    // Zero failures at every rung ⇒ the ladder never engaged the model's limit: the
+    // held-to-depth claim stands, but the ceiling was not located — flag it so no
+    // surface renders a clean bill for a probe whose instrument never registered.
+    let saturated = points.iter().all(|p| p.by_task.iter().all(|t| t.passed == t.trials));
+    (CliffStatus::NoCliff { tested, saturated }, Some(largest_pass))
 }
 
 /// The MODEL-measuring rate of a point: cap-death cells are excluded from BOTH the

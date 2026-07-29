@@ -113,7 +113,10 @@ export type CliffConcentration = z.infer<typeof CliffConcentrationSchema>;
 
 export const CliffStatusSchema = z.discriminatedUnion("status", [
   z.object({ status: z.literal("NotProbed") }),
-  z.object({ status: z.literal("NoCliff"), tested: z.number() }),
+  /// `saturated` = zero failures at ANY rung: held-to-depth is certified, but the
+  /// ceiling was never located — render with the extend-the-ladder caveat, not a
+  /// clean ✓. Optional: pre-field reports parse as not-saturated.
+  z.object({ status: z.literal("NoCliff"), tested: z.number(), saturated: z.boolean().optional() }),
   z.object({ status: z.literal("Collapsed"), depth: z.number(), concentration: CliffConcentrationSchema.nullable().optional() }),
   /// Every failure on the rung died AT the output cap (finish == "length") — a
   /// budget-bound measurement, never an established model collapse. Re-running at a

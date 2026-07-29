@@ -501,6 +501,11 @@ with its per-task tally (so a one-task failure never reads as a broad collapse),
 line. A rung that would exceed the context window is dropped, never
 scored (the verdict uses only real measurements).
 
+A no-cliff ladder with **zero failures at any rung** is reported as *saturated*: "held to ≈N"
+stands (the rungs were measured), but the STATUS line says no ceiling was located and names the
+levers (extend `--max-tokens`, or a harder collection) — never a clean ✓ for a probe whose
+instrument never engaged. Exit stays `0` (the headroom claim is real).
+
 **Exit:** `0` no-cliff · `10` collapsed · `11` inconclusive (sample too small to resolve a cliff
 from noise — add tasks/repeats, don't trust a coin flip) · `12` **budget-limited** (every failure
 on the rung died at the output cap — a config outcome: raise `--thinking`/the budget and re-run;
