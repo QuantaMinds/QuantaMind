@@ -264,9 +264,8 @@ maps to.
 | `models/hf_browse.ts` | `hf_search`, `hf_repo_files`, `hf_repo_all_files`, `hf_model_card` | [backend-models-hf-gguf](backend-models-hf-gguf.md) |
 | `models/hf_install.ts` | `install_hf_gguf`, `cancel_hf_install` | [backend-models-hf-gguf](backend-models-hf-gguf.md) |
 | `models/llama_start.ts` | `start_/stop_llama_server`, `list_llama_models`, `delete_llama_model` | [backend-inference-backends](backend-inference-backends.md) |
-| `models/local_install.ts` | (Zod schema only — no command) | [backend-models-hf-gguf](backend-models-hf-gguf.md) |
-| `models/vllm.ts` | `list_vllm_models`, `install_vllm_model`, `delete_vllm_model` | [backend-models-hf-gguf](backend-models-hf-gguf.md) |
-| `models/vllm_start.ts` | `start_/stop_vllm_server`, `vllm_server_status` | [backend-inference-backends](backend-inference-backends.md) |
+| `models/gguf.ts` | local `.gguf` inspect + import | [backend-models-hf-gguf](backend-models-hf-gguf.md) |
+| `models/storage.ts` | weights-folder paths + disk usage | [backend-persistence](backend-persistence.md) |
 | `models/model_settings.ts` | `get_model_settings`, `set_model_temperature` | [backend-prompt-workspace-system](backend-prompt-workspace-system.md) |
 | `models/llama_cpp_start.ts` | `start_llama_cpp`, `stop_llama_cpp` | [backend-inference-backends](backend-inference-backends.md) |
 | `models/storage.ts` | `get_installed_models_with_stats`, `remove_model`, `get_disk_usage`; exports `BackendKind` | [backend-models-hf-gguf](backend-models-hf-gguf.md) |

@@ -9,7 +9,7 @@ cancellation. It also hosts per-backend **server start/stop** controls and a lef
 
 > Cross-references:
 > - Backend that serves `run_prompt` / `stop_prompt` + prompt/workspace persistence → [`backend-prompt-workspace-system.md`](./backend-prompt-workspace-system.md)
-> - Backend that starts/stops the three inference servers + health → [`backend-inference-backends.md`](./backend-inference-backends.md)
+> - Backend that starts/stops the `llama-server` sidecar + health → [`backend-inference-backends.md`](./backend-inference-backends.md)
 > - Shared IPC client, Zustand stores, navigation → [`frontend-overview.md`](./frontend-overview.md)
 
 ---
@@ -40,10 +40,8 @@ the Run trigger, the live stream, and the per-prompt file**.
 | --- | --- | --- |
 | `run_prompt` (emits `prompt-token` / `prompt-done` / `prompt-cancelled` events) | `useStreamingRun` | backend-prompt-workspace-system.md |
 | `stop_prompt` | `useStreamingRun.cancel` (5s-bounded) | backend-prompt-workspace-system.md |
-| `start_llama_cpp` / `stop_llama_cpp` | `useStartllama.cpp` / `useStopllama.cpp` | backend-inference-backends.md |
 | `start_llama_server` / `stop_llama_server` | `useStartLlamaServer` / `useStopLlamaServer` | backend-inference-backends.md |
-| `start_vllm_server` / `stop_vllm_server` / `vllm_server_status` | `useVLlmServer` | backend-inference-backends.md |
-| llama.cpp / vLLM `*_health` | `StatusBar`, `useLlamaBackend`, `useVLlmBackend` (5s poll) | backend-inference-backends.md |
+| `check_llama_health` / `check_vllm_health` | `StatusBar`, `useBackendHealth` (5s poll) | backend-inference-backends.md |
 | `open_workspace` / `close_workspace` / `list_workspace_tree` / `recent_workspaces` | `workspaces` store + hooks | backend-prompt-workspace-system.md |
 | `create_prompt` / `load_prompt` / `save_prompt` / `rename_path` / `delete_path` | `workspaces` store + hooks | backend-prompt-workspace-system.md |
 | `list_prompt_templates` | `PromptTemplatePicker` | backend-prompt-workspace-system.md |
@@ -76,7 +74,7 @@ Render priority:
 
 ```tsx
 const noLlmRunning = useBackendStore(
-  (s) => s.llama_cppHealthy !== true && s.llamaHealthy !== true && s.vllmHealthy !== true,
+  (s) => s.llamaHealthy !== true && s.vllmHealthy !== true,
 );
 const sttRunning = useSttRuntimeStore(runningSttEngine);
 const multi = selectedModels.length >= 2;
@@ -212,7 +210,7 @@ and `canRun`; on Run navigates to `compare` and calls `start(...)`. Two effects:
 change. Wires `useWorkspaceHotkeys` (Run/Stop/Save, gated to the active workspace view).
 
 ```tsx
-const blockedHint = backendRunHint(activeBackend, { llama_cpp: llama_cppHealthy, llama: llamaHealthy, vllm: vllmHealthy });
+const blockedHint = backendRunHint(activeBackend, { llama: llamaHealthy, vllm: vllmHealthy });
 const canRun = !!model && prompt.trim().length > 0 && !blockedHint;
 const runNow = () => { if (!model) return;
   useNavStore.getState().setTopView("compare");
@@ -232,7 +230,7 @@ raw `status` string (`data-testid="run-status"`).
 
 | File | Responsibility |
 | --- | --- |
-| `ModelSelectBar.tsx` | Workspace model affordances. The real picker now lives in the **global header**; this keeps the `llama.cppEmptyState` (when llama.cpp is the active backend and down) and an **Add Model** shortcut to the Models tab. |
+| `ModelSelectBar.tsx` | Workspace model affordances. The real picker now lives in the **global header**; this keeps the backend-down recovery affordance and an **Add Model** shortcut to the Models tab. |
 | `ModelPicker.tsx` | Legacy inline picker (header now owns selection): de-dupes installed models by digest, filters out embedding models, a `<select>`, a llama.cpp **Stop** square, **Add Model**; re-`refresh()`es installed models when llama.cpp flips healthy. |
 | `ModelTemperaturePopover.tsx` | Per-model temperature popover (gear icon). Range 0–2, commits on pointer/key-up to `modelSettingsStore.setTemperature(model, v)`; outside-click + Escape close; **Reset to `DEFAULT_TEMPERATURE`**. Disabled until a model is picked. |
 
@@ -282,8 +280,6 @@ never block Run on their own success** — health polling is the source of truth
 
 | Hook | IPC | Status enum | Notes |
 | --- | --- | --- | --- |
-| `useStartllama.cpp` | `start_llama_cpp` | `idle/starting/success/error/not_installed` | on `not_installed` captures `install_url`; `openInstallPage` opens it; success lingers 1s then flips `llama_cppHealthy=true` + refreshes installed models. |
-| `useStopllama.cpp` | `stop_llama_cpp` | `idle/stopping/error` | sets `llama_cppHealthy=false`. |
 | `useStartLlamaServer` | `start_llama_server(path)` | `idle/starting/success/error/not_bundled` | one GGUF at a time; `already_running`/`started` → `llamaHealthy=true`. |
 | `useStopLlamaServer` | `stop_llama_server` | `idle/stopping/error` | sets `llamaHealthy=false`. |
 | `useLlamaBackend` | `*_health` poll (5s) | — | re-probes llama health so a died server doesn't stay "healthy"; no Apple-Silicon gate. |

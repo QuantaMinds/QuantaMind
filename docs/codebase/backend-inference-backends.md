@@ -585,72 +585,34 @@ else {
 }
 ```
 
-### `commands/vllm/`
+### `commands/remote/`
+
+vLLM is remote, so there is **no start/stop/install surface at all** — only
+health, credential, and model-list probes. (Earlier revisions of this document
+described a `commands/vllm/` launcher with a dynamic port and a stderr reader,
+and a `commands/llama_cpp/` ownership handshake. Neither module exists; both
+were left behind when those backends were removed.)
 
 | File | Role |
 |---|---|
-| `vllm_start.rs` | `start_vllm_server` / `stop_vllm_server` / `vllm_server_status`. |
-| `vllm_server_types.rs` | `VLlmServerState`, `VLlmStartResult`, `VLlmServerStatus`, `Running`. |
-| `health_vllm.rs` | `check_vllm_health` via `GET /v1/models`. |
-| `vllm_discover.rs` | scan the weights folder for `*.gguf` → `LlamaCpp` models. |
-| `vllm_install.rs` | `install_vllm_model` — HF snapshot download into `~/.quantamind/vllm`. |
-| `vllm_models.rs` | `list_vllm_models` (from disk) / `delete_vllm_model` (symlink-safe). |
+| `remote_health.rs` | `remote_health` / `check_vllm_health` (`GET /v1/models`), plus `probe_remote_credential` / `check_vllm_credential` returning the full `RemoteAuthStatus` space so a rejected key is never conflated with a down server. |
+| `remote_models.rs` | `list_remote_models(ep, backend)` and the `check_vllm_health`-style wrapper `list_vllm_models()`. |
 
-- **`start_vllm_server`** (`vllm_start.rs`): gate on `vllm_supported()`;
-  `AlreadyRunning` if same model; `kill_all_servers()` otherwise; `locate` the
-  exe; `find_available_port(8082)`; `spawn_server`; take stderr and
-  `spawn_stderr_reader`; `state.store(Running{…}, port)` (which `set_vllm_port`).
-  **Does NOT block on readiness** — weight load is slow; the UI polls
-  `check_vllm_health` + `vllm_server_status` instead.
-- **`VLlmServerState`** (`vllm_server_types.rs`): `store` sets the dynamic port;
-  `kill_all_servers` clears it + reaps; `status()` uses `try_wait` to report
-  `Running{phase,model}` vs `Exited{code, stderr_tail}` (the tail diagnoses the
-  death). A `Drop` impl is the teardown backstop because `Child` *detaches* (does
-  not kill) on drop — the primary reap is the `lib.rs` exit hook.
+- **Runnable = reachable + ≥1 model + credential OK.** A 2xx from `/v1/models` is
+  accepted only when the body carries an array `data`; anything else counts as
+  unreachable, so a captive portal or a reverse proxy returning HTML can't read
+  as a healthy backend.
+- **The bearer is withheld, not sent, over insecure transport.**
+  `remote_guard::credential_allowed` fails closed: credentialed HTTP is
+  https-only (loopback exempt), and the withholding is reported as
+  `[QM-INSECURE-KEY]` rather than failing silently.
 
-```rust
-// vllm_start.rs — dynamic port + stderr-aware launcher, NON-blocking readiness
-state.kill_all_servers()?;                          // ownership: stop a different model first
-let exe = locate(configured.as_deref())?;           // → NotFound
-let port = find_available_port(PORT_BASE)?;         // → NoFreePort
-let mut child = spawn_server(&exe, &build_spawn_args(&model_path, port))?;
-if let Some(err) = child.stderr.take() { spawn_stderr_reader(err, phase.clone(), tail.clone()); }
-state.store(Running { child, model: model_path, phase, tail }, port);  // set_vllm_port(port)
-Ok(VLlmStartResult::Started { pid, port })
-```
+### The one app-managed server: `commands/llama/`
 
-### `commands/llama_cpp/`
+`llama-server` is the only process QuantaMind spawns and reaps. Its lifecycle
+guards are documented in **`backend-overview.md`** (`is_our_server_cmd`,
+`reap_managed`, `sweep_orphans`, and the signal reaper).
 
-| File | Role |
-|---|---|
-| `llama_cpp_start.rs` | `start_llama_cpp` / `stop_llama_cpp`; `llama.cppStartState`. |
-| `llama_cpp_runtime.rs` | reachability probe, `resolve_llama_cpp`, spawn/kill, ready poll. |
-
-- **Ownership handshake is the key guard here.** llama.cpp is the user's own daemon.
-  `start_llama_cpp` only `remember`s a pid when *it* spawned `llama-server -m MODEL.gguf --port 8081 --jinja`; an
-  `AlreadyRunning` result (a pre-existing user daemon) is **never** reaped.
-  `stop_owned` kills only the app-spawned pid (used by `stop`, the exit reap, the
-  signal reaper, and a `Drop` backstop). A separate `stop_llama_cpp` command uses
-  `pkill -f "llama-server -m MODEL.gguf --port 8081 --jinja"` for an explicit user stop.
-- **`kill_pid` is graceful-then-hard:** SIGTERM, a short grace (`kill -0` liveness
-  poll, ~600ms), then SIGKILL if still alive — so the app-spawned llama.cpp can't
-  outlive the app. Reached on **three** exit paths, all idempotent: Cmd+Q
-  (`RunEvent::ExitRequested`), SIGINT/SIGTERM (the signal reaper), and **window
-  close** (`on_window_event` → `reap_managed` + `app.exit(0)` — the macOS path,
-  where closing the window doesn't otherwise quit the app and would orpha llama.cpp).
-- `start_llama_cpp` guards a re-entrant `in_progress` flag; `start_llama_cpp_inner`
-  short-circuits to `AlreadyRunning` if already reachable, else
-  `resolve_llama_cpp()` (`which` → Homebrew/usr-local), `spawn_serve`, and **block
-  on `wait_until_ready()`** (poll `/v1/models` ≤10s). Auto-start is macOS-only;
-  elsewhere `spawn_serve`/`kill_serve` return `UNSUPPORTED_OS_MSG`.
-
-```rust
-// llama_cpp_start.rs — only reap a server WE spawned
-if let llama.cppStartResult::Started { pid } = &result { state.remember(*pid); }
-// stop_owned(): kill only the remembered pid; a user daemon (AlreadyRunning) is untouched
-```
-
----
 
 ## Data-flow walkthrough — one streaming generation per backend
 

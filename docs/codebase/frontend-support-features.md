@@ -123,8 +123,8 @@ finish: async () => {
 
 ```ts
 export type OnboardingStep = "llama_cpp" | "model" | "ready";
-export function currentStep(llama_cppHealthy: boolean | null, modelCount: number): OnboardingStep {
-  if (llama_cppHealthy !== true) return "llama_cpp"; // 1. start the engine
+export function currentStep(serverHealthy: boolean | null, modelCount: number): OnboardingStep {
+  if (serverHealthy !== true) return "server"; // 1. start the engine
   if (modelCount === 0)        return "model";  // 2. install a model
   return "ready";                               // 3. scaffold a workspace
 }
@@ -132,11 +132,11 @@ export function currentStep(llama_cppHealthy: boolean | null, modelCount: number
 
 ### `components/OnboardingCoach.tsx` — the card
 - **Responsibility:** render the right step's CTA and run the "finish" action.
-- **How/Where used:** mounted in `App.tsx` above the nav. Reads `llama_cppHealthy`
+- **How/Where used:** mounted in `App.tsx` above the nav. Reads the server health flag
   (`backendStore`) + `list.length` (`installedModelsStore`), passes them to
   `currentStep`. Step CTAs:
-  - **llama_cpp** → embeds the shared `llama.cppEmptyState` (start/install buttons).
-  - **model** → `pullModel(RECOMMENDED_MODEL)` (`llama3.2:1b`) then jumps to the
+  - **server** → the backend-down recovery CTA (start / install buttons).
+  - **model** → `pullModel(RECOMMENDED_MODEL)` ("Llama 3.2 1B Instruct (GGUF)") then jumps to the
     `downloads` view; or "Browse models" → `models` view.
   - **ready** → `openWorkspace()`: `scaffoldOnboardingWorkspace()` (Rust creates
     `~/Documents/QuantaMind` + a `welcome.quantamind.yaml`), opens it in

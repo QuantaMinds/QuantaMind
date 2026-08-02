@@ -31,12 +31,10 @@ sub-tabs of one page:
 |---|---|---|---|
 | llama.cpp Library | `useModelInstall` | `pull_model` → pullId, `cancel_pull` | `pull-progress` |
 | Hugging Face GGUF | `useHfInstall` | `hf_search`, `hf_repo_files`, `hf_model_card`, `install_hf_gguf`, `cancel_hf_install` | `hf-progress` |
-| Hugging Face vLLM | `useVLlmInstall` | `hf_search`, `hf_repo_all_files`, `hf_model_card`, `install_vllm_model`, `cancel_hf_install` | `hf-progress` |
 | Local File | `useLocalImport` | `inspect_gguf`, `install_local_gguf` | `local-install-progress` |
-| Add-to-llama.cpp (installed llama.cpp) | `AddTllama_cpp.cppButton` | `install_local_gguf` | `local-install-progress` |
 | Installed list (all backends) | `installedModelsStore.refresh` | `get_installed_models_with_stats`, `list_llama_models`, `list_vllm_models`, `list_installed_stt_models` | `models-changed` |
 | Inspect installed model | `useModelInspect` | `inspect_model` (the GGUF header) | — |
-| Delete | `DownloadsInstalled` | `remove_model`, `delete_llama_model`, `delete_vllm_model`, `delete_stt_model` | `models-changed` |
+| Delete | `DownloadsInstalled` | `delete_llama_model` | `models-changed` |
 | Storage | `Storage*` sections | `get_disk_usage`, `get_storage_path`, `validate_storage_path`, `resolve_models_folder`, `get/set_user_settings`, `clear_app_cache` | — |
 
 The four progress events all funnel through one subscription (`downloadEventBus`) into one
@@ -75,7 +73,7 @@ export function parseQuant(filename: string): string | null {
 available RAM. **Why:** the user judges *before* pulling GBs. Mirrors the Compare feature's
 rule: a `1.3×` safety multiplier approximates runtime memory over on-disk size, and "tight"
 kicks in above 70% of available memory. Pure — no React, no IPC. Consumed by `HfVariantTable`
-(per-variant) and `VLlmRepoDetail` (summed snapshot size).
+(per-variant).
 
 ```ts
 const SAFETY = 1.3, TIGHT_FRACTION = 0.7;
@@ -317,12 +315,6 @@ if (current) upsert({ ...current, pullId });          // merge, don't clobber a 
 setTimeout(() => { void useInstalledModelsStore.getState().refresh(); }, 1500);
 ```
 
-### `useVLlmInstall.ts` — vLLM snapshot download ⭐
-Mirrors `useHfInstall`: progress rides the shared bus keyed on the repo as `activeHfName`, and
-shares the one-at-a-time in-flight slot with GGUF installs. Calls `install_vllm_model(repo)`
-(snapshot-download into `~/.quantamind/vllm`), self-heals `refresh()`, cancels via
-`cancel_hf_install`. No file-by-file percent — the entry flips downloading → success.
-
 ### `useLocalImport.ts` — local `.gguf` import ⭐
 **Responsibility:** pick a file (dialog or drag-drop), inspect it, name it, place it in the shared weights folder.
 **Why:** the only path that *reads metadata before* committing — `inspect_gguf` populates the
@@ -361,8 +353,7 @@ guess). Re-runs on model/backend change; `cancelled` guard. Backs `TemplatePanel
 
 ### `useHfModelCard.ts` — repo model card
 `hf_model_card(repo)` → structured `ModelCard` (task/license/base/description/tags). `none` =
-no README (not an error). Backs `ModelCardSection`/`ModelCardDetail` and `VLlmRepoDetail`'s
-task guard.
+no README (not an error). Backs `ModelCardSection`/`ModelCardDetail`.
 
 | Hook | One line |
 |---|---|
@@ -411,17 +402,11 @@ button.
   via `cancelEntry` then removes the entry + shows a "partial files cleaned" toast.
 - **`DownloadsInstalled`** ⭐ — `groupInstalled(list)` rows with backend badges
   (llama.cpp / vLLM). Delete dispatches per-backend: `remove_model` (llama.cpp),
-  `delete_llama_model` (file, opt-in via `ConfirmRemove` checkbox), and `delete_vllm_model`;
-  then `refresh()`. llama.cpp-only rows offer `AddTllama_cpp.cppButton`.
+  `delete_llama_model` (file, opt-in via `ConfirmRemove` checkbox); then `refresh()`.
 
 ### `cancelEntry.ts` — dispatch the right cancel
 `huggingface` → `cancel_hf_install`; `llama_cpp` (+pullId) →
 `cancel_pull`. Returns `null` on success or an `Error` (caller decides whether to keep the entry).
-
-### `AddTllama_cpp.cppButton.tsx` — import a folder GGUF into llama.cpp ⭐
-**Responsibility:** for a llama.cpp-only model, reuse `install_local_gguf(path, name)` so it's
-runnable in llama.cpp too. Subscribes to `local-install-progress` for the duration, shows live
-phase ("Hashing 42%" / "Uploading 80%" / "Creating…"), toasts the result, then `refresh()`.
 
 | File | One line |
 |---|---|
@@ -429,7 +414,7 @@ phase ("Hashing 42%" / "Uploading 80%" / "Creating…"), toasts the result, then
 
 ---
 
-## `components/` — HF/vLLM detail, variant table, install status
+## `components/` — HF detail, variant table, install status
 
 ### `HuggingFaceRepoDetail.tsx` — GGUF repo install screen ⭐
 **Responsibility:** wire `useHfRepoVariants` + `useHfInstall` + `useHardwareSnapshot` +

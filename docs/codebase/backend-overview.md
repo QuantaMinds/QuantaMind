@@ -281,15 +281,17 @@ pub fn reap_on_exit(app: &AppHandle, event: RunEvent) {
 }
 ```
 
-`reap_managed` reaches into managed state — `VLlmServerState::kill_all_servers`,
-`LlamaServerState::stop`, `SttServerState::stop`, `llama.cppStartState::stop_owned`
-— logging each failure (no silent swallow):
+`reap_managed` reaches into managed state — `LlamaServerState::stop` and
+`McpServerState::kill_all` — logging failure rather than swallowing it:
 
 ```rust
-fn reap_managed(app: &AppHandle) {
-    if let Err(e) = app.state::<VLlmServerState>().kill_all_servers() { eprintln!("vllm reap failed: {e}"); }
-    if let Err(e) = app.state::<LlamaServerState>().stop()           { eprintln!("llama reap failed: {e}"); }
-    if let Err(e) = app.state::<llama.cppStartState>().stop_owned()     { eprintln!("llama_cpp reap failed: {e}"); }
+pub(crate) fn reap_managed(app: &AppHandle) {
+    if let Err(e) = app.state::<LlamaServerState>().stop() {
+        eprintln!("llama reap failed: {e}");
+    }
+    // MCP servers are npx/node without our `.quantamind` marker, so `sweep_orphans`
+    // can't match them — killing our tracked PIDs here is their crash-safety.
+    app.state::<crate::mcp::registry::McpServerState>().kill_all();
 }
 ```
 
