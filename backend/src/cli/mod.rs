@@ -8,6 +8,7 @@
 //! These are the command *engines* (pure of stdout/process concerns); they are NOT
 //! `#[tauri::command]`s. The GUI keeps its own commands under `commands/`.
 
+pub mod certify;
 pub mod cliff;
 pub mod costs;
 pub mod doctor;

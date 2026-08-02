@@ -54,6 +54,9 @@ enum Command {
     /// Free-form generation: a system+user prompt with params, streamed to stdout
     /// (the headless twin of the Workspace Run).
     Prompt(PromptArgs),
+    /// Gate a deploy on YOUR OWN agent: seed a world, run your command against it,
+    /// grade the real end state, k times. QuantaMind issues no model call.
+    Certify(CertifyArgs),
 }
 
 #[derive(clap::Args)]
@@ -75,6 +78,43 @@ struct PromptArgs {
     user: Option<String>,
     #[command(flatten)]
     params: ParamArgs,
+}
+
+#[derive(clap::Args)]
+struct CertifyArgs {
+    /// The suite file: a JSON array of world tasks (the shape the desktop MCP
+    /// builder authors).
+    #[arg(long)]
+    suite: std::path::PathBuf,
+    /// Override every task's k. Strict pass^k: all k attempts must pass.
+    #[arg(long)]
+    k: Option<u32>,
+    /// Per-attempt wall-clock cap.
+    #[arg(long, default_value_t = 300)]
+    timeout: u64,
+    /// Grace between the group TERM and the KILL on timeout.
+    #[arg(long, default_value_t = 5)]
+    kill_grace: u64,
+    /// Allowlist the child's environment instead of inheriting it. `QM_*` is
+    /// stripped in both modes.
+    #[arg(long)]
+    clean_env: bool,
+    /// Pass one inherited variable through by NAME (repeatable). Values are never
+    /// logged.
+    #[arg(long = "env")]
+    env: Vec<String>,
+    /// Don't echo the agent's output; the stderr tail is still kept for failures.
+    #[arg(long)]
+    quiet_agent: bool,
+    /// Skip the anti-vacuity precheck. Prints a loud note; not settable in qm.json.
+    #[arg(long)]
+    no_precheck: bool,
+    /// Which verdicts fail the process.
+    #[arg(long, value_enum, default_value_t = FailOnArg::Conditional)]
+    fail_on: FailOnArg,
+    /// The agent command, after `--`. Never shell-interpreted.
+    #[arg(last = true, num_args = 1..)]
+    agent: Vec<String>,
 }
 
 #[derive(clap::Args)]
@@ -494,6 +534,7 @@ async fn main() {
         Command::Cliff(args) => run_cliff_cmd(args).await,
         Command::Validate(args) => run_validate_cmd(args).await,
         Command::Prompt(args) => run_prompt_cmd(args).await,
+        Command::Certify(args) => run_certify_cmd(args),
     }
 }
 
@@ -1111,4 +1152,51 @@ async fn run_doctor(args: DoctorArgs) {
         eprintln!("{line}");
     }
     std::process::exit(report.exit_code());
+}
+
+/// `qm certify` — gate a deploy on the customer's own agent.
+///
+/// Everything that can reject the suite runs before any agent process starts, so a
+/// broken suite costs zero agent invocations (and zero of their model spend).
+fn run_certify_cmd(args: CertifyArgs) {
+    use quantamind_lib::cli::certify::{
+        command::AgentCommand, render::render, run_certify_suite, suite, CertifyOptions,
+    };
+
+    let command = match AgentCommand::new(&args.agent, args.clean_env, args.env.clone()) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("[QM-BAD-AGENT-COMMAND] {e}");
+            std::process::exit(2);
+        }
+    };
+    let tasks = match suite::load(&args.suite) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("[QM-BAD-SUITE] {e}");
+            std::process::exit(2);
+        }
+    };
+    if args.no_precheck {
+        eprintln!(
+            "[QM-NOTE] --no-precheck: the anti-vacuity check is OFF. A task a do-nothing agent \
+             passes will now run and report green."
+        );
+    }
+    if args.k == Some(0) {
+        eprintln!("[QM-BAD-PARAM] --k 0: a task that never runs cannot pass");
+        std::process::exit(2);
+    }
+
+    let opts = CertifyOptions {
+        command,
+        timeout: std::time::Duration::from_secs(args.timeout),
+        kill_grace: std::time::Duration::from_secs(args.kill_grace),
+        k_override: args.k,
+        fail_on: args.fail_on.into(),
+        quiet_agent: args.quiet_agent,
+        no_precheck: args.no_precheck,
+    };
+    let outcome = run_certify_suite(&tasks, &opts);
+    std::process::exit(render(&outcome, args.fail_on.into()));
 }
