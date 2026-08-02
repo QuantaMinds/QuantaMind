@@ -18,6 +18,9 @@ use std::time::{Duration, Instant};
 const STDERR_TAIL_CAP: usize = 20;
 /// How often the deadline loop polls the child. Cheap: `try_wait` is a syscall.
 const POLL: Duration = Duration::from_millis(50);
+/// How long to wait for the stderr reader to finish after the child exits.
+/// Bounded: a grandchild that inherited the pipe can keep it open indefinitely.
+const DRAIN_GRACE: Duration = Duration::from_secs(2);
 
 /// Run the agent once. Never returns `Err` — every failure mode is a *reported*
 /// outcome, because "the harness broke" and "the agent failed" must stay distinct
@@ -65,11 +68,12 @@ pub fn run_agent(
 
     let tail = Arc::new(Mutex::new(Vec::<String>::new()));
     if let Some(out) = child.stdout.take() {
-        drain(out, None, echo, "out");
+        let _ = drain(out, None, echo, "out");
     }
-    if let Some(err) = child.stderr.take() {
-        drain(err, Some(Arc::clone(&tail)), echo, "err");
-    }
+    // Keep the stderr drain's completion signal: for a fast-exiting child the
+    // reader thread may not have processed its last line by the time `try_wait`
+    // reports the exit, and a crash is precisely when the tail matters most.
+    let stderr_done = child.stderr.take().map(|err| drain(err, Some(Arc::clone(&tail)), echo, "err"));
 
     // Deadline loop.
     let mut timed_out = false;
@@ -102,6 +106,14 @@ pub fn run_agent(
     };
 
     let wall_ms = started.elapsed().as_millis() as u64;
+
+    // Wait for the stderr reader to hit EOF before reading the tail, or the tail
+    // is a race: on Linux a child that exits immediately regularly loses it.
+    // Bounded, because a surviving grandchild can hold the pipe open — on that
+    // path we take whatever arrived rather than hanging the run.
+    if let Some(done) = stderr_done {
+        let _ = done.recv_timeout(DRAIN_GRACE);
+    }
     let stderr_tail = tail.lock().map(|t| t.clone()).unwrap_or_default();
 
     let result = if timed_out {
@@ -135,7 +147,8 @@ fn drain<R: std::io::Read + Send + 'static>(
     tail: Option<Arc<Mutex<Vec<String>>>>,
     echo: bool,
     stream: &'static str,
-) {
+) -> std::sync::mpsc::Receiver<()> {
+    let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         for line in BufReader::new(pipe).lines().map_while(Result::ok) {
             let safe = redact_path(&line);
@@ -151,5 +164,9 @@ fn drain<R: std::io::Read + Send + 'static>(
                 }
             }
         }
+        // EOF: every line is now in `tail`. A send error just means the reader
+        // gave up waiting (the bounded grace elapsed), which is not our problem.
+        let _ = tx.send(());
     });
+    rx
 }

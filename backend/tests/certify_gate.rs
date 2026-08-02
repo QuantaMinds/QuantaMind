@@ -111,16 +111,28 @@ fn an_agent_that_only_claims_success_fails_with_the_real_oracle_strings() {
     }
 }
 
+/// Also a **race detector**. The stderr drain runs on its own thread; a child that
+/// exits immediately can finish before the reader has processed its output, and the
+/// tail would be silently empty — exactly when it matters most. Linux CI caught
+/// that; macOS happened to win the race every time. Several lines and an instant
+/// exit widen the window so a regression shows up rather than hiding.
 #[test]
 fn a_crashing_agent_is_a_failure_carrying_its_code_and_stderr() {
     let fx = Fixture::new(SUITE);
-    let a = fx.agent("echo 'provider unavailable' >&2\nexit 3");
+    let a = fx.agent(
+        "echo 'connecting' >&2\n         echo 'provider unavailable' >&2\n         echo 'giving up' >&2\n         exit 3",
+    );
     let r = ran(run(&fx, &a, 30));
     assert_eq!(r.verdict(), Readiness::NotReady);
     let at = &r.tasks[0].attempts[0];
     assert_eq!(at.status, AttemptStatus::AgentExitNonZero { code: 3 });
     assert_eq!(at.exit_code, Some(3));
     assert!(at.stderr_tail.iter().any(|l| l.contains("provider unavailable")), "{:?}", at.stderr_tail);
+    assert!(
+        at.stderr_tail.iter().any(|l| l.contains("giving up")),
+        "the LAST line is the one a race drops: {:?}",
+        at.stderr_tail
+    );
     assert!(!r.inconclusive(), "a crash is observed, so it is a verdict — not inconclusive");
 }
 
