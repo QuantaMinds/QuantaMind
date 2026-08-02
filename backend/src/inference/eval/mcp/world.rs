@@ -6,6 +6,7 @@
 //! approval gate (that's for the user's REAL tools — see P9).
 
 use crate::errors::{AppError, AppResult};
+use crate::os::ScratchDir;
 use crate::inference::eval::mcp::oracle_db::DbOracle;
 use crate::inference::eval::mcp::oracle_fs::FsOracle;
 use crate::inference::mcp::bridge::{execute_call, ToolExecution};
@@ -15,7 +16,6 @@ use crate::fs_guard;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 /// The immutable spec for an MCP controlled world carried on an agentic task
 /// (`ResponderKind::Mcp`): the seed we author + the oracle answer key. Serde so it
@@ -100,66 +100,10 @@ pub fn write_seed(root: &Path, seed: &FsSeed) -> AppResult<()> {
     Ok(())
 }
 
-/// A fresh scratch directory, removed on drop. Avoids the `tempfile` dev-dep in
-/// production; uniqueness from pid + a process-lifetime counter.
-struct ScratchDir {
-    path: PathBuf,
-}
+/// Namespaces this caller's scratch dirs so the orphan sweep only ever considers
+/// MCP worlds — never another subsystem's directories.
+const SCRATCH_PREFIX: &str = "qm-mcp-world";
 
-impl ScratchDir {
-    fn new() -> AppResult<ScratchDir> {
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-        sweep_orphans();
-        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!("qm-mcp-world-{}-{n}", std::process::id()));
-        std::fs::create_dir_all(&path).map_err(|e| AppError::Io(e.to_string()))?;
-        Ok(ScratchDir { path })
-    }
-}
-
-/// Best-effort sweep of `qm-mcp-world-<pid>-*` dirs whose owning process is DEAD —
-/// a SIGKILL'd run can never Drop, so without this every hard kill leaks a temp
-/// dir forever. Unix-only (`kill -0` liveness probe); errors ignored (a sweep must
-/// never block a new world). Called once per world construction — cheap, since the
-/// scan only pays when orphans actually exist.
-fn sweep_orphans() {
-    #[cfg(unix)]
-    {
-        use crate::os::{EngineHost, Host};
-        let me = std::process::id();
-        let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else { return };
-        for e in entries.flatten() {
-            let name = e.file_name();
-            let Some(name) = name.to_str() else { continue };
-            let Some(rest) = name.strip_prefix("qm-mcp-world-") else { continue };
-            let Some(pid_str) = rest.split('-').next() else { continue };
-            let Ok(pid) = pid_str.parse::<u32>() else { continue };
-            if pid == me {
-                continue; // our own live worlds
-            }
-            // `kill -0` = liveness probe, sends no signal. Non-success → pid is dead
-            // (or not ours to signal — either way its worlds are not in use by us).
-            // Via `Host::command` per the repo's disallowed-`Command::new` lint.
-            let alive = Host::command("kill")
-                .args(["-0", &pid.to_string()])
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(true); // probe failed → assume alive, never sweep in doubt
-            if !alive {
-                let _ = std::fs::remove_dir_all(e.path());
-            }
-        }
-    }
-}
-
-impl Drop for ScratchDir {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.path);
-    }
-}
-
-/// A controlled world: a fresh sandbox + a real MCP filesystem server scoped to
-/// only that sandbox. Field order matters — `client` (→ server) drops before
 /// `scratch` (→ dir removal), so the dir is free of open handles when removed.
 pub struct McpWorld {
     client: McpClient,
@@ -176,10 +120,10 @@ impl McpWorld {
     /// Seed a fresh temp dir and start `@modelcontextprotocol/server-filesystem`
     /// scoped to it. A new call = a new, byte-identical-from-seed world.
     pub async fn filesystem(seed: &FsSeed) -> AppResult<McpWorld> {
-        let scratch = ScratchDir::new()?;
-        write_seed(&scratch.path, seed)?;
+        let scratch = ScratchDir::new(SCRATCH_PREFIX)?;
+        write_seed(scratch.path(), seed)?;
         // The server confines the model to this canonical root (EscapeRoute-safe).
-        let root = scratch.path.canonicalize().map_err(|e| AppError::Io(e.to_string()))?;
+        let root = scratch.path().canonicalize().map_err(|e| AppError::Io(e.to_string()))?;
         let client = McpClient::connect(
             "npx",
             &["-y".into(), "@modelcontextprotocol/server-filesystem".into(), root.to_string_lossy().into_owned()],
@@ -195,8 +139,8 @@ impl McpWorld {
     /// generalizes. A new call = a new world seeded from the same SQL.
     pub async fn sqlite(seed: &DbSeed) -> AppResult<McpWorld> {
         use crate::inference::eval::mcp::oracle_db::run_sqlite;
-        let scratch = ScratchDir::new()?;
-        let root = scratch.path.canonicalize().map_err(|e| AppError::Io(e.to_string()))?;
+        let scratch = ScratchDir::new(SCRATCH_PREFIX)?;
+        let root = scratch.path().canonicalize().map_err(|e| AppError::Io(e.to_string()))?;
         let db = root.join("data.db");
         // Non-empty seed builds the schema+rows; empty still materializes the file.
         let sql = if seed.setup_sql.trim().is_empty() { "SELECT 1;" } else { &seed.setup_sql };
