@@ -163,6 +163,7 @@ impl BatchSink for TauriBatchSink {
 fn skeleton_report(collection_id: &str, targets: &[ModelTarget]) -> BatchReport {
     BatchReport {
         collection_id: collection_id.to_string(),
+        unreadable_columns: 0,
         num_ctx: None,
         collection_hash: None, // set on the FINAL report only (content-verified); intermediates stay unpublishable
         think_preset: None,    // stamped on the final report

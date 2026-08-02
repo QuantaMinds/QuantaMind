@@ -324,12 +324,24 @@ pub struct BatchColumn {
     #[serde(default)]
     pub kv_cache_type: Option<String>,
 }
+fn is_zero(n: &usize) -> bool {
+    *n == 0
+}
+
 
 /// The full batch result: one column per target model.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BatchReport {
     pub collection_id: String,
     pub columns: Vec<BatchColumn>,
+    /// Stored columns the loader couldn't interpret (e.g. one recorded against a
+    /// backend this build no longer supports). Skipped rather than failing the
+    /// whole report, and counted so the UI can say what it isn't showing — a
+    /// short verdict table must never read as the complete run. Always 0 for a
+    /// freshly-produced report; `#[serde(default)]` + skip so it never bloats
+    /// what we persist or publish.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub unreadable_columns: usize,
     /// The context length (`num_ctx`) the run used, when set — the basis for the
     /// readiness VRAM-fit KV-cache estimate. `#[serde(default)]` so reports saved
     /// before Phase 7.4 (and the engine, which doesn't know the param) still load.
@@ -718,7 +730,7 @@ where
     }
     // The engine is param-agnostic; the command layer stamps `num_ctx`/reasoning
     // budget after.
-    Ok(BatchReport { collection_id: collection_id.to_string(), columns, num_ctx: None, collection_hash: None, think_preset: None, params: None })
+    Ok(BatchReport { collection_id: collection_id.to_string(), columns, unreadable_columns: 0, num_ctx: None, collection_hash: None, think_preset: None, params: None })
 }
 
 /// Build a partial `BatchReport` from already-completed units ONLY — no execution.
@@ -765,7 +777,7 @@ pub fn fold_report(
             }
         })
         .collect();
-    BatchReport { collection_id: collection_id.to_string(), columns, num_ctx: None, collection_hash: None, think_preset: None, params: None }
+    BatchReport { collection_id: collection_id.to_string(), columns, unreadable_columns: 0, num_ctx: None, collection_hash: None, think_preset: None, params: None }
 }
 
 fn unit_of(target: &ModelTarget, task: &ToolTask, outcome: TaskOutcome, is_native: bool) -> CompletedUnit {

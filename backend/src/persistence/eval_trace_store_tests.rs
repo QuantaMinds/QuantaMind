@@ -73,3 +73,36 @@ fn bad_collection_id_rejected() {
         assert!(load_one(dir.path(), id, "llama", "t").is_err());
     }
 }
+
+/// Same migration guard as the history store: one model entry recorded against a
+/// now-removed backend must not make the whole trace cache unreadable — that
+/// would break the visualizer AND block every new trace write for the collection.
+#[test]
+fn a_model_entry_with_an_unsupported_backend_is_skipped_not_fatal() {
+    let dir = tempdir().unwrap();
+    let json = r#"{"models":[
+        {"model":"legacy","backend":"retired_engine","tasks":[]},
+        {"model":"current","backend":"llama_cpp","tasks":[]}
+    ]}"#;
+    std::fs::create_dir_all(dir.path()).unwrap();
+    std::fs::write(dir.path().join("mine.json"), json).unwrap();
+
+    let store = load(dir.path(), "mine").unwrap();
+    assert_eq!(store.models.len(), 1, "the readable model still loads");
+    assert_eq!(store.models[0].model, "current");
+}
+
+/// And an upsert must not delete it: the unreadable entry is re-emitted verbatim.
+#[test]
+fn upsert_preserves_a_model_entry_this_build_cannot_read() {
+    let dir = tempdir().unwrap();
+    let json = r#"{"models":[{"model":"legacy","backend":"retired_engine","tasks":[]}]}"#;
+    std::fs::create_dir_all(dir.path()).unwrap();
+    std::fs::write(dir.path().join("mine.json"), json).unwrap();
+
+    upsert(dir.path(), "mine", "current", BackendKind::LlamaCpp, &[]).unwrap();
+
+    let raw = std::fs::read_to_string(dir.path().join("mine.json")).unwrap();
+    assert!(raw.contains("retired_engine"), "legacy entry survived the rewrite: {raw}");
+    assert!(raw.contains("current"), "the new entry was written too: {raw}");
+}

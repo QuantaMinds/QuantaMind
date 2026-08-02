@@ -224,6 +224,10 @@ export const ReadinessAssessmentSchema = z.object({
   verdicts: z.array(ModelVerdictSchema),
   right_sizing: z.array(RightSizingGroupSchema).default([]),
   right_sizing_hint: z.string().nullish(),
+  /// Columns in the stored report this build couldn't interpret (e.g. one recorded
+  /// against a backend it no longer supports). Skipped rather than failing the
+  /// assess, and counted so the table can name what it isn't showing.
+  unreadable_columns: z.number().int().nonnegative().default(0),
 });
 export type ReadinessAssessment = z.infer<typeof ReadinessAssessmentSchema>;
 

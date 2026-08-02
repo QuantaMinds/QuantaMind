@@ -54,7 +54,7 @@ export function MatrixPanel({
         const h = await loadCollectionHistory(active);
         if (!cancelled) {
           setTasks(t);
-          setHistory(h);
+          setHistory(h.entries);
           setReport(null);
           setError(null);
         }
@@ -81,7 +81,7 @@ export function MatrixPanel({
     try {
       const r = await runCollectionMatrix(active, targets, tasks);
       setReport(r);
-      setHistory(await loadCollectionHistory(active));
+      setHistory((await loadCollectionHistory(active)).entries);
     } catch (e) {
       setError(formatIpcError(e));
     } finally {

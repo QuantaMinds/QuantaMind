@@ -204,6 +204,7 @@ fn ranking_puts_a_ready_model_first_regardless_of_column_order() {
     use super::super::recommend;
     let general = builtins().into_iter().find(|p| p.id == "general-agent").unwrap();
     let report = BatchReport {
+        unreadable_columns: 0,
         collection_id: "c".into(),
         num_ctx: None, collection_hash: None,
         think_preset: None,
@@ -301,6 +302,7 @@ fn agentic_metrics_prefers_native_then_falls_back_to_prompt() {
 fn assess_report_grades_clean_models_and_short_circuits_errors() {
     let general = builtins().into_iter().find(|p| p.id == "general-agent").unwrap();
     let report = BatchReport {
+        unreadable_columns: 0,
         collection_id: "c".into(),
         num_ctx: None, collection_hash: None,
         think_preset: None,
@@ -351,7 +353,7 @@ fn model_verdict_carries_by_tier_and_failures_from_the_native_first_source() {
     native.failures = FailureTracker { forbidden_calls: 3, ..Default::default() };
     c.agentic_native_fc = Some(native);
 
-    let report = BatchReport { collection_id: "c".into(), num_ctx: None, collection_hash: None, think_preset: None, params: None, columns: vec![c] };
+    let report = BatchReport { unreadable_columns: 0, collection_id: "c".into(), num_ctx: None, collection_hash: None, think_preset: None, params: None, columns: vec![c] };
     let v = &assess_report(&report, &general)[0];
     assert_eq!(v.by_tier.len(), 1);
     assert_eq!(v.by_tier[0].tier, Tier::Hard); // native, NOT the prompt's Easy
@@ -445,6 +447,7 @@ fn report_with(model: &str, backend: BackendKind, tiers: Vec<crate::inference::e
     let mut a = agg(1, 1, 0);
     a.by_tier = tiers;
     BatchReport {
+        unreadable_columns: 0,
         collection_id: "x".into(),
         num_ctx: None, collection_hash: None,
         think_preset: None,
@@ -528,7 +531,7 @@ fn model_verdict_by_tier_falls_back_to_prompt_when_native_absent() {
         failures: FailureTracker { unknown_tool_calls: 4, ..Default::default() },
     }];
     c.agentic.as_mut().unwrap().failures = FailureTracker { unknown_tool_calls: 4, ..Default::default() };
-    let report = BatchReport { collection_id: "c".into(), num_ctx: None, collection_hash: None, think_preset: None, params: None, columns: vec![c] };
+    let report = BatchReport { unreadable_columns: 0, collection_id: "c".into(), num_ctx: None, collection_hash: None, think_preset: None, params: None, columns: vec![c] };
     let v = &assess_report(&report, &general)[0];
     assert_eq!(v.by_tier.len(), 1);
     assert_eq!(v.by_tier[0].tier, Tier::Medium);

@@ -20,7 +20,7 @@ const tasks = [{
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getBuiltinCollection).mockResolvedValue(tasks as never);
-  vi.mocked(loadCollectionHistory).mockResolvedValue([]);
+  vi.mocked(loadCollectionHistory).mockResolvedValue({ entries: [], unreadable: 0 });
   useEvalRegistryStore.setState({
     presets: [{ id: "easy-coding", label: "Coding", domain: "coding", tier: "easy" }],
     collections: [],

@@ -51,11 +51,14 @@ pub async fn run_collection_matrix(
     Ok(report)
 }
 
-/// The recorded run history for a collection, oldest first (for the timeline).
+/// The recorded run history for a collection, oldest first (for the timeline),
+/// plus the count of stored rows this build couldn't interpret. Undecodable rows
+/// are skipped rather than failing the whole read — one legacy record must not
+/// blank the panel — and the count is returned so the UI can say so out loud.
 #[tauri::command]
 pub fn load_collection_history(
     app: tauri::AppHandle,
     collection_id: String,
-) -> Result<Vec<RunSummary>, AppError> {
+) -> Result<eval_history::LoadedHistory, AppError> {
     eval_history::load(&history_dir(&app)?, &collection_id)
 }

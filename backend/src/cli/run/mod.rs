@@ -201,6 +201,7 @@ fn effective_tier(tasks: &[ToolTask]) -> Tier {
 fn skeleton(collection_id: &str, targets: &[ModelTarget]) -> BatchReport {
     BatchReport {
         collection_id: collection_id.to_string(),
+        unreadable_columns: 0,
         num_ctx: None,
         collection_hash: None,
         think_preset: None,

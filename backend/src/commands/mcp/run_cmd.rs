@@ -440,6 +440,7 @@ pub async fn run_mcp_byo_batch(
     // The final batch report (one column, the aggregate diagnostic) → Model Results + persistence.
     let full = BatchReport {
         collection_id: BYO_COLLECTION.to_string(),
+        unreadable_columns: 0,
         columns: vec![byo_column(&model, backend, &agg, agg.successes, agg.total_calls)],
         num_ctx: None,
         collection_hash: None, // never publishable — no answer key

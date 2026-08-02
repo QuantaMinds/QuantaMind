@@ -59,7 +59,16 @@ export async function runCollectionMatrix(
   );
 }
 
+export const LoadedHistorySchema = z.object({
+  entries: z.array(RunSummarySchema),
+  /// Stored rows this build couldn't interpret (e.g. recorded against a backend
+  /// that no longer exists). Skipped rather than failing the whole read, and
+  /// counted so the UI can say so instead of quietly showing a short list.
+  unreadable: z.number().int().nonnegative(),
+});
+export type LoadedHistory = z.infer<typeof LoadedHistorySchema>;
+
 /// The recorded run history for a collection, oldest first.
-export async function loadCollectionHistory(collectionId: string): Promise<RunSummary[]> {
-  return z.array(RunSummarySchema).parse(await invoke("load_collection_history", { collectionId }));
+export async function loadCollectionHistory(collectionId: string): Promise<LoadedHistory> {
+  return LoadedHistorySchema.parse(await invoke("load_collection_history", { collectionId }));
 }

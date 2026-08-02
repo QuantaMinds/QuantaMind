@@ -618,6 +618,12 @@ pub struct ReadinessAssessment {
     pub verdicts: Vec<ModelVerdict>,
     pub right_sizing: Vec<RightSizingGroup>,
     pub right_sizing_hint: Option<String>,
+    /// Columns in the stored report this build couldn't interpret (e.g. one
+    /// recorded against a backend it no longer supports). They're skipped rather
+    /// than failing the whole assess, and counted so the table can say what it
+    /// isn't showing — a short verdict list must never read as the full run.
+    #[serde(default)]
+    pub unreadable_columns: usize,
 }
 
 /// Assess the collection's last persisted batch report against a profile. Scoring
@@ -638,7 +644,7 @@ pub async fn assess_readiness(
     let profile = profiles::load(&profiles_dir(&app)?, &profile_id)?;
     let report = match reports::load(&reports_dir(&app)?, &collection_id)? {
         Some(r) => r,
-        None => return Ok(ReadinessAssessment { verdicts: Vec::new(), right_sizing: Vec::new(), right_sizing_hint: None }),
+        None => return Ok(ReadinessAssessment { verdicts: Vec::new(), right_sizing: Vec::new(), right_sizing_hint: None, unreadable_columns: 0 }),
     };
 
     // Real model metadata by name, read from the installed GGUF headers: the weight
@@ -742,7 +748,7 @@ pub async fn assess_readiness(
     // Right-sizing summary over the ranked verdicts (dedup keeps the best row per
     // model). Percent-only; host-specific, never published.
     let (right_sizing, right_sizing_hint) = right_size::summarize(&out, &rs_meta);
-    Ok(ReadinessAssessment { verdicts: out, right_sizing, right_sizing_hint })
+    Ok(ReadinessAssessment { verdicts: out, right_sizing, right_sizing_hint, unreadable_columns: report.unreadable_columns })
 }
 
 #[cfg(test)]
