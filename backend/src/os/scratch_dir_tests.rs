@@ -41,11 +41,29 @@ fn a_different_prefix_is_a_different_namespace() {
     assert!(b.path().is_dir(), "dropping one prefix must not touch another");
 }
 
+/// A pid that is genuinely dead: spawn a trivial process and reap it.
+///
+/// Do NOT use `u32::MAX` as a "surely dead" sentinel. Linux pids are `int32`, so
+/// procps reads 4294967295 as **-1**, and `kill -0 -1` is "signal every process
+/// you can" — which SUCCEEDS. `pid_alive(u32::MAX)` is therefore `true` on Linux
+/// and `false` on macOS. Same family of bug as the `kill -- -<pgid>` regression:
+/// a negative pid means something entirely different from a large one.
+fn a_reaped_pid() -> u32 {
+    #[cfg(unix)]
+    let mut child = std::process::Command::new("true").spawn().expect("spawn true");
+    #[cfg(windows)]
+    let mut child =
+        std::process::Command::new("cmd").args(["/C", "exit"]).spawn().expect("spawn cmd");
+    let pid = child.id();
+    child.wait().expect("reap");
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    pid
+}
+
 #[test]
 fn sweeps_a_dead_pids_orphan_but_never_a_live_ones() {
-    // A dir owned by a pid that cannot be alive: u32::MAX is not a valid live pid
-    // on any platform we build for.
-    let orphan = std::env::temp_dir().join(format!("{T}-{}-0", u32::MAX));
+    let dead = a_reaped_pid();
+    let orphan = std::env::temp_dir().join(format!("{T}-{dead}-0"));
     std::fs::create_dir_all(&orphan).unwrap();
 
     // A dir owned by a pid that definitely IS alive: our own. `sweep_orphans` skips

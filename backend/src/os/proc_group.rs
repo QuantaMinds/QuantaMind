@@ -112,10 +112,28 @@ mod tests {
         signal_group("-KILL", 0);
     }
 
+    /// Reaping is idempotent and racy by nature — the child may already be gone by
+    /// the time we signal it, so a dead pid must be a no-op rather than an error.
+    ///
+    /// The pid comes from spawning and reaping a real process. **Never use
+    /// `u32::MAX` here:** Linux pids are `int32`, so procps reads 4294967295 as
+    /// `-1`, and this module negates the pid before signalling — turning the call
+    /// into `kill -TERM -- -4294967295`, which on Linux can mean *every process the
+    /// user owns*. On a CI runner that is the test harness. Same family as the
+    /// `--` regression above: a negative pid is a group, not a big number.
     #[test]
     fn stopping_a_dead_pid_is_harmless() {
-        // Reaping is idempotent and racy by nature — the child may already be gone.
-        graceful_stop_group(u32::MAX);
-        hard_stop_group(u32::MAX);
+        #[cfg(unix)]
+        let mut child = std::process::Command::new("true").spawn().expect("spawn true");
+        #[cfg(windows)]
+        let mut child =
+            std::process::Command::new("cmd").args(["/C", "exit"]).spawn().expect("spawn cmd");
+        let pid = child.id();
+        child.wait().expect("reap");
+        assert_ne!(pid, 0, "a real child never has pid 0");
+
+        graceful_stop_group(pid);
+        hard_stop_group(pid);
+        // Reaching here means neither call took the harness down with it.
     }
 }
