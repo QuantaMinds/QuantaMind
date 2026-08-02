@@ -5,6 +5,7 @@
 //! their agent owns its model, and the grade is the world.
 
 pub mod command;
+pub mod record;
 pub mod render;
 pub mod spawn;
 pub mod suite;
@@ -24,6 +25,9 @@ pub struct CertifyOptions {
     pub fail_on: FailOn,
     pub quiet_agent: bool,
     pub no_precheck: bool,
+    /// Capture the world delta each task's agent produced, so a suite can be
+    /// *demonstrated* rather than hand-authored.
+    pub record: bool,
 }
 
 /// Why a run stopped before measuring anything.
@@ -38,6 +42,8 @@ pub enum CertifyOutcome {
 
 pub struct CertifyReport {
     pub tasks: Vec<TaskResult>,
+    /// Per task id, the delta observed while recording. Empty unless `--record`.
+    pub recorded: Vec<(String, record::Delta)>,
     /// The command TEMPLATE, pre-substitution. The expanded argv embeds an absolute
     /// path and must never reach a report (rule 7f).
     pub command_template: String,
@@ -101,17 +107,34 @@ pub fn run_certify_suite(tasks: &[CertifyTask], opts: &CertifyOptions) -> Certif
     }
 
     let mut results = Vec::with_capacity(tasks.len());
+    let mut recorded = Vec::new();
     for t in tasks {
-        let k = opts.k_override.unwrap_or(t.k);
+        // Recording is a demonstration, not a measurement: one run, because a
+        // second would only overwrite the first with the same delta.
+        let k = if opts.record { 1 } else { opts.k_override.unwrap_or(t.k) };
+        let before = record::seed_snapshot(&t.spec);
+        let mut delta = None;
         let r = run_task(&t.spec, &t.id, &t.goal, k, |ctx| {
-            spawn::run_agent(&opts.command, ctx, opts.timeout, opts.kill_grace, !opts.quiet_agent)
+            let rep =
+                spawn::run_agent(&opts.command, ctx, opts.timeout, opts.kill_grace, !opts.quiet_agent);
+            if opts.record {
+                // Snapshot here, inside the actuator: this is the only point where
+                // the workspace still exists — `run_task` tears it down after
+                // grading.
+                delta = Some(record::diff(&before, &record::snapshot(ctx.workspace)));
+            }
+            rep
         });
+        if let Some(d) = delta {
+            recorded.push((t.id.clone(), d));
+        }
         results.push(r);
     }
 
     let one_sided = !tasks.iter().any(|t| t.is_negative);
     CertifyOutcome::Ran(CertifyReport {
         tasks: results,
+        recorded,
         command_template: opts.command.template(),
         one_sided,
     })

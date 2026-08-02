@@ -23,6 +23,14 @@ All notable changes to QuantaMind are documented here. The format follows
   - **Every task is proven failable before anything runs.** Each is seeded and graded
     with zero actions; if doing nothing passes, the run aborts with exit 20 and no agent
     is spawned.
+  - **`--record` — demonstrate a suite instead of writing it.** Give a task a goal
+    and a world but no oracle, run the agent you already trust once, and QuantaMind
+    records what it did to the world as the answer key. State-only by design:
+    content assertions are never auto-generated, because a recorded body embeds
+    run-specific text and would fail on its own second run. Nothing unusable is
+    written — a run that created and deleted nothing, a modify-only run, and db
+    worlds are each skipped with a distinct reason, and if nothing was recorded no
+    file is produced at all.
   - **Injection is structurally impossible**, not filtered: argv is a list handed to the
     OS, never a string handed to a shell.
   - Exit codes distinguish *what we measured* from *what we couldn't*: an unmeasured

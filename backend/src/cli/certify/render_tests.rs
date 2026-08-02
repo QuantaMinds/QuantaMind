@@ -14,7 +14,7 @@ fn task(id: &str, statuses: Vec<AttemptStatus>) -> TaskResult {
     }
 }
 fn report(tasks: Vec<TaskResult>) -> CertifyReport {
-    CertifyReport { tasks, command_template: "agent {task}".into(), one_sided: false }
+    CertifyReport { tasks, recorded: vec![], command_template: "agent {task}".into(), one_sided: false }
 }
 fn passed() -> AttemptStatus { AttemptStatus::Passed }
 fn wrong() -> AttemptStatus { AttemptStatus::FailedState { failures: vec!["missing out.txt".into()] } }

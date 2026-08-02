@@ -112,6 +112,10 @@ struct CertifyArgs {
     /// Which verdicts fail the process.
     #[arg(long, value_enum, default_value_t = FailOnArg::Conditional)]
     fail_on: FailOnArg,
+    /// Record what the agent DOES to the world into a replayable suite, instead
+    /// of hand-writing the answer key. Runs once per task; state-only.
+    #[arg(long)]
+    record: Option<std::path::PathBuf>,
     /// The agent command, after `--`. Never shell-interpreted.
     #[arg(last = true, num_args = 1..)]
     agent: Vec<String>,
@@ -1161,6 +1165,7 @@ async fn run_doctor(args: DoctorArgs) {
 fn run_certify_cmd(args: CertifyArgs) {
     use quantamind_lib::cli::certify::{
         command::AgentCommand, render::render, run_certify_suite, suite, CertifyOptions,
+        CertifyOutcome,
     };
 
     let command = match AgentCommand::new(&args.agent, args.clean_env, args.env.clone()) {
@@ -1170,7 +1175,11 @@ fn run_certify_cmd(args: CertifyArgs) {
             std::process::exit(2);
         }
     };
-    let tasks = match suite::load(&args.suite) {
+    let tasks = match if args.record.is_some() {
+        suite::load_for_recording(&args.suite)
+    } else {
+        suite::load(&args.suite)
+    } {
         Ok(t) => t,
         Err(e) => {
             eprintln!("[QM-BAD-SUITE] {e}");
@@ -1195,8 +1204,26 @@ fn run_certify_cmd(args: CertifyArgs) {
         k_override: args.k,
         fail_on: args.fail_on.into(),
         quiet_agent: args.quiet_agent,
-        no_precheck: args.no_precheck,
+        // Recording has no answer key yet — that is the point — so the
+        // anti-vacuity gate cannot apply. It is re-applied the moment the
+        // recorded suite is run for real.
+        no_precheck: args.no_precheck || args.record.is_some(),
+        record: args.record.is_some(),
     };
     let outcome = run_certify_suite(&tasks, &opts);
+
+    if let (Some(out), CertifyOutcome::Ran(r)) = (&args.record, &outcome) {
+        match quantamind_lib::cli::certify::render::write_recorded(r, &tasks, out) {
+            Ok(n) => {
+                eprintln!("[QM-RECORDED] wrote {n} task(s) to {}", out.display());
+                eprintln!("[QM-RECORDED] captured from a real run — review before committing.");
+                std::process::exit(0);
+            }
+            Err(e) => {
+                eprintln!("[QM-RECORD-FAILED] {e}");
+                std::process::exit(2);
+            }
+        }
+    }
     std::process::exit(render(&outcome, args.fail_on.into()));
 }

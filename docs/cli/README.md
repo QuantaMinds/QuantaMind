@@ -688,6 +688,44 @@ A `negative` task must declare **both**, enforced at load:
 correctly declines and writes nothing is indistinguishable from one that crashed, from outside the
 process.
 
+### `--record` — demonstrate the suite instead of writing it
+
+Hand-authoring an oracle is the step that stops teams adopting a gate: you have to know, in advance
+and in assertion form, exactly what correct looks like. `--record` inverts that. Give a task a
+**goal and a world but no oracle**, run the agent you already trust once, and QuantaMind writes down
+what it actually did.
+
+```bash
+# 1. a task with no answer key yet
+# 2. demonstrate it
+qm certify --suite ./todo.json --record ./qm/suite.json -- ./my-agent --task "{task}" --workspace "{workspace}"
+# 3. from now on it is a gate
+qm certify --suite ./qm/suite.json -- ./my-agent --task "{task}" --workspace "{workspace}"
+```
+
+**State-only, deliberately.** It records the structural delta — files **created** and **deleted** —
+and nothing else. Content assertions are *not* auto-generated: a recorded body would embed
+timestamps, ids and run-specific text, producing a suite that fails on its own second run for
+reasons that have nothing to do with your agent. Modified files are listed under `_modified` and
+reported for you to assert on, which is a far smaller job than writing the whole oracle.
+
+Recording is a *demonstration*, not a measurement, so it runs each task **once** regardless of `k`.
+The only check it waives is "vacuous oracle" — you do not have one yet, which is the point. Escaping
+oracle paths, mutating oracle queries, duplicate names and `k=0` are still hard errors, and the
+vacuity gate is re-applied **in full** the moment the recorded suite is run for real.
+
+**Nothing unusable is ever written:**
+
+| Situation | What happens |
+|---|---|
+| the agent created/deleted nothing | `[QM-RECORD-SKIP]` — a recorded oracle would assert nothing and could never fail |
+| the agent only *modified* files | `[QM-RECORD-SKIP]` naming them — nothing structural to assert; add `assert_content` by hand |
+| a `db` world | `[QM-RECORD-SKIP]` — a correct SQL oracle needs a schema-aware diff, and a guessed one is worse than none |
+| nothing at all was recorded | exit `2`; **no file is written** |
+
+The output carries a banner: it was captured from a real run and **may contain real data — review
+before committing**.
+
 ### Every task is proven to be failable, before anything runs
 
 Before a single agent process starts, each task is seeded and graded with **zero** actions. If doing

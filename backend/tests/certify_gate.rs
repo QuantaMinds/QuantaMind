@@ -73,6 +73,7 @@ fn run(fx: &Fixture, agent: &str, timeout_secs: u64) -> CertifyOutcome {
         fail_on: FailOn::Conditional,
         quiet_agent: true,
         no_precheck: false,
+        record: false,
     };
     run_certify_suite(&tasks, &opts)
 }
@@ -298,4 +299,60 @@ fn each_attempt_sees_a_fresh_world() {
     let r = ran(run(&fx, &a, 30));
     assert_eq!(r.verdict(), Readiness::Ready, "a reused workspace would exit 9: {:?}", r.tasks[0].attempts);
     assert_eq!(r.tasks[0].passes(), 3);
+}
+
+/// `--record` end-to-end: demonstrate once, then the recorded suite must REPLAY
+/// and must be a real test. A recorder that emits a suite which cannot be loaded,
+/// or which passes for a do-nothing agent, is worse than no recorder — it
+/// manufactures false confidence.
+#[test]
+fn a_recorded_suite_replays_and_still_catches_a_lazy_agent() {
+    use quantamind_lib::cli::certify::{record, render::write_recorded};
+
+    // A task with NO oracle — the whole point of recording is that you do not
+    // have the answer key yet.
+    const TODO: &str = r#"[{
+      "name": "close-ticket",
+      "instruction": "Summarise into out/summary.md and delete tickets/T-1.md",
+      "k": 2,
+      "world": { "type": "fs", "files": [{ "path": "tickets/T-1.md", "content": "open" }] }
+    }]"#;
+
+    let fx = Fixture::new(TODO);
+    let good = fx.agent(r#"mkdir -p "$2/out"; echo RESOLVED > "$2/out/summary.md"; rm -f "$2/tickets/T-1.md""#);
+
+    // Recording waives ONLY the vacuous-oracle finding.
+    let tasks = suite::load_for_recording(&fx.suite_path()).expect("recording load");
+    let cmd = AgentCommand::new(&[good.clone(), "{task}".into(), "{workspace}".into()], false, vec![]).unwrap();
+    let opts = CertifyOptions {
+        command: cmd,
+        timeout: Duration::from_secs(30),
+        kill_grace: Duration::from_secs(1),
+        k_override: None,
+        fail_on: FailOn::Conditional,
+        quiet_agent: true,
+        no_precheck: true,
+        record: true,
+    };
+    let report = ran(run_certify_suite(&tasks, &opts));
+    let (_, delta) = report.recorded.first().expect("a delta was captured");
+    assert!(delta.created.contains(&"out/summary.md".to_string()), "{delta:?}");
+    assert!(delta.deleted.contains(&"tickets/T-1.md".to_string()), "{delta:?}");
+    assert!(!record::Delta::is_empty(delta));
+
+    let out = fx.dir.path().join("recorded.json");
+    assert_eq!(write_recorded(&report, &tasks, &out).unwrap(), 1);
+
+    // THE ROUND TRIP: the recorded file must load through the strict loader —
+    // vacuity gate re-applied in full.
+    let replayed = suite::load(&out).expect("a recorded suite must replay");
+    assert_eq!(replayed.len(), 1);
+    assert_eq!(replayed[0].id, "close-ticket");
+
+    // And it must be a REAL test: a do-nothing agent has to fail it.
+    let fx2 = Fixture { dir: ScratchDir::new("qm-certify-it").unwrap() };
+    std::fs::copy(&out, fx2.dir.path().join("suite.json")).unwrap();
+    let lazy = fx2.agent("exit 0");
+    let r2 = ran(run(&fx2, &lazy, 30));
+    assert_eq!(r2.verdict(), Readiness::NotReady, "a recorded oracle that a lazy agent passes is vacuous");
 }

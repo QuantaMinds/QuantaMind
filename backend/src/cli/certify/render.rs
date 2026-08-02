@@ -126,6 +126,81 @@ pub fn render(outcome: &CertifyOutcome, fail_on: FailOn) -> i32 {
     }
 }
 
+/// Write a recorded suite to disk.
+///
+/// Only tasks whose agent actually changed the world are emitted. A task with an
+/// empty delta is skipped **loudly**: recording it would produce an oracle that
+/// asserts nothing, i.e. a test that can never fail — the exact defect the
+/// anti-vacuity gate exists to catch. Silently writing it would smuggle a vacuous
+/// task into the suite through the back door.
+pub fn write_recorded(
+    report: &CertifyReport,
+    tasks: &[crate::cli::certify::suite::CertifyTask],
+    out: &std::path::Path,
+) -> Result<usize, String> {
+    use crate::cli::certify::record;
+
+    let mut emitted = Vec::new();
+    for (id, delta) in &report.recorded {
+        let Some(t) = tasks.iter().find(|t| &t.id == id) else { continue };
+        if let Some(why) = record::unsupported_reason(&t.spec) {
+            eprintln!("[QM-RECORD-SKIP] '{id}': {why}");
+            continue;
+        }
+        if delta.is_empty() {
+            // Two different things, and saying the wrong one sends the user to
+            // debug the wrong problem. "Changed nothing" and "only edited bodies"
+            // both yield no structural assertion, but only the first means the
+            // agent did nothing.
+            if delta.modified.is_empty() {
+                eprintln!(
+                    "[QM-RECORD-SKIP] '{id}': the agent changed nothing — no file was created or \
+                     deleted, so there is no assertion to record. A recorded oracle here would \
+                     assert nothing and could never fail."
+                );
+            } else {
+                eprintln!(
+                    "[QM-RECORD-SKIP] '{id}': the agent only MODIFIED existing files ({}) and \
+                     created or deleted none. Content assertions are not auto-generated — a \
+                     recorded body embeds run-specific text — so there is nothing to record here. \
+                     Add `assert_content` by hand for those files.",
+                    delta.modified.join(", ")
+                );
+            }
+            continue;
+        }
+        if !delta.modified.is_empty() {
+            eprintln!(
+                "[QM-RECORD-REVIEW] '{id}': {} file(s) were MODIFIED — content assertions are not \
+                 auto-generated (a recorded body embeds run-specific text). Add assert_content for: {}",
+                delta.modified.len(),
+                delta.modified.join(", ")
+            );
+        }
+        // Start from the ORIGINAL task and replace only the oracle, so the world
+        // (and any field this loader does not model) survives verbatim. Rebuilding
+        // it from our own types would silently drop anything we do not parse.
+        let mut task = t.source.clone();
+        if !task.is_object() {
+            task = serde_json::json!({ "name": id, "instruction": t.goal, "k": t.k });
+        }
+        task["oracle"] = record::to_oracle_json(delta);
+        if !delta.modified.is_empty() {
+            task["_modified"] = serde_json::json!(delta.modified);
+        }
+        emitted.push(task);
+    }
+
+    if emitted.is_empty() {
+        return Err("nothing was recorded — see the [QM-RECORD-SKIP] notes above".into());
+    }
+    let doc = serde_json::json!({ "_banner": record::REVIEW_BANNER, "tasks": emitted });
+    let text = serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())?;
+    std::fs::write(out, text)
+        .map_err(|e| crate::redact::redact_path(&e.to_string()))?;
+    Ok(emitted.len())
+}
+
 #[cfg(test)]
 #[path = "render_tests.rs"]
 mod tests;
