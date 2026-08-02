@@ -9,9 +9,9 @@
 
 **Why this core exists.** QuantaMind is a Tauri 2 desktop app: a React/TS
 frontend in a webview talks to a Rust process over Tauri's IPC bridge. Every
-capability the UI exposes — pulling a model, running inference, scoring an eval,
-recording audio — is a Rust `#[tauri::command]`. Something has to (a) *register*
-those ~123 commands, (b) hold the *shared, long-lived state* they mutate
+capability the UI exposes — pulling a model, running inference, scoring an eval
+— is a Rust `#[tauri::command]`. Something has to (a) *register*
+those ~124 commands, (b) hold the *shared, long-lived state* they mutate
 (cancellation tokens, running-server handles, in-memory settings), (c)
 *guarantee* the spawned sidecar servers die when the app dies, and (d) provide
 the *common vocabulary* — one error type, one event helper, one clock, one
@@ -28,7 +28,7 @@ poison-safe lock — that every command reuses. That is this core.
   (`sync.rs`), `now_utc` (`time_iso.rs`), input validation (`validation/`), and
   streaming throughput/timeline/timing (`metrics/`).
 
-**How it fits.** This is the *spine*. Feature modules (`eval`, `stt`, `models`,
+**How it fits.** This is the *spine*. Feature modules (`eval`, `models`,
 `compare`, `publish`, …) hang off it: they each define commands + a state struct,
 which `lib.rs` registers and manages. They all `return Result<_, AppError>`, emit
 progress via `log_emit`, timestamp with `now_utc`, and recover poisoned locks
@@ -139,9 +139,9 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(commands::prompt::prompt::RunState::default())
-        // … 16 more .manage(...) …
-        .setup(|app| { /* orphan sweep + signal reaper + STT reconcile */ Ok(()) })
-        .invoke_handler(tauri::generate_handler![ /* ~127 commands */ ])
+        // … 13 more .manage(...) …
+        .setup(|app| { /* orphan sweep + signal reaper + legacy-path warning */ Ok(()) })
+        .invoke_handler(tauri::generate_handler![ /* ~124 commands */ ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(commands::app_lifecycle::reap_on_exit);
@@ -157,17 +157,16 @@ Notes:
   enterprise/air-gapped build compiles out the cloud surface. The offline image
   export (`save_readiness_image`) stays in every build.
 - **`.setup` hook** runs once after build, before the window shows:
-  `sweep_orphans()`, `install_signal_reaper(...)`, `reconcile_stt_dir(...)`
-  (heal half-installed STT artifacts), `clear_scratch(...)` (drop last session's
-  recording scratch). See lifecycle section.
+  `sweep_orphans()`, `install_signal_reaper(...)`, and
+  `warn_on_legacy_windows_paths()`. See lifecycle section.
 
 ## File: `backend/src/commands/mod.rs`
 
 **Responsibility:** the module map for all command groups. · **Why:** enforces
-the "split by concern" rule — one folder per concern, no `utils`. · **What:** 20
-`pub mod` declarations (`app_lifecycle`, `audio`, `compare`, `emit`, `eval`,
+the "split by concern" rule — one folder per concern, no `utils`. · **What:** 18
+`pub mod` declarations (`app_lifecycle`, `compare`, `emit`, `eval`,
 `gguf`, `hf`, `llama`, `mlx`, `models`, `ollama`, `prompt`, `prompt_templates`,
-`publish`, `remote`, `settings`, `storage`, `stt`, `system`, `workspace`).
+`publish`, `remote`, `settings`, `storage`, `system`, `workspace`).
 `remote` holds the vLLM/SGLang health + `/v1/models` discovery commands (one
 module, both backends). · **How/Where used:** every command path in `lib.rs`
 (`commands::<group>::<file>::<fn>`) resolves through here.
@@ -191,9 +190,6 @@ its type, retrievable anywhere as `tauri::State<'_, T>` or
 | `ollama::ollama_start::OllamaStartState` | `Mutex<bool>` in-progress + `Mutex<Option<u32>>` started_pid | Track the `ollama serve` **we** spawned so we only kill our own daemon. | [backend-inference-backends.md](backend-inference-backends.md) |
 | `llama::llama_server_types::LlamaServerState` | `Mutex<Option<RunningServer>>` | Handle to the spawned `llama-server` sidecar. | [backend-inference-backends.md](backend-inference-backends.md) |
 | `mlx::mlx_server_types::MlxServerState` | `Mutex<Option<Running>>` | Handle(s) to the spawned `mlx_lm.server`. | [backend-inference-backends.md](backend-inference-backends.md) |
-| `stt::stt_server_types::SttServerState` | `Mutex<Option<Running>>` | Handle to the spawned `whisper-server` sidecar. | [backend-stt.md](backend-stt.md) |
-| `stt::stt_download::SttInstallState` | `Mutex<Option<CancellationToken>>` | Cancel the active STT model download. | [backend-stt.md](backend-stt.md) |
-| `audio::capture::CaptureState` | `Mutex<Option<Active>>` (+ `Drop`) | Active mic capture stream; `Drop` stops it on app teardown. | [backend-stt.md](backend-stt.md) |
 | `workspace::workspaces::WorkspaceState` | `Mutex<Option<PathBuf>>` | Currently-open workspace root path. | [backend-persistence.md](backend-persistence.md) |
 | `settings::user_settings::UserSettingsState` | `Mutex<UserSettings>` + loaded flag | App-wide user settings, lazy-loaded. | [backend-persistence.md](backend-persistence.md) |
 | `eval::batch_cmd::BatchRunState` | `Mutex<Option<CancellationToken>>` | Cancel the running batch eval. | [backend-eval-engine.md](backend-eval-engine.md) |
@@ -217,7 +213,6 @@ The `invoke_handler!` table registers **127** commands. Grouped by
 |---|---|---|---|
 | `remote` | 4 | Remote vLLM/SGLang health + model discovery (both over `GET /v1/models`, bearer-authed). No start/stop — the servers are remote. | [backend-inference-backends.md](backend-inference-backends.md) |
 | `eval` | 29 | Eval engine: load/run tasks, tool-call eval + trace, custom/builtin collections, matrix runs, batch (run/stop/resume/discard), readiness profiles + assess, Context Stress Test. | [backend-eval-engine.md](backend-eval-engine.md) |
-| `stt` | 22 | Speech-to-text: whisper-server start/stop/health/env, model download/catalog/list/delete, transcribe + load transcript, STT eval CRUD + report, STT readiness profiles. | [backend-stt.md](backend-stt.md) |
 | `workspace` | 15 | Workspace open/close/current/tree/recent, prompt file CRUD (load/save/create/rename/delete), run history (append/list/get/clear/remove). | [backend-persistence.md](backend-persistence.md) |
 | `settings` | 7 | Model settings (get + set temperature), storage path get/validate, user settings get/set + resolve models folder. | `commands/settings`, [backend-persistence.md](backend-persistence.md) |
 | `mlx` | 7 | MLX health, list/delete/install models, server start/stop/status. | [backend-inference-backends.md](backend-inference-backends.md) |
@@ -228,7 +223,6 @@ The `invoke_handler!` table registers **127** commands. Grouped by
 | `storage` | 4 | Installed models + stats, remove model, clear cache (opt-in `include_models` also wipes the HF snapshot cache, keeping the auth token), disk usage. | `commands/storage` |
 | `publish` | 4–5* | Save readiness image (always); preview/publish/login (gated out of enterprise builds). | [backend-publish.md](backend-publish.md) |
 | `compare` | 3 | Run/stop compare, save compare report. | [backend-compare.md](backend-compare.md) |
-| `audio` | 3 | Start/stop recording, recording level (VU). | [backend-stt.md](backend-stt.md) |
 | `prompt` | 2 | Run/stop a single streamed prompt. | `commands/prompt` |
 | `ollama` | 2 | Start/stop the Ollama daemon we own. | [backend-inference-backends.md](backend-inference-backends.md) |
 | `gguf` | 2 | Inspect a GGUF file, install a local GGUF. | [backend-models-hf-gguf.md](backend-models-hf-gguf.md) |
@@ -248,16 +242,16 @@ composing the existing per-backend health/credential/capability probes — see `
 
 ## Lifecycle & process reaping — `commands/app_lifecycle.rs`
 
-**Responsibility:** guarantee the four spawned sidecar servers never outlive the
+**Responsibility:** guarantee the three spawned sidecar servers never outlive the
 app, by any exit path. · **Why:** Tauri does **not** kill child processes when it
 exits, and `RunEvent::ExitRequested` only fires on a *graceful* quit (Cmd+Q) — not
 on a signal kill or a `tauri dev` rebuild SIGKILL. Without these guards a stale
-`whisper-server`/`llama-server`/`mlx_lm.server`/owned-`ollama` keeps holding its
+`llama-server`/`mlx_lm.server`/owned-`ollama` keeps holding its
 port (→ `EADDRINUSE` next launch) and unified memory. This module closes every
 gap. · **How/Where used:** wired in three places in `lib.rs` — `sweep_orphans()`
 and `install_signal_reaper(...)` in `.setup`, `reap_on_exit` passed to `.run(...)`.
 
-The four guarded targets: `whisper-server`, `llama-server`, `mlx_lm.server`, and
+The three guarded targets: `llama-server`, `mlx_lm.server`, and
 the `ollama serve` *we* started (never a user's pre-existing daemon).
 
 ### Conservative identity (`is_our_server_cmd`)
@@ -268,14 +262,14 @@ one of our server binaries:
 
 ```rust
 const OUR_MARKER: &str = ".quantamind";
-const SERVER_BINS: &[&str] = &["whisper-server", "llama-server", "mlx_lm.server"];
+const SERVER_BINS: &[&str] = &["llama-server", "mlx_lm.server"];
 
 fn is_our_server_cmd(cmd: &str) -> bool {
     cmd.contains(OUR_MARKER) && SERVER_BINS.iter().any(|b| cmd.contains(b))
 }
 ```
 
-A user's own `whisper-server` pointed at *their* models dir fails the marker
+A user's own `llama-server` pointed at *their* models dir fails the marker
 check and is never killed (the test asserts exactly this).
 
 ### Three exit paths, three guards
@@ -298,7 +292,6 @@ pub fn reap_on_exit(app: &AppHandle, event: RunEvent) {
 fn reap_managed(app: &AppHandle) {
     if let Err(e) = app.state::<MlxServerState>().kill_all_servers() { eprintln!("mlx reap failed: {e}"); }
     if let Err(e) = app.state::<LlamaServerState>().stop()           { eprintln!("llama reap failed: {e}"); }
-    if let Err(e) = app.state::<SttServerState>().stop()             { eprintln!("whisper reap failed: {e}"); }
     if let Err(e) = app.state::<OllamaStartState>().stop_owned()     { eprintln!("ollama reap failed: {e}"); }
 }
 ```
@@ -350,9 +343,7 @@ pub fn sweep_orphans() -> usize {
 
 **Guarantee:** across all three exit modes (graceful, signal, crash) and any
 combination, no QuantaMind-spawned server survives into the next session, and no
-non-QuantaMind process is ever touched. (Disk-side healing — half-installed STT
-files — is reconciled separately in `.setup` via `reconcile_stt_dir`, see
-[backend-stt.md](backend-stt.md).)
+non-QuantaMind process is ever touched.
 
 ---
 
@@ -505,11 +496,11 @@ tests).
 ## Inference module map — `backend/src/inference/mod.rs`
 
 Out of scope to deep-dive (per-backend docs own the internals); included as the
-map the spine sits above. `inference/mod.rs` declares 19 submodules:
+map the spine sits above. `inference/mod.rs` declares 18 submodules:
 
 `backend`, `chat`, `compare`, `create`, `eval`, `generate`, `gguf`, `hf`,
 `http`, `llama`, `mlx`, `ollama`, `openai` (the shared OpenAI SSE codec),
-`pull`, `sglang`, `stt`, `vllm`, plus three leaf files `params.rs`
+`pull`, `sglang`, `vllm`, plus three leaf files `params.rs`
 (`InferenceParams` — the domain home of the sampling params, re-exported by
 `persistence::prompts::schema`), `token_handler.rs` and `vram_math.rs`.
 
@@ -561,9 +552,6 @@ non-default-scoped grant — the app cannot open arbitrary URLs.
   `uuid v4`, `sha2`, `bytes`.
 - **Publish auth (non-enterprise):** `keyring 3` (OS secure store; Linux without
   a secret service falls back to in-memory), `base64 0.22` (PKCE S256).
-- **Audio/STT:** `hound`, `rubato`, `symphonia` (mp3/pcm/wav), `cpal`,
-  `webrtc-vad` (independent, non-ML VAD — anti-circularity for the STT
-  silence-hallucination metric).
 - **Dev-deps:** `mockito`, `tempfile`.
 
 No logging/state-machine/UI-kit crates — consistent with the locked-stack rule
@@ -574,7 +562,6 @@ in `CLAUDE.md` / `docs/process.md#tech-stack`.
 ## Cross-references
 
 - Eval engine & readiness/cliff: [backend-eval-engine.md](backend-eval-engine.md)
-- Speech-to-text + audio capture: [backend-stt.md](backend-stt.md)
 - Model browse/pull (Ollama/HF/GGUF): [backend-models-hf-gguf.md](backend-models-hf-gguf.md)
 - Inference backends (Ollama/llama/MLX, server spawn): [backend-inference-backends.md](backend-inference-backends.md)
 - Compare runs: [backend-compare.md](backend-compare.md)

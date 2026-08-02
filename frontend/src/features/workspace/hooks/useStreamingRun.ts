@@ -38,8 +38,8 @@ export function useStreamingRun() {
   const outputRef = useRef("");
   const ctxRef = useRef<RunContext | null>(null);
   // True only between this hook's own start() and the run's terminal event. The
-  // run_prompt event stream is global and other hooks (e.g. the STT assistant)
-  // also listen, so we react only to the run we initiated — no stray history,
+  // run_prompt event stream is global and other hooks may also listen, so we
+  // react only to the run we initiated — no stray history,
   // leak samples, or compareStore writes for someone else's run.
   const initiatedRef = useRef(false);
 

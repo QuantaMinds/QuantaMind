@@ -11,7 +11,6 @@ cancellation. It also hosts per-backend **server start/stop** controls and a lef
 > - Backend that serves `run_prompt` / `stop_prompt` + prompt/workspace persistence → [`backend-prompt-workspace-system.md`](./backend-prompt-workspace-system.md)
 > - Backend that starts/stops the three inference servers + health → [`backend-inference-backends.md`](./backend-inference-backends.md)
 > - Shared IPC client, Zustand stores, navigation → [`frontend-overview.md`](./frontend-overview.md)
-> - The two-pane **STT transcribe view** that replaces this page when whisper-server runs → [`frontend-stt.md`](./frontend-stt.md)
 
 ---
 
@@ -35,7 +34,6 @@ the Run trigger, the live stream, and the per-prompt file**.
   backend is healthy**, replaces the editor with a `BackendSetupGuide`.
 - Left rail: open a workspace folder, browse a tree of `*.quantamind.yaml` prompts,
   create / rename / delete them, with **debounced autosave**.
-- When whisper-server is running, the whole page yields to `SttWorkspace` (transcribe).
 
 ### How — IPC commands used (via `shared/ipc`)
 | Command | Wrapper / hook | Backend doc |
@@ -58,10 +56,10 @@ hint (`runHint.ts`).
 
 ## The page — `workspace/components/Workspace.tsx`
 
-**Responsibility:** the run surface; picks which of three top-level modes to render and
+**Responsibility:** the run surface; picks which top-level mode to render and
 composes the editors + run controls.
 
-**Why:** one component decides the page shape from global state (STT running? any LLM
+**Why:** one component decides the page shape from global state (any LLM
 running? a prompt selected? one model or many?) so the sub-pieces stay dumb.
 
 **What / How:** reads `useWorkspacesStore.current` (the open prompt) + `patch`, the
@@ -69,9 +67,8 @@ header `selectedModels`, and the per-backend health flags from `backendStore`
 (ollama/llama/mlx/vllm/sglang).
 
 Render priority:
-1. `sttRunning` → `<SttWorkspace/>` (see frontend-stt.md).
-2. `noLlmRunning` (all three health flags `!== true`) → `<BackendSetupGuide/>`.
-3. otherwise the prompt UI: `ModelSelectBar`, then — if a prompt is open — the system
+1. `noLlmRunning` (all health flags `!== true`) → `<BackendSetupGuide/>`.
+2. otherwise the prompt UI: `ModelSelectBar`, then — if a prompt is open — the system
    `PromptEditor` (120px), the user-prompt label + `PromptTemplatePicker`, the user
    `PromptEditor`, then `multi ? (HardwareSummary + RunStrategyPicker + MultiRun) : <SingleRun/>`.
 4. `<StatusBar/>` is **always mounted** (even under the setup guide) so its Ollama
@@ -95,8 +92,8 @@ const model = selectedModels[0]?.name ?? null;
 global token/done/cancelled event stream, drive the status machine, and on completion
 fan out metrics to the workspace store, history, and the leak inspector.
 
-**Why:** the `run_prompt` event stream is **global** (other hooks, e.g. the STT
-assistant, also listen). An `initiatedRef` flag gates every handler so this hook reacts
+**Why:** the `run_prompt` event stream is **global** (other hooks may also
+listen). An `initiatedRef` flag gates every handler so this hook reacts
 **only to the run it started** — no stray history rows, leak samples, or compare writes
 for someone else's run. There is intentionally **no timeout** on `run_prompt` (model
 loads + long generations are legitimate); cancellation is the user's escape hatch and is
@@ -346,7 +343,7 @@ stats? }`.
 
 | File | Responsibility |
 | --- | --- |
-| `BackendSetupGuide.tsx` | Shown when no LLM backend is healthy: a 2-col grid of install cards (Ollama / llama.cpp / MLX / whisper.cpp) with copy-able commands, links, step lists, and "what it runs". `useMlxBackend` filters the Apple-only MLX card off non-Apple-Silicon. The page swaps back to the editor the instant the health poll sees a server. |
+| `BackendSetupGuide.tsx` | Shown when no LLM backend is healthy: a 2-col grid of install cards (Ollama / llama.cpp / MLX) with copy-able commands, links, step lists, and "what it runs". `useMlxBackend` filters the Apple-only MLX card off non-Apple-Silicon. The page swaps back to the editor the instant the health poll sees a server. |
 | `PromptTemplatePicker.tsx` | A `<select>` of bundled prompt templates (`list_prompt_templates`); picking one calls `onInsert(t.body)` → `patch({ user })`. Renders nothing when empty. |
 
 ---

@@ -1,4 +1,4 @@
-// The backend runs no `unsafe` of its own — all native work (HTTP, audio, process
+// The backend runs no `unsafe` of its own — all native work (HTTP, process
 // control) goes through safe crates. Deny it so a future `unsafe` block is a
 // conscious, reviewed exception, not an accident (guide Part 7).
 #![deny(unsafe_code)]
@@ -48,10 +48,7 @@ pub fn run() {
         .manage(commands::ollama::ollama_start::OllamaStartState::default())
         .manage(commands::llama::llama_server_types::LlamaServerState::default())
         .manage(commands::mlx::mlx_server_types::MlxServerState::default())
-        .manage(commands::stt::stt_server_types::SttServerState::default())
         .manage(mcp::registry::McpServerState::default())
-        .manage(commands::stt::stt_download::SttInstallState::default())
-        .manage(commands::audio::capture::CaptureState::default())
         .manage(commands::workspace::workspaces::WorkspaceState::default())
         .manage(commands::settings::user_settings::UserSettingsState::default())
         .manage(commands::eval::batch_cmd::BatchRunState::default())
@@ -68,15 +65,10 @@ pub fn run() {
             // Reap our servers on SIGINT/SIGTERM too — ExitRequested only fires on
             // a graceful quit (Cmd+Q), not when a signal kills the process.
             commands::app_lifecycle::install_signal_reaper(app.handle().clone());
-            // Sweep any half-installed STT artifacts left by a prior crash, so a
-            // model reads installed only when its real files are present (R3).
-            let _ = commands::stt::stt_disk::reconcile_stt_dir(&commands::stt::stt_disk::stt_dir());
             // Phase 4: on Windows only, warn if legacy `~/.quantamind/*` folders
             // exist alongside the new `%LOCALAPPDATA%\QuantaMind` default. Never
             // auto-move — user weights are irreplaceable.
             commands::storage::storage_disk::warn_on_legacy_windows_paths();
-            // Clear leftover recording scratch from a prior session.
-            commands::stt::transcribe::clear_scratch(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -147,31 +139,6 @@ pub fn run() {
             commands::llama::llama_start::llama_running_window,
             commands::llama::llama_models::list_llama_models,
             commands::llama::llama_models::delete_llama_model,
-            commands::stt::stt_start::start_whisper_server,
-            commands::stt::stt_start::stop_whisper_server,
-            commands::stt::stt_start::check_whisper_env,
-            commands::stt::stt_health::check_whisper_health,
-            commands::stt::stt_download::download_stt_model,
-            commands::stt::stt_download::cancel_stt_install,
-            commands::stt::stt_download::list_stt_catalog,
-            commands::stt::stt_models::list_installed_stt_models,
-            commands::stt::stt_models::delete_stt_model,
-            commands::stt::transcribe::transcribe_audio,
-            commands::stt::transcribe::load_transcript,
-            commands::stt::eval::eval_cmd::run_stt_eval,
-            commands::stt::eval::eval_cmd::list_transcripts,
-            commands::stt::eval::eval_cmd::list_stt_evals,
-            commands::stt::eval::eval_cmd::load_stt_eval,
-            commands::stt::eval::eval_cmd::save_stt_eval,
-            commands::stt::eval::eval_cmd::delete_stt_eval,
-            commands::stt::eval::eval_cmd::load_stt_report,
-            commands::stt::eval::readiness_cmd::assess_stt_readiness,
-            commands::stt::eval::readiness_cmd::list_stt_readiness_profiles,
-            commands::stt::eval::readiness_cmd::save_stt_readiness_profile,
-            commands::stt::eval::readiness_cmd::delete_stt_readiness_profile,
-            commands::audio::capture::start_recording,
-            commands::audio::capture::stop_recording,
-            commands::audio::capture::recording_level,
             commands::settings::settings::get_storage_path,
             commands::settings::settings::validate_storage_path,
             commands::storage::storage::get_installed_models_with_stats,

@@ -94,7 +94,7 @@ Top-level object (required fields per the JSON Schema marked **R**):
 - **`null` vs `0` in `metrics`** — tooling renders "not available", never "0 MB".
 - **`output.text` is verbatim and complete** — no truncation/whitespace
   stripping/unicode normalization. If too large, paginate or compress — never
-  lossy-encode the model's speech.
+  lossy-encode the model's output.
 - **`findings`/`verdicts` are optional and separate** — a raw bench report emits
   `runs` only; an analysis fills the rest.
 - **`reproducibility` is first-class** — honest info (even "not deterministic,
@@ -418,7 +418,7 @@ other backend: **download → select → Start → run/eval/quant.**
 **Download:** in **Models → HuggingFace**, flip the **GGUF / MLX** toggle to MLX
 and search. Each toggle filters search to that library tag — GGUF to `gguf`-tagged
 repos (so only repos with downloadable `.gguf` files appear; speech/audio GGUFs
-like whisper are dropped since they can't run as an LLM), MLX to `mlx`-tagged
+are dropped since they can't run as an LLM), MLX to `mlx`-tagged
 repos, mostly `mlx-community`. Open a repo and click **Download for MLX** — the
 full snapshot (config + safetensors + tokenizer) lands in `~/.quantamind/mlx/`
 (override with `QUANTAMIND_MLX_DIR`). The **detail view follows the repo's tags,
@@ -470,61 +470,6 @@ it reads as fixable, not broken. The classifier (`ImportError` in
 - **"Unsupported GGUF version"** — QuantaMind reads GGUF v1–v3; get a compatible export.
 
 The raw parser detail is kept (demoted) under **Details:** for diagnosis.
-
-### Setting up speech-to-text (whisper.cpp) {#stt-server}
-
-STT runs on **whisper.cpp**, its own axis parallel to the LLM backend — one STT
-runs alongside one LLM. Install it (macOS: `brew install whisper-cpp`;
-Windows: `winget install ggerganov.whisper.cpp` or `scoop install whisper-cpp`;
-Linux: download a release from
-[whisper.cpp releases](https://github.com/ggerganov/whisper.cpp/releases) and
-put `whisper-server` on your PATH), download a model in Models → Speech-to-Text,
-then pick it in the header STT group and press ▶. See below for details.
-
-The whisper.cpp engine — install it once for your OS:
-
-- **macOS:** `brew install whisper-cpp` (the Speech-to-Text tab has a copy
-  button).
-- **Windows:** `winget install ggerganov.whisper.cpp` (primary) or
-  `scoop install whisper-cpp` — QuantaMind then finds it under
-  `%LOCALAPPDATA%\Programs\whisper-cpp`, `%USERPROFILE%\scoop\shims`, or
-  `%USERPROFILE%\scoop\apps\whisper-cpp\current`.
-- **Linux:** grab a release binary from
-  [whisper.cpp releases](https://github.com/ggerganov/whisper.cpp/releases)
-  and drop `whisper-server` into `~/.local/bin`, `/usr/local/bin`, or
-  `/usr/bin` — QuantaMind checks all three.
-
-Click **Re-check** — QuantaMind finds it automatically on `PATH` + the
-per-OS well-known prefixes above (`check_whisper_env`); no path setup needed
-if you used the recommended installer. Installed it elsewhere? Use
-**Choose its folder** (remembered across launches).
-
-If the tab says **"installed but can't run"**, the binary is present but its
-libraries are missing/mismatched (a dyld *Library not loaded* error, shown under
-Details) — run `brew reinstall whisper-cpp` and Re-check. QuantaMind only signals
-ready after a `--help` dry-run proves the engine actually executes, so it never
-shows "ready" then fails on start.
-
-Once the engine is ready, the catalog lists models with their download size;
-installed models (validated ggml + the shared silero VAD) are reported by
-`list_installed_stt_models`. A download shows in the **Downloads** page too —
-live progress in the active list, then an **STT** tag in the installed list
-(Delete removes the model's `.bin`, keeping the shared VAD).
-
-**Start failures** (`start_whisper_server`) return a tagged result so the UI says
-exactly what to fix — none mean the app is broken:
-
-- **`not_bundled`** — no `whisper-server` was found. Install whisper.cpp (above).
-- **`model_missing`** — the whisper model file isn't on disk. Download a model
-  from the STT catalog first.
-- **`vad_missing`** — the silero VAD model is absent. The VAD ships *together*
-  with each whisper model, so re-run the download; STT stays disabled without it
-  (the VAD gates the silence-detection metric).
-- **`port_conflict`** — something else holds the STT port (`:8093`). QuantaMind
-  won't take over a process it didn't start — stop the other process and retry.
-- **"Can't reach the local STT server"** — the server isn't answering on
-  `127.0.0.1`. STT is offline-only; it never reaches the cloud, so a down local
-  server fails loud rather than silently falling back.
 
 ### Clearing cached data {#clear-cache}
 
@@ -1158,99 +1103,6 @@ fabricated on other backends or when the model isn't loaded.
 The Latency tab shows how much of the context window a run consumed — the exact server-reported
 `prompt_eval_count` over the model's `context_length` — turning red at ≥95% (past which earlier
 tokens are silently dropped). Exact counts only; "Not available" when either number is missing.
-
-## STT Inspector {#stt-inspector}
-
-After a transcription finishes, the STT workspace shows a measured profile of the run. Like the
-text Latency tab, it never fabricates a number — any metric the backend can't supply reads **"N/A"**:
-
-- **Real-time factor (RTF)** — decoded audio seconds ÷ wall-clock seconds; `> 1×` is faster than
-  real time. The denominator is the **decoded sample count** (a hardware fact), so it's the same
-  across WAV / MP3 / OGG of the same audio, not biased by container metadata.
-- **First-segment latency** — time to the first streamed segment (the speech analog of TTFT).
-- **Encode / decode split** — **N/A**: whisper-server reports no per-phase timing (the total is the
-  RTF wall above). Never split by a guess.
-- **Repeated-token rate** — adjacent duplicate segments (a stuck/looping decode). `0%` is a real
-  measurement (counted, none found).
-- **Mean confidence** — average of whisper's word-level probabilities, with the low (5th-percentile)
-  tail. **N/A** when the backend emits no probabilities — never shown as 0% or 100%.
-- **Output during silence** — fraction of segments the model emitted where an **independent** voice
-  detector (`webrtc-vad`, never the model's own judgement) found no speech and the model was itself
-  unsure. The highest-value behavioral signal for hallucination.
-- **VRAM** — **"Not available for this backend"**: whisper.cpp doesn't report runtime VRAM.
-
-The behavioral analysis runs off the transcription's timed path, so measuring it never inflates the
-RTF it reports.
-
-### In the Analysis & Latency tabs {#stt-inspector-tabs}
-
-The same measured profile is surfaced with the visual density of the LLM views. Once a
-transcription completes, an **STT section auto-appears** in both the **Analysis** and **Latency**
-tabs (alongside any LLM run — neither clobbers the other). It survives tab navigation because the
-finished transcript is held in a durable store, not the transient live-transcript store.
-
-- **Analysis** — RTF, words/sec, and first-segment latency as ruler bars (the speech analog of the
-  throughput / TTFT bars), the full transcript text, and **Export Markdown / JSON** of the metrics +
-  raw segments. **words/sec** is a *measured* count (real whitespace words ÷ wall seconds), **N/A**
-  when wall time is missing — never an estimate.
-- **Latency** — a wall-time **phase bar** `[ first segment | transcription ]` (the only honest
-  split — whisper-server reports no model-load / encode / decode breakdown), the **confidence
-  timeline**, a **confidence distribution** histogram, and the **metric-card grid**.
-
-**Confidence timeline (the per-token-latency analog).** whisper-server reports no per-segment
-*processing* time, so the latency chart can't be mirrored literally. Instead the hero chart plots
-**per-segment confidence over the audio timeline** — x = audio time, y = `exp(avg_logprob)` ∈ 0..1,
-each bar spanning its segment's audio extent. A segment with no logprob is a **gap**, never a
-guessed 0. Two scrutiny flags colour a bar, using **whisper's own quality gates** (stable and
-interpretable, not a per-run relative threshold that would mislabel the worst segment of a clean
-transcript):
-
-- **low confidence** — `avg_logprob < -1.0` (whisper's decode-failure cut).
-- **speech over silence** — `no_speech_prob > 0.6` (whisper's default `no_speech_threshold`) yet text
-  was emitted — the per-segment hallucination signal that complements the run-level *Output during
-  silence* rate above.
-
-**The voice pipeline (STT → LLM).** When an LLM runs on the transcript — the **Auto-summarize**
-toggle (the STT→LLM auto-pipe), the voice panel's **Ask**, or a plain **Workspace** run after a
-transcription — its metrics render through the **same rich LLM views** as any other run: the full
-per-token `ModelTimeline` (phase bar, VRAM, context budget, token-latency chart) in the Latency tab and
-the throughput / TTFT bars in the Analysis tab. The STT section sits **directly below** it, so both
-stages of the pipeline read top-to-bottom on one page. There is no separate, thinner LLM card — the
-LLM run is mirrored into the normal compare rows, so it stays the single source of those numbers.
-For the auto-pipe (where the two stages are linked by transcript id), an **end-to-end one-liner**
-`Audio → Transcript → LLM · end-to-end` is appended with an `auto` badge; the time is the *processing*
-total (STT wall + LLM wall, not the audio length), and it appears only when the LLM ran for the
-transcript currently shown, so the two stages are never mismatched.
-
-## STT Eval & Readiness {#stt-eval}
-
-Beyond the per-transcript Latency tab, the **Analysis** tab has an **STT Eval & Readiness** panel that
-scores transcription *accuracy* across a batch and gives a go/no-go verdict. It is **decoupled from
-transcription**: it scores transcripts you've **already** produced (read from disk), so a sidecar
-crash can't kill a sweep, and you can re-score with a new metric in milliseconds without re-running
-the model.
-
-**The eval spec** is a small text file — one task per transcript, joined **by id**:
-`{ id, reference, critical_tokens }`. `reference` is the ground-truth text; `critical_tokens` are the
-words that *must* be right.
-
-- **Reference present** → **WER** via word alignment (insertions/deletions don't smear into
-  substitutions), plus **weighted WER** and **critical-token accuracy**.
-- **Reference absent** → **behavioral-only**: WER reads **"N/A — accuracy unverified"**, never a
-  fabricated number, and it can neither pass nor fail the accuracy gate.
-
-**Weighted WER (financial/legal).** A critical token counts **5×** in the weighted figure — so a
-mis-transcribed dollar amount or payee dominates the score while a missed "the" barely registers. The
-readiness gate keys on this weighted figure (it equals the plain WER when a task has no critical
-tokens). A **confident** substitution (the model was sure, e.g. the reader said "reuben" for "ruben")
-is flagged as a likely **human misread** and shown separately, so a reader's slip on a read-aloud
-clip isn't blamed on the model.
-
-**Readiness verdict.** Pick a profile (built-ins: **Production dictation**, **High accuracy
-(legal/financial)**, **Fast draft**) and Assess. Each model gets **Ready / Conditional / Not ready**
-(ranked best-first), gating on: **speed** (`min_rtf` — too slow is an explicit hard fail, not a vague
-one), **weighted WER** (`max_wer`), and behavioral targets (repeats / output-during-silence /
-confidence, as soft conditions). The verdict spells out every blocking reason and condition verbatim.
 
 ## Built-in presets & the finance set {#builtin-presets}
 

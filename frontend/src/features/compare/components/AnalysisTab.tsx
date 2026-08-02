@@ -5,8 +5,6 @@ import { MetricsChart } from "./MetricsChart";
 import { CompareDiff } from "./CompareDiff";
 import { ExportButtons } from "./ExportButtons";
 import { LatencyTimelines } from "../../inspector/components/timeline/LatencyTimelines";
-import { SttAnalysisSection } from "../../sttInspector/components/SttAnalysisSection";
-import { useSttResultStore } from "../../sttInspector/state/sttResultStore";
 
 /// Read-only results of the latest run: per-model output columns, throughput /
 /// TTFT charts, a word-level diff (two models), and export. Model selection +
@@ -14,16 +12,15 @@ import { useSttResultStore } from "../../sttInspector/state/sttResultStore";
 export function AnalysisTab() {
   const rows = useCompareStore((s) => s.rows);
   const topView = useNavStore((s) => s.topView);
-  const hasStt = useSttResultStore((s) => s.result != null);
 
-  if (rows.length === 0 && !hasStt) {
+  if (rows.length === 0) {
     return (
       <section data-testid="tab-analysis" className="space-y-2">
         <h2 className="text-lg font-semibold">Analysis</h2>
         <p data-testid="analysis-empty" className="text-sm text-gray-500">
           Run a model in the Workspace (or pick 2+ Ollama models in the header to
-          compare) — or transcribe audio — then come here to compare throughput,
-          time-to-first-token, and outputs.
+          compare) — then come here to compare throughput, time-to-first-token,
+          and outputs.
         </p>
       </section>
     );
@@ -47,7 +44,6 @@ export function AnalysisTab() {
           <ExportButtons />
         </>
       )}
-      <SttAnalysisSection />
     </section>
   );
 }

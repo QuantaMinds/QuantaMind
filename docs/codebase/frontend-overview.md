@@ -38,11 +38,9 @@ root. It renders, top to bottom:
 
 - **`AppHeader`** — back button (drives `navStore.goBack`), logo/title, the
   global `GlobalControls`, and (on the Workspace view only) a History toggle.
-- **`GlobalControls`** — two independent header control groups so one LLM and
-  one STT job can run in parallel: the **LLM group** (`ServerControl`,
-  `BackendSelector`, `ModelSelector`, `ParamsControl`) and the **STT group**
-  (`SttHeaderControl`). These read/write the global stores, so every page sees
-  the same selection.
+- **`GlobalControls`** — the header control group: `ServerControl`,
+  `BackendSelector`, `ModelSelector`, `ParamsControl`. These read/write the
+  global stores, so every page sees the same selection.
 - **`OnboardingCoach`** — first-run guidance (feature).
 - **The top-nav `<nav>`** — ten tabs from the `TABS` array, each a button that
   calls `setView(t.id)`.
@@ -101,7 +99,7 @@ logic is the routing in `navStore` (§3) and the model picker. Compact summary:
 | `main.tsx` | React root; renders `<App/>` in `StrictMode`; imports `index.css`. |
 | `App.tsx` | Composition root: `TABS`, top-nav, ten `hidden`-toggled view containers, always-mounted overlays, mount-time effects + global hooks. |
 | `AppHeader.tsx` | Back button → `navStore.goBack`; logo/title; mounts `GlobalControls`; History toggle on Workspace view. |
-| `GlobalControls.tsx` | Composes the LLM control group + STT control group at shell level (features don't import each other). |
+| `GlobalControls.tsx` | Composes the LLM control group at shell level (features don't import each other). |
 | `BackendSelector.tsx` | Global LLM-backend dropdown (Ollama / llama.cpp / +MLX on Apple Silicon). Writes `backendStore.selectedBackend`; health dot from `isHealthy`. `useMlxBackend`/`useLlamaBackend` poll health. |
 | `ModelSelector.tsx` | Global model picker (see below). |
 | `ParamsControl.tsx` | Inference-params popover writing `paramsStore`; "same for all" toggle → per-model overrides for Ollama 2+ compares; "Use max" pulls `num_ctx` from `useVramFit`. Reuses `ParamRow`/`PARAMS`. |
@@ -252,7 +250,6 @@ maps to.
 
 | Wrapper file | Backend commands wrapped | Backend doc |
 |---|---|---|
-| `audio/capture.ts` | `start_recording`, `stop_recording`, `recording_level` | [backend-stt](backend-stt.md) |
 | `compare/compare.ts` | `run_compare`, `stop_compare`, `save_compare_report` | [backend-compare](backend-compare.md) |
 | `compare/hardware.ts` | `get_hardware_snapshot` | [backend-compare](backend-compare.md) |
 | `eval/batch.ts` | `run_batch_eval`, `stop_batch_eval` | [backend-eval-engine](backend-eval-engine.md) |
@@ -279,9 +276,6 @@ maps to.
 | `publish/publish.ts` | `publish_to_board`, `start_login` | [backend-publish](backend-publish.md) |
 | `settings/settings.ts` | `get_storage_path`, `validate_storage_path` | [backend-prompt-workspace-system](backend-prompt-workspace-system.md) |
 | `settings/userSettings.ts` | `get_user_settings`, `set_user_settings`, `resolve_models_folder` | [backend-prompt-workspace-system](backend-prompt-workspace-system.md) |
-| `stt/eval.ts` | `run_stt_eval`, `list_transcripts`, `list_/load_/save_/delete_stt_eval`, `load_stt_report`, `assess_stt_readiness`, `list_/save_/delete_stt_readiness_profile` | [backend-stt](backend-stt.md) |
-| `stt/stt.ts` | `list_stt_catalog`, `list_installed_stt_models`, `delete_stt_model`, `check_whisper_env`, `check_whisper_health`, `download_stt_model`, `cancel_stt_install`, `start_/stop_whisper_server` | [backend-stt](backend-stt.md) |
-| `stt/transcribe.ts` | `transcribe_audio`, `load_transcript` | [backend-stt](backend-stt.md) |
 | `system/feedback.ts` | (pure — `buildFeedbackMailto`, no command) | [backend-prompt-workspace-system](backend-prompt-workspace-system.md) |
 | `system/inspect.ts` | `inspect_model`, `estimate_kv_cache_bytes` | [backend-models-hf-gguf](backend-models-hf-gguf.md) |
 | `system/onboarding.ts` | `scaffold_onboarding_workspace`, `pull_model` | [backend-prompt-workspace-system](backend-prompt-workspace-system.md) |
@@ -458,7 +452,6 @@ export function isEmbeddingModel(m: ModelLike): boolean {
 [frontend-compare-analysis](frontend-compare-analysis.md) ·
 [frontend-eval](frontend-eval.md) ·
 [frontend-models](frontend-models.md) ·
-[frontend-stt](frontend-stt.md) ·
 [frontend-inspector-quant-agentreport](frontend-inspector-quant-agentreport.md) ·
 [frontend-support-features](frontend-support-features.md).
 
@@ -469,7 +462,6 @@ export function isEmbeddingModel(m: ModelLike): boolean {
 health) ·
 [backend-models-hf-gguf](backend-models-hf-gguf.md) ·
 [backend-eval-engine](backend-eval-engine.md) ·
-[backend-stt](backend-stt.md) ·
 [backend-compare](backend-compare.md) ·
 [backend-prompt-workspace-system](backend-prompt-workspace-system.md) ·
 [backend-persistence](backend-persistence.md) ·

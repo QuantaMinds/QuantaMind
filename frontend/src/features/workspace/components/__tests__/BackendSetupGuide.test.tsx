@@ -13,12 +13,12 @@ const setAppleSilicon = (appleSilicon: boolean) =>
 beforeEach(() => vi.mocked(useMlxBackend).mockReset());
 
 describe("BackendSetupGuide", () => {
-  it("shows the MLX (LLM) card on Apple Silicon alongside whisper.cpp", () => {
+  it("shows the MLX (LLM) card on Apple Silicon alongside the cross-platform engines", () => {
     setAppleSilicon(true);
     render(<BackendSetupGuide />);
     expect(screen.getByTestId("setup-engine-mlx")).toBeInTheDocument();
-    // whisper.cpp (not Apple-only) is always present.
-    expect(screen.getByTestId("setup-engine-whisper")).toBeInTheDocument();
+    // llama.cpp (not Apple-only) is always present.
+    expect(screen.getByTestId("setup-engine-llama_cpp")).toBeInTheDocument();
   });
 
   it("shows the venv setup commands for MLX on Apple Silicon", () => {
@@ -29,11 +29,11 @@ describe("BackendSetupGuide", () => {
     expect(screen.getByText("pip install -U mlx-lm")).toBeInTheDocument();
   });
 
-  it("excludes the Apple-only MLX LLM card off Apple Silicon, keeps whisper.cpp", () => {
+  it("excludes the Apple-only MLX LLM card off Apple Silicon, keeps the rest", () => {
     setAppleSilicon(false);
     render(<BackendSetupGuide />);
     expect(screen.queryByTestId("setup-engine-mlx")).toBeNull();
-    expect(screen.getByTestId("setup-engine-whisper")).toBeInTheDocument();
+    expect(screen.getByTestId("setup-engine-llama_cpp")).toBeInTheDocument();
     expect(screen.getByTestId("setup-engine-ollama")).toBeInTheDocument();
   });
 

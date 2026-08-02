@@ -23,8 +23,8 @@ type Engine = {
 /// isn't natively packaged on that OS (caller falls back to the download
 /// link). macOS uses Homebrew; Windows uses winget; Linux is package-manager
 /// varied so we point at the official Ollama install script and, for
-/// whisper/llama.cpp, direct release downloads.
-function installCmdFor(engine: "ollama" | "llama_cpp" | "whisper", os: HostOs | null): Cmd {
+/// llama.cpp, direct release downloads.
+function installCmdFor(engine: "ollama" | "llama_cpp", os: HostOs | null): Cmd {
   switch (engine) {
     case "ollama":
       switch (os) {
@@ -54,22 +54,6 @@ function installCmdFor(engine: "ollama" | "llama_cpp" | "whisper", os: HostOs | 
         case "mac":
         default:
           return { label: "Install (macOS)", cmd: "brew install llama.cpp" };
-      }
-    case "whisper":
-      switch (os) {
-        case "windows":
-          return {
-            label: "Install (Windows)",
-            cmd: "winget install ggerganov.whisper.cpp",
-          };
-        case "linux":
-          return {
-            label: "Install (Linux — direct download)",
-            cmd: "Download whisper-server from github.com/ggerganov/whisper.cpp/releases",
-          };
-        case "mac":
-        default:
-          return { label: "Install (macOS)", cmd: "brew install whisper-cpp" };
       }
   }
 }
@@ -171,22 +155,6 @@ function enginesFor(os: HostOs | null): Engine[] {
         "Pick SGLang + the served model in the header — the dot turns green when it's reachable.",
       ],
     },
-    {
-      id: "whisper",
-      name: "whisper.cpp",
-      tag: "Speech-to-Text",
-      blurb: "Local speech-to-text — its own engine, runs alongside an LLM.",
-      runs: "Whisper tiny / base / small / medium / large-v3",
-      commands: [installCmdFor("whisper", os)],
-      links: [
-        { text: "whisper.cpp project", href: "https://github.com/ggml-org/whisper.cpp" },
-      ],
-      steps: [
-        "Install whisper.cpp with the command above.",
-        "Download a model in Models → Speech-to-Text.",
-        "Pick a model in the STT header group, then press ▶.",
-      ],
-    },
   ];
 }
 
@@ -255,7 +223,7 @@ function EngineCard({ engine }: { engine: Engine }) {
 }
 
 /// Shown in the workspace when no LLM backend is running: a step-by-step guide to
-/// install/start each engine (Ollama, llama.cpp, MLX, whisper.cpp) with copy-able
+/// install/start each engine (Ollama, llama.cpp, MLX) with copy-able
 /// install commands, links, and what each runs. The moment a server comes up, the
 /// workspace switches to the prompt UI (the StatusBar / header health poll drives that).
 export function BackendSetupGuide() {

@@ -27,7 +27,7 @@ fn gui_build() {
 
     // `binaries/` is bundled as a Tauri resource (tauri.conf.json) but is
     // gitignored (multi-MB sidecar artifacts: llama-server, the shared
-    // libggml-* dylibs whisper.cpp also loads). A fresh clone has no such
+    // libggml-* dylibs it also loads). A fresh clone has no such
     // directory, so Tauri's resource check fails the build before anything else
     // runs. Create it so the build always succeeds, and warn loudly when the
     // sidecar itself is absent so the user knows to fetch it instead of hitting

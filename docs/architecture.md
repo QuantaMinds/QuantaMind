@@ -70,7 +70,7 @@ HTTP to a local Ollama server.
   contains **zero** Windows/Linux code, a Windows build contains zero
   macOS/Linux code, and so on. `host.rs` type-aliases `Host` to the right impl
   via `cfg`, with a `compile_error!` for unsupported target OSes. Every
-  lifecycle module (`commands/{ollama,llama,stt}/…_runtime.rs`, plus
+  lifecycle module (`commands/{ollama,llama,mlx}/…_runtime.rs`, plus
   `commands/app_lifecycle.rs`) uses `os::Host::…` instead of scattering
   `#[cfg(target_os = "…")]` blocks. Methods: `resolve_on_path` (`which` on
   macOS/Linux vs `where.exe` on Windows), `envs_for_lib_dir`
@@ -88,7 +88,7 @@ HTTP to a local Ollama server.
   covers all three). Adding a new engine = one adapter impl, no new cfg
   blocks in the caller sites. **Every** subprocess spawn — long-lived sidecars
   and short-lived diagnostic probes alike (`resolve_on_path`'s `where.exe`, the
-  GPU vendor CLIs `nvidia-smi`/`rocm-smi`/`xpu-smi`, whisper's `--help` dry-run) —
+  GPU vendor CLIs `nvidia-smi`/`rocm-smi`/`xpu-smi`, a sidecar's `--help` dry-run) —
   is built via `Host::command`, which pre-applies `apply_spawn_flags`. A spawn
   that skips it would pop a transient console window on a GUI-launched Windows
   app (the "flashing terminals on launch" bug), so bare `Command::new` is banned
@@ -104,84 +104,6 @@ HTTP to a local Ollama server.
   resolved via `inference/mlx/server/mlx_endpoint.rs` — not a hardcoded `:8082`.
   **Tauri-free and must not import `crate::commands`** — when it must report
   progress it takes a sink trait (see [Layering](#layering)), not an `AppHandle`.
-- `commands/stt/` + `inference/stt/` — **speech-to-text (whisper.cpp)**, an *additive
-  parallel capability* that does not touch `InferenceBackend`/`run_prompt`. The STT
-  engine is its own state axis, never derived from the LLM `BackendKind`.
-  `commands/stt/` owns the `whisper-server` sidecar lifecycle: a fixed port `:8093`
-  (clear of MLX's `8082..=8092` scan range) with **`/health`-gated readiness** — the
-  server's own state machine answers HTTP 200 once the model is loaded, 503 while
-  loading — graceful-then-hard kill, and reaping on exit alongside the LLM sidecars.
-  Acquisition is atomic: `download_stt_model` stages the whisper ggml + the shared
-  silero VAD, validates each, and promotes both-or-none; `reconcile_stt_dir` sweeps
-  half-installs at startup. IPC: `start`/`stop_whisper_server`, `check_whisper_health`, `check_whisper_env`,
-  `download_stt_model`, `cancel_stt_install`, `list_stt_catalog`,
-  `list_installed_stt_models`. `inference/stt/` is the Tauri-free domain (curated catalog,
-  ggml-format validation, the loopback-only offline probe so transcription never silently
-  reaches the cloud). The engine binary is discovered most-explicit-first —
-  `UserSettings.stt_engine_dir` → `QUANTAMIND_WHISPER_DIR` → PATH/Homebrew → bundled
-  resources → dev tree — so a user's `brew install whisper-cpp` is found with no setup
-  (mirrors `ollama_runtime::resolve_ollama`); `check_whisper_env` then `--help`-dry-runs it
-  so "found" never masquerades as "runnable" when its dylibs are broken.
-  `inference/stt/transcribe/` is the **transcription seam** (P1): decode WAV →
-  downmix → resample to 16 kHz mono in Rust (`audio.rs`, hound + rubato) →
-  one whisper-server `/inference` call per ~30 s window → stream segments through
-  the Tauri-free `TranscribeSink` (parallel to `BatchSink`) → assemble the canonical
-  `Transcript`. Engine choice is enum-dispatched (`SttTranscribeEngine`, no `dyn`).
-  The artifact persists via `persistence/stt/transcripts.rs` (atomic; refuses an
-  incomplete run). Every `TranscribeStats` field is `Option` (no fabricated metric).
-  `inference/stt/profile/` is the **measurement layer** (P3): it fills `SttProfile`
-  (every field `Option` → "N/A", never a guess). RTF = decoded sample-count seconds
-  (`WindowReader::decoded_secs`, a hardware fact — not the container header) ÷ wall
-  seconds (stopped on loop exit, before any finalize work). First-segment latency is
-  the TTFT analog; the encode/decode split is `None` (whisper-server reports none).
-  The **behavioral** fold (repeated-segment rate; word-level `Confidence`, `None`
-  when the backend emits no probabilities; silence-hallucination) runs **off the
-  timed path** on a `spawn_blocking` thread fed by a bounded channel, so its cost
-  can't inflate RTF. Silence uses an **independent** `webrtc-vad` over the raw PCM
-  (never the model's own `no_speech_prob` — that would be circular; an `assert_ne!`
-  on the engine id enforces it). The `Profiler` is dropped (channel closed, thread
-  drains) on any error `?`, so no partial profiling state lingers. The frontend
-  renders it in the **Analysis & Latency tabs** (`features/sttInspector`, fed by a
-  durable `sttResultStore`) with the text Latency tab's N/A framing — see
-  `reference.md#stt-inspector`.
-  `inference/stt/eval/` is the **eval + readiness layer** (P4): a **dumb, decoupled
-  scorer** over *stored* transcripts (it reads a `Transcript` JSON + an `eval_spec`,
-  joins **by id**, and does math — it never owns transcription, so a sweep is
-  reproducible and re-scorable in milliseconds). An `eval_spec` task is pure text
-  (`{ id, reference: Option, critical_tokens }`); scoring goes through an `SttScorer`
-  trait (`WerScorer` today — alignment WER + **critical-token-weighted** WER + a
-  **misread flag** for confident substitutions, so a reader's slip on a read-aloud
-  clip doesn't smear the model). `readiness.rs` mirrors the text pipeline: a **pure
-  `assess()`** (reusing the `Readiness` enum + `MemoryProfile`) gates `min_rtf`
-  (hard, explicit speed gate), `max_wer` (hard but **reference-gated** + keyed on the
-  *weighted* WER for the financial/legal case — inert when WER is `None`, so "no
-  reference" can neither pass nor fail on accuracy, only note "accuracy unverified"),
-  behavioral soft conditions, and VRAM fit; `verdicts()` aggregates per model
-  (means; a `None` never drags the mean). I/O is in `commands/stt/eval/` (the dumb
-  runner streams one row at a time to a JSONL so a 1000-row sweep never holds every
-  transcript/matrix); persistence leaves are `persistence/stt/eval_*`. Frontend:
-  `features/sttEval/` in the Analysis tab.
-  `commands/stt/transcribe.rs` is the **only** `AppHandle` seam: `transcribe_audio`
-  streams segments to the UI (a `TauriTranscribeSink`) + persists; `write_scratch_wav`
-  lands captured WAV bytes in a scratch dir (the returned path is the atomic
-  ready-to-transcribe signal); `load_transcript` reloads the artifact. **Mic capture
-  is native** (`commands/audio/capture.rs`, cpal) — WKWebView's `getUserMedia` is
-  unreliable on macOS, so audio never touches the webview: `start_recording` runs the
-  `!Send` cpal stream on its own thread, `recording_level` is polled for the live
-  meter, `stop_recording` encodes the take (16-bit WAV at native rate — P1 resamples)
-  into the scratch dir and reports `had_audio` so a silent take (muted mic / TCC
-  denial, which records silence rather than erroring) surfaces "no audio detected".
-  A micless machine maps to a clean "no microphone found" — CoreAudio hands back a
-  phantom default input whose every query fails with an unknown OSStatus (e.g. a
-  Mac mini with no mic), so the failure is classified by whether any input device
-  exists, not by the opaque backend error.
-  The macOS mic prompt is driven by `NSMicrophoneUsageDescription` in
-  `backend/Info.plist`, embedded by Tauri's `generate_context!` (dev binary included).
-  Frontend IPC mirrors the module in `shared/ipc/audio/capture.ts`
-  (`features/sttWorkspace/hooks/useMicRecorder.ts` drives it). The Workspace
-  **auto-routes to STT mode** (a live two-pane transcribe surface) while an STT
-  server is running (`features/sttWorkspace/`); upload is path-based
-  (WAV→hound, MP3→symphonia).
 - `metrics/` — measurements: TTFT, tokens/sec, VRAM.
 - `fs_guard/` — rule 7(b)'s path-confinement chokepoint (`ensure_within`). A top-level
   primitive over `std::path` + `errors`, beside `secrets` (rule 7(a)'s): it confines a path

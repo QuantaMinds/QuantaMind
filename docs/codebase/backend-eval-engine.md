@@ -91,7 +91,7 @@ pub enum Scoring {
   `pub fn first_json_value(text) -> Option<Value>` (greedy balanced-brace extractor);
   privates `balanced_from`, `strip_fences`, `score_json` (flat depth-1 check),
   `first_choice` (whole-word token match), `type_matches`.
-- **How/Where used:** the STT eval scorer and tests (the quant-era `eval_run` runner was deleted).
+- **How/Where used:** eval scorers and tests (the quant-era `eval_run` runner was deleted).
 
 **Greedy multi-object JSON extraction with balanced-brace detection** — scans for
 the *first* `{` whose balanced slice actually parses, skipping prose braces:

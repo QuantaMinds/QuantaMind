@@ -38,10 +38,6 @@ describe("GlobalControls (global header)", () => {
     expect(backendSelect().value).toBe("ollama");
     // Ollama active + down → its Start control shows.
     expect(screen.getByTestId("ollama-start")).toBeInTheDocument();
-    // The STT group is always present alongside the LLM group, labelled with its engine.
-    expect(screen.getByTestId("header-stt-control")).toBeInTheDocument();
-    expect(screen.getByTestId("header-stt-engine")).toHaveTextContent("Whisper.cpp");
-    expect(screen.getByTestId("stt-start")).toBeDisabled(); // no STT model installed
   });
 
   it("choosing a backend switches the global selection and the server control", () => {

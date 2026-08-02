@@ -27,8 +27,8 @@ impl RepoKind {
 
     /// Whether this hit carries the kind's library tag — so a search only shows
     /// repos with files this backend can actually run. GGUF additionally drops
-    /// speech/audio GGUFs (e.g. whisper STT): they carry the `gguf` tag but can't
-    /// run as an LLM on Ollama/llama.cpp, so importing them only errors.
+    /// speech/audio GGUFs: they carry the `gguf` tag but can't run as an LLM on
+    /// Ollama/llama.cpp, so importing them only errors.
     fn matches(self, hit: &RawHit) -> bool {
         if !hit.tags.iter().any(|t| t.eq_ignore_ascii_case(self.tag())) {
             return false;
@@ -40,13 +40,15 @@ impl RepoKind {
     }
 }
 
-/// A GGUF repo that isn't a text LLM — speech-to-text (whisper), text-to-speech,
-/// audio. Detected from the HF `pipeline_tag` or tags, so it can be filtered out
-/// of the LLM GGUF search.
+/// A GGUF repo that isn't a text LLM — speech recognition, text-to-speech, audio.
+/// Detected from the HF `pipeline_tag` or tags, so it can be filtered out of the
+/// LLM GGUF search. Matches the whole audio-task family rather than any single
+/// model name, so a new speech architecture is filtered without a code change.
 fn is_non_text_gguf(hit: &RawHit) -> bool {
     let speechy = |s: &str| {
         let l = s.to_ascii_lowercase();
-        l.contains("speech") || l.contains("whisper") || l.contains("text-to-audio") || l == "audio"
+        l.contains("speech") || l.contains("text-to-audio") || l.contains("audio-to")
+            || l == "audio" || l == "asr" || l == "voice"
     };
     hit.pipeline_tag.as_deref().is_some_and(speechy) || hit.tags.iter().any(|t| speechy(t))
 }

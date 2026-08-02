@@ -53,8 +53,8 @@ fn history_dir(app: &AppHandle) -> Result<PathBuf, AppError> {
     Ok(dir.join("history"))
 }
 
-/// Per-(model, task) agentic transcript dir. NOT `transcripts/` — that name is
-/// the STT feature's store.
+/// Per-(model, task) agentic transcript dir, namespaced so agentic traces never
+/// co-mingle with any other transcript store.
 fn transcripts_dir(app: &AppHandle) -> Result<PathBuf, AppError> {
     let dir = app.path().app_config_dir().map_err(|e| AppError::Io(e.to_string()))?;
     Ok(dir.join("agentic_transcripts"))

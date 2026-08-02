@@ -7,9 +7,7 @@
 
 QuantaMind is local-first: every LLM backend so far — Ollama, the bundled
 `llama-server`, and `mlx_lm.server` — runs on `localhost` and is (mostly)
-app-managed, with a hardcoded `http://localhost:<port>` endpoint and no auth. STT
-even enforces this with a loopback guard that refuses any non-loopback host
-(`inference/stt/stt_probe.rs`).
+app-managed, with a hardcoded `http://localhost:<port>` endpoint and no auth.
 
 But GPU inference at useful sizes doesn't fit a laptop. To benchmark and run against
 vLLM and SGLang we need to reach a **remote GPU** (initially a GCP L4, 24 GB). These
@@ -32,8 +30,6 @@ the local-first assumption on purpose:
 - The app **never spawns or reaps** them: no `*ServerState`, no readiness/port/
   ownership guards, no `app_lifecycle` entry. Health and model discovery are plain
   `GET /v1/models` calls (`commands/remote/`).
-- The STT loopback guard is **not** extended to the LLM path — it remains an
-  STT-specific offline-transcription policy.
 
 ## Consequences
 

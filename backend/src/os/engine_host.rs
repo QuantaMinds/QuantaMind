@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Platform-adapter contract used by every runtime engine (Ollama, llama.cpp,
-/// whisper, future engines). One impl per OS family; the concrete choice is a
+/// MLX, future engines). One impl per OS family; the concrete choice is a
 /// compile-time `type Host = …` in `host.rs`. Every method is an *associated
 /// function* — no `&self`, no state, no runtime dispatch.
 ///

@@ -12,13 +12,6 @@ pub const OLLAMA: &str = "http://localhost:11434";
 pub const LLAMA_SERVER: &str = "http://localhost:8081";
 pub const MLX_SERVER: &str = "http://localhost:8082";
 
-/// The whisper.cpp STT sidecar. STT is a parallel capability, not an LLM
-/// `BackendKind`, so it is not part of `default_for`. Port **8093** sits clear
-/// of MLX's dynamic scan range (`find_available_port` probes 8082..=8092) and
-/// llama's 8081, so an STT server can coexist with either LLM sidecar without a
-/// port collision rather than relying on the start-time conflict handler.
-pub const WHISPER_SERVER: &str = "http://localhost:8093";
-
 /// A fully-resolved endpoint: the base URL plus an optional bearer token. Local
 /// backends carry no token; the remote vLLM/SGLang servers may (launched with
 /// `--api-key`).
@@ -69,20 +62,6 @@ mod tests {
         assert!(base_url(BackendKind::Ollama).ends_with(":11434"));
         assert!(base_url(BackendKind::LlamaCpp).ends_with(":8081"));
         assert_ne!(base_url(BackendKind::Ollama), base_url(BackendKind::LlamaCpp));
-    }
-
-    #[test]
-    fn whisper_port_is_distinct_and_clear_of_the_mlx_scan_range() {
-        assert!(WHISPER_SERVER.ends_with(":8093"));
-        assert!(WHISPER_SERVER.starts_with("http://"));
-        for ep in [OLLAMA, LLAMA_SERVER, MLX_SERVER] {
-            assert_ne!(WHISPER_SERVER, ep);
-        }
-        // 8093 is above MLX's dynamic probe window 8082..=8092, so the two
-        // sidecars never contend for a port.
-        for p in 8082..=8092 {
-            assert!(!WHISPER_SERVER.ends_with(&format!(":{p}")));
-        }
     }
 
     #[test]

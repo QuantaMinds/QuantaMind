@@ -7,8 +7,6 @@
 #[cfg(feature = "gui")]
 pub mod app_lifecycle;
 #[cfg(feature = "gui")]
-pub mod audio;
-#[cfg(feature = "gui")]
 pub mod compare;
 #[cfg(feature = "gui")]
 pub mod emit;
@@ -35,8 +33,6 @@ pub mod remote;
 pub mod settings;
 #[cfg(feature = "gui")]
 pub mod storage;
-#[cfg(feature = "gui")]
-pub mod stt;
 pub mod system;
 #[cfg(feature = "gui")]
 pub mod workspace;

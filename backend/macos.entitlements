@@ -2,8 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
   <dict>
-    <!-- Microphone capture for Speech-to-Text (Web Audio getUserMedia in the webview). -->
-    <key>com.apple.security.device.audio-input</key>
-    <true/>
+    <!-- No special device or sandbox entitlements: QuantaMind runs entirely
+         locally and captures no camera, microphone, or location data. Kept as
+         the seam for hardened-runtime signing. -->
   </dict>
 </plist>

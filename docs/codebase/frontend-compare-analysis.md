@@ -95,11 +95,10 @@ sub-tab state.
 ### AnalysisTab.tsx — read-only results board (IMPORTANT)
 
 **Responsibility.** Render the latest run's results: columns, chart, diff,
-export. Also surfaces STT analysis/eval panels when an STT result exists (out of
-scope here).
+export.
 **Why.** Selection and running are elsewhere; this is the pure *view* of
 `store.rows`.
-**What/How.** Subscribes to `rows`. Empty state (`rows.length === 0` and no STT)
+**What/How.** Subscribes to `rows`. Empty state (`rows.length === 0`)
 shows guidance. Otherwise maps `rows → CompareColumn`, then — directly below the
 live answers — the full per-token latency metrics (`LatencyTimelines`, the same
 panels the **Latency** tab renders; see [frontend-inspector-quant-agentreport](./frontend-inspector-quant-agentreport.md#latencytimelines)),

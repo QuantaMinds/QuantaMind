@@ -270,7 +270,7 @@ verify_model_registered(endpoint, name).await
 ```rust
 fn matches(self, hit: &RawHit) -> bool {
     if !hit.tags.iter().any(|t| t.eq_ignore_ascii_case(self.tag())) { return false; }
-    if self == RepoKind::Gguf && is_non_text_gguf(hit) { return false; }  // drop whisper/TTS
+    if self == RepoKind::Gguf && is_non_text_gguf(hit) { return false; }  // drop ASR/TTS
     true
 }
 ```
@@ -608,7 +608,7 @@ phases under one bar.
 
 1. **Search.** UI calls `hf_search("qwen2.5", kind=Gguf)` →
    `search_models` hits `/api/models?filter=gguf&sort=downloads`, post-filters by
-   tag, drops whisper/TTS GGUFs → `Vec<HfSearchHit>`.
+   tag, drops ASR/TTS GGUFs → `Vec<HfSearchHit>`.
 2. **Browse.** UI calls `hf_repo_files(repo)` → `fetch_tree` (`/tree/main?
    recursive=true`) → only `.gguf` entries with real sizes → `Vec<HfRepoFile>`.
    `hf_model_card(repo)` shows license/base-model/description.

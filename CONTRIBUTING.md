@@ -136,7 +136,6 @@ pnpm tauri build          # production → backend/target/release/bundle/ (.dmg 
 | **llama.cpp** (`llama-server`) | latest | optional — run GGUF models directly |
 | **MLX** (`pip install mlx-lm`) | latest | optional — Apple Silicon only |
 | **vLLM** / **SGLang** | latest | optional — a **remote** OpenAI-compatible GPU server; set its URL (+ `--api-key`) in Settings |
-| **whisper.cpp** | latest | optional — speech-to-text (`brew install whisper-cpp`) |
 
 </details>
 

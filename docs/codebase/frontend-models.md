@@ -19,9 +19,8 @@ the full file"), never a raw parser dump.
 **What the two tabs do.** They are two top-level nav views (`navStore.topView`), not
 sub-tabs of one page:
 
-- **Models** (`ModelsPage.tsx`) = *browse / install / inspect*. Four sub-tabs:
-  Ollama Library, Hugging Face, Local File, Speech-to-Text (STT lives in `features/stt`,
-  out of scope here). This is where you find and pull a new model.
+- **Models** (`ModelsPage.tsx`) = *browse / install / inspect*. Three sub-tabs:
+  Ollama Library, Hugging Face, Local File. This is where you find and pull a new model.
 - **Downloads** (`DownloadsPage.tsx`) = *active + installed + storage*. Shows in-flight
   downloads (cancellable), the grouped installed-model list (delete, add-to-Ollama), and
   storage controls (paths, disk usage, clear-cache).
@@ -137,7 +136,7 @@ Shape of one in-flight/finished entry:
 
 ```ts
 export interface DownloadEntry {
-  id: string; source: DownloadSource; name: string;   // source: ollama|huggingface|local|stt
+  id: string; source: DownloadSource; name: string;   // source: ollama|huggingface|local
   status: "downloading" | "installing" | "success" | "error" | "cancelled";
   percent: number; bytesCompleted?: number; bytesTotal?: number;
   error?: string | null; pullId?: string; phaseLabel?: string;
@@ -214,23 +213,21 @@ backend's `models-changed` broadcast — so a new model appears even if the broa
 refresh: async () => {
   if (get().status === "loading") return;            // de-dupe concurrent refreshes
   set({ status: "loading", error: null });
-  const [ollama, llama, mlx, stt] = await Promise.allSettled([
-    getInstalledModelsWithStats(), listLlamaModels(), listMlxModels(), listInstalledSttModels(),
+  const [ollama, llama, mlx] = await Promise.allSettled([
+    getInstalledModelsWithStats(), listLlamaModels(), listMlxModels(),
   ]);
   const list: InstalledModelInfo[] = [];
   if (ollama.status === "fulfilled") list.push(...ollama.value);  // merge each backend
   if (llama.status  === "fulfilled") list.push(...llama.value);   // independently —
   if (mlx.status    === "fulfilled") list.push(...mlx.value);     // one down ≠ all down
-  const sttList = stt.status === "fulfilled" ? stt.value : [];
   if (ollama.status==="rejected" && llama.status==="rejected" && mlx.status==="rejected")
     return set({ status: "error", error: formatIpcError(ollama.reason) });
-  set({ list, sttList, status: "ready", error: null, lastRefreshedAt: Date.now() });
+  set({ list, status: "ready", error: null, lastRefreshedAt: Date.now() });
 },
 ```
 
 Each backend is fetched independently via `allSettled` — error is set only when *every* source
-fails (MLX legitimately yields `[]` off Apple Silicon). STT lives on a separate `sttList` axis
-so whisper.cpp models aren't forced into the `BackendKind`-typed LLM list.
+fails (MLX legitimately yields `[]` off Apple Silicon).
 
 ### `installedModelsBus.ts` — one `models-changed` subscription
 **Responsibility:** single shared subscription to the backend's `models-changed` event →
@@ -413,12 +410,12 @@ button.
   5s so completed installs don't accumulate; errors persist until dismissed. Cancel dispatches
   via `cancelEntry` then removes the entry + shows a "partial files cleaned" toast.
 - **`DownloadsInstalled`** ⭐ — `groupInstalled(list)` rows with backend badges
-  (Ollama/llama.cpp/MLX) + STT rows. Delete dispatches per-backend: `remove_model` (Ollama),
-  `delete_llama_model` (file, opt-in via `ConfirmRemove` checkbox), `delete_mlx_model`,
-  `delete_stt_model`; then `refresh()`. llama.cpp-only rows offer `AddToOllamaButton`.
+  (Ollama/llama.cpp/MLX). Delete dispatches per-backend: `remove_model` (Ollama),
+  `delete_llama_model` (file, opt-in via `ConfirmRemove` checkbox), and `delete_mlx_model`;
+  then `refresh()`. llama.cpp-only rows offer `AddToOllamaButton`.
 
 ### `cancelEntry.ts` — dispatch the right cancel
-`huggingface` → `cancel_hf_install`; `stt` → `cancel_stt_install`; `ollama` (+pullId) →
+`huggingface` → `cancel_hf_install`; `ollama` (+pullId) →
 `cancel_pull`. Returns `null` on success or an `Error` (caller decides whether to keep the entry).
 
 ### `AddToOllamaButton.tsx` — import a folder GGUF into Ollama ⭐
@@ -492,9 +489,9 @@ error (message + dismiss).
 
 | File | One line |
 |---|---|
-| `ModelsPage.tsx` | Models top-view shell: four sub-tabs (Ollama/HF/Local/STT) with Cmd+1–4 hotkeys, gated on `navStore.topView === "models"`. |
+| `ModelsPage.tsx` | Models top-view shell: three sub-tabs (Ollama/HF/Local) with Cmd+1–3 hotkeys, gated on `navStore.topView === "models"`. |
 | `DownloadsPage.tsx` | Downloads top-view shell — just a header over `DownloadsTab`. |
-| `storage/StorageSection.tsx` | Storage controls atop Downloads: storage-path + models-folder sections, disk-usage summary (`get_disk_usage`), and Clear-cache (`clear_app_cache`, which also resets the in-memory eval/batch/cliff stores the deleted caches backed). The confirm dialog has an opt-in "also clear HuggingFace model cache" checkbox → `clear_app_cache(includeModels=true)` wipes the re-downloadable MLX/whisper snapshots under `~/.cache/huggingface` (HF auth token + the app's canonical `~/.quantamind` models are kept). |
+| `storage/StorageSection.tsx` | Storage controls atop Downloads: storage-path + models-folder sections, disk-usage summary (`get_disk_usage`), and Clear-cache (`clear_app_cache`, which also resets the in-memory eval/batch/cliff stores the deleted caches backed). The confirm dialog has an opt-in "also clear HuggingFace model cache" checkbox → `clear_app_cache(includeModels=true)` wipes the re-downloadable MLX snapshots under `~/.cache/huggingface` (HF auth token + the app's canonical `~/.quantamind` models are kept). |
 | `StoragePathSection.tsx` | Ollama models path (`get_storage_path`) + validate a candidate dir (`validate_storage_path`: exists/dir/writable/≥50GB) + the `export OLLAMA_MODELS=…` snippet to make it permanent. |
 | `ModelsFolderSection.tsx` | The shared GGUF weights folder (used by llama.cpp directly, imported into Ollama) via `resolve_models_folder` / `get/set_user_settings`; refreshes the installed list after a change. |
 | `storage/ClearCacheConfirm.tsx` | Type-`CLEAR`-to-confirm guard for wiping regenerable caches; copy spells out that models/collections/settings are kept. |

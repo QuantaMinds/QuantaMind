@@ -6,7 +6,7 @@ app's existing ports (`fs_guard`, `SecureSecrets`). Exposes the commands the UI
 (P12) and Track A/B use.
 
 **Folder note:** the on-disk registry lives in a **`persistence/mcp/`
-subfolder** (mirrors `persistence/jobs/`, `persistence/stt/`) — `persistence/` is
+subfolder** (mirrors `persistence/jobs/`) — `persistence/` is
 already at the folder-taxonomy limit, so a subfolder avoids worsening it.
 
 ## Step 1 — Registry persistence  → `persistence/mcp/servers.rs`

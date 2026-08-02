@@ -396,8 +396,8 @@ pub fn set_model_temperature(app, state, model: String, temperature: f32) -> Res
 ### settings/user_settings.rs
 
 - **File:** `backend/src/commands/settings/user_settings.rs`
-- **Responsibility:** User settings (the shared weights-folder override, STT
-  engine dir, and the remote vLLM/SGLang endpoints) in `user_settings.yaml`;
+- **Responsibility:** User settings (the shared weights-folder override and the
+  remote vLLM/SGLang endpoints) in `user_settings.yaml`;
   resolve the effective GGUF folder.
 - **Why:** Let the user relocate model storage; provide one resolution point
   combining user setting → env → default. The remote backends' URL + bearer key

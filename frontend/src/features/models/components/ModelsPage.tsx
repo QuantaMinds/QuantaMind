@@ -4,14 +4,12 @@ import { useHotkey } from "../../../shared/ui/useHotkey";
 import { OllamaLibraryTab } from "./tabs/OllamaLibraryTab";
 import { HuggingFaceTab } from "./tabs/HuggingFaceTab";
 import { LocalFileTab } from "./tabs/LocalFileTab";
-import { SpeechToTextTab } from "../../stt/components/SpeechToTextTab";
 
 type Tab = { id: TabId; label: string };
 const TABS: Tab[] = [
   { id: "ollama", label: "Ollama Library" },
   { id: "huggingface", label: "Hugging Face" },
   { id: "local", label: "Local File" },
-  { id: "stt", label: "Speech-to-Text" },
 ];
 
 const subTabClass = (active: boolean) =>
@@ -25,8 +23,6 @@ export function ModelsPage() {
   useHotkey("mod+1", () => setActiveTab(TABS[0].id), onModels);
   useHotkey("mod+2", () => setActiveTab(TABS[1].id), onModels);
   useHotkey("mod+3", () => setActiveTab(TABS[2].id), onModels);
-  // Opens the tab in any engine state — the setup card is always reachable.
-  useHotkey("mod+4", () => setActiveTab(TABS[3].id), onModels);
 
   return (
     <section data-testid="page-models" className="flex flex-col gap-3 h-full">
@@ -50,7 +46,6 @@ export function ModelsPage() {
         {activeTab === "ollama" && <OllamaLibraryTab />}
         {activeTab === "huggingface" && <HuggingFaceTab />}
         {activeTab === "local" && <LocalFileTab />}
-        {activeTab === "stt" && <SpeechToTextTab />}
       </main>
     </section>
   );

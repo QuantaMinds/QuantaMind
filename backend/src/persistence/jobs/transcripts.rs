@@ -61,8 +61,8 @@ pub fn load_records(path: &Path) -> AppResult<Vec<TranscriptEntry>> {
 /// `<dir>/<collection>/<model>--<task>[--native].jsonl`. Every segment goes
 /// through `safe_filename` (model names carry `:` and `/`; ids can be long) so
 /// the path is collision-proof and path-safe. `dir` is
-/// `app_config_dir/agentic_transcripts` — deliberately NOT `transcripts/`,
-/// which belongs to the STT feature.
+/// `app_config_dir/agentic_transcripts` — namespaced so agentic traces never
+/// co-mingle with any other transcript store.
 pub fn transcript_path(dir: &Path, collection_id: &str, model: &str, task_id: &str, native: bool) -> PathBuf {
     let pass = if native { "--native" } else { "" };
     dir.join(safe_filename(collection_id))

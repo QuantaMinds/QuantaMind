@@ -68,8 +68,8 @@ The rule-7 invariants from `CLAUDE.md`. Every change must uphold all of them:
   (`frontend/src/shared/monacoSetup.ts` bundles `monaco-editor` + its worker locally instead
   of `@monaco-editor/react`'s default jsDelivr load), so the app ships zero runtime remote code
   and works fully offline.
-- **Sidecars (loopback).** Ollama (`:11434`), llama-server (`:8081`), MLX (`:8082/8083`),
-  whisper-server (`:8093`) run unauthenticated on `127.0.0.1`. They are reachable by any local
+- **Sidecars (loopback).** Ollama (`:11434`), llama-server (`:8081`) and MLX (`:8082/8083`)
+  run unauthenticated on `127.0.0.1`. They are reachable by any local
   process while running (standard local-LLM model). These are external processes we don't own,
   so they legitimately speak `http` on loopback — a blanket `https`-only client would break
   them; the credential guard (rule 7d) is instead scoped to requests that CARRY a key. The one

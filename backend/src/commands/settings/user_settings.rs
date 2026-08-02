@@ -122,14 +122,6 @@ impl UserSettingsState {
     pub fn mlx_weights_dir(&self) -> PathBuf {
         mlx_dir_resolved(None)
     }
-
-    /// The user-set custom folder for the whisper-server STT engine, if any.
-    /// `whisper_dir` consults this first so a manually-located install persists
-    /// across launches.
-    pub fn stt_engine_dir(&self, app: &tauri::AppHandle) -> AppResult<Option<String>> {
-        self.ensure_loaded(app)?;
-        Ok(self.inner.lock_recover().stt_engine_dir.clone())
-    }
 }
 
 #[tauri::command]

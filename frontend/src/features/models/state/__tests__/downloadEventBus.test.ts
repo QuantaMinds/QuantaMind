@@ -68,8 +68,8 @@ describe("downloadEventBus", () => {
     const second = startDownloadEventBus();
     expect(first).toBe(second);
     await first;
-    // listen is called exactly 4 times (HF, pull, local, STT), not 8.
-    expect(vi.mocked(listen)).toHaveBeenCalledTimes(4);
+    // listen is called exactly 3 times (HF, pull, local), not 6.
+    expect(vi.mocked(listen)).toHaveBeenCalledTimes(3);
   });
 
   it("startDownloadEventBus retries after a transient listen() rejection", async () => {

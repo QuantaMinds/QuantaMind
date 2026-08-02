@@ -5,7 +5,7 @@ import type { RepoKind } from "../../../shared/ipc/models/hf_browse";
 // Narrowed to the three Add-Model sub-tabs now that AddModelModal is
 // gone (M.5.81). Downloads and Storage are top-level tabs via
 // `navStore.topView`, not sub-tabs of the Models page.
-export const TabIdSchema = z.enum(["ollama", "huggingface", "local", "stt"]);
+export const TabIdSchema = z.enum(["ollama", "huggingface", "local"]);
 export type TabId = z.infer<typeof TabIdSchema>;
 
 export type DownloadStatus =
@@ -14,7 +14,7 @@ export type DownloadStatus =
   | "success"
   | "error"
   | "cancelled";
-export type DownloadSource = "ollama" | "huggingface" | "local" | "stt";
+export type DownloadSource = "ollama" | "huggingface" | "local";
 
 export interface DownloadEntry {
   id: string;
@@ -35,7 +35,6 @@ export interface ModelStore {
   downloads: Record<string, DownloadEntry>;
   activeHfName: string | null;
   activeLocalName: string | null;
-  activeSttName: string | null;
   pullNames: Record<string, string>;
   hfSearchQuery: string;
   hfSelectedRepo: string | null;
@@ -49,7 +48,6 @@ export interface ModelStore {
   removeDownload: (id: string) => void;
   setActiveHfName: (n: string | null) => void;
   setActiveLocalName: (n: string | null) => void;
-  setActiveSttName: (n: string | null) => void;
   recordPullName: (pullId: string, name: string) => void;
   removePullName: (pullId: string) => void;
   setHfSearchQuery: (q: string) => void;
@@ -63,7 +61,6 @@ export const useModelStore = create<ModelStore>((set) => ({
   downloads: {},
   activeHfName: null,
   activeLocalName: null,
-  activeSttName: null,
   pullNames: {},
   hfSearchQuery: "",
   hfSelectedRepo: null,
@@ -81,7 +78,6 @@ export const useModelStore = create<ModelStore>((set) => ({
     }),
   setActiveHfName: (n) => set({ activeHfName: n }),
   setActiveLocalName: (n) => set({ activeLocalName: n }),
-  setActiveSttName: (n) => set({ activeSttName: n }),
   recordPullName: (pullId, name) =>
     set((s) => ({ pullNames: { ...s.pullNames, [pullId]: name } })),
   removePullName: (pullId) =>

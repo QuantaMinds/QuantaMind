@@ -10,8 +10,6 @@ import { BackendSetupGuide } from "./BackendSetupGuide";
 import { useWorkspacesStore } from "../../workspaces/state/workspaceStore";
 import { useSelectedModelStore } from "../../../shared/state/selectedModelStore";
 import { useBackendStore } from "../../../shared/state/backendStore";
-import { useSttRuntimeStore, runningSttEngine } from "../../stt/state/sttRuntimeStore";
-import { SttWorkspace } from "../../sttWorkspace/components/SttWorkspace";
 
 /// The run surface, driven by the global header selection. One model → a single
 /// streaming run; 2+ (Ollama) → a sequential/parallel compare whose results land
@@ -29,16 +27,12 @@ export function Workspace() {
       s.vllmHealthy !== true &&
       s.sglangHealthy !== true,
   );
-  // STT takes precedence when its server is running → two-pane transcribe mode.
-  const sttRunning = useSttRuntimeStore(runningSttEngine);
   const multi = selectedModels.length >= 2;
   const model = selectedModels[0]?.name ?? null;
 
   return (
     <div className="space-y-3">
-      {sttRunning ? (
-        <SttWorkspace />
-      ) : noLlmRunning ? (
+      {noLlmRunning ? (
         <BackendSetupGuide />
       ) : (
         <>

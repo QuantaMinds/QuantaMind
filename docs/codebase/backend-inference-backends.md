@@ -136,13 +136,13 @@ pub trait InferenceBackend {
 #### File: `inference/backend/endpoint.rs`
 - **Responsibility:** Resolve a backend to its base URL + optional bearer token,
   with deliberately non-colliding local ports.
-- **Why:** The local sidecars (plus the STT whisper sidecar) may run at once.
+- **Why:** The local sidecars may run at once.
   llama-server sits on **8081 not 8080** specifically so a stray `mlx_lm.server`
   (default 8080) can't shadow it — that exact collision made llama's `/health` pass
   while inference 404'd. The remote backends have no static default: their URL comes
   from `UserSettings` via `remote_config`.
-- **What:** consts `OLLAMA` (11434), `LLAMA_SERVER` (8081), `MLX_SERVER` (8082),
-  `WHISPER_SERVER` (8093); `struct ResolvedEndpoint { url, api_key }`;
+- **What:** consts `OLLAMA` (11434), `LLAMA_SERVER` (8081), `MLX_SERVER` (8082);
+  `struct ResolvedEndpoint { url, api_key }`;
   `fn resolve(BackendKind) -> AppResult<ResolvedEndpoint>` (local = static/dynamic
   URL + no auth; MLX reads its dynamic port; vLLM/SGLang read `remote_config` and
   **error clearly when the URL is unset** — "set it in Settings", not an opaque
@@ -150,7 +150,7 @@ pub trait InferenceBackend {
   unconfigured remote yields `""`, which probes treat as unavailable).
 - **How/Where used:** `prompt.rs` resolves up front (so an unconfigured remote fails
   before the run token spins up); compare/eval `endpoint_for` helpers call `base_url`;
-  health/discovery. (WHISPER_SERVER is *not* a `BackendKind` — STT is parallel.)
+  health/discovery.
 
 ```rust
 pub const OLLAMA: &str = "http://localhost:11434";
@@ -657,8 +657,7 @@ from the three local backends on exactly the axes that matter:
   with MLX's disk-sourced safetensors discovery.
 
 This is a deliberate exception to the app's local-first posture (see the ADR under
-`docs/adr/`); note the STT loopback guard (`stt_probe.rs`) is STT-specific and does
-**not** apply to the LLM path.
+`docs/adr/`).
 
 ---
 

@@ -34,8 +34,8 @@ afterEach(() => {
   consoleError.mockRestore();
 });
 
-// The run_prompt event stream is global; another hook (the STT assistant) may have
-// initiated the run. This hook must react only to the run it started itself.
+// The run_prompt event stream is global; another hook may have initiated the run.
+// This hook must react only to the run it started itself.
 describe("useStreamingRun — own-run guard", () => {
   it("ignores a done event for a run it did not start (no status/metrics change)", async () => {
     const { result } = renderHook(() => useStreamingRun());

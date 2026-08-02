@@ -52,8 +52,8 @@ async fn gguf_kind_keeps_only_gguf_tagged_repos() {
 }
 
 #[tokio::test]
-async fn gguf_search_drops_speech_models_like_whisper() {
-    // whisper GGUFs carry the `gguf` tag but are STT, not LLMs — they can't run on
+async fn gguf_search_drops_speech_models() {
+    // Speech GGUFs carry the `gguf` tag but are not LLMs — they can't run on
     // Ollama/llama.cpp, so they must not appear in GGUF (LLM) search.
     let mut s = Server::new_async().await;
     let _m = s.mock("GET", "/api/models")
@@ -61,11 +61,11 @@ async fn gguf_search_drops_speech_models_like_whisper() {
         .with_status(200)
         .with_body(r#"[
             {"id":"bartowski/Llama-GGUF","downloads":9,"likes":2,"tags":["gguf","text-generation"]},
-            {"id":"Demonthos/fusor-whisper-tiny-en","downloads":5,"likes":1,"tags":["gguf","whisper"],"pipeline_tag":"automatic-speech-recognition"},
+            {"id":"Demonthos/fusor-asr-tiny-en","downloads":5,"likes":1,"tags":["gguf","asr"],"pipeline_tag":"automatic-speech-recognition"},
             {"id":"some/tts-gguf","downloads":3,"likes":0,"tags":["gguf"],"pipeline_tag":"text-to-speech"}
         ]"#)
         .create_async().await;
-    let hits = search_models(&s.url(), "whisper", 30, RepoKind::Gguf).await.expect("ok");
+    let hits = search_models(&s.url(), "tiny", 30, RepoKind::Gguf).await.expect("ok");
     let ids: Vec<&str> = hits.iter().map(|h| h.id.as_str()).collect();
     assert_eq!(ids, vec!["bartowski/Llama-GGUF"], "only the text LLM GGUF survives");
 }
