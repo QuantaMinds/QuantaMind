@@ -17,7 +17,7 @@ export function Workspace() {
   const patch = useWorkspacesStore((s) => s.patch);
   const selectedModels = useSelectedModelStore((s) => s.selectedModels);
   const noLlmRunning = useBackendStore(
-    (s) => s.llamaHealthy !== true && s.vllmHealthy !== true && s.sglangHealthy !== true,
+    (s) => s.llamaHealthy !== true && s.vllmHealthy !== true,
   );
   const model = selectedModels[0]?.name ?? null;
 

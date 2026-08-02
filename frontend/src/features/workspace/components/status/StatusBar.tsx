@@ -13,7 +13,6 @@ export function StatusBar({ model, onModelClick }: Props) {
   const activeBackend = useBackendStore((s) => s.selectedBackend);
   const llamaHealthy = useBackendStore((s) => s.llamaHealthy);
   const vllmHealthy = useBackendStore((s) => s.vllmHealthy);
-  const sglangHealthy = useBackendStore((s) => s.sglangHealthy);
 
   // The status reflects the active backend: llama.cpp tracks its server's run
   // state, the remote backends their reachability. Each names the loaded model.
@@ -21,7 +20,6 @@ export function StatusBar({ model, onModelClick }: Props) {
     activeBackend,
     llamaHealthy,
     vllmHealthy,
-    sglangHealthy,
     model,
   );
   const dotClass = running ? "bg-green-500" : "bg-red-500";

@@ -1,26 +1,24 @@
 #!/usr/bin/env bash
 # capture-fixtures.sh
 # Run ON the GCP L4 VM (after Docker + NVIDIA runtime are up).
-# Captures real vLLM and SGLang responses so you can build the Rust
+# Captures real vLLM responses so you can build the Rust
 # foundation OFFLINE against wiremock. One GPU session; then stop the VM.
 #
 # Usage:
 #   VLLM:   ./capture-fixtures.sh vllm
-#   SGLANG: ./capture-fixtures.sh sglang
 #
 # Tiny model on purpose — you are capturing the API ENVELOPE + /metrics
 # FORMAT, not doing real inference. 0.6B loads in seconds and fits L4 easily.
 
 set -euo pipefail
 
-ENGINE="${1:?usage: $0 <vllm|sglang>}"
+ENGINE="${1:?usage: $0 vllm}"
 MODEL="${MODEL:-Qwen/Qwen3-0.6B}"
 OUT="fixtures/${ENGINE}"
 mkdir -p "$OUT"
 
 case "$ENGINE" in
   vllm)   BASE="http://localhost:8000"; METRICS="${BASE}/metrics" ;;
-  sglang) BASE="http://localhost:30000"; METRICS="${BASE}/metrics" ;;
   *) echo "unknown engine: $ENGINE" >&2; exit 2 ;;
 esac
 
@@ -92,9 +90,9 @@ curl -s "${BASE}/v1/chat/completions" \
   }" | tee "${OUT}/chat_structured.json" >/dev/null
 
 echo "== 6. metrics (Prometheus text format) =="
-# SGLang needs --enable-metrics at launch for this to be populated.
+# The server needs metrics enabled at launch for this to be populated.
 curl -s "${METRICS}" -o "${OUT}/metrics.prom" -w "http_status=%{http_code}\n" || \
-  echo "WARN: /metrics not available (SGLang: did you launch with --enable-metrics?)"
+  echo "WARN: /metrics not available (did you launch with metrics enabled?)"
 
 echo
 echo "== done. fixtures in ${OUT}/ =="

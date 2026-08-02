@@ -3,7 +3,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 vi.mock("../../../../shared/ipc/models/storage", () => ({
   listVllmModels: vi.fn().mockResolvedValue([]),
-  listSglangModels: vi.fn().mockResolvedValue([]),
 }));
 vi.mock("../../../../shared/ipc/models/llama_start", () => ({
   listLlamaModels: vi.fn(() => Promise.resolve([])),

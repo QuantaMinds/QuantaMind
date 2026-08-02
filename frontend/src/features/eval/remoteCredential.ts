@@ -4,8 +4,8 @@ import type { RemoteAuthReport } from "../../shared/ipc/core/client";
 /// remote-credential outcome to a plain-English, actionable line — or `null` when it's OK to
 /// proceed. Never echoes the API key or a full URL (the report already carries only a redacted
 /// `host`). A rejected key and an unreachable server get OPPOSITE fixes on purpose.
-export function remoteCredentialMessage(backend: "vllm" | "sglang", r: RemoteAuthReport): string | null {
-  const label = backend === "sglang" ? "SGLang" : "vLLM";
+export function remoteCredentialMessage(_backend: "vllm", r: RemoteAuthReport): string | null {
+  const label = "vLLM";
   const host = r.host || "the configured endpoint";
   switch (r.status) {
     case "ok":

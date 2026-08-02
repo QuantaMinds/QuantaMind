@@ -51,7 +51,7 @@ beforeEach(() => {
         { name: "llama3.2:1b", size_bytes: 1_000_000_000, modified_at: "", family: "llama", parameter_size: "1B", quantization: "Q4_K_M", backend: "llama_cpp", path: "/g/llama3.2-1b.gguf" },
         { name: "mistral:7b", size_bytes: 4_000_000_000, modified_at: "", family: "llama", parameter_size: "7B", quantization: "Q4_K_M", backend: "llama_cpp", path: "/g/mistral-7b.gguf" },
       ]);
-    if (cmd === "list_vllm_models" || cmd === "list_sglang_models") return Promise.resolve([]);
+    if (cmd === "list_vllm_models" || cmd === "list_vllm_models") return Promise.resolve([]);
     if (cmd === "check_llama_health")
       return Promise.resolve({ available: true, version: null });
     if (cmd === "run_prompt") return Promise.resolve();

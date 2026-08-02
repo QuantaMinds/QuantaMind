@@ -38,7 +38,7 @@ describe("backend switch trims the global selection", () => {
   });
 
   it("leaves an empty selection untouched", () => {
-    useBackendStore.getState().setSelectedBackend("sglang");
+    useBackendStore.getState().setSelectedBackend("vllm");
     expect(useSelectedModelStore.getState().selectedModels).toEqual([]);
   });
 });

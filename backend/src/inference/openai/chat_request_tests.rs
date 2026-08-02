@@ -45,7 +45,7 @@ fn serializes_stream_true_and_model() {
 
 #[test]
 fn requests_usage_on_the_stream() {
-    // vLLM/SGLang omit `usage` from streamed chunks unless include_usage is set
+    // vLLM omit `usage` from streamed chunks unless include_usage is set
     // (verified live — token counts came back None without it).
     let json = serde_json::to_string(&ChatRequest::new("m".into(), "hi".into(), None, None, None))
         .expect("serialize");

@@ -21,9 +21,9 @@ describe("InstalledModelInfoSchema backend field", () => {
     expect(parsed.backend).toBe("llama_cpp");
   });
 
-  it("accepts the remote vllm and sglang backends", () => {
+  it("accepts the remote vllm and vllm backends", () => {
     expect(InstalledModelInfoSchema.parse({ ...base, backend: "vllm" }).backend).toBe("vllm");
-    expect(InstalledModelInfoSchema.parse({ ...base, backend: "sglang" }).backend).toBe("sglang");
+    expect(InstalledModelInfoSchema.parse({ ...base, backend: "vllm" }).backend).toBe("vllm");
   });
 
   it("rejects an unknown backend", () => {

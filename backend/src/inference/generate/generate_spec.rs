@@ -15,7 +15,7 @@ pub struct GenerateSpec {
     /// `Some(false)` actively DISABLES thinking on some backends — required for thinking-BY-DEFAULT
     /// models (qwen3*), which otherwise reason anyway and burn a non-thinking turn's budget in a
     /// hidden block; `None` = backend default. Per backend: the server → `think` request field
-    /// (`false` is accepted by all versions; only `true` is capability-checked); vLLM/SGLang →
+    /// (`false` is accepted by all versions; only `true` is capability-checked); vLLM →
     /// `chat_template_kwargs.enable_thinking`, where `Some(false)` and `None` are identical
     /// (both send `false`); llama.cpp emits reasoning in `reasoning_content` regardless
     /// (captured in the wire layer, no request flag needed).

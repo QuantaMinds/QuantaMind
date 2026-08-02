@@ -11,7 +11,7 @@ use serde_json::Value;
 
 /// A native tool-calling turn over an OpenAI-compatible `/v1/chat/completions`
 /// endpoint with a `tools` array (non-streaming — tool responses are small). Used
-/// by the remote vLLM/SGLang backends; when `api_key` is `Some`, an
+/// by the remote vLLM backends; when `api_key` is `Some`, an
 /// `Authorization: Bearer` header is attached. Returns the SAME `ChatResult` as
 /// llama.cpp so the eval runner canonicalizes tool calls identically across
 /// backends. (llama.cpp keeps its own client because it reads a llama-specific
@@ -54,7 +54,7 @@ struct Choice {
     message: ResponseMessage,
     /// Why generation stopped — `"stop"` vs `"length"` (hit the output cap → TRUNCATED). It
     /// lives on the CHOICE, so this struct is the only place it exists on the wire. Omitting
-    /// it left `stats.finish_reason` permanently `None` on every vLLM/SGLang native turn,
+    /// it left `stats.finish_reason` permanently `None` on every vLLM native turn,
     /// making the runner's truncation retry and its setting-vs-hardware split dead code
     /// there — the same defect as llama.cpp's tool path.
     #[serde(default)]

@@ -14,7 +14,6 @@ pub fn label(kind: BackendKind) -> &'static str {
     match kind {
         BackendKind::LlamaCpp => "llama_cpp",
         BackendKind::VLlm => "vllm",
-        BackendKind::SgLang => "sglang",
     }
 }
 
@@ -23,7 +22,6 @@ fn start_hint(kind: BackendKind) -> &'static str {
     match kind {
         BackendKind::LlamaCpp => "llama-server -m <model.gguf> --port 8081",
         BackendKind::VLlm => "vllm serve <model>  (or point --base at a running server)",
-        BackendKind::SgLang => "python -m sglang.launch_server --model-path <model> --port 30000",
     }
 }
 

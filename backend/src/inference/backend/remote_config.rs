@@ -1,7 +1,7 @@
 use crate::sync::MutexExt;
 use std::sync::Mutex;
 
-/// A user-configured remote OpenAI-compatible endpoint (vLLM / SGLang). Unlike the
+/// A user-configured remote OpenAI-compatible endpoint (vLLM). Unlike the
 /// localhost sidecars, these run on a remote GPU, so their URL + optional bearer
 /// key come from `UserSettings`.
 #[derive(Clone, Default, PartialEq, Debug)]
@@ -15,7 +15,6 @@ pub struct RemoteEndpoint {
 /// command layer pushes settings here (on load and on every save) and the
 /// dispatch path reads them via `endpoint::resolve`.
 static VLLM: Mutex<RemoteEndpoint> = Mutex::new(RemoteEndpoint { url: None, api_key: None });
-static SGLANG: Mutex<RemoteEndpoint> = Mutex::new(RemoteEndpoint { url: None, api_key: None });
 
 /// Trim then drop empty strings to `None`, so a blank Settings field reads as
 /// "unconfigured" rather than an empty URL that would fail deep in a request.
@@ -27,17 +26,11 @@ pub fn set_vllm(url: Option<String>, api_key: Option<String>) {
     *VLLM.lock_recover() = RemoteEndpoint { url: norm(url), api_key: norm(api_key) };
 }
 
-pub fn set_sglang(url: Option<String>, api_key: Option<String>) {
-    *SGLANG.lock_recover() = RemoteEndpoint { url: norm(url), api_key: norm(api_key) };
-}
 
 pub fn vllm() -> RemoteEndpoint {
     VLLM.lock_recover().clone()
 }
 
-pub fn sglang() -> RemoteEndpoint {
-    SGLANG.lock_recover().clone()
-}
 
 /// Serializes tests that touch these process-globals (cargo runs them in
 /// parallel within one binary).
@@ -58,10 +51,5 @@ mod tests {
 
         set_vllm(Some("   ".into()), Some("".into()));
         assert_eq!(vllm(), RemoteEndpoint::default());
-
-        set_sglang(Some("http://host:30000".into()), None);
-        assert_eq!(sglang().url.as_deref(), Some("http://host:30000"));
-        assert!(sglang().api_key.is_none());
-        set_sglang(None, None);
     }
 }

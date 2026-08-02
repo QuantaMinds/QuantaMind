@@ -2,30 +2,30 @@
 # GPU ops for QuantaMind fixture capture (Track 1).
 #
 # One command, GPU/zone-independent: provisions ANY available Spot GPU (L4/T4/A100/V100/P100), installs
-# Docker + NVIDIA toolkit, serves vLLM + SGLang, captures fixtures, runs the tests.
+# Docker + NVIDIA toolkit, serves vLLM, captures fixtures, runs the tests.
 # The VM is STOPPED (not deleted) between uses, so restarting is one command with
 # no re-setup — the boot disk keeps the driver + Docker images. If the Spot VM is
 # preempted/reallotted, the same command rebuilds it; nothing depends on a
 # specific instance or zone.
 #
 #   ./scripts/gpu.sh run       FULL pipeline: provision -> setup -> serve -> capture -> cargo test
-#   ./scripts/gpu.sh find <vllm|sglang>        probe EVERY GPU type x zone for Spot capacity
+#   ./scripts/gpu.sh find vllm                 probe EVERY GPU type x zone for Spot capacity
 #                                              (L4/T4/A100/V100/P100), provision where it's free
 #                                              (fresh disk -> auto Docker setup + right dtype), serve
 #   ./scripts/gpu.sh up        create if missing (zone fallback), else start; wait SSH-ready
 #   ./scripts/gpu.sh capture   serve both engines, capture fixtures, pull into the repo
 #   ./scripts/gpu.sh ssh       interactive shell on the VM
 #   ./scripts/gpu.sh resume    up + ssh   (the "come back later" one-liner)
-#   ./scripts/gpu.sh serve <vllm|sglang>       start an engine container, wait until serving
-#   ./scripts/gpu.sh unserve [vllm|sglang|all] stop engine container(s) (VM stays up)
+#   ./scripts/gpu.sh serve vllm                start the engine container, wait until serving
+#   ./scripts/gpu.sh unserve [vllm|all]        stop the engine container (VM stays up)
 #   ./scripts/gpu.sh vram      GPU memory used,total (MiB) via nvidia-smi
-#   ./scripts/gpu.sh tunnel <vllm|sglang>      forward localhost:<port> to it (Ctrl-C to stop)
+#   ./scripts/gpu.sh tunnel vllm               forward localhost:<port> to it (Ctrl-C to stop)
 #   ./scripts/gpu.sh down      STOP the VM (GPU billing off, disk kept)
 #   ./scripts/gpu.sh delete    delete the VM entirely (only when fully done)
 #   ./scripts/gpu.sh status    show VM status + zone
 #
 # Engines are served one at a time (one L4); `serve` stops the other first so they
-# don't fight for VRAM. vLLM on :8000, SGLang on :30000.
+# don't fight for VRAM. vLLM on :8000.
 #
 # Env overrides: QM_GPU_PROJECT, QM_GPU_ZONES (space-separated), QM_GPU_VM,
 #                QM_GPU_MACHINE, QM_GPU_IMAGE_FAMILY, QM_GPU_PROFILES,
@@ -160,7 +160,7 @@ start_with_retry () {
     echo "  WHAT: could not start $VM (Spot) in $z after 6 retries."
     echo "  WHY:  the zone has no spare preemptible L4 right now (Spot capacity fluctuates)."
     echo "  FIX:"
-    echo "   • wait a few minutes, then retry:  ./scripts/gpu.sh serve <vllm|sglang>"
+    echo "   • wait a few minutes, then retry:  ./scripts/gpu.sh serve vllm"
     echo "   • or move to another zone (loses cached images → re-setup, ~30 min):"
     echo "       ./scripts/gpu.sh delete && QM_GPU_ZONES='us-west1-a us-east1-c us-central1-b' ./scripts/gpu.sh serve vllm"
     echo "   • or switch this VM to on-demand (drop --provisioning-model=SPOT in create_vm)."
@@ -200,7 +200,7 @@ ensure_docker () {
 # one (any of L4/T4/A100/V100/P100) — then set up + serve. Never stuck on one zone or GPU.
 find_gpu () {
   local engine="${1:-vllm}" z s
-  case "$engine" in vllm|sglang) ;; *) echo "usage: ./scripts/gpu.sh find <vllm|sglang>" >&2; return 2 ;; esac
+  case "$engine" in vllm) ;; *) echo "usage: ./scripts/gpu.sh find vllm" >&2; return 2 ;; esac
   require_auth
   ensure_network
   z="$(find_zone)"
@@ -253,21 +253,10 @@ serve () {
   local engine="${1:-}" z port cmd dtype cc
   z="$(require_zone)"
   # bfloat16 needs Ampere+ (compute capability >= 8.0). L4/A100 qualify; T4/V100/P100
-  # do not — vLLM/SGLang abort on bf16 there, so fall back to float16. Detect, don't assume.
+  # do not — vLLM aborts on bf16 there, so fall back to float16. Detect, don't assume.
   cc="$("${G[@]}" compute ssh "$VM" --zone "$z" --quiet --command="nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1" 2>/dev/null | tr -d '[:space:]')"
   if [ -n "$cc" ] && awk "BEGIN{exit !(${cc:-0}+0 >= 8.0)}" 2>/dev/null; then dtype=bfloat16; else dtype=float16; fi
   echo "GPU compute capability ${cc:-unknown} → --dtype $dtype"
-  # SGLang kernels need Ampere+ (cc >= 8.0). On Turing (T4 = sm_75) it aborts with
-  # KeyError: 'sm_75' — surface that up front instead of a cryptic container crash.
-  if [ "$engine" = sglang ] && [ -n "$cc" ] && ! awk "BEGIN{exit !(${cc:-0}+0 >= 8.0)}" 2>/dev/null; then
-    {
-      echo ""
-      echo "SGLang needs an Ampere+ GPU (compute capability >= 8.0). This GPU is $cc (e.g. T4 = 7.5)"
-      echo "→ SGLang can't start here. Use vLLM on this GPU, or provision an L4/A100 for SGLang:"
-      echo "    QM_GPU_PROFILES='L4|g2-standard-4| A100|a2-highgpu-1g|' ./scripts/gpu.sh find sglang"
-    } >&2
-    return 3
-  fi
   # Model-source seam: QM_GPU_MODEL = hf-repo | gs://… | s3://… | /local. Adding a store
   # later = one more arm here (matches the UI's ModelSource kinds). The customer points
   # QM_GPU_MODEL at their own bucket; nothing else changes.
@@ -280,7 +269,6 @@ serve () {
       model_arg="/model/$sub"; mount_flag="-v /mnt/qm-model:/model:ro"
       echo "model source: GCS $MODEL → gcsfuse /mnt/qm-model → --model $model_arg" ;;
     s3://*)
-      if [ "$engine" = sglang ]; then echo "SGLang has no S3 loader — mount via s3fs or use vLLM." >&2; return 3; fi
       extra="--load-format runai_streamer"
       echo "model source: S3 $MODEL (vLLM Run:ai streamer)" ;;
     *) : ;; # hf repo or /local path → passthrough
@@ -288,11 +276,8 @@ serve () {
   case "$engine" in
     vllm)
       port=8000
-      cmd="${mount_cmd}sudo docker rm -f sglang vllm >/dev/null 2>&1 || true; sudo docker run --gpus all -d --name vllm -p 8000:8000 $mount_flag vllm/vllm-openai:latest --model $model_arg --dtype $dtype $extra --max-model-len 8192 --enable-auto-tool-choice --tool-call-parser hermes >/dev/null" ;;
-    sglang)
-      port=30000
-      cmd="${mount_cmd}sudo docker rm -f vllm sglang >/dev/null 2>&1 || true; sudo docker run --gpus all -d --name sglang -p 30000:30000 $mount_flag lmsysorg/sglang:latest python3 -m sglang.launch_server --model-path $model_arg --host 0.0.0.0 --port 30000 --dtype $dtype --enable-metrics --tool-call-parser qwen25 >/dev/null" ;;
-    *) echo "usage: ./scripts/gpu.sh serve <vllm|sglang>" >&2; return 2 ;;
+      cmd="${mount_cmd}sudo docker rm -f vllm >/dev/null 2>&1 || true; sudo docker run --gpus all -d --name vllm -p 8000:8000 $mount_flag vllm/vllm-openai:latest --model $model_arg --dtype $dtype $extra --max-model-len 8192 --enable-auto-tool-choice --tool-call-parser hermes >/dev/null" ;;
+    *) echo "usage: ./scripts/gpu.sh serve vllm" >&2; return 2 ;;
   esac
   echo "serving $engine ($MODEL) on :$port … (first serve on a fresh zone pulls the image — up to ~25 min)"
   "${G[@]}" compute ssh "$VM" --zone "$z" --quiet --command="$cmd; for _ in \$(seq 1 300); do curl -sf localhost:$port/v1/models >/dev/null 2>&1 && break; sleep 5; done; if curl -sf localhost:$port/v1/models >/dev/null 2>&1; then echo \"$engine READY on :$port\"; else echo \"$engine FAILED\"; sudo docker logs $engine 2>&1 | tail -20; fi"
@@ -301,8 +286,8 @@ serve () {
 unserve () {
   local z names; z="$(require_zone)"
   case "${1:-all}" in
-    vllm) names=vllm ;; sglang) names=sglang ;; all) names="vllm sglang" ;;
-    *) echo "usage: ./scripts/gpu.sh unserve [vllm|sglang|all]" >&2; return 2 ;;
+    vllm|all) names=vllm ;;
+    *) echo "usage: ./scripts/gpu.sh unserve [vllm|all]" >&2; return 2 ;;
   esac
   "${G[@]}" compute ssh "$VM" --zone "$z" --quiet --command="for n in $names; do sudo docker rm -f \$n >/dev/null 2>&1 && echo stopped \$n || true; done"
 }
@@ -310,7 +295,7 @@ unserve () {
 tunnel () {
   local engine="${1:-vllm}" z port
   z="$(require_zone)"
-  case "$engine" in vllm) port=8000 ;; sglang) port=30000 ;; *) echo "usage: ./scripts/gpu.sh tunnel <vllm|sglang>" >&2; return 2 ;; esac
+  case "$engine" in vllm) port=8000 ;; *) echo "usage: ./scripts/gpu.sh tunnel vllm" >&2; return 2 ;; esac
   echo "forwarding localhost:$port -> $VM:$port (auto-reconnect; Ctrl-C to stop)…"
   # keepalive (ServerAlive*) so a dead link is detected fast instead of lingering as a stale
   # process serving a broken tunnel; ExitOnForwardFailure fails loud if the port is taken;
@@ -344,8 +329,6 @@ capture () {
   until "${G[@]}" compute ssh "$VM" --zone "$z" --quiet --command="test -f ~/capture-done" >/dev/null 2>&1; do sleep 20; done
   echo "pulling fixtures into the repo…"
   "${G[@]}" compute scp --recurse "$VM:~/fixtures/vllm" \
-    "$REPO_ROOT/crates/qm-backends/tests/fixtures/" --zone "$z" --quiet || true
-  "${G[@]}" compute scp --recurse "$VM:~/fixtures/sglang" \
     "$REPO_ROOT/crates/qm-backends/tests/fixtures/" --zone "$z" --quiet || true
   echo "fixtures in crates/qm-backends/tests/fixtures/ — remember: ./scripts/gpu.sh down"
 

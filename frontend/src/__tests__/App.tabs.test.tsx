@@ -22,7 +22,7 @@ beforeEach(() => {
   vi.mocked(invoke).mockImplementation((cmd: string) => {
     if (cmd === "check_llama_health")
       return Promise.resolve({ available: true, version: null });
-    if (cmd === "list_llama_models" || cmd === "list_vllm_models" || cmd === "list_sglang_models")
+    if (cmd === "list_llama_models" || cmd === "list_vllm_models" || cmd === "list_vllm_models")
       return Promise.resolve([]);
     if (cmd === "get_disk_usage")
       return Promise.resolve({ total_bytes: 1, free_bytes: 1, models_bytes: 0 });

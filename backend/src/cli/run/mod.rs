@@ -161,7 +161,7 @@ impl RunReport {
     }
 }
 
-/// Will an OpenAI-compatible backend (llama.cpp / vLLM / SGLang) actually
+/// Will an OpenAI-compatible backend (llama.cpp / vLLM) actually
 /// produce reasoning in THIS model+server setup? Sends one tiny request and checks
 /// for `reasoning_content` — the field llama.cpp (`--reasoning-format`) and vLLM use.
 /// A null/absent field means `--thinking` would silently no-op (the exact bug this
@@ -410,7 +410,6 @@ pub async fn run_suite(opts: RunOptions) -> AppResult<RunOutcome> {
         .unwrap_or_else(|| endpoint::base_url(opts.backend));
     match opts.backend {
         BackendKind::VLlm => remote_config::set_vllm(Some(ep.clone()), opts.api_key.clone()),
-        BackendKind::SgLang => remote_config::set_sglang(Some(ep.clone()), opts.api_key.clone()),
         _ => {}
     }
 

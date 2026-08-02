@@ -10,7 +10,6 @@ pub mod mcp;
 pub mod openai;
 pub mod params;
 pub mod pull;
-pub mod sglang;
 pub mod token_handler;
 pub mod vllm;
 pub mod vram_math;

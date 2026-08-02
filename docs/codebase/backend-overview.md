@@ -167,7 +167,7 @@ the "split by concern" rule — one folder per concern, no `utils`. · **What:**
 `pub mod` declarations (`app_lifecycle`, `compare`, `emit`, `eval`,
 `gguf`, `hf`, `llama`, `vllm`, `models`, `llama_cpp`, `prompt`, `prompt_templates`,
 `publish`, `remote`, `settings`, `storage`, `system`, `workspace`).
-`remote` holds the vLLM/SGLang health + `/v1/models` discovery commands (one
+`remote` holds the vLLM health + `/v1/models` discovery commands (one
 module, both backends). · **How/Where used:** every command path in `lib.rs`
 (`commands::<group>::<file>::<fn>`) resolves through here.
 
@@ -210,7 +210,7 @@ The `invoke_handler!` table registers **127** commands. Grouped by
 
 | Group | # | What it does | Owning doc |
 |---|---|---|---|
-| `remote` | 4 | Remote vLLM/SGLang health + model discovery (both over `GET /v1/models`, bearer-authed). No start/stop — the servers are remote. | [backend-inference-backends.md](backend-inference-backends.md) |
+| `remote` | 4 | Remote vLLM health + model discovery (both over `GET /v1/models`, bearer-authed). No start/stop — the servers are remote. | [backend-inference-backends.md](backend-inference-backends.md) |
 | `eval` | 29 | Eval engine: load/run tasks, tool-call eval + trace, custom/builtin collections, matrix runs, batch (run/stop/resume/discard), readiness profiles + assess, Context Stress Test. | [backend-eval-engine.md](backend-eval-engine.md) |
 | `workspace` | 15 | Workspace open/close/current/tree/recent, prompt file CRUD (load/save/create/rename/delete), run history (append/list/get/clear/remove). | [backend-persistence.md](backend-persistence.md) |
 | `settings` | 7 | Model settings (get + set temperature), storage path get/validate, user settings get/set + resolve models folder. | `commands/settings`, [backend-persistence.md](backend-persistence.md) |
@@ -499,7 +499,7 @@ map the spine sits above. `inference/mod.rs` declares 18 submodules:
 
 `backend`, `chat`, `compare`, `create`, `eval`, `generate`, `gguf`, `hf`,
 `http`, `llama`, `vllm`, `llama_cpp`, `openai` (the shared OpenAI SSE codec),
-`pull`, `sglang`, `vllm`, plus three leaf files `params.rs`
+`pull`, `vllm`, `vllm`, plus three leaf files `params.rs`
 (`InferenceParams` — the domain home of the sampling params, re-exported by
 `persistence::prompts::schema`), `token_handler.rs` and `vram_math.rs`.
 

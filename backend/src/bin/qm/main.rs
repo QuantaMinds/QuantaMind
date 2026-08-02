@@ -455,7 +455,6 @@ enum BackendArg {
     #[value(name = "llama_cpp", alias = "llama-cpp", alias = "llamacpp")]
     LlamaCpp,
     Vllm,
-    Sglang,
 }
 
 impl From<BackendArg> for BackendKind {
@@ -463,7 +462,6 @@ impl From<BackendArg> for BackendKind {
         match b {
             BackendArg::LlamaCpp => BackendKind::LlamaCpp,
             BackendArg::Vllm => BackendKind::VLlm,
-            BackendArg::Sglang => BackendKind::SgLang,
         }
     }
 }
@@ -478,7 +476,6 @@ fn resolve_key(backend: Option<BackendKind>) -> Option<String> {
     }
     match backend {
         Some(BackendKind::VLlm) => secrets::get(secrets::VLLM_API_KEY),
-        Some(BackendKind::SgLang) => secrets::get(secrets::SGLANG_API_KEY),
         _ => None,
     }
 }

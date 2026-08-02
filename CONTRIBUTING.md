@@ -135,7 +135,7 @@ pnpm tauri build          # production → backend/target/release/bundle/ (.dmg 
 | **llama.cpp** | latest | required — the default backend |
 | **llama.cpp** (`llama-server`) | latest | optional — run GGUF models directly |
 | **vLLM** (`pip install vllm-lm`) | latest | optional — Apple Silicon only |
-| **vLLM** / **SGLang** | latest | optional — a **remote** OpenAI-compatible GPU server; set its URL (+ `--api-key`) in Settings |
+| **vLLM** / **vLLM** | latest | optional — a **remote** OpenAI-compatible GPU server; set its URL (+ `--api-key`) in Settings |
 
 </details>
 

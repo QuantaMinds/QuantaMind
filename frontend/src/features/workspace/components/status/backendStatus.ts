@@ -3,13 +3,12 @@ import type { BackendKind } from "../../../../shared/ipc/models/storage";
 export type BackendStatus = { running: boolean; label: string; aria: string };
 
 /// Status-bar dot + text for the active backend. llama.cpp tracks its local
-/// server's run state; vLLM/SGLang are remote so they read as connected / not
+/// server's run state; vLLM is remote so it reads as connected / not
 /// reachable. Each names the loaded model.
 export function backendStatus(
   backend: BackendKind,
   llamaHealthy: boolean | null,
   vllmHealthy: boolean | null,
-  sglangHealthy: boolean | null,
   model: string | null,
 ): BackendStatus {
   const named = model ? ` (${model})` : "";
@@ -19,14 +18,6 @@ export function backendStatus(
       running,
       aria: "vLLM health",
       label: running ? `vLLM · connected${named}` : "vLLM · not reachable",
-    };
-  }
-  if (backend === "sglang") {
-    const running = sglangHealthy === true;
-    return {
-      running,
-      aria: "SGLang health",
-      label: running ? `SGLang · connected${named}` : "SGLang · not reachable",
     };
   }
   const running = llamaHealthy === true;

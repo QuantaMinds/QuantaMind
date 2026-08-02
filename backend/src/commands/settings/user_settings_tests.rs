@@ -37,12 +37,4 @@ fn allows_cleartext_remote_url_when_no_key() {
     assert!(reject_cleartext_credentials(&s).is_ok());
 }
 
-#[test]
-fn checks_sglang_too() {
-    let s = UserSettings {
-        sglang_url: Some("http://example.com:30000".into()),
-        sglang_api_key: Some("sk-secret".into()),
-        ..UserSettings::default()
-    };
-    assert!(reject_cleartext_credentials(&s).is_err());
-}
+

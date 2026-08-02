@@ -4,7 +4,6 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn().mockResolvedValue(() => {}) }));
 vi.mock("../../../../../shared/ipc/models/storage", () => ({
   listVllmModels: vi.fn().mockResolvedValue([]),
-  listSglangModels: vi.fn().mockResolvedValue([]),
 }));
 vi.mock("../../../../../shared/ipc/models/llama_start", () => ({
   listLlamaModels: vi.fn().mockResolvedValue([]),

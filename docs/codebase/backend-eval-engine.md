@@ -304,7 +304,7 @@ let composite = (!subs.is_empty()).then(|| subs.iter().sum::<f64>() / subs.len()
 
 The agentic runner is a **sandboxed multi-step tool loop**: the model emits
 raw-text JSON tool calls, a deterministic sandbox replies in text (no native
-function-calling required, so it runs identically across llama.cpp / vLLM / SGLang),
+function-calling required, so it runs identically across llama.cpp / vLLM),
 and the loop runs `k` times for Pass^k reliability.
 
 **Thinking models.** The per-turn output budget is normally `num_predict = 256`
@@ -819,7 +819,7 @@ its first run could report `requested_runs: None`, indistinguishable from "k was
 the whole TASK in `Error` (re-run on resume), and a user-initiated stop must never be reported
 as an infra failure.
 
-**Under `BackendTurn` (the real llama.cpp / vLLM / SGLang/vLLM/SGLang path):** `stream_generate`
+**Under `BackendTurn` (the real llama.cpp / vLLM/vLLM path):** `stream_generate`
 (`inference/llama_cpp/llama_cpp.rs`) races `cancel.cancelled()` against BOTH the initial
 `client.post(...).send()` (connect + llama.cpp's own model-load + prompt-prefill — can take
 several seconds on a cold/large model, measured ~8s for a 35B Q8 model live, entirely before

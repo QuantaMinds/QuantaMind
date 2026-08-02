@@ -11,11 +11,11 @@ use futures_util::StreamExt;
 use tokio_util::sync::CancellationToken;
 
 /// Stream a generation from an OpenAI-compatible `/v1/chat/completions` endpoint
-/// (mlx_lm.server, vLLM, SGLang — all SSE, all multi-model so `model` is in the
+/// (mlx_lm.server, vLLM — all SSE, all multi-model so `model` is in the
 /// body). Token text flows through `on_token`; the call returns when a choice
 /// reports `finish_reason`, the stream sends `[DONE]`, or `cancel` fires. When
 /// `api_key` is `Some`, an `Authorization: Bearer` header is attached (remote
-/// vLLM/SGLang started with `--api-key`); local mlx_lm.server passes `None`.
+/// vLLM started with `--api-key`); local mlx_lm.server passes `None`.
 #[allow(clippy::too_many_arguments)]
 pub async fn stream_generate(
     endpoint: &str,
@@ -110,7 +110,7 @@ pub async fn stream_generate(
                         if cancel.is_cancelled() { return Ok(GenerateStats::default()); }
                         if let Some(fr) = choice.finish_reason {
                             // Record the stop reason but KEEP reading: with
-                            // `stream_options.include_usage`, vLLM/SGLang send `usage` in a
+                            // `stream_options.include_usage`, vLLM send `usage` in a
                             // SEPARATE trailing chunk (choices:[]) AFTER this one, so returning
                             // here would drop the token counts. Finalize on `[DONE]` / stream end.
                             // (mlx_lm.server puts usage on this same chunk, then sends `[DONE]` —

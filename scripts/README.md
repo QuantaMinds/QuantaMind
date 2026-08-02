@@ -1,7 +1,7 @@
 # scripts/ — GPU fixture-capture ops
 
 One command, GPU/zone-independent. Provisions a Spot L4 on GCP, installs Docker +
-the NVIDIA Container Toolkit, serves vLLM and SGLang on `Qwen/Qwen3-0.6B`, captures
+the NVIDIA Container Toolkit, serves vLLM on `Qwen/Qwen3-0.6B`, captures
 the golden fixtures, pulls them into `crates/qm-backends/tests/fixtures/`, and runs
 the tests. Nothing depends on a specific instance or GPU: the VM is **stopped (not
 deleted)** between uses and its zone is auto-discovered, so a preempted/reallotted
@@ -13,9 +13,9 @@ Spot VM is rebuilt by the same command.
 ./scripts/gpu.sh run             # full pipeline: provision -> setup -> serve -> capture -> cargo test
 ./scripts/gpu.sh resume          # come back later: start the stopped VM + open a shell (no re-setup)
 ./scripts/gpu.sh serve vllm      # start vLLM (:8000), wait until serving  (stops the other engine first)
-./scripts/gpu.sh serve sglang    # start SGLang (:30000, --enable-metrics), wait until serving
+./scripts/gpu.sh serve vllm    # start vLLM (:30000, --enable-metrics), wait until serving
 ./scripts/gpu.sh tunnel vllm     # forward localhost:8000 -> the engine (Ctrl-C to stop)
-./scripts/gpu.sh tunnel sglang   # forward localhost:30000
+./scripts/gpu.sh tunnel vllm   # forward localhost:30000
 ./scripts/gpu.sh unserve         # stop both engine containers (VM stays up)
 ./scripts/gpu.sh down            # stop the VM (GPU billing off, boot disk kept)
 ./scripts/gpu.sh status          # VM status + zone

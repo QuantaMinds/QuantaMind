@@ -1,7 +1,7 @@
 //! Per-engine backend probing for `qm doctor`. The dispatcher + the shared HTTP
 //! helpers live here; each inference engine's strategy is its own child module:
 //! - [`openai_local`] — llama.cpp over the OpenAI `/v1/models` surface, no auth.
-//! - [`remote`] — vLLM / SGLang, run through the credential classifier.
+//! - [`remote`] — vLLM, run through the credential classifier.
 //!
 //! No new network logic anywhere: reachability, the credential classifier, and the
 //! native-FC probe are all reused verbatim from the existing modules.
@@ -34,7 +34,6 @@ fn candidates(kind: BackendKind, override_base: Option<&str>) -> Vec<String> {
     match kind {
         BackendKind::LlamaCpp => vec![endpoint::LLAMA_SERVER.to_string(), "http://localhost:8080".into()],
         BackendKind::VLlm => vec!["http://localhost:8000".into()],
-        BackendKind::SgLang => vec!["http://localhost:30000".into()],
     }
 }
 
@@ -91,6 +90,6 @@ pub async fn probe_backend(
     let _ = model;
     match kind {
         BackendKind::LlamaCpp => openai_local::probe(&c, kind, &cands).await,
-        BackendKind::VLlm | BackendKind::SgLang => remote::probe(&c, kind, &cands[0], key).await,
+        BackendKind::VLlm => remote::probe(&c, kind, &cands[0], key).await,
     }
 }

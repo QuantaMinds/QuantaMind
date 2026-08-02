@@ -2,7 +2,7 @@ use crate::inference::generate::generate_options::GenerateOptions;
 use serde::Serialize;
 
 /// An OpenAI-compatible `/v1/chat/completions` request, shared by every backend
-/// that speaks that wire (`mlx_lm.server`, vLLM, SGLang). Each server is
+/// that speaks that wire (`mlx_lm.server`, vLLM). Each server is
 /// multi-model, so `model` is sent. System text becomes a `system` message — the
 /// endpoint applies the chat template. `top_k`/`repetition_penalty` are accepted
 /// as extensions by all three servers; there is **no `seed` field** (mlx_lm.server
@@ -13,7 +13,7 @@ pub struct ChatRequest {
     pub model: String,
     pub messages: Vec<Message>,
     pub stream: bool,
-    /// Ask for a final `usage` chunk on the SSE stream. vLLM/SGLang omit `usage`
+    /// Ask for a final `usage` chunk on the SSE stream. vLLM omit `usage`
     /// from streamed responses unless this is set (verified live — token counts
     /// came back `None` without it); mlx_lm.server sends usage regardless and
     /// tolerates the flag. Required or the Latency tab's token counts read "Not
@@ -34,7 +34,7 @@ pub struct ChatRequest {
     /// true and false) so an `is_thinking=false` eval run is TRULY non-thinking — otherwise a
     /// `has_thinking` model reasons by default and blows the smaller non-thinking budget. Ignored by
     /// non-reasoning templates (jinja drops unknown kwargs). Supported by mlx_lm.server, vLLM, and
-    /// SGLang.
+    /// vLLM.
     pub chat_template_kwargs: ChatTemplateKwargs,
 }
 

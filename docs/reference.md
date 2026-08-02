@@ -126,7 +126,7 @@ scoring (BLEU etc.) — quality is human-judged in `verdicts`. No document-level
 The top header carries three app-wide choices, surfaced on every view so it's
 always clear what you're running and how:
 
-- **Backend** (`backendStore`) — llama.cpp / vLLM / SGLang. The model list is
+- **Backend** (`backendStore`) — llama.cpp / vLLM. The model list is
   filtered to the selected backend; switching backend trims a now-incompatible
   model selection (a model is bound to its backend's weight format).
 - **Model** (`selectedModelStore`) — the global selection (an array).
@@ -518,7 +518,7 @@ an agent — entirely offline and deterministic. Read the scores with these cave
 
 - **Prompt-based, not native function-calling.** The tool schemas are injected
   into the system prompt and the JSON call is parsed from the completion text.
-  This is backend-agnostic (identical on llama.cpp / vLLM / SGLang) and mirrors
+  This is backend-agnostic (identical on llama.cpp / vLLM) and mirrors
   how many local-agent builders work — but the numbers are **not comparable to
   BFCL / native-FC leaderboards** (which use a `tools` field + native
   `tool_calls`). Treat them as a within-app, like-for-like comparison.
@@ -580,7 +580,7 @@ Error), with a click-through Trace Debugger. See [the workspace](#eval-runner).
 - **Prompt-based sandbox, same as the tool-call eval.** The `DeterministicSandbox`
   holds the initial prompt, the tool schemas (injected into the system prompt via
   the shared `build_system_for`), the mock tool results, and an `EndStateRule`.
-  No native function-calling — identical across llama.cpp / vLLM / SGLang.
+  No native function-calling — identical across llama.cpp / vLLM.
 - **Deterministic environments (`ResponderKind`) + visual replay.** A task's tool
   responses come from one of: `StaticMocks` (authored map), `WorldState` (entity
   ground-truth the model discovers), or — Phase 1 — `FileSystem` (a simulated file
@@ -1068,7 +1068,7 @@ even load on the GPU. **Capacity ≠ capability** — the meter measures memory 
 quality at that context. Per backend: llama.cpp
 `LLAMA_KV_CACHE_TYPE` + `LLAMA_FLASH_ATTENTION=1` (server-global, silently falls back to f16 on
 unsupported architectures); llama.cpp `-ctk/-ctv` (QuantaMind auto-picks `q8_0` under memory
-pressure, **never `q4_0`**); vLLM's server exposes no KV-quant flag; vLLM/SGLang take
+pressure, **never `q4_0`**); vLLM's server exposes no KV-quant flag; vLLM take
 `kv_cache_dtype=fp8` at launch. The readiness verdict grades the fit at the precision your launch
 would actually use, and never presents a `q4_0` cache as auto-selectable.
 
@@ -1204,7 +1204,7 @@ the Phase-9 levers inline, so the chosen tier and decoy budget genuinely shape t
   field let a thinking-BY-DEFAULT model (qwen3.x) reason anyway into the invisible `thinking` channel,
   burning the entire non-thinking token budget and scoring **Truncated with empty raw output** (observed
   live: qwen3.6:35b on `md_co_trace_root_cause`). `think:false` is accepted by every llama.cpp version (only
-  `think:true` is capability-checked, so no the GGUF header probe is needed); vLLM/SGLang already get the
+  `think:true` is capability-checked, so no the GGUF header probe is needed); vLLM already get the
   same suppression via `chat_template_kwargs.enable_thinking:false`, and llama.cpp needs no flag (its
   reasoning arrives in `reasoning_content` and is re-wrapped by the wire layer). **Why it exists:** at 256 tokens a reasoning model is cut off mid-thought and
   scored Malformed/Hallucinated, so a terse small model can out-score a far larger reasoner for a purely

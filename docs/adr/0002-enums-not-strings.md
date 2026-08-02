@@ -6,7 +6,7 @@
 ## Context
 
 Several values in the engine are *closed sets*: the inference backend
-(`BackendKind` = LlamaCpp | VLlm | SgLang), how the agentic sandbox answers a tool call
+(`BackendKind` = LlamaCpp | VLlm | VLlm), how the agentic sandbox answers a tool call
 (`ResponderKind` = StaticMocks | WorldState | FileSystem | WebCorpus | WebUi), readiness
 (`Verdict`), end-state rules, step kinds. These are determinism-critical: a wrong branch
 silently mis-scores a model.

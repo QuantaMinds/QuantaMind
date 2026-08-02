@@ -33,14 +33,14 @@ pub fn local_server_rss() -> Option<u64> {
 }
 
 /// Process RSS of the LOCAL inference server for `kind`, or `None` when it can't be
-/// measured honestly: remote backends (vLLM/SGLang — another machine's memory) and any
+/// measured honestly: remote backends (vLLM — another machine's memory) and any
 /// local server whose process isn't found return `None`, never 0. Name-matched (the
 /// same heuristic the leak sampler uses), so an externally-started server still counts.
 pub fn backend_rss(kind: crate::inference::backend::backend_kind::BackendKind) -> Option<u64> {
     use crate::inference::backend::backend_kind::BackendKind;
     let needle = match kind {
         BackendKind::LlamaCpp => "llama-server",
-        BackendKind::VLlm | BackendKind::SgLang => return None,
+        BackendKind::VLlm => return None,
     };
     rss_matching(needle)
 }

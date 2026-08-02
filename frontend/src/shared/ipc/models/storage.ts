@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { z } from "zod";
 
-export const BackendKindSchema = z.enum(["llama_cpp", "vllm", "sglang"]);
+export const BackendKindSchema = z.enum(["llama_cpp", "vllm"]);
 export type BackendKind = z.infer<typeof BackendKindSchema>;
 
 export const InstalledModelInfoSchema = z.object({
@@ -35,11 +35,6 @@ export type DiskUsage = z.infer<typeof DiskUsageSchema>;
 /// composes into the installed-models `Promise.allSettled` fan-out.
 export async function listVllmModels(): Promise<InstalledModelInfo[]> {
   return z.array(InstalledModelInfoSchema).parse(await invoke("list_vllm_models"));
-}
-
-/// Models a remote SGLang server currently serves (from its `/v1/models`).
-export async function listSglangModels(): Promise<InstalledModelInfo[]> {
-  return z.array(InstalledModelInfoSchema).parse(await invoke("list_sglang_models"));
 }
 
 export async function getDiskUsage(): Promise<DiskUsage> {

@@ -32,7 +32,7 @@ pub struct UserSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cost_utilization: Option<f64>,
     /// Base URL of a remote vLLM OpenAI-compatible server (e.g.
-    /// `http://34.10.20.30:8000`). vLLM/SGLang run on a remote GPU, so — unlike the
+    /// `http://34.10.20.30:8000`). vLLM run on a remote GPU, so — unlike the
     /// localhost sidecars — their endpoint is user-configured. Empty/unset ⇒ the
     /// vLLM backend reports "not configured".
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -40,13 +40,6 @@ pub struct UserSettings {
     /// Bearer token for the vLLM server, if it was launched with `--api-key`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vllm_api_key: Option<String>,
-    /// Base URL of a remote SGLang OpenAI-compatible server (e.g.
-    /// `http://34.10.20.30:30000`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sglang_url: Option<String>,
-    /// Bearer token for the SGLang server, if it was launched with `--api-key`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sglang_api_key: Option<String>,
 }
 
 pub fn load(path: &Path) -> AppResult<UserSettings> {
@@ -69,7 +62,6 @@ pub fn save(path: &Path, s: &UserSettings) -> AppResult<()> {
     // boundary strips them before serializing — regardless of caller. See docs/security.md.
     let mut on_disk = s.clone();
     on_disk.vllm_api_key = None;
-    on_disk.sglang_api_key = None;
     let yaml = serde_yaml::to_string(&on_disk).map_err(|e| AppError::Internal(e.to_string()))?;
     std::fs::write(path, yaml).map_err(|e| AppError::Io(e.to_string()))
 }

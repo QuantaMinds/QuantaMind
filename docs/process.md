@@ -931,7 +931,7 @@ Follow-ups to the KV-precision + right-sizing work, deliberately out of scope
   auto-picks a q4_0 cache (real quality cost, and much slower at long context).
   Q4 exists only as planning math in the Latency meters. A future "aggressive
   long-context" opt-in could offer it behind an explicit, warned toggle.
-- **llama.cpp/vLLM/SGLang KV precision detection.** Their cache dtype is a
+- **llama.cpp/vLLM KV precision detection.** Their cache dtype is a
   server-global/launch flag we can't verify from a client, so those columns are
   graded f16 (conservative). Detecting or setting it (e.g. spawning llama.cpp with
   `LLAMA_KV_CACHE_TYPE`) would let the gate reflect the real cache.
@@ -950,7 +950,7 @@ Part 3 endorses until scale forces a split (see
 [`adr/0001-single-crate-not-workspace.md`](adr/0001-single-crate-not-workspace.md)). The
 guide's Part 3c target is a Cargo workspace where the *compiler* enforces the Dependency
 Rule instead of a guard test: `engine-core` (domain — `inference/` minus the HTTP
-clients), `engine-app` (use cases), `backends` (llama.cpp / vLLM / SGLang driven adapters),
+clients), `engine-app` (use cases), `backends` (llama.cpp / vLLM driven adapters),
 `commands` (the Tauri driving adapter), and a `bin/` composition root.
 
 **Activate when** one of these triggers fires (not before):

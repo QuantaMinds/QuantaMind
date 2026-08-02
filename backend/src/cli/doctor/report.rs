@@ -41,7 +41,7 @@ pub struct BackendDoctor {
 
 impl BackendDoctor {
     pub fn is_remote(&self) -> bool {
-        matches!(self.kind, BackendKind::VLlm | BackendKind::SgLang)
+        matches!(self.kind, BackendKind::VLlm)
     }
 
     /// Can this backend run a model right now? Reachable AND has ≥1 model AND, for a

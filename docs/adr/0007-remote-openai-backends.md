@@ -1,4 +1,4 @@
-# 0007 — Remote OpenAI-compatible backends (vLLM, SGLang) are a deliberate local-first exception
+# 0007 — Remote OpenAI-compatible backends (vLLM) are a deliberate local-first exception
 
 - **Status:** Accepted
 - **Date:** 2026-07-04
@@ -10,7 +10,7 @@ QuantaMind is local-first: every LLM backend so far — llama.cpp, the bundled
 app-managed, with a hardcoded `http://localhost:<port>` endpoint and no auth.
 
 But GPU inference at useful sizes doesn't fit a laptop. To benchmark and run against
-vLLM and SGLang we need to reach a **remote GPU** (initially a GCP L4, 24 GB). These
+vLLM we need to reach a **remote GPU** (initially a GCP L4, 24 GB). These
 servers speak the same OpenAI `/v1/chat/completions` wire vLLM already uses, but live
 off-box and are typically launched with `--api-key`. Nothing in the codebase could
 express "a backend the app does not spawn, reached at a user-configured URL with a
@@ -18,7 +18,7 @@ bearer token."
 
 ## Decision
 
-Add `BackendKind::VLlm` and `BackendKind::SgLang` as **remote** backends that break
+Add `BackendKind::VLlm` and `BackendKind::VLlm` as **remote** backends that break
 the local-first assumption on purpose:
 
 - Their endpoint (URL) and bearer key come from `UserSettings`, pushed into a
@@ -48,6 +48,6 @@ the local-first assumption on purpose:
 - **SSH-tunnel to localhost + reuse the fixed-port pattern:** no settings/auth
   plumbing, but forces every user to run a tunnel and can't carry a per-server key —
   rejected as the default; a tunnel still works (just point the URL at `localhost`).
-- **One shared remote URL for both backends:** simpler settings, but vLLM and SGLang
+- **One shared remote URL for both backends:** simpler settings, but vLLM
   are distinct engines a user may run side by side (or on different hosts) — rejected
   in favor of a URL + key per backend.

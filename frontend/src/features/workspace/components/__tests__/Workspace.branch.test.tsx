@@ -13,7 +13,7 @@ import { useSelectedModelStore } from "../../../../shared/state/selectedModelSto
 beforeEach(() => {
   vi.clearAllMocks();
   // A healthy LLM so the run surface (not the setup guide) renders by default.
-  useBackendStore.setState({ selectedBackend: "llama_cpp", llamaHealthy: null, vllmHealthy: null, sglangHealthy: null });
+  useBackendStore.setState({ selectedBackend: "llama_cpp", llamaHealthy: null, vllmHealthy: null,});
   useSelectedModelStore.setState({ selectedModels: [] });
   useWorkspacesStore.setState({
     root: "/ws", tree: [], currentPath: "/ws/a.quantamind.yaml",

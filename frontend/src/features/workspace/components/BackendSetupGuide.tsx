@@ -82,25 +82,6 @@ function enginesFor(os: HostOs | null): Engine[] {
         "Pick vLLM + the served model in the header — the dot turns green when it's reachable.",
       ],
     },
-    {
-      id: "sglang",
-      name: "SGLang",
-      tag: "Remote GPU",
-      blurb: "Fast structured-output inference on a remote CUDA GPU (OpenAI-compatible).",
-      runs: "HF safetensors models on a GPU box (e.g. GCP L4, 24 GB)",
-      commands: [
-        {
-          label: "On the GPU box: launch the server",
-          cmd: "python -m sglang.launch_server --model-path Qwen/Qwen2.5-7B-Instruct --host 0.0.0.0 --port 30000 --api-key YOUR_KEY",
-        },
-      ],
-      links: [{ text: "SGLang docs", href: "https://docs.sglang.ai" }],
-      steps: [
-        "On your GPU box, run the command above (fit the model to the L4's 24 GB — ~7–14B, quantized).",
-        "In Settings → Remote GPU backends, paste the server URL (e.g. http://<gpu-ip>:30000) and the API key.",
-        "Pick SGLang + the served model in the header — the dot turns green when it's reachable.",
-      ],
-    },
   ];
 }
 
@@ -169,7 +150,7 @@ function EngineCard({ engine }: { engine: Engine }) {
 }
 
 /// Shown in the workspace when no LLM backend is running: a step-by-step guide to
-/// install/start each engine (llama.cpp, vLLM, SGLang) with copy-able
+/// install/start each engine (llama.cpp, vLLM) with copy-able
 /// install commands, links, and what each runs. The moment a server comes up, the
 /// workspace switches to the prompt UI (the StatusBar / header health poll drives that).
 export function BackendSetupGuide() {

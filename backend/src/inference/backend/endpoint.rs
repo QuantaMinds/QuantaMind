@@ -9,7 +9,7 @@ use crate::inference::backend::remote_config::{self, RemoteEndpoint};
 pub const LLAMA_SERVER: &str = "http://localhost:8081";
 
 /// A fully-resolved endpoint: the base URL plus an optional bearer token. Local
-/// backends carry no token; the remote vLLM/SGLang servers may (launched with
+/// backends carry no token; the remote vLLM servers may (launched with
 /// `--api-key`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResolvedEndpoint {
@@ -26,7 +26,6 @@ pub fn resolve(kind: BackendKind) -> AppResult<ResolvedEndpoint> {
     Ok(match kind {
         BackendKind::LlamaCpp => local(LLAMA_SERVER.to_string()),
         BackendKind::VLlm => remote(remote_config::vllm(), "vLLM")?,
-        BackendKind::SgLang => remote(remote_config::sglang(), "SGLang")?,
     })
 }
 

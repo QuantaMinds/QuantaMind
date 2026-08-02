@@ -1,7 +1,6 @@
 import { create } from "zustand";
 import {
   listVllmModels,
-  listSglangModels,
   type InstalledModelInfo,
 } from "../../../shared/ipc/models/storage";
 import { listLlamaModels } from "../../../shared/ipc/models/llama_start";
@@ -32,16 +31,15 @@ export const useInstalledModelsStore = create<InstalledModelsState>(
     setList: (list) =>
       set({ list, status: "ready", error: null, lastRefreshedAt: Date.now() }),
     // Fetch each source independently so one still lists when another is down;
-    // error only when the LOCAL source fails. vLLM/SGLang yield [] when their
+    // error only when the LOCAL source fails. vLLM yields [] when its
     // remote endpoint isn't configured/reachable, so those never trip the error
     // path — an unconfigured remote is not a failure.
     refresh: async () => {
       if (get().status === "loading") return;
       set({ status: "loading", error: null });
-      const [llama, vllm, sglang] = await Promise.allSettled([
+      const [llama, vllm] = await Promise.allSettled([
         listLlamaModels(),
         listVllmModels(),
-        listSglangModels(),
       ]);
       if (llama.status === "rejected") {
         set({ status: "error", error: formatIpcError(llama.reason) });
@@ -49,7 +47,6 @@ export const useInstalledModelsStore = create<InstalledModelsState>(
       }
       const list: InstalledModelInfo[] = [...llama.value];
       if (vllm.status === "fulfilled") list.push(...vllm.value);
-      if (sglang.status === "fulfilled") list.push(...sglang.value);
       set({ list, status: "ready", error: null, lastRefreshedAt: Date.now() });
     },
   }),

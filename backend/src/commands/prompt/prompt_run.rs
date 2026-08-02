@@ -8,7 +8,6 @@ use crate::inference::generate::generate_spec::GenerateSpec;
 use crate::inference::generate::generate_stats::GenerateStats;
 use crate::inference::llama::llama_backend::LlamaCppBackend;
 use crate::inference::generate::generate_options::GenerateOptions;
-use crate::inference::sglang::sglang_backend::SgLangBackend;
 use crate::inference::vllm::vllm_backend::VLlmBackend;
 use tokio_util::sync::CancellationToken;
 
@@ -48,11 +47,6 @@ pub async fn run_prompt_inner(
         }
         BackendKind::VLlm => {
             VLlmBackend::new(endpoint.to_string(), remote_config::vllm().api_key, model.to_string())
-                .generate(&spec, cancel, on_token)
-                .await
-        }
-        BackendKind::SgLang => {
-            SgLangBackend::new(endpoint.to_string(), remote_config::sglang().api_key, model.to_string())
                 .generate(&spec, cancel, on_token)
                 .await
         }

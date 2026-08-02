@@ -11,11 +11,9 @@ export interface BackendStore {
   selectedBackend: BackendKind;
   llamaHealthy: boolean | null;
   vllmHealthy: boolean | null;
-  sglangHealthy: boolean | null;
   setSelectedBackend: (b: BackendKind) => void;
   setLlamaHealthy: (h: boolean) => void;
   setVllmHealthy: (h: boolean) => void;
-  setSglangHealthy: (h: boolean) => void;
   isHealthy: (b: BackendKind) => boolean | null;
 }
 
@@ -25,7 +23,6 @@ export const useBackendStore = create<BackendStore>((set, get) => ({
   selectedBackend: "llama_cpp",
   llamaHealthy: null,
   vllmHealthy: null,
-  sglangHealthy: null,
   setSelectedBackend: (selectedBackend) => {
     set({ selectedBackend });
     // Reconcile the global selection: a model is bound to its backend's weight
@@ -38,14 +35,11 @@ export const useBackendStore = create<BackendStore>((set, get) => ({
   },
   setLlamaHealthy: (h) => set({ llamaHealthy: h }),
   setVllmHealthy: (h) => set({ vllmHealthy: h }),
-  setSglangHealthy: (h) => set({ sglangHealthy: h }),
   isHealthy: (b) => {
     const s = get();
     switch (b) {
       case "vllm":
         return s.vllmHealthy;
-      case "sglang":
-        return s.sglangHealthy;
       default:
         return s.llamaHealthy;
     }

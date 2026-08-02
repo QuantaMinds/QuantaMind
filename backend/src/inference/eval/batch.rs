@@ -968,7 +968,7 @@ where
 
 /// Does this backend+model support a NATIVE tool-calling API? Every remaining
 /// backend serves the OpenAI tool wire — llama.cpp launched with `--jinja` applies
-/// the model's embedded tool grammar, as do the remote vLLM/SGLang servers — so all
+/// the model's embedded tool grammar, as do the remote vLLM servers — so all
 /// are treated as capable. A template lacking tool support simply yields no
 /// `tool_calls`, which the harness labels honestly rather than pre-judging here.
 /// Kept as a function (not a constant) so a future backend with a real capability
@@ -976,7 +976,7 @@ where
 /// headless CLI keep dispatching through the same seam.
 pub(crate) async fn probe_native_tools(backend: BackendKind, _endpoint_url: &str, _model: &str) -> bool {
     match backend {
-        BackendKind::LlamaCpp | BackendKind::VLlm | BackendKind::SgLang => true,
+        BackendKind::LlamaCpp | BackendKind::VLlm => true,
     }
 }
 

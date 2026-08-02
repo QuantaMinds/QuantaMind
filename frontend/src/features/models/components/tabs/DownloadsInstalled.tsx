@@ -64,7 +64,7 @@ export function DownloadsInstalled() {
             </div>
             <div className="flex items-center gap-1 shrink-0">
               {/* Only a locally-installed GGUF is ours to delete; a model served by a
-                  remote vLLM/SGLang box lives on that machine. */}
+                  remote vLLM box lives on that machine. */}
               {g.llamaPath && (
                 <button type="button" onClick={() => setPending(g.name)}
                   className="text-xs border rounded px-2 py-1" aria-label={`Delete ${g.displayName ?? g.name}`}>

@@ -90,7 +90,7 @@ The rule-7 invariants from `CLAUDE.md`. Every change must uphold all of them:
 |---|---|---|
 | OAuth refresh token | OS keychain (`keyring`), mem fallback | service `quantamind`, user `publish-refresh` |
 | OAuth access token | in-memory only (`AuthState`) | never persisted, never logged |
-| Cloud API keys (vLLM/SGLang) | OS keychain via `SecureSecrets` | migrated off plaintext YAML; `https`-only in transit |
+| Cloud API keys (vLLM) | OS keychain via `SecureSecrets` | migrated off plaintext YAML; `https`-only in transit |
 | Updater public key | `tauri.conf.json` (minisign **public** key) | expected to be public |
 
 No hardcoded secrets anywhere in the repo (CI secret-scans over history enforce this).

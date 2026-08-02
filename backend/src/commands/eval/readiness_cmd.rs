@@ -715,7 +715,7 @@ pub async fn assess_readiness(
                 llama_profile_from_meta(weights, &meta, report.num_ctx, cap_bytes, total)
             })
         } else {
-            // servers that expose no KV-quant flags and remote vLLM/SGLang (cache
+            // servers that expose no KV-quant flags and remote vLLM (cache
             // dtype is a server-launch flag we can't verify): no measured fit here.
             None
         };
@@ -962,7 +962,7 @@ mod cliff_preflight_tests {
     /// labelled honestly rather than pre-judged here.
     #[tokio::test]
     async fn native_tools_gate_admits_every_supported_backend() {
-        for b in [BackendKind::LlamaCpp, BackendKind::VLlm, BackendKind::SgLang] {
+        for b in [BackendKind::LlamaCpp, BackendKind::VLlm] {
             assert!(probe_native_tools(b, "", "any-model").await, "{b:?}");
         }
     }

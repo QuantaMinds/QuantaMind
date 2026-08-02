@@ -239,7 +239,7 @@ and duplicate fetches. Fires `refresh()` once on startup.
 **Responsibility:** `groupInstalled(list)` → `ModelGroup[]`, one entry per model keyed on the
 base name (stripping `:latest` so the llama.cpp tag and the llama.cpp folder stem collapse). **Why:**
 a single model can exist in multiple backends; the Installed list shows one row with
-llama.cpp / vLLM / SGLang badges + the right actions instead of duplicate rows. Tracks `llama_cppName`
+llama.cpp / vLLM badges + the right actions instead of duplicate rows. Tracks `llama_cppName`
 (for delete), `llamaPath` (for add-to-llama_cpp/delete), `vllmPath` + `displayName` (vLLM repo id).
 
 ### `install_state.ts` — llama.cpp pull progress derivation (pure)
@@ -410,7 +410,7 @@ button.
   5s so completed installs don't accumulate; errors persist until dismissed. Cancel dispatches
   via `cancelEntry` then removes the entry + shows a "partial files cleaned" toast.
 - **`DownloadsInstalled`** ⭐ — `groupInstalled(list)` rows with backend badges
-  (llama.cpp / vLLM / SGLang). Delete dispatches per-backend: `remove_model` (llama.cpp),
+  (llama.cpp / vLLM). Delete dispatches per-backend: `remove_model` (llama.cpp),
   `delete_llama_model` (file, opt-in via `ConfirmRemove` checkbox), and `delete_vllm_model`;
   then `refresh()`. llama.cpp-only rows offer `AddTllama_cpp.cppButton`.
 

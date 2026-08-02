@@ -36,7 +36,7 @@ fn strip_sse_removes_data_prefix_only_when_present() {
 
 #[test]
 fn reasoning_delta_accepts_both_field_names() {
-    // mlx_lm.server uses `reasoning`; vLLM/SGLang reasoning parsers use `reasoning_content`.
+    // mlx_lm.server uses `reasoning`; vLLM reasoning parsers use `reasoning_content`.
     let remote: ChatChunk =
         serde_json::from_str(r#"{"choices":[{"delta":{"reasoning":"hmm"}}]}"#).expect("parse");
     assert_eq!(remote.choices[0].delta.reasoning.as_deref(), Some("hmm"));

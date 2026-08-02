@@ -239,7 +239,6 @@ pub async fn run_cliff_probe(opts: CliffOptions) -> AppResult<CliffOutcome> {
         .unwrap_or_else(|| endpoint::base_url(opts.run.backend));
     match opts.run.backend {
         BackendKind::VLlm => remote_config::set_vllm(Some(ep.clone()), opts.run.api_key.clone()),
-        BackendKind::SgLang => remote_config::set_sglang(Some(ep.clone()), opts.run.api_key.clone()),
         _ => {}
     }
 

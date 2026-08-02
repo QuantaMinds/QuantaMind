@@ -25,7 +25,7 @@ instead.)
     QM_API_KEY: ${{ secrets.QM_API_KEY }}   # NEVER an input — inputs are logged
 ```
 
-GitHub's hosted runners can't host a local model, so the action targets a **remote** vLLM/SGLang
+GitHub's hosted runners can't host a local model, so the action targets a **remote** vLLM
 endpoint reachable from CI. `base-url` is an input; the **API key is passed as the `QM_API_KEY` env
 from a secret**, never as an action input (inputs appear in logs). `qm` transmits a key only over
 `https`/loopback.
@@ -35,7 +35,7 @@ from a secret**, never as an action input (inputs appear in logs). `qm` transmit
 | Input | Meaning | Default |
 |---|---|---|
 | `install` | `release` (prebuilt from the latest GitHub Release) / `source` (lean build from a checkout — needs `actions/checkout` first) | `release` |
-| `backend` | `llama_cpp` / `llama_cpp` / `vllm` / `vllm` / `sglang` | `vllm` |
+| `backend` | `llama_cpp` / `llama_cpp` / `vllm` / `vllm` | `vllm` |
 | `base-url` | endpoint URL (→ `QM_BASE`) | **required** |
 | `model` | model to evaluate | **required** |
 | `collection` | built-in collection id | `easy-coding` |

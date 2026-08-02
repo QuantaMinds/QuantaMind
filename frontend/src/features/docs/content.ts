@@ -56,12 +56,11 @@ select in the header. You run **one at a time** — the whole app is scoped to t
 | --- | --- | --- |
 | **llama.cpp** | GGUF weights on this machine | Bundled server; great for right-sizing context |
 | **vLLM** | High throughput on a remote GPU | OpenAI-compatible; endpoint set in Settings |
-| **SGLang** | High throughput on a remote GPU | OpenAI-compatible; endpoint set in Settings |
 
 ## Starting a backend
 
 - **llama.cpp** — QuantaMind ships the server; it starts when you select a GGUF model and press ▶.
-- **vLLM / SGLang** — you run these on your own GPU box; paste the URL (and API key) in Settings.
+- **vLLM** — you run this on your own GPU box; paste the URL (and API key) in Settings.
 
 The header dot turns green once the server responds.
 
@@ -97,7 +96,7 @@ Models live in the **Downloads** and **Models** tabs. What you install depends o
 ## By backend
 
 - **llama.cpp** — drop \`.gguf\` files into the shared weights folder (shown on the Downloads page), or download them from the **Hugging Face** tab.
-- **vLLM / SGLang** — the models are whatever your remote server was launched with; QuantaMind lists them from its \`/v1/models\`.
+- **vLLM** — the models are whatever your remote server was launched with; QuantaMind lists them from its \`/v1/models\`.
 
 ## Downloading from Hugging Face
 
@@ -656,7 +655,7 @@ The selected backend's server isn't reachable. Start it:
 
 - **llama.cpp** — press ▶ in the header to start the bundled server.
 - **llama.cpp** — re-select the GGUF model to relaunch the bundled server.
-- **vLLM / SGLang** — check the endpoint URL in Settings and that the remote box is up.
+- **vLLM** — check the endpoint URL in Settings and that the remote box is up.
 
 ## Out of memory / "Compute error"
 
@@ -708,7 +707,7 @@ export const DOC_SECTIONS: DocSection[] = [
     title: "Get started",
     pages: [
       { id: "getting-started", title: "Getting started", description: "What QuantaMind is and how to begin.", body: gettingStarted },
-      { id: "choosing-a-backend", title: "Choosing a backend", description: "llama.cpp, vLLM, or SGLang — and native tool-calling.", body: choosingBackend },
+      { id: "choosing-a-backend", title: "Choosing a backend", description: "llama.cpp or vLLM — and native tool-calling.", body: choosingBackend },
     ],
   },
   {

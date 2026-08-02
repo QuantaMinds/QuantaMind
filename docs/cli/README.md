@@ -23,7 +23,7 @@ llama-server -m MODEL.gguf --port 8081 --jinja &
 llama-server -m qwen2.5:3b        # ~2 GB — a good first model to gate
 ```
 
-Already running llama.cpp / vLLM / SGLang instead? Skip this — `qm doctor` finds whatever is up.
+Already running llama.cpp / vLLM instead? Skip this — `qm doctor` finds whatever is up.
 
 **1 · Install the binary** (prebuilt — macOS arm64/x64, Linux x64/arm64, Windows x64)
 
@@ -110,7 +110,7 @@ llama_cpp  http://localhost:8081        ✗ unreachable
 Next: qm run --backend llama_cpp --model qwen2.5:3b
 ```
 
-`doctor` probes all three backends and holds them to **runnable** (reachable + ≥1 model +
+`doctor` probes both backends and holds them to **runnable** (reachable + ≥1 model +
 credential OK), not merely reachable. Anything wrong → a `[QM-…]` line on stderr with the exact fix
 (`llama-server -m MODEL.gguf --port 8081 --jinja`, `llama-server -m …`, `check QM_API_KEY`), shown, never run.
 
@@ -166,13 +166,13 @@ engine verbatim with the desktop app — the CLI and the GUI can never disagree 
 
 ## Engines & ports
 
-`qm` covers all three backends QuantaMind supports — one local, two remote:
+`qm` covers both backends QuantaMind supports — one local, two remote:
 
 | Backend | `--backend` | Kind | Port `doctor` probes | Notes |
 |---|---|---|---|---|
 | llama.cpp | `llama_cpp` | local  | `8081` then `8080` | QuantaMind's sidecar runs on **8081**; `8080` is the community `llama-server` default. OpenAI-compatible `/v1/models`. |
 | vLLM      | `vllm`      | remote | `8000` | OpenAI-compatible. Credential-classified (`/v1/models`). |
-| SGLang    | `sglang`    | remote | `30000` | OpenAI-compatible. Credential-classified. |
+| vLLM    | `vllm`    | remote | `30000` | OpenAI-compatible. Credential-classified. |
 
 `--base <url>` / env `QM_BASE` overrides the probed endpoint (targeted `--backend` only — a base URL
 is backend-specific). A remote key comes from env `QM_API_KEY` or the OS keychain — **never argv**
@@ -212,7 +212,7 @@ no prompts. Ordered cheapest-first per backend — **reachable? → models? → 
 tool-calling? → version** — and every failure carries the exact fix (shown, never run).
 
 ```
-qm doctor [--backend <llama_cpp|llama_cpp|vllm|vllm|sglang>] [--base <url>] [--model <name>] [--json]
+qm doctor [--backend <llama_cpp|llama_cpp|vllm|vllm>] [--base <url>] [--model <name>] [--json]
 ```
 
 | Flag | Meaning | Default / env |
@@ -245,7 +245,7 @@ llama_cpp     http://localhost:8081       ✓ ready  v0.24.0  models: 9
 llama_cpp  http://localhost:8081        ✗ unreachable
 vllm        http://localhost:8082        ✗ unreachable
 vllm       http://localhost:8000        ✗ unreachable  credential: Unreachable
-sglang     http://localhost:30000       ✗ unreachable  credential: Unreachable
+vllm     http://localhost:30000       ✗ unreachable  credential: Unreachable
 
 Next: qm run --backend llama_cpp --model qwen2.5:3b
 $ echo $?
@@ -285,7 +285,7 @@ qm run [--backend <kind>] [--model <name>] [--collection easy-coding] [--profile
 
 | Flag | Meaning | Default |
 |---|---|---|
-| `--backend <kind>` | llama_cpp / llama_cpp / vllm / vllm / sglang. | qm.json, then interactive/llama_cpp |
+| `--backend <kind>` | llama_cpp / llama_cpp / vllm / vllm / vllm. | qm.json, then interactive/llama_cpp |
 | `--model <name>` | Model to run. Env `QM_MODEL`. | qm.json, else interactive pick |
 | `--base <url>` | Endpoint override (remote backends). Env `QM_BASE`. | qm.json / default port |
 | `--collection <id>` | Built-in collection id. | `easy-coding` |

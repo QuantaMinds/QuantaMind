@@ -8,7 +8,6 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("../../storage/StorageSection", () => ({ StorageSection: () => null }));
 vi.mock("../../../../../shared/ipc/models/storage", () => ({
   listVllmModels: vi.fn().mockResolvedValue([]),
-  listSglangModels: vi.fn().mockResolvedValue([]),
 }));
 vi.mock("../../../../../shared/ipc/models/llama_start", () => ({
   listLlamaModels: vi.fn(),

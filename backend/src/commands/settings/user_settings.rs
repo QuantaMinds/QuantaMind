@@ -12,12 +12,11 @@ use tauri::Manager;
 
 pub const USER_SETTINGS_FILE: &str = "user_settings.yaml";
 
-/// Mirror the remote vLLM/SGLang endpoint settings into the `inference/`
+/// Mirror the remote vLLM endpoint settings into the `inference/`
 /// process-global so the dispatch path (which can't read Tauri state) resolves
 /// them. Called on first load and on every save.
 fn push_remote_endpoints(s: &UserSettings) {
     remote_config::set_vllm(s.vllm_url.clone(), s.vllm_api_key.clone());
-    remote_config::set_sglang(s.sglang_url.clone(), s.sglang_api_key.clone());
 }
 
 /// Store one API key in the keychain, or clear it when blanked. Returns whether it landed
@@ -36,7 +35,6 @@ fn store_or_clear(key: &str, val: Option<&str>) -> bool {
 /// the session store even if the keychain is denied. Used on every save.
 fn persist_api_keys(s: &UserSettings) {
     store_or_clear(secrets::VLLM_API_KEY, s.vllm_api_key.as_deref());
-    store_or_clear(secrets::SGLANG_API_KEY, s.sglang_api_key.as_deref());
 }
 
 /// Guardrail (rule 7d): refuse to accept an API key bound to a cleartext `http://` remote
@@ -44,7 +42,7 @@ fn persist_api_keys(s: &UserSettings) {
 /// never stored. Loopback http is fine (no network to sniff); https is fine.
 fn reject_cleartext_credentials(s: &UserSettings) -> AppResult<()> {
     check_credential_transport("vLLM", s.vllm_url.as_deref(), s.vllm_api_key.as_deref())?;
-    check_credential_transport("SGLang", s.sglang_url.as_deref(), s.sglang_api_key.as_deref())
+    Ok(())
 }
 
 fn check_credential_transport(label: &str, url: Option<&str>, key: Option<&str>) -> AppResult<()> {
@@ -67,17 +65,23 @@ fn check_credential_transport(label: &str, url: Option<&str>, key: Option<&str>)
 /// when a legacy plaintext key was found AND durably re-homed, so the caller must rewrite
 /// the YAML to strip it. If the keychain was unavailable we leave the file untouched this
 /// launch (never destroy the user's only copy) and retry next launch.
+/// The keychain entry a removed backend used to own. Named here for ONE reason:
+/// deleting it. Without the name we can't reach the entry, and a credential the
+/// app can no longer see or manage would linger on the machine indefinitely.
+const RETIRED_SGLANG_API_KEY: &str = "sglang-api-key";
+
 fn migrate_and_hydrate_keys(s: &mut UserSettings) -> bool {
-    let had_plaintext = s.vllm_api_key.is_some() || s.sglang_api_key.is_some();
+    let had_plaintext = s.vllm_api_key.is_some();
+    // A retired backend's key would otherwise sit in the OS keychain forever,
+    // invisible and unreachable — a stale credential is the one kind of leftover
+    // that must not be left behind. Cleared unconditionally; `clear` is a no-op
+    // when there's nothing stored.
+    secrets::clear(RETIRED_SGLANG_API_KEY);
     let mut durable = true;
     if let Some(k) = s.vllm_api_key.as_deref() {
         durable &= store_or_clear(secrets::VLLM_API_KEY, Some(k));
     }
-    if let Some(k) = s.sglang_api_key.as_deref() {
-        durable &= store_or_clear(secrets::SGLANG_API_KEY, Some(k));
-    }
     s.vllm_api_key = secrets::get(secrets::VLLM_API_KEY);
-    s.sglang_api_key = secrets::get(secrets::SGLANG_API_KEY);
     had_plaintext && durable
 }
 

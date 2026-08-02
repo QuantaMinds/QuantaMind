@@ -3,7 +3,6 @@ import type { BackendKind } from "../../../shared/ipc/models/storage";
 export interface BackendHealth {
   llama: boolean | null;
   vllm: boolean | null;
-  sglang: boolean | null;
 }
 
 /// The blocking hint shown on the Run button when the active backend (= the
@@ -14,7 +13,5 @@ export function backendRunHint(backend: BackendKind, health: BackendHealth): str
   if (backend === "llama_cpp") return health.llama === true ? null : "Start llama.cpp to run this model";
   if (backend === "vllm")
     return health.vllm === true ? null : "Set the vLLM server URL in Settings and start it";
-  if (backend === "sglang")
-    return health.sglang === true ? null : "Set the SGLang server URL in Settings and start it";
   return null;
 }

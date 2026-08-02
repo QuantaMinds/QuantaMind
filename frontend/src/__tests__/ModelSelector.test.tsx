@@ -56,7 +56,8 @@ describe("ModelSelector (global header)", () => {
   });
 
   it("shows an empty-state when the backend has no models", () => {
-    useBackendStore.setState({ selectedBackend: "sglang" });
+    useInstalledModelsStore.setState({ list: [], status: "ready", error: null });
+    useBackendStore.setState({ selectedBackend: "vllm" });
     render(<ModelSelector />);
     fireEvent.click(screen.getByTestId("header-model-dropdown"));
     expect(screen.getByText("No models for this backend.")).toBeInTheDocument();

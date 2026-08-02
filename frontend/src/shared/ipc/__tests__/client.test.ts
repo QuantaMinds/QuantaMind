@@ -5,7 +5,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 import { invoke } from "@tauri-apps/api/core";
-import { checkLlamaHealth, checkVllmHealth, checkSglangHealth } from "../core/client";
+import { checkLlamaHealth, checkVllmHealth } from "../core/client";
 
 describe("ipc client", () => {
   beforeEach(() => {
@@ -26,10 +26,4 @@ describe("ipc client", () => {
     expect(result).toEqual({ available: false, version: null });
   });
 
-  it("checkSglangHealth invokes check_sglang_health and returns HealthStatus", async () => {
-    vi.mocked(invoke).mockResolvedValue({ available: true, version: null });
-    const result = await checkSglangHealth();
-    expect(invoke).toHaveBeenCalledWith("check_sglang_health");
-    expect(result).toEqual({ available: true, version: null });
-  });
 });

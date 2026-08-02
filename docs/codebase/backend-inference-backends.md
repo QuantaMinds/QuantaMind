@@ -3,7 +3,7 @@
 The Rust subsystem that turns *"generate text from model M"* into a streamed
 token feed, regardless of which of three local engines actually runs the
 weights. This document covers the `InferenceBackend` trait, its three
-implementations (llama.cpp, vLLM, SGLang), the shared HTTP/NDJSON/SSE plumbing,
+implementations (llama.cpp, vLLM), the shared HTTP/NDJSON/SSE plumbing,
 the wire/stats codecs, and the per-engine server-process lifecycle.
 
 > Cross-links:
@@ -25,7 +25,7 @@ QuantaMind runs models through three servers — one local, two remote:
 |---|---|---|
 | **llama.cpp** | a single `.gguf` file | bundled `llama-server` sidecar (port 8081) |
 | **vLLM** | whatever the remote box serves | user-run, user-configured endpoint |
-| **SGLang** | whatever the remote box serves | user-run, user-configured endpoint |
+| **vLLM** | whatever the remote box serves | user-run, user-configured endpoint |
 
 All three speak the OpenAI wire, but they report *different stats* (llama.cpp gives
 prompt/predict ms plus a prompt-cache count; the remote servers give token counts
@@ -45,7 +45,7 @@ implementation with a `match backend { … }`.
 
 **Backend selection is absolute, never a health fallback.** A model carries its
 `BackendKind` (from `ModelInfo.backend`), decided by its *weight format* at
-discovery time — a `.gguf` is `LlamaCpp`; a remote-served id is `VLlm`/`SgLang`
+discovery time — a `.gguf` is `LlamaCpp`; a remote-served id is `VLlm`/`VLlm`
 registry entry is `llama.cpp`. The dispatch (`run_prompt_inner`) matches on that
 field and *only* that field. It never tries another engine because one looks
 healthier; an vLLM model is never served by llama-server even if llama's
@@ -121,10 +121,10 @@ pub trait InferenceBackend {
 - **Responsibility:** The closed set of engines a model can be served by.
 - **Why:** Surfaces over IPC as `ModelInfo.backend` and is the *only* selector
   for dispatch — backend identity is a property of the model, not a runtime choice.
-- **What:** `enum BackendKind { LlamaCpp (default), VLlm, SgLang }`,
+- **What:** `enum BackendKind { LlamaCpp (default), VLlm, VLlm }`,
   `#[serde(rename_all = "snake_case")]` — with per-variant `#[serde(rename)]` on the
   last two so they round-trip to TS as `"llama_cpp" | "llama_cpp" | "vllm" | "vllm" |
-  "sglang"` (not `"v_llm"`/`"sg_lang"`). `VLlm`/`SgLang` are **remote** OpenAI
+  "vllm"` (not `"v_llm"`/`"sg_lang"`). `VLlm`/`VLlm` are **remote** OpenAI
   servers (a GPU box); the rest are local.
 - **How/Where used:** Set at discovery (`llama_discover`, `vllm_discover`, llama.cpp
   tags, and the remote `/v1/models` query); matched in `run_prompt_inner`, eval, and
@@ -141,7 +141,7 @@ pub trait InferenceBackend {
 - **What:** consts `LLAMA_SERVER` (8081), `vLLM_SERVER` (8082);
   `struct ResolvedEndpoint { url, api_key }`;
   `fn resolve(BackendKind) -> AppResult<ResolvedEndpoint>` (local = static/dynamic
-  URL + no auth; vLLM reads its dynamic port; vLLM/SGLang read `remote_config` and
+  URL + no auth; vLLM reads its dynamic port; vLLM read `remote_config` and
   **error clearly when the URL is unset** — "set it in Settings", not an opaque
   connect error); `fn base_url(BackendKind) -> String` (url only, infallible — an
   unconfigured remote yields `""`, which probes treat as unavailable).
@@ -159,13 +159,13 @@ pub fn base_url(kind: BackendKind) -> String { resolve(kind).map(|r| r.url).unwr
 ```
 
 #### File: `inference/backend/remote_config.rs`
-- **Responsibility:** Hold the user-configured remote endpoints (vLLM/SGLang) as a
+- **Responsibility:** Hold the user-configured remote endpoints (vLLM) as a
   process-global — the same pattern as `vllm/server/vllm_endpoint.rs`.
-- **Why:** vLLM/SGLang run on a remote GPU, so their URL + optional bearer key are
+- **Why:** vLLM run on a remote GPU, so their URL + optional bearer key are
   user settings, and `inference/` can't read Tauri state. The settings command layer
   pushes them here on load and on every save; `endpoint::resolve` reads them.
 - **What:** `struct RemoteEndpoint { url, api_key }`; `set_vllm/vllm`,
-  `set_sglang/sglang` (setters trim blanks to `None` so an empty Settings field reads
+  `set_vllm/vllm` (setters trim blanks to `None` so an empty Settings field reads
   as "unconfigured").
 
 ---
@@ -309,7 +309,7 @@ fallback prepends system text raw. vLLM applies its own template server-side. So
 
 ---
 
-## The three backends
+## The two backends
 
 Each engine is one folder with the same five-part shape: `*.rs`
 (`stream_generate` — HTTP + read loop), `*_backend.rs` (the trait impl),
@@ -383,7 +383,7 @@ GenerateStats {
 ### `inference/openai/` — shared OpenAI-compatible SSE codec
 
 The `/v1/chat/completions` streaming wire, shared by **every** backend that
-speaks it: vllm_lm.server, vLLM, and SGLang (llama.cpp reuses the chunk/stats
+speaks it: vllm_lm.server, vLLM, and vLLM (llama.cpp reuses the chunk/stats
 types on its own primary chat path). Each server is **multi-model** (the model id
 *is* sent) and streams SSE. Extracted here (rather than living inside `inference/vllm/`)
 so a new OpenAI-wire backend is one thin adapter over this codec — no cross-backend
@@ -393,7 +393,7 @@ so a new OpenAI-wire backend is one thin adapter over this codec — no cross-ba
 - **Responsibility:** Stream `/v1/chat/completions` (OpenAI SSE) for any such server.
 - **What:** `stream_generate(endpoint, api_key: Option<&str>, model, prompt,
   system, options, think, cancel, on_token)`. When `api_key` is `Some`, attaches
-  `Authorization: Bearer` (remote vLLM/SGLang launched with `--api-key`); local
+  `Authorization: Bearer` (remote vLLM launched with `--api-key`); local
   vllm_lm.server passes `None`. The initial `.send()` is **raced against `cancel`**
   (`tokio::select! { biased; cancel … ; send … }`) because a wedged server (e.g. a
   non-chat model loaded) can accept the TCP connection but never return response
@@ -423,7 +423,7 @@ if let Some(choice) = chunk.choices.into_iter().next() {
 
 #### File: `inference/openai/chat_request.rs`
 - **Gotcha (verified live):** the request sets `stream_options.include_usage:true`.
-  vLLM/SGLang **omit `usage` from streamed chunks** without it (token counts came
+  vLLM **omit `usage` from streamed chunks** without it (token counts came
   back `None`), and they send that `usage` in a **separate trailing chunk** (choices
   `[]`) *after* the `finish_reason` chunk — so `chat_stream` records the finish reason
   but keeps reading until `[DONE]` rather than returning early. vllm_lm.server puts
@@ -433,14 +433,14 @@ if let Some(choice) = chunk.choices.into_iter().next() {
   `repetition_penalty` ← `repeat_penalty`, `chat_template_kwargs.enable_thinking`).
   System text becomes a `system` message. **No `seed`** — vllm_lm.server has no seed
   field, so these runs aren't seed-reproducible and the seed is intentionally dropped
-  (vLLM/SGLang accept the same body; unknown template kwargs are dropped by jinja).
+  (vLLM accept the same body; unknown template kwargs are dropped by jinja).
 
 #### File: `inference/openai/chat_chunk.rs`
 - **What:** `ChatChunk { choices, usage }`, `Choice { delta, finish_reason }`,
   `Delta { content, reasoning }`, `Usage { prompt_tokens, completion_tokens,
   total_tokens }` (all optional — usage is version-dependent and may never arrive);
   `strip_sse(line)`. The reasoning field accepts both `reasoning` (vllm_lm.server)
-  and `reasoning_content` (vLLM/SGLang) via `#[serde(alias)]`.
+  and `reasoning_content` (vLLM) via `#[serde(alias)]`.
 
 #### File: `inference/openai/chat_stats.rs`
 - **What:** `from_usage(Option<Usage>) -> GenerateStats` — maps token counts
@@ -467,9 +467,9 @@ adapter + Apple-Silicon gate + process management.
 
 ## Backend comparison
 
-| | **llama.cpp** | **vLLM / SGLang** |
+| | **llama.cpp** | **vLLM** |
 |---|---|---|
-| `BackendKind` | `LlamaCpp` (default) | `VLlm` / `SgLang` |
+| `BackendKind` | `LlamaCpp` (default) | `VLlm` / `VLlm` |
 | Process | bundled `llama-server` sidecar | user-run on a remote GPU box |
 | Port model | fixed `8081` | user-configured endpoint (`remote_config`) |
 | Multi-model? | **no** (GGUF fixed at spawn) | whatever the server was launched with |
@@ -485,7 +485,7 @@ adapter + Apple-Silicon gate + process management.
 | Readiness | poll `/health` ≤30s (blocking start) | reachability probe + credential check |
 | Reproducible seed? | yes | **no** (no seed field) |
 
-### Remote backends — vLLM (`VLlm`) & SGLang (`SgLang`)
+### Remote backends — vLLM (`VLlm`) & vLLM (`VLlm`)
 
 Both are **remote** OpenAI-compatible GPU servers (e.g. a GCP L4), so they differ
 from the three local backends on exactly the axes that matter:
@@ -497,7 +497,7 @@ from the three local backends on exactly the axes that matter:
 - **Same wire as vLLM.** OpenAI SSE `/v1/chat/completions` via the shared
   `inference/openai/` codec (multi-model, `usage`-only stats, no seed). Native
   tool-calls via `openai::chat_tools` (bearer). Adapters: `inference/vllm/vllm_backend.rs`,
-  `inference/sglang/sglang_backend.rs`.
+  `inference/vllm/vllm_backend.rs`.
 - **Health/discovery** via `commands/remote/` (`GET /v1/models` with bearer). The
   `model.backend` binding is **server-sourced** (`/v1/models`), so it never collides
   with vLLM's disk-sourced safetensors discovery.

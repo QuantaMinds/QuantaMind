@@ -47,7 +47,7 @@ pub async fn run_prompt(
         options.temperature = Some(settings.temperature_for(&model));
     }
     // Resolve the endpoint up front (llama.cpp locally, or the user-configured
-    // vLLM/SGLang URL) so an unconfigured remote errors with a clear message BEFORE we
+    // vLLM URL) so an unconfigured remote errors with a clear message BEFORE we
     // spin up the run token/timing.
     let resolved = endpoint::resolve(backend)?;
 

@@ -1,13 +1,12 @@
 import { useEffect } from "react";
 import type { BackendKind } from "./shared/ipc/models/storage";
 import { useBackendStore } from "./shared/state/backendStore";
-import { useLlamaBackend, useVllmBackend, useSglangBackend } from "./features/workspace/hooks/useBackendHealth";
+import { useLlamaBackend, useVllmBackend } from "./features/workspace/hooks/useBackendHealth";
 import { useRemoteEndpointsStore } from "./features/workspace/state/remoteEndpointsStore";
 
 const BACKENDS: { id: BackendKind; label: string }[] = [
   { id: "llama_cpp", label: "llama.cpp" },
   { id: "vllm", label: "vLLM" },
-  { id: "sglang", label: "SGLang" },
 ];
 
 function dotClass(healthy: boolean | null): string {
@@ -16,19 +15,18 @@ function dotClass(healthy: boolean | null): string {
 }
 
 /// The global LLM-backend picker in the header — a dropdown (llama.cpp, plus the
-/// remote vLLM / SGLang servers). The whole app scopes its model list and runs to
+/// remote vLLM server). The whole app scopes its model list and runs to
 /// the selected backend (architecture.md rule 7). The dot reflects the selected
 /// backend's server: green = running. The `use*Backend` hooks poll health into
 /// backendStore.
 export function BackendSelector() {
-  // Load the configured remote endpoints once so the vLLM/SGLang pollers can gate on them —
+  // Load the configured remote endpoint once so the vLLM poller can gate on it —
   // without this they'd default to unconfigured and never poll even when an endpoint IS set.
   useEffect(() => {
     void useRemoteEndpointsStore.getState().load();
   }, []);
   useLlamaBackend();
   useVllmBackend();
-  useSglangBackend();
   const selected = useBackendStore((s) => s.selectedBackend);
   const setSelected = useBackendStore((s) => s.setSelectedBackend);
   const healthy = useBackendStore((s) => s.isHealthy(selected));

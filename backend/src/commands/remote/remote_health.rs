@@ -135,7 +135,7 @@ pub async fn probe_remote_credential(endpoint: &str, api_key: Option<&str>) -> R
 }
 
 /// Probe a remote OpenAI-compatible server via `GET /v1/models` (the liveness
-/// endpoint vLLM/SGLang both expose), sending the bearer key when configured.
+/// endpoint vLLM exposes), sending the bearer key when configured.
 /// These servers report no version string here, so `version` stays `None`. An
 /// unconfigured endpoint (empty URL) is `available: false` without any HTTP call.
 pub async fn remote_health(endpoint: &str, api_key: Option<&str>) -> HealthStatus {
@@ -164,12 +164,6 @@ pub async fn check_vllm_health() -> HealthStatus {
     remote_health(&ep.url.unwrap_or_default(), ep.api_key.as_deref()).await
 }
 
-#[cfg(feature = "gui")]
-#[tauri::command]
-pub async fn check_sglang_health() -> HealthStatus {
-    let ep = remote_config::sglang();
-    remote_health(&ep.url.unwrap_or_default(), ep.api_key.as_deref()).await
-}
 
 #[cfg(feature = "gui")]
 #[tauri::command]
@@ -178,12 +172,6 @@ pub async fn check_vllm_credential() -> RemoteAuthReport {
     probe_remote_credential(&ep.url.unwrap_or_default(), ep.api_key.as_deref()).await
 }
 
-#[cfg(feature = "gui")]
-#[tauri::command]
-pub async fn check_sglang_credential() -> RemoteAuthReport {
-    let ep = remote_config::sglang();
-    probe_remote_credential(&ep.url.unwrap_or_default(), ep.api_key.as_deref()).await
-}
 
 #[cfg(test)]
 mod tests {

@@ -27,7 +27,7 @@ const exportBtn: React.CSSProperties = {
   fontWeight: 600,
   cursor: "pointer",
 };
-const BACKEND_LABEL: Record<BackendKind, string> = { llama_cpp: "llama.cpp", vllm: "vLLM", sglang: "SGLang" };
+const BACKEND_LABEL: Record<BackendKind, string> = { llama_cpp: "llama.cpp", vllm: "vLLM" };
 const card: React.CSSProperties = {
   background: "#ffffff",
   border: "1px solid #e2e8f0",

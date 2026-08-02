@@ -10,7 +10,7 @@ describe("BackendSetupGuide", () => {
     render(<BackendSetupGuide />);
     expect(screen.getByTestId("setup-engine-llama_cpp")).toBeInTheDocument();
     expect(screen.getByTestId("setup-engine-vllm")).toBeInTheDocument();
-    expect(screen.getByTestId("setup-engine-sglang")).toBeInTheDocument();
+    expect(screen.getByTestId("setup-engine-vllm")).toBeInTheDocument();
   });
 
   it("shows the manual llama.cpp run command WITH --jinja and port 8081", () => {

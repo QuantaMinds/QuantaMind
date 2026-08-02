@@ -16,15 +16,14 @@ pub use report::DoctorReport;
 use crate::inference::backend::backend_kind::BackendKind;
 
 /// Every backend, in scan order.
-const ALL: [BackendKind; 3] = [
+const ALL: [BackendKind; 2] = [
     BackendKind::LlamaCpp,
     BackendKind::VLlm,
-    BackendKind::SgLang,
 ];
 
 /// CLI-supplied options for one doctor run.
 pub struct DoctorOptions {
-    /// Filter to one backend; `None` scans all three.
+    /// Filter to one backend; `None` scans both.
     pub backend: Option<BackendKind>,
     /// `--base` / `QM_BASE` — only honoured when a single backend is targeted (a
     /// base URL is backend-specific, so it's meaningless applied across a scan).

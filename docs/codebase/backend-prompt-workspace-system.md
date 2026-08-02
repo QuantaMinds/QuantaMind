@@ -181,7 +181,7 @@ pub fn to_generate_options(p: &InferenceParams) -> GenerateOptions {
 - **Responsibility:** Backend-agnostic dispatch — `run_prompt_inner` builds a
   `GenerateSpec` and calls `.generate()` on the chosen `InferenceBackend`.
 - **Why:** Keep the command (`prompt.rs`) free of backend selection; one place
-  fans out to llama.cpp / vLLM / SGLang.
+  fans out to llama.cpp / vLLM.
 - **What:** `validate(model, prompt)` (non-empty), then a `match` on
   `BackendKind` constructing `llama.cppBackend` / `LlamaCppBackend` / `VLlmBackend`.
 - **How/Where used:** Called by `run_prompt`; re-exported as `run_prompt_inner`.
@@ -397,19 +397,19 @@ pub fn set_model_temperature(app, state, model: String, temperature: f32) -> Res
 
 - **File:** `backend/src/commands/settings/user_settings.rs`
 - **Responsibility:** User settings (the shared weights-folder override and the
-  remote vLLM/SGLang endpoints) in `user_settings.yaml`;
+  remote vLLM endpoints) in `user_settings.yaml`;
   resolve the effective GGUF folder.
 - **Why:** Let the user relocate model storage; provide one resolution point
   combining user setting → env → default. The remote backends' URL + bearer key
   live here because they run off-box (no static localhost default).
 - **What:** `UserSettingsState`; `weights_dir` (user → `QUANTAMIND_GGUF_DIR` →
   `~/.quantamind/gguf`), `vllm_weights_dir`, `stt_engine_dir`; the remote fields
-  `vllm_url`/`vllm_api_key`/`sglang_url`/`sglang_api_key`; commands
+  `vllm_url`/`vllm_api_key`/`vllm_url`/`vllm_api_key`; commands
   `get_user_settings`, `set_user_settings`, `resolve_models_folder` (absolute
   GGUF folder for display).
 - **How/Where used:** Settings UI reads/writes user settings and shows the
   resolved models folder; downloaders consult `weights_dir`/`vllm_weights_dir`.
-  On load and on every save, `push_remote_endpoints` mirrors the vLLM/SGLang
+  On load and on every save, `push_remote_endpoints` mirrors the vLLM
   URL+key into `inference/backend/remote_config` so the Tauri-free dispatch path
   (`endpoint::resolve`) can read them.
 
@@ -604,7 +604,7 @@ pub struct HardwareSnapshot {
   busy server loading a large model while still failing fast on a real outage.
 - **What:** `HealthStatus { available, version }`; `probe_health(endpoint)`. The
   per-backend command wrappers live with their backends (`check_llama_health`,
-  `check_vllm_health`, `check_sglang_health`).
+  `check_vllm_health`, `check_vllm_health`).
 - **How/Where used:** App-wide llama.cpp status indicator / readiness gates.
 
 ### system/loaded_models.rs
@@ -696,7 +696,7 @@ pub fn scaffold_in(root: &Path) -> AppResult<PathBuf> {
 
 ## Cross-links
 
-- **Generation engine** (`InferenceBackend`, `GenerateSpec`, llama.cpp / vLLM / SGLang
+- **Generation engine** (`InferenceBackend`, `GenerateSpec`, llama.cpp / vLLM
   backends, the download/install 2 GB pre-flight gate):
   [`backend-inference-backends.md`](backend-inference-backends.md).
 - **Persistence** (serde YAML round-trip for prompts, history index + eviction,

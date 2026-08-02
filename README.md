@@ -4,7 +4,7 @@
 
 **The pre-deployment gate for local AI agents.**
 
-Benchmark any **llama.cpp**, **llama.cpp**, or **vLLM** model for *agentic readiness* on your own hardware — and get a **Ready / Conditional / Not Ready** verdict before you wire it into an agent. Runs fully local by default (nothing leaves the machine); optionally point it at a **remote vLLM or SGLang** GPU server when you need to bench a model bigger than your box.
+Benchmark any **llama.cpp**, **llama.cpp**, or **vLLM** model for *agentic readiness* on your own hardware — and get a **Ready / Conditional / Not Ready** verdict before you wire it into an agent. Runs fully local by default (nothing leaves the machine); optionally point it at a **remote vLLM** GPU server when you need to bench a model bigger than your box.
 
 <sub>Local-first · No telemetry · No account · pass^k scoring · hardware-aware · one ~30 MB binary</sub>
 
@@ -176,7 +176,7 @@ QuantaMind is an open-source workbench — Tauri 2.x + Rust + React 19 + TypeScr
 
 - **[Building from source](./CONTRIBUTING.md#project-setup)** — Rust/Node/pnpm toolchains for macOS, Linux, and Windows (incl. the Windows dev-shell setup), plus the dev/test loop. ~5 minutes on macOS.
 - **[Contribution guidelines](./CONTRIBUTING.md)** — ground rules, branching, the PR checklist.
-- **[`ARCHITECTURE.md`](./ARCHITECTURE.md)** — the five-minute map: React frontend ↔ JSON-over-IPC ↔ Rust backend ↔ HTTP to llama.cpp / vLLM / SGLang (local) or vLLM / SGLang (remote GPU).
+- **[`ARCHITECTURE.md`](./ARCHITECTURE.md)** — the five-minute map: React frontend ↔ JSON-over-IPC ↔ Rust backend ↔ HTTP to llama.cpp / vLLM (local) or vLLM (remote GPU).
 - **[`docs/codebase/`](./docs/codebase/README.md)** — deep, file-by-file reference for every backend module and frontend page.
 - **[`docs/architecture.md`](./docs/architecture.md)** — modules, IPC, layering law, robustness rules, folder taxonomy.
 - **[`docs/process.md`](./docs/process.md)** — tech stack, setup, conventions, the step-by-step workflow, roadmap.
@@ -191,7 +191,7 @@ QuantaMind is an open-source workbench — Tauri 2.x + Rust + React 19 + TypeScr
 > QuantaMind is local-first by design.
 
 - **No telemetry, no account** — no analytics SDK, no crash reporting, no tracking. Runs offline once a model is installed.
-- **Network calls limited to** local model servers (`localhost:8081` llama.cpp, dynamic llama/vLLM ports) and `huggingface.co` (only when you actively browse/install). The one exception is **opt-in**: if you configure a remote vLLM/SGLang server in Settings, prompts you run on that backend are sent to the URL you entered (empty by default).
+- **Network calls limited to** local model servers (`localhost:8081` llama.cpp, dynamic llama/vLLM ports) and `huggingface.co` (only when you actively browse/install). The one exception is **opt-in**: if you configure a remote vLLM server in Settings, prompts you run on that backend are sent to the URL you entered (empty by default).
 - **No silent shell edits** — changing `QUANTAMIND_GGUF_DIR` *generates* the export command; it never edits your shell profile.
 - **Tauri sandboxing** — the webview can only call IPC commands explicitly registered in `backend/capabilities/`.
 - **Schema validation at every IPC boundary** — Zod on TS, serde + `validator` on Rust; malformed payloads rejected with typed errors.
@@ -230,7 +230,7 @@ No. QuantaMind consumes pre-trained models; training is out of scope.
 <details>
 <summary><b>Why llama.cpp and not llama.cpp directly?</b></summary>
 
-llama.cpp gives a clean HTTP API, a stable storage convention, and handles GPU plumbing. It's no longer the only backend, though — llama.cpp (`llama-server`) and vLLM (`vllm_lm`, Apple Silicon) run locally, and vLLM / SGLang connect to a remote OpenAI-compatible GPU server (URL + optional API key set in Settings) — all behind one `InferenceBackend` trait.
+llama.cpp gives a clean HTTP API, a stable storage convention, and handles GPU plumbing. It's no longer the only backend, though — llama.cpp (`llama-server`) and vLLM (`vllm_lm`, Apple Silicon) run locally, and vLLM connect to a remote OpenAI-compatible GPU server (URL + optional API key set in Settings) — all behind one `InferenceBackend` trait.
 
 </details>
 

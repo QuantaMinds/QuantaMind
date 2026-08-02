@@ -29,12 +29,10 @@ fn round_trip_preserves_non_secret_fields() {
         models_folder: Some("/models/shared".into()),
         vllm_url: Some("http://34.10.20.30:8000".into()),
         vllm_api_key: Some("secret-vllm".into()),
-        sglang_url: Some("http://34.10.20.30:30000".into()),
-        sglang_api_key: Some("secret-sglang".into()),
     };
     save(&p, &s).unwrap();
     // Everything BUT the two API keys round-trips; the keys are stripped by `save`.
-    let expected = UserSettings { vllm_api_key: None, sglang_api_key: None, ..s };
+    let expected = UserSettings { vllm_api_key: None, ..s };
     assert_eq!(load(&p).unwrap(), expected);
 }
 
@@ -46,13 +44,12 @@ fn api_keys_are_never_written_to_disk() {
     let p = dir.path().join("u.yaml");
     let s = UserSettings {
         vllm_api_key: Some("secret-vllm".into()),
-        sglang_api_key: Some("secret-sglang".into()),
         ..UserSettings::default()
     };
     save(&p, &s).unwrap();
     let raw = std::fs::read_to_string(&p).unwrap();
     assert!(!raw.contains("secret-vllm"), "vllm key leaked to disk: {raw}");
-    assert!(!raw.contains("secret-sglang"), "sglang key leaked to disk: {raw}");
+    assert!(!raw.contains("secret-vllm"), "vllm key leaked to disk: {raw}");
     assert!(!raw.contains("api_key"), "api_key field name present on disk: {raw}");
 }
 

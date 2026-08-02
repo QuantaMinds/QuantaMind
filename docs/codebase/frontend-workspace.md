@@ -2,7 +2,7 @@
 
 The **Workspace** is the primary single-prompt page: a Monaco prompt editor + model
 picker + run controls that **stream tokens** back from the selected local backend
-(llama.cpp / vLLM / SGLang), reporting TTFT and tok/s, behind an explicit
+(llama.cpp / vLLM), reporting TTFT and tok/s, behind an explicit
 `running → streaming → done | cancelled | error` state machine with clean
 cancellation. It also hosts per-backend **server start/stop** controls and a left-rail
 **file tree** of YAML prompts with autosave.
@@ -43,7 +43,7 @@ the Run trigger, the live stream, and the per-prompt file**.
 | `start_llama_cpp` / `stop_llama_cpp` | `useStartllama.cpp` / `useStopllama.cpp` | backend-inference-backends.md |
 | `start_llama_server` / `stop_llama_server` | `useStartLlamaServer` / `useStopLlamaServer` | backend-inference-backends.md |
 | `start_vllm_server` / `stop_vllm_server` / `vllm_server_status` | `useVLlmServer` | backend-inference-backends.md |
-| llama.cpp / vLLM / SGLang `*_health` | `StatusBar`, `useLlamaBackend`, `useVLlmBackend` (5s poll) | backend-inference-backends.md |
+| llama.cpp / vLLM `*_health` | `StatusBar`, `useLlamaBackend`, `useVLlmBackend` (5s poll) | backend-inference-backends.md |
 | `open_workspace` / `close_workspace` / `list_workspace_tree` / `recent_workspaces` | `workspaces` store + hooks | backend-prompt-workspace-system.md |
 | `create_prompt` / `load_prompt` / `save_prompt` / `rename_path` / `delete_path` | `workspaces` store + hooks | backend-prompt-workspace-system.md |
 | `list_prompt_templates` | `PromptTemplatePicker` | backend-prompt-workspace-system.md |
@@ -64,7 +64,7 @@ running? a prompt selected? one model or many?) so the sub-pieces stay dumb.
 
 **What / How:** reads `useWorkspacesStore.current` (the open prompt) + `patch`, the
 header `selectedModels`, and the per-backend health flags from `backendStore`
-(llama_cpp/llama/vllm/vllm/sglang).
+(llama_cpp/llama/vllm/vllm).
 
 Render priority:
 1. `noLlmRunning` (all health flags `!== true`) → `<BackendSetupGuide/>`.
@@ -267,8 +267,8 @@ reflects the **active** backend, not always llama.cpp; metrics via `formatMetric
 
 | File | Responsibility |
 | --- | --- |
-| `ServerControl.tsx` | Dispatches the single header control by `selectedBackend`: `llama.cppControl` / `VLlmServerControl` / `LlamaServerControl` for the local backends, or `RemoteServerControl` (read-only status — no start/stop) for the remote vLLM/SGLang. |
-| `RemoteServerControl.tsx` | Read-only header status for the remote vLLM/SGLang backends (health dot + "configure in Settings" hint); the app can't start a remote server. Health comes from `useRemoteBackends` polling into `backendStore.vllmHealthy`/`sglangHealthy`. |
+| `ServerControl.tsx` | Dispatches the single header control by `selectedBackend`: `llama.cppControl` / `VLlmServerControl` / `LlamaServerControl` for the local backends, or `RemoteServerControl` (read-only status — no start/stop) for the remote vLLM. |
+| `RemoteServerControl.tsx` | Read-only header status for the remote vLLM backends (health dot + "configure in Settings" hint); the app can't start a remote server. Health comes from `useRemoteBackends` polling into `backendStore.vllmHealthy`/`vllmHealthy`. |
 | `llama.cppControl.tsx` | `PlayStopButton` over `useStartllama.cpp` / `useStopllama.cpp`; hidden until health known (`null`). |
 | `LlamaServerControl.tsx` | Play/Stop the `llama-server` sidecar on the selected llama.cpp model's GGUF (`model.path`); disabled with no path. A start error or hardware-constraint note (from `useStartLlamaServer`) renders as a compact ⚠ chip (`LlamaStartBadge`, folded into the file) — the full text opens in a hover popover (auto-shown once per new message, then hover-only) so the long note can't crush the header row. Error chip wins over the notice chip. |
 | `VLlmServerControl.tsx` | Play/Stop the app-managed `vllm_lm.server` on the selected vLLM model's dir; the busy spinner covers the multi-minute first-run weight load. |
@@ -291,7 +291,7 @@ never block Run on their own success** — health polling is the source of truth
 | `useStopLlamaServer` | `stop_llama_server` | `idle/stopping/error` | sets `llamaHealthy=false`. |
 | `useLlamaBackend` | `*_health` poll (5s) | — | re-probes llama health so a died server doesn't stay "healthy"; no Apple-Silicon gate. |
 | `useVLlmBackend` | hardware snapshot + `vllm_health` poll (5s) | — | detects Apple Silicon (only platform vLLM runs on); polls only there. Returns `{ appleSilicon }`. |
-| `useRemoteBackends` | `check_vllm_health` / `check_sglang_health` poll (5s) | — | `useVllmBackend`/`useSglangBackend` (one file, shared poll helper) write `vllmHealthy`/`sglangHealthy`; false until the endpoint is configured in Settings and reachable. No start/stop hooks — the servers are remote. |
+| `useRemoteBackends` | `check_vllm_health` poll (5s) | — | `useVllmBackend` writes `vllmHealthy`; false until the endpoint is configured in Settings and reachable. No start/stop hooks — the server is remote. |
 | `useWorkspaceHotkeys` | — | — | Cmd+Enter Run, Cmd+. Stop, Cmd+S Save, gated by `active`/`canRun`/`running`/`hasPrompt`. |
 
 ### `useVLlmServer.ts` (the interesting one)
@@ -334,7 +334,7 @@ stats? }`.
 
 | File | Responsibility |
 | --- | --- |
-| `runHint.ts` | `backendRunHint(backend, health)` → the Run-block string when the **model's required** backend isn't healthy. No fallback: llama_cpp→"Start llama.cpp first", llama_cpp→"Start llama.cpp to run this model", vllm→"Start the vLLM backend…", vllm/sglang→"Set the vLLM/SGLang server URL in Settings and start it". |
+| `runHint.ts` | `backendRunHint(backend, health)` → the Run-block string when the **model's required** backend isn't healthy. No fallback: llama_cpp→"Start llama.cpp first", llama_cpp→"Start llama.cpp to run this model", vllm→"Start the vLLM backend…", vllm→"Set the vLLM server URL in Settings and start it". |
 | `format.ts` | `formatMetrics(DonePayload)` → `"TTFT {ttft}ms · {tps} tok/s · {n} tokens"` (em-dash when null). |
 
 ---
@@ -343,7 +343,7 @@ stats? }`.
 
 | File | Responsibility |
 | --- | --- |
-| `BackendSetupGuide.tsx` | Shown when no LLM backend is healthy: a 2-col grid of install cards (llama.cpp / vLLM / SGLang) with copy-able commands, links, step lists, and "what it runs". `useVLlmBackend` filters the Apple-only vLLM card off non-Apple-Silicon. The page swaps back to the editor the instant the health poll sees a server. |
+| `BackendSetupGuide.tsx` | Shown when no LLM backend is healthy: a 2-col grid of install cards (llama.cpp / vLLM) with copy-able commands, links, step lists, and "what it runs". `useVLlmBackend` filters the Apple-only vLLM card off non-Apple-Silicon. The page swaps back to the editor the instant the health poll sees a server. |
 | `PromptTemplatePicker.tsx` | A `<select>` of bundled prompt templates (`list_prompt_templates`); picking one calls `onInsert(t.body)` → `patch({ user })`. Renders nothing when empty. |
 
 ---

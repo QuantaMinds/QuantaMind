@@ -21,7 +21,6 @@ export function SingleRun({ model }: { model: string | null }) {
   const saveDraftAuto = useWorkspacesStore((s) => s.saveDraftAuto);
   const llamaHealthy = useBackendStore((s) => s.llamaHealthy);
   const vllmHealthy = useBackendStore((s) => s.vllmHealthy);
-  const sglangHealthy = useBackendStore((s) => s.sglangHealthy);
   const activeBackend = useBackendStore((s) => s.selectedBackend);
   const cliParams = useParamsStore((s) => s.globalParams); // for the equivalent-CLI-command preview
   const setSingleRun = useCompareStore((s) => s.setSingleRun);
@@ -49,7 +48,6 @@ export function SingleRun({ model }: { model: string | null }) {
   const blockedHint = backendRunHint(activeBackend, {
     llama: llamaHealthy,
     vllm: vllmHealthy,
-    sglang: sglangHealthy,
   });
   const canRun = !!model && prompt.trim().length > 0 && !blockedHint;
   const runNow = () => {
