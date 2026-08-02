@@ -455,7 +455,7 @@ Broaden *which* models and backends users can run, and help them pick the right
 one. Built one step at a time.
 
 - **5.1 vLLM inference backend (done; live-verified).** A `VLlmBackend` streams from
-  `vllm_lm.server`'s OpenAI-compatible `/v1/chat/completions` (SSE), reached over
+  a remote vLLM server's OpenAI-compatible `/v1/chat/completions` (SSE), reached over
   HTTP — no FFI, consistent with the locked stack. **Apple Silicon only.**
   vllm_lm is user-installed (`pip install vllm-lm`), not bundled; QuantaMind only
   health-probes it read-only via `GET /v1/models` and shows vLLM in the workspace
@@ -476,20 +476,14 @@ one. Built one step at a time.
   badges on the HF download table — green "Fits" / amber "Tight" / red "Won't
   fit" per variant from `features/models/fit.ts` (the compare feature's
   1.3×-safety, 70%-tight rule); the column is omitted, never guessed, when no
-  hardware snapshot. **5.2B:** QuantaMind now **starts `vllm_lm.server`** for a
-  user-chosen HF repo (the dropdown-driven flow), reversing 5.1's "no in-app
-  start" — `vllm_lm.server --model <repo>` downloads the repo on launch, so this
-  is download + run in one flow. It mirrors the llama-server lifecycle with
-  three hardenings: (1) **no false-fail** — start returns immediately, a stderr
-  reader thread reports `Downloading`/`Starting`, readiness is the health probe
-  (never a timeout during a multi-minute download), and `vllm_server_status`
-  surfaces a died process's stderr tail; (2) **exit-reap** —
-  `RunEvent::ExitRequested` kills the child (also llama-server) so no zombie
-  holds memory/port; (3) **dynamic port** — `find_available_port(8082..=8092)`
-  picks a free port stored in a process-global, and the vLLM endpoint is
-  state-derived (`vllm_endpoint()`), so health/discovery/dispatch follow it (no
-  hardcoded `:8082`). Set `QUANTAMIND_vLLM_SERVER` to override the executable
-  path. (AWQ variants + resumable multi-file pulls deferred.)
+  hardware snapshot. **5.2B (removed).** This phase shipped an in-app launcher
+  for a second local backend — download-a-HF-repo-and-start-it in one flow, with
+  a dynamic port, a stderr-reader readiness probe, and exit-reap. That backend
+  was retired, and the launcher went with it: the only app-managed server today
+  is the `llama-server` sidecar, and vLLM is remote and never spawned by us. The
+  three hardenings it introduced survive in the llama-server lifecycle
+  (`spawned-process-robustness`): log-gated readiness rather than a timeout,
+  reap-on-exit, and a stderr tail surfaced when a child dies.
 - **5.3 Quantization comparison (done).** On the **Quant** tab, a chosen model's
   installed quants compare side-by-side: **size** + hardware **fit** (static),
   and **quality** = the 5.4 eval suite run per variant → a per-quant pass-rate

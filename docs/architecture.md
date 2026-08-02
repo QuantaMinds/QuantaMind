@@ -95,8 +95,8 @@ HTTP to a local llama.cpp server.
   in shipped paths: a `disallowed_methods` clippy lint (`backend/clippy.toml`)
   denies it on Windows, forcing new spawns through `Host::command`.
 - `inference/` — backend adapters behind the `InferenceBackend` trait
-  (`backend.rs`). `llama.cppBackend`, `LlamaCppBackend` (a `llama-server` sidecar),
-  and `VLlmBackend` (`vllm_lm.server`, Apple Silicon) today; callers build one by
+  (`backend.rs`). `LlamaCppBackend` (a bundled `llama-server` sidecar) and
+  `VLlmBackend` (a remote GPU server) today; callers build one by
   matching `BackendKind` (a closed enum — no `dyn`/`async-trait`). Cloud adds
   another variant. Both sidecar backends have an **app-managed lifecycle**: the
   app spawns/kills the server (`commands/{llama,vllm}/…start`), reaps children on

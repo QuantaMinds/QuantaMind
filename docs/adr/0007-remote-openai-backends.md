@@ -5,8 +5,8 @@
 
 ## Context
 
-QuantaMind is local-first: every LLM backend so far — llama.cpp, the bundled
-`llama-server`, and `vllm_lm.server` — runs on `localhost` and is (mostly)
+QuantaMind is local-first: every LLM backend so far — llama.cpp via the bundled
+`llama-server` — runs on `localhost` and is (mostly)
 app-managed, with a hardcoded `http://localhost:<port>` endpoint and no auth.
 
 But GPU inference at useful sizes doesn't fit a laptop. To benchmark and run against

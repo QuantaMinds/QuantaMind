@@ -267,13 +267,10 @@ reflects the **active** backend, not always llama.cpp; metrics via `formatMetric
 
 | File | Responsibility |
 | --- | --- |
-| `ServerControl.tsx` | Dispatches the single header control by `selectedBackend`: `llama.cppControl` / `VLlmServerControl` / `LlamaServerControl` for the local backends, or `RemoteServerControl` (read-only status — no start/stop) for the remote vLLM. |
-| `RemoteServerControl.tsx` | Read-only header status for the remote vLLM backends (health dot + "configure in Settings" hint); the app can't start a remote server. Health comes from `useRemoteBackends` polling into `backendStore.vllmHealthy`/`vllmHealthy`. |
-| `llama.cppControl.tsx` | `PlayStopButton` over `useStartllama.cpp` / `useStopllama.cpp`; hidden until health known (`null`). |
+| `ServerControl.tsx` | Dispatches the single header control by `selectedBackend`: `RemoteServerControl` (read-only status — no start/stop) when `isRemoteBackend`, else `LlamaServerControl`. |
+| `RemoteServerControl.tsx` | Read-only header status for the remote vLLM backend (health dot + "configure in Settings" hint); the app can't start a remote server. Health polls into `backendStore.vllmHealthy`. |
 | `LlamaServerControl.tsx` | Play/Stop the `llama-server` sidecar on the selected llama.cpp model's GGUF (`model.path`); disabled with no path. A start error or hardware-constraint note (from `useStartLlamaServer`) renders as a compact ⚠ chip (`LlamaStartBadge`, folded into the file) — the full text opens in a hover popover (auto-shown once per new message, then hover-only) so the long note can't crush the header row. Error chip wins over the notice chip. |
-| `VLlmServerControl.tsx` | Play/Stop the app-managed `vllm_lm.server` on the selected vLLM model's dir; the busy spinner covers the multi-minute first-run weight load. |
-| `llama.cppEmptyState.tsx` | llama.cpp-down recovery card: Start / Install (opens download page) / Retry, with `starting` / `success` / `not_installed` / `error` states. |
-| `backendStatus.ts` | Pure: dot+label+aria per backend — llama.cpp names its version; llama.cpp name the loaded model and their run state. |
+| `backendStatus.ts` | Pure: dot+label+aria per backend — llama.cpp names its version; the remote backend names the loaded model and its run state. |
 
 ---
 
@@ -293,24 +290,6 @@ never block Run on their own success** — health polling is the source of truth
 | `useVLlmBackend` | hardware snapshot + `vllm_health` poll (5s) | — | detects Apple Silicon (only platform vLLM runs on); polls only there. Returns `{ appleSilicon }`. |
 | `useRemoteBackends` | `check_vllm_health` poll (5s) | — | `useVllmBackend` writes `vllmHealthy`; false until the endpoint is configured in Settings and reachable. No start/stop hooks — the server is remote. |
 | `useWorkspaceHotkeys` | — | — | Cmd+Enter Run, Cmd+. Stop, Cmd+S Save, gated by `active`/`canRun`/`running`/`hasPrompt`. |
-
-### `useVLlmServer.ts` (the interesting one)
-**Responsibility:** start/stop the app-managed `vllm_lm.server`, polling status + health so a
-**multi-minute first-run download** shows "Downloading weights…" without ever failing by
-timeout, and a **died process surfaces its stderr tail** instead of spinning forever.
-**How:** `start` returns immediately, then a `POLL_MS=1500` interval runs `poll()` until
-health goes available (`settle(true)`) or status reports `exited` (`settle(false, stderr_tail)`);
-`running` updates the phase label (`downloading`/`starting`). Start failures map
-`not_found` / `no_free_port` / `start_failed` to specific messages.
-
-```ts
-const poll = useCallback(async () => {
-  if ((await checkVLlmHealth()).available) return settle(true, null);
-  const st = await vllmServerStatus();
-  if (st.state === "exited") settle(false, st.stderr_tail || `vllm_lm.server exited (code ${st.code ?? "?"})`);
-  else if (st.state === "running") setPhase(st.phase === "downloading" ? "downloading" : "starting");
-}, [settle]);
-```
 
 ---
 

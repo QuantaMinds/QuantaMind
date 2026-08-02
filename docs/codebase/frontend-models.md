@@ -383,7 +383,7 @@ search still opens the vLLM action. A `seq` ref drops stale responses.
 ```ts
 if (selected) {
   const isVLlm = selectedTags.some((t) => t.toLowerCase() === "vllm");
-  return isVLlm ? <VLlmRepoDetail repo={selected} … /> : <HuggingFaceRepoDetail repo={selected} … />;
+  return <HuggingFaceRepoDetail repo={selected} … />;
 }
 ```
 
@@ -452,19 +452,6 @@ const fit = snapshot ? fitBadge(memoryFit(v.sizeBytes, snapshot.available_memory
 ```
 
 The Fit column only renders when a hardware snapshot loaded — no guessing.
-
-### `VLlmRepoDetail.tsx` — vLLM snapshot install screen ⭐
-**Responsibility:** model card, summed snapshot size (`hf_repo_all_files` → Σ sizes) + fit badge,
-two guardrails, and a Download button → `useVLlmInstall`. **Why:** `vllm_lm.server` only serves
-text-generation LLMs — anything else downloads gigabytes then can't answer a chat request.
-
-- **Incompatible task** (card `pipeline_tag` known *and* ≠ `text-generation`) → an amber banner
-  *and* a confirm dialog before download ("Download anyway" / "Pick another"). An *absent* tag is
-  treated as "maybe" so untagged LLM repos aren't false-blocked.
-- **Base model** heuristic (`…-pt`/`…-base` in the repo id) → a soft warning (not a block):
-  won't follow chat prompts, prefer an `-it`/`Instruct` variant.
-
-After download it points the user to the Workspace dropdown ("Start vLLM"; needs `pip install vllm-lm`).
 
 ### `HfInstallStatus.tsx` — shared install status line
 Renders the `HfInstallState` (shared by HF + vLLM details): downloading (`<progress>` + Cancel),
