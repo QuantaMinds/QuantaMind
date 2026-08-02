@@ -141,8 +141,8 @@ always clear what you're running and how:
 The llama.cpp path posts to the templated `/v1/chat/completions` (the server is
 launched with `--jinja`, so it applies the model's embedded chat template — this
 is what makes the model stop instead of looping). If that route 404s (an older
-build, or another OpenAI-style server answering on the same port — e.g.
-`vllm_lm.server`, whose default port is also 8080), it falls back to the legacy
+build, or another OpenAI-style server answering on the same port — the
+community default 8080), it falls back to the legacy
 `/completion`; if neither route exists, the error points at the likely port
 collision. See [llama.cpp won't stop / loops](#llama-loops).
 - **Inference params** (`paramsStore`) — temperature, top_p, top_k, max_tokens,
@@ -206,15 +206,17 @@ running you'll see "llama.cpp isn't running".
   works on **macOS, Windows, and Linux** (Phase 2). QuantaMind resolves
   `llama_cpp` on PATH (`which` on macOS/Linux, `where.exe` on Windows) plus
   well-known install prefixes: `/opt/homebrew/bin` and `/usr/local/bin` on
-  macOS; `%LOCALAPPDATA%\Programs\llama.cpp\llama_cpp.exe` and
-  `C:\Program Files\llama.cpp\llama_cpp.exe` on Windows; `/usr/local/bin` and
+  macOS; `%LOCALAPPDATA%\Programs\llama.cpp\llama-server.exe` and
+  `C:\Program Files\llama.cpp\llama-server.exe` on Windows; `/usr/local/bin` and
   `/usr/bin` on Linux.
-- If it isn't installed, install per-OS:
-  - **macOS:** `brew install llama_cpp`
-  - **Windows:** `winget install llama.cpp.llama.cpp`
-  - **Linux:** `curl -fsSL https://github.com/ggml-org/llama.cppinstall.sh | sh`
-- Or run `llama-server -m MODEL.gguf --port 8081 --jinja` in a terminal.
-- Confirm it's up: `curl http://localhost:8081the weights folder` should return JSON.
+- If it isn't installed:
+  - **macOS:** `brew install llama.cpp`
+  - **Windows / Linux:** the desktop app bundles `llama-server` — press ▶ in the
+    header. To run your own, build or download it from
+    [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp).
+- Or run it yourself: `llama-server -m MODEL.gguf --host 127.0.0.1 --port 8081 --jinja -c 8192`.
+  `--jinja` is required — without it generations loop instead of stopping.
+- Confirm it's up: `curl http://localhost:8081/v1/models` should return JSON.
 - On Windows the child is spawned with `CREATE_NO_WINDOW` (no console flash)
   and its own process group (R1), so QuantaMind's Stop control cleanly kills
   llama.cpp's whole tree without touching QuantaMind itself.
@@ -258,7 +260,7 @@ templated `/v1/chat/completions` precisely to prevent this. If you still see it:
 
 A llama.cpp run (or the Context Stress Test) can fail with *"The prompt (N
 tokens) is larger than the M-token context window this model was loaded with."*
-Unlike llama.cpp, **llama.cpp fixes its context window at launch** (the `-c` flag) —
+**llama.cpp fixes its context window at launch** (the `-c` flag) —
 there's no per-request resize. QuantaMind launches `llama-server` with `-c` sized
 from the **Context window** param (`num_ctx`); when that param is empty it uses
 the GGUF's context capped at 8K (so a small machine never allocates a giant KV
@@ -407,49 +409,35 @@ on first use.
 - If it persists, the model may be too large for this machine; see
   [out of memory](#out-of-memory).
 
-### vLLM not detected {#vllm-not-detected}
+### vLLM not reachable {#vllm-not-detected}
 
-The **vLLM** backend appears in the workspace rail only on Apple Silicon. Install
-vllm-lm once into a virtual env (`python3 -m venv ~/vllm-env`,
-`source ~/vllm-env/bin/activate`, `pip install -U vllm-lm`) — the in-app backend
-setup guide shows these three copy-able commands. vLLM models then work like every
-other backend: **download → select → Start → run/eval/quant.**
+**vLLM is a remote backend.** QuantaMind never downloads, installs, starts, or
+stops it — there is no "Start vLLM" control, and the header shows read-only
+status only (`RemoteServerControl`). You run vLLM yourself on a GPU box and point
+QuantaMind at it.
 
-**Download:** in **Models → HuggingFace**, flip the **GGUF / vLLM** toggle to vLLM
-and search. Each toggle filters search to that library tag — GGUF to `gguf`-tagged
-repos (so only repos with downloadable `.gguf` files appear; speech/audio GGUFs
-are dropped since they can't run as an LLM), vLLM to `vllm`-tagged
-repos, mostly `vllm-community`. Open a repo and click **Download for vLLM** — the
-full snapshot (config + safetensors + tokenizer) lands in `~/.quantamind/vllm/`
-(override with `QUANTAMIND_vLLM_DIR`). The **detail view follows the repo's tags,
-not the toggle**, so an `vllm`-tagged repo opens the vLLM download even when found
-under GGUF search.
+**Configure:** Settings → the vLLM server URL (and an API key if you launched
+vLLM with `--api-key`). The key is stored in the OS keychain, never on disk in
+plaintext. Until the URL is set, `resolve` fails with *"vLLM endpoint not
+configured — set the vLLM server URL in Settings"* rather than an opaque connect
+error, and `base_url` returns `""` so probes report it as unavailable.
 
-**Select + run:** the downloaded model appears in the Workspace dropdown
-(labelled by its HF repo) as soon as it's downloaded — no running server needed.
-Pick it, press **Start vLLM** (the header launches `vllm_lm.server --model <local
-dir>`; "Starting…" while it loads), and once green run prompts / eval / quant
-like any backend. One model loads at a time; pick another and Start to switch.
+**Checks, in order:**
 
-**Guardrail — text-generation only.** `vllm_lm.server` serves text-generation
-LLMs; a text-to-speech / embedding / vision repo would download gigabytes and
-then never answer a chat request. So **Download for vLLM** checks the repo's task
-and, if it isn't `text-generation`, shows a blocking dialog ("This model won't
-run on vLLM") with a *Pick another* / *Download anyway* choice.
-
-- **"vllm_lm.server not found"** — QuantaMind searches `PATH` and common venvs
-  (`~/vllm-env/bin`, `~/.venv/bin`, Homebrew, conda). If yours is elsewhere, set
-  `QUANTAMIND_vLLM_SERVER` to its full path and restart.
-- **"Port 8082 in use" / "no free port"** — it auto-picks a free port in
-  8082–8092; only if all are taken does it fail. Free one and retry.
-- **It exited** — the error shows the server's stderr tail (e.g. a missing
-  Python dep). Fix it in your venv and Start again.
-- **Model not in the dropdown?** The picker lists what's been downloaded into
-  the vLLM folder; download it from the HuggingFace tab first. (A model loaded by
-  a manually-run `vllm_lm.server` won't appear — discovery is disk-based now.)
-- **Reproducibility note:** vllm_lm.server has no seed parameter, so vLLM runs are
-  not seed-reproducible the way llama.cpp runs are — a fixed seed in
-  the params is ignored for vLLM.
+- **"endpoint not configured"** — the URL is unset. Set it in Settings.
+- **Unreachable** — confirm the server answers `GET <url>/v1/models` with a JSON
+  body containing a `data` array. QuantaMind accepts a backend as runnable only
+  on that shape.
+- **Model not found** — the id passed to `--model` must appear *verbatim* in that
+  `/v1/models` list, or the run exits `3`.
+- **401/403** — the key was rejected. `qm` reads `QM_API_KEY` first, then the
+  keychain.
+- **`[QM-INSECURE-KEY]`** — the key was deliberately **withheld**. Credentialed
+  HTTP is https-only (loopback exempt), so a bearer is never sent in clear text
+  to a remote host. Use `https`, or drop the key.
+- **Reproducibility note:** the remote OpenAI wire has no seed parameter, so vLLM
+  runs are not seed-reproducible the way llama.cpp runs are — a fixed seed in the
+  params is ignored for vLLM.
 
 ### Invalid or truncated GGUF {#invalid-gguf}
 
@@ -1501,9 +1489,9 @@ tool-call comparison columns, and "Compare speed in Bench" — only works on
 **llama.cpp**. llama.cpp serves any installed model by name, so QuantaMind can switch
 between quants on a single running server.
 
-`llama.cpp` (`llama-server`) and **vLLM** (`vllm_lm.server`) are **single-model
-servers**: each loads one model at launch and serves whatever it has loaded,
-ignoring the requested name. So on those backends:
+`llama.cpp` (`llama-server`) is a **single-model server**: it loads one model at
+launch and serves whatever it has loaded, ignoring the requested name. So on that
+backend:
 
 - The Quant comparison buttons are **disabled** with a note — size/fit and the
   recommendation still work (they're computed from the file, not the server).

@@ -90,15 +90,16 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - \
   && sudo apt install -y nodejs
 corepack enable pnpm
-curl -fsSL https://github.com/ggml-org/llama.cppinstall.sh | sh
+# llama.cpp: build or download a release from https://github.com/ggml-org/llama.cpp
 ```
 
 </td><td>
 
 ```powershell
 winget install Rustlang.Rustup OpenJS.NodeJS `
-  pnpm.pnpm llama.cpp.llama.cpp `
-  Microsoft.VisualStudio.2022.BuildTools
+  pnpm.pnpm Microsoft.VisualStudio.2022.BuildTools
+# llama.cpp: grab a release from
+# https://github.com/ggml-org/llama.cpp/releases
 # Add "Desktop development with C++" in the
 # VS installer (MSVC linker). WebView2 ships
 # with Windows 11. Then see the "Windows dev
@@ -107,11 +108,12 @@ winget install Rustlang.Rustup OpenJS.NodeJS `
 
 </td></tr></table>
 
-**2 · Start llama.cpp + pull a small model**
+**2 · Start llama.cpp on a small GGUF**
 
 ```bash
-llama-server -m MODEL.gguf --port 8081 --jinja &                 # Windows: runs as a service after install
-llama-server -m llama3.2:1b
+# --jinja is required — without it generations loop instead of stopping.
+llama-server -m ./models/Llama-3.2-1B-Instruct-Q4_K_M.gguf \
+  --host 127.0.0.1 --port 8081 --jinja -c 8192 &
 ```
 
 **3 · Clone, install, run**

@@ -9,7 +9,7 @@ cancellation. It also hosts per-backend **server start/stop** controls and a lef
 
 > Cross-references:
 > - Backend that serves `run_prompt` / `stop_prompt` + prompt/workspace persistence → [`backend-prompt-workspace-system.md`](./backend-prompt-workspace-system.md)
-> - Backend that starts/stops the three inference servers + health → [`backend-inference-backends.md`](./backend-inference-backends.md)
+> - Backend that starts/stops the `llama-server` sidecar + health → [`backend-inference-backends.md`](./backend-inference-backends.md)
 > - Shared IPC client, Zustand stores, navigation → [`frontend-overview.md`](./frontend-overview.md)
 
 ---
@@ -40,10 +40,8 @@ the Run trigger, the live stream, and the per-prompt file**.
 | --- | --- | --- |
 | `run_prompt` (emits `prompt-token` / `prompt-done` / `prompt-cancelled` events) | `useStreamingRun` | backend-prompt-workspace-system.md |
 | `stop_prompt` | `useStreamingRun.cancel` (5s-bounded) | backend-prompt-workspace-system.md |
-| `start_llama_cpp` / `stop_llama_cpp` | `useStartllama.cpp` / `useStopllama.cpp` | backend-inference-backends.md |
 | `start_llama_server` / `stop_llama_server` | `useStartLlamaServer` / `useStopLlamaServer` | backend-inference-backends.md |
-| `start_vllm_server` / `stop_vllm_server` / `vllm_server_status` | `useVLlmServer` | backend-inference-backends.md |
-| llama.cpp / vLLM `*_health` | `StatusBar`, `useLlamaBackend`, `useVLlmBackend` (5s poll) | backend-inference-backends.md |
+| `check_llama_health` / `check_vllm_health` | `StatusBar`, `useBackendHealth` (5s poll) | backend-inference-backends.md |
 | `open_workspace` / `close_workspace` / `list_workspace_tree` / `recent_workspaces` | `workspaces` store + hooks | backend-prompt-workspace-system.md |
 | `create_prompt` / `load_prompt` / `save_prompt` / `rename_path` / `delete_path` | `workspaces` store + hooks | backend-prompt-workspace-system.md |
 | `list_prompt_templates` | `PromptTemplatePicker` | backend-prompt-workspace-system.md |
@@ -64,7 +62,7 @@ running? a prompt selected? one model or many?) so the sub-pieces stay dumb.
 
 **What / How:** reads `useWorkspacesStore.current` (the open prompt) + `patch`, the
 header `selectedModels`, and the per-backend health flags from `backendStore`
-(llama_cpp/llama/vllm/vllm).
+(llama_cpp/vllm).
 
 Render priority:
 1. `noLlmRunning` (all health flags `!== true`) → `<BackendSetupGuide/>`.
@@ -76,7 +74,7 @@ Render priority:
 
 ```tsx
 const noLlmRunning = useBackendStore(
-  (s) => s.llama_cppHealthy !== true && s.llamaHealthy !== true && s.vllmHealthy !== true,
+  (s) => s.llamaHealthy !== true && s.vllmHealthy !== true,
 );
 const sttRunning = useSttRuntimeStore(runningSttEngine);
 const multi = selectedModels.length >= 2;
@@ -212,7 +210,7 @@ and `canRun`; on Run navigates to `compare` and calls `start(...)`. Two effects:
 change. Wires `useWorkspaceHotkeys` (Run/Stop/Save, gated to the active workspace view).
 
 ```tsx
-const blockedHint = backendRunHint(activeBackend, { llama_cpp: llama_cppHealthy, llama: llamaHealthy, vllm: vllmHealthy });
+const blockedHint = backendRunHint(activeBackend, { llama: llamaHealthy, vllm: vllmHealthy });
 const canRun = !!model && prompt.trim().length > 0 && !blockedHint;
 const runNow = () => { if (!model) return;
   useNavStore.getState().setTopView("compare");
@@ -232,7 +230,7 @@ raw `status` string (`data-testid="run-status"`).
 
 | File | Responsibility |
 | --- | --- |
-| `ModelSelectBar.tsx` | Workspace model affordances. The real picker now lives in the **global header**; this keeps the `llama.cppEmptyState` (when llama.cpp is the active backend and down) and an **Add Model** shortcut to the Models tab. |
+| `ModelSelectBar.tsx` | Workspace model affordances. The real picker now lives in the **global header**; this keeps the backend-down recovery affordance and an **Add Model** shortcut to the Models tab. |
 | `ModelPicker.tsx` | Legacy inline picker (header now owns selection): de-dupes installed models by digest, filters out embedding models, a `<select>`, a llama.cpp **Stop** square, **Add Model**; re-`refresh()`es installed models when llama.cpp flips healthy. |
 | `ModelTemperaturePopover.tsx` | Per-model temperature popover (gear icon). Range 0–2, commits on pointer/key-up to `modelSettingsStore.setTemperature(model, v)`; outside-click + Escape close; **Reset to `DEFAULT_TEMPERATURE`**. Disabled until a model is picked. |
 
@@ -267,13 +265,10 @@ reflects the **active** backend, not always llama.cpp; metrics via `formatMetric
 
 | File | Responsibility |
 | --- | --- |
-| `ServerControl.tsx` | Dispatches the single header control by `selectedBackend`: `llama.cppControl` / `VLlmServerControl` / `LlamaServerControl` for the local backends, or `RemoteServerControl` (read-only status — no start/stop) for the remote vLLM. |
-| `RemoteServerControl.tsx` | Read-only header status for the remote vLLM backends (health dot + "configure in Settings" hint); the app can't start a remote server. Health comes from `useRemoteBackends` polling into `backendStore.vllmHealthy`/`vllmHealthy`. |
-| `llama.cppControl.tsx` | `PlayStopButton` over `useStartllama.cpp` / `useStopllama.cpp`; hidden until health known (`null`). |
+| `ServerControl.tsx` | Dispatches the single header control by `selectedBackend`: `RemoteServerControl` (read-only status — no start/stop) when `isRemoteBackend`, else `LlamaServerControl`. |
+| `RemoteServerControl.tsx` | Read-only header status for the remote vLLM backend (health dot + "configure in Settings" hint); the app can't start a remote server. Health polls into `backendStore.vllmHealthy`. |
 | `LlamaServerControl.tsx` | Play/Stop the `llama-server` sidecar on the selected llama.cpp model's GGUF (`model.path`); disabled with no path. A start error or hardware-constraint note (from `useStartLlamaServer`) renders as a compact ⚠ chip (`LlamaStartBadge`, folded into the file) — the full text opens in a hover popover (auto-shown once per new message, then hover-only) so the long note can't crush the header row. Error chip wins over the notice chip. |
-| `VLlmServerControl.tsx` | Play/Stop the app-managed `vllm_lm.server` on the selected vLLM model's dir; the busy spinner covers the multi-minute first-run weight load. |
-| `llama.cppEmptyState.tsx` | llama.cpp-down recovery card: Start / Install (opens download page) / Retry, with `starting` / `success` / `not_installed` / `error` states. |
-| `backendStatus.ts` | Pure: dot+label+aria per backend — llama.cpp names its version; llama.cpp name the loaded model and their run state. |
+| `backendStatus.ts` | Pure: dot+label+aria per backend — llama.cpp names its version; the remote backend names the loaded model and its run state. |
 
 ---
 
@@ -285,32 +280,12 @@ never block Run on their own success** — health polling is the source of truth
 
 | Hook | IPC | Status enum | Notes |
 | --- | --- | --- | --- |
-| `useStartllama.cpp` | `start_llama_cpp` | `idle/starting/success/error/not_installed` | on `not_installed` captures `install_url`; `openInstallPage` opens it; success lingers 1s then flips `llama_cppHealthy=true` + refreshes installed models. |
-| `useStopllama.cpp` | `stop_llama_cpp` | `idle/stopping/error` | sets `llama_cppHealthy=false`. |
 | `useStartLlamaServer` | `start_llama_server(path)` | `idle/starting/success/error/not_bundled` | one GGUF at a time; `already_running`/`started` → `llamaHealthy=true`. |
 | `useStopLlamaServer` | `stop_llama_server` | `idle/stopping/error` | sets `llamaHealthy=false`. |
 | `useLlamaBackend` | `*_health` poll (5s) | — | re-probes llama health so a died server doesn't stay "healthy"; no Apple-Silicon gate. |
 | `useVLlmBackend` | hardware snapshot + `vllm_health` poll (5s) | — | detects Apple Silicon (only platform vLLM runs on); polls only there. Returns `{ appleSilicon }`. |
 | `useRemoteBackends` | `check_vllm_health` poll (5s) | — | `useVllmBackend` writes `vllmHealthy`; false until the endpoint is configured in Settings and reachable. No start/stop hooks — the server is remote. |
 | `useWorkspaceHotkeys` | — | — | Cmd+Enter Run, Cmd+. Stop, Cmd+S Save, gated by `active`/`canRun`/`running`/`hasPrompt`. |
-
-### `useVLlmServer.ts` (the interesting one)
-**Responsibility:** start/stop the app-managed `vllm_lm.server`, polling status + health so a
-**multi-minute first-run download** shows "Downloading weights…" without ever failing by
-timeout, and a **died process surfaces its stderr tail** instead of spinning forever.
-**How:** `start` returns immediately, then a `POLL_MS=1500` interval runs `poll()` until
-health goes available (`settle(true)`) or status reports `exited` (`settle(false, stderr_tail)`);
-`running` updates the phase label (`downloading`/`starting`). Start failures map
-`not_found` / `no_free_port` / `start_failed` to specific messages.
-
-```ts
-const poll = useCallback(async () => {
-  if ((await checkVLlmHealth()).available) return settle(true, null);
-  const st = await vllmServerStatus();
-  if (st.state === "exited") settle(false, st.stderr_tail || `vllm_lm.server exited (code ${st.code ?? "?"})`);
-  else if (st.state === "running") setPhase(st.phase === "downloading" ? "downloading" : "starting");
-}, [settle]);
-```
 
 ---
 

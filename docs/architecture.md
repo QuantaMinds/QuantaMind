@@ -95,8 +95,8 @@ HTTP to a local llama.cpp server.
   in shipped paths: a `disallowed_methods` clippy lint (`backend/clippy.toml`)
   denies it on Windows, forcing new spawns through `Host::command`.
 - `inference/` — backend adapters behind the `InferenceBackend` trait
-  (`backend.rs`). `llama.cppBackend`, `LlamaCppBackend` (a `llama-server` sidecar),
-  and `VLlmBackend` (`vllm_lm.server`, Apple Silicon) today; callers build one by
+  (`backend.rs`). `LlamaCppBackend` (a bundled `llama-server` sidecar) and
+  `VLlmBackend` (a remote GPU server) today; callers build one by
   matching `BackendKind` (a closed enum — no `dyn`/`async-trait`). Cloud adds
   another variant. Both sidecar backends have an **app-managed lifecycle**: the
   app spawns/kills the server (`commands/{llama,vllm}/…start`), reaps children on
@@ -328,7 +328,7 @@ because it hides.
 
 A read that aggregates two independent sources must not fail wholesale when one
 is down. `get_disk_usage` reports filesystem free/total (from `sysinfo`) plus a
-model-bytes sum (from llama.cpp the weights folder). llama.cpp being unreachable zeroes only
+model-bytes sum (from llama.cpp `/v1/models`). llama.cpp being unreachable zeroes only
 the model sum (`disk_usage_for`) — it never fails the whole call, which used to
 surface "the server is unreachable" inside the *Storage* panel. The zeroed sum is
 not a leaky "done" signal: the llama.cpp-down state is shown distinctly by the
@@ -518,7 +518,7 @@ QM-Dev/
 │   │   ├── main.rs
 │   │   ├── lib.rs
 │   │   ├── commands/{mod,prompt,models,settings,workspace}.rs
-│   │   ├── inference/{mod,llama_cpp,llama_cpp,vllm,traits}.rs
+│   │   ├── inference/{backend,llama,vllm,openai,chat,generate}/
 │   │   ├── metrics/{mod,timing,vram}.rs
 │   │   ├── persistence/{mod,prompts,history}.rs
 │   │   ├── validation/{mod,schemas}.rs

@@ -183,7 +183,7 @@ pub fn to_generate_options(p: &InferenceParams) -> GenerateOptions {
 - **Why:** Keep the command (`prompt.rs`) free of backend selection; one place
   fans out to llama.cpp / vLLM.
 - **What:** `validate(model, prompt)` (non-empty), then a `match` on
-  `BackendKind` constructing `llama.cppBackend` / `LlamaCppBackend` / `VLlmBackend`.
+  `BackendKind` constructing `LlamaCppBackend` or `VLlmBackend`.
 - **How/Where used:** Called by `run_prompt`; re-exported as `run_prompt_inner`.
   See [`backend-inference-backends.md`](backend-inference-backends.md) for the
   trait and each backend.
@@ -197,9 +197,8 @@ pub async fn run_prompt_inner(backend: BackendKind, endpoint: &str, model: &str,
     let spec = GenerateSpec { model: model.into(), prompt: prompt.into(),
         system: system.map(str::to_string), options, keep_alive };
     match backend {
-        BackendKind::llama.cpp   => llama.cppBackend::new(endpoint.into()).generate(&spec, cancel, on_token).await,
         BackendKind::LlamaCpp => LlamaCppBackend::new(endpoint.into()).generate(&spec, cancel, on_token).await,
-        BackendKind::VLlm      => VLlmBackend::new(endpoint.into(), model.into()).generate(&spec, cancel, on_token).await,
+        BackendKind::VLlm     => VLlmBackend::new(endpoint.into(), api_key, model.into()).generate(&spec, cancel, on_token).await,
     }
 }
 ```

@@ -819,8 +819,8 @@ its first run could report `requested_runs: None`, indistinguishable from "k was
 the whole TASK in `Error` (re-run on resume), and a user-initiated stop must never be reported
 as an infra failure.
 
-**Under `BackendTurn` (the real llama.cpp / vLLM/vLLM path):** `stream_generate`
-(`inference/llama_cpp/llama_cpp.rs`) races `cancel.cancelled()` against BOTH the initial
+**Under `BackendTurn` (the real llama.cpp / vLLM path):** `stream_generate`
+(`inference/llama/llama.rs`) races `cancel.cancelled()` against BOTH the initial
 `client.post(...).send()` (connect + llama.cpp's own model-load + prompt-prefill — can take
 several seconds on a cold/large model, measured ~8s for a 35B Q8 model live, entirely before
 the fix) AND every subsequent chunk of the streaming response, via `tokio::select!`. Live

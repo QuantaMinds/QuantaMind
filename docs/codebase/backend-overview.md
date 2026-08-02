@@ -186,9 +186,7 @@ its type, retrievable anywhere as `tauri::State<'_, T>` or
 | `models::models_pull::PullState` | `Mutex<HashMap<String,CancellationToken>>` | Per-model cancellation for concurrent llama.cpp pulls. | [backend-models-hf-gguf.md](backend-models-hf-gguf.md) |
 | `hf::hf_install::HfInstallState` | `Mutex<Option<CancellationToken>>` | Cancel the active HuggingFace GGUF install. | [backend-models-hf-gguf.md](backend-models-hf-gguf.md) |
 | `settings::model_settings::ModelSettingsState` | `Mutex<ModelSettingsMap>` + `Mutex<bool>` loaded flag | In-memory per-model settings (e.g. temperature), lazy-loaded from disk. | `commands/settings` |
-| `llama_cpp::llama_cpp_start::llama.cppStartState` | `Mutex<bool>` in-progress + `Mutex<Option<u32>>` started_pid | Track the `llama-server -m MODEL.gguf --port 8081 --jinja` **we** spawned so we only kill our own daemon. | [backend-inference-backends.md](backend-inference-backends.md) |
 | `llama::llama_server_types::LlamaServerState` | `Mutex<Option<RunningServer>>` | Handle to the spawned `llama-server` sidecar. | [backend-inference-backends.md](backend-inference-backends.md) |
-| `vllm::vllm_server_types::VLlmServerState` | `Mutex<Option<Running>>` | Handle(s) to the spawned `vllm_lm.server`. | [backend-inference-backends.md](backend-inference-backends.md) |
 | `workspace::workspaces::WorkspaceState` | `Mutex<Option<PathBuf>>` | Currently-open workspace root path. | [backend-persistence.md](backend-persistence.md) |
 | `settings::user_settings::UserSettingsState` | `Mutex<UserSettings>` + loaded flag | App-wide user settings, lazy-loaded. | [backend-persistence.md](backend-persistence.md) |
 | `eval::batch_cmd::BatchRunState` | `Mutex<Option<CancellationToken>>` | Cancel the running batch eval. | [backend-eval-engine.md](backend-eval-engine.md) |
@@ -245,13 +243,13 @@ composing the existing per-backend health/credential/capability probes — see `
 app, by any exit path. · **Why:** Tauri does **not** kill child processes when it
 exits, and `RunEvent::ExitRequested` only fires on a *graceful* quit (Cmd+Q) — not
 on a signal kill or a `tauri dev` rebuild SIGKILL. Without these guards a stale
-`llama-server`/`vllm_lm.server`/owned-`llama_cpp` keeps holding its
+`llama-server` keeps holding its
 port (→ `EADDRINUSE` next launch) and unified memory. This module closes every
 gap. · **How/Where used:** wired in three places in `lib.rs` — `sweep_orphans()`
 and `install_signal_reaper(...)` in `.setup`, `reap_on_exit` passed to `.run(...)`.
 
-The three guarded targets: `llama-server`, `vllm_lm.server`, and
-the `llama-server -m MODEL.gguf --port 8081 --jinja` *we* started (never a user's pre-existing daemon).
+The one guarded target: the `llama-server` sidecar *we* started (never a user's
+pre-existing daemon).
 
 ### Conservative identity (`is_our_server_cmd`)
 
@@ -261,7 +259,7 @@ one of our server binaries:
 
 ```rust
 const OUR_MARKER: &str = ".quantamind";
-const SERVER_BINS: &[&str] = &["llama-server", "vllm_lm.server"];
+const SERVER_BINS: &[&str] = &["llama-server"];
 
 fn is_our_server_cmd(cmd: &str) -> bool {
     cmd.contains(OUR_MARKER) && SERVER_BINS.iter().any(|b| cmd.contains(b))
@@ -283,15 +281,17 @@ pub fn reap_on_exit(app: &AppHandle, event: RunEvent) {
 }
 ```
 
-`reap_managed` reaches into managed state — `VLlmServerState::kill_all_servers`,
-`LlamaServerState::stop`, `SttServerState::stop`, `llama.cppStartState::stop_owned`
-— logging each failure (no silent swallow):
+`reap_managed` reaches into managed state — `LlamaServerState::stop` and
+`McpServerState::kill_all` — logging failure rather than swallowing it:
 
 ```rust
-fn reap_managed(app: &AppHandle) {
-    if let Err(e) = app.state::<VLlmServerState>().kill_all_servers() { eprintln!("vllm reap failed: {e}"); }
-    if let Err(e) = app.state::<LlamaServerState>().stop()           { eprintln!("llama reap failed: {e}"); }
-    if let Err(e) = app.state::<llama.cppStartState>().stop_owned()     { eprintln!("llama_cpp reap failed: {e}"); }
+pub(crate) fn reap_managed(app: &AppHandle) {
+    if let Err(e) = app.state::<LlamaServerState>().stop() {
+        eprintln!("llama reap failed: {e}");
+    }
+    // MCP servers are npx/node without our `.quantamind` marker, so `sweep_orphans`
+    // can't match them — killing our tracked PIDs here is their crash-safety.
+    app.state::<crate::mcp::registry::McpServerState>().kill_all();
 }
 ```
 

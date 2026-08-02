@@ -847,9 +847,10 @@ You need these installed on your computer:
 
 4. **llama.cpp** (AI model runner)
    ```bash
-   brew install llama_cpp  # macOS
-   llama-server -m MODEL.gguf --port 8081 --jinja &  # Start llama.cpp server
-   llama-server -m llama3.2:1b  # Download a model
+   brew install llama.cpp  # macOS (Windows/Linux: the app bundles llama-server)
+   # --jinja is required — without it generations loop instead of stopping.
+   llama-server -m ./models/Llama-3.2-1B-Instruct-Q4_K_M.gguf \
+     --host 127.0.0.1 --port 8081 --jinja -c 8192 &
    ```
 
 ### Installation Steps

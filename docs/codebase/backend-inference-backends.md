@@ -1,10 +1,10 @@
 # Backend — Inference Engine Abstraction & Model Servers
 
 The Rust subsystem that turns *"generate text from model M"* into a streamed
-token feed, regardless of which of three local engines actually runs the
-weights. This document covers the `InferenceBackend` trait, its three
-implementations (llama.cpp, vLLM), the shared HTTP/NDJSON/SSE plumbing,
-the wire/stats codecs, and the per-engine server-process lifecycle.
+token feed, regardless of which engine actually runs the weights. This document
+covers the `InferenceBackend` trait, its two implementations (llama.cpp, vLLM),
+the shared HTTP/NDJSON/SSE plumbing, the wire/stats codecs, and the per-engine
+server-process lifecycle.
 
 > Cross-links:
 > - Model listing, HF discovery, GGUF inspection, and pulls live in
@@ -17,20 +17,19 @@ the wire/stats codecs, and the per-engine server-process lifecycle.
 
 ## Overview
 
-### Why an abstraction over three engines
+### Why an abstraction over the engines
 
-QuantaMind runs models through three servers — one local, two remote:
+QuantaMind runs models through two servers — one local, one remote:
 
 | Engine | Weights | Process |
 |---|---|---|
 | **llama.cpp** | a single `.gguf` file | bundled `llama-server` sidecar (port 8081) |
 | **vLLM** | whatever the remote box serves | user-run, user-configured endpoint |
-| **vLLM** | whatever the remote box serves | user-run, user-configured endpoint |
 
-All three speak the OpenAI wire, but they report *different stats* (llama.cpp gives
-prompt/predict ms plus a prompt-cache count; the remote servers give token counts
+Both speak the OpenAI wire, but they report *different stats* (llama.cpp gives
+prompt/predict ms plus a prompt-cache count; the remote server gives token counts
 only), and have a *different process lifecycle* (llama.cpp is an app-spawned child;
-the remote servers are never spawned or reaped by us). The rest of the app —
+the remote server is never spawned or reaped by us). The rest of the app —
 the single-prompt command, the compare grid, the eval engine — must not care
 about any of that. So everything funnels through one trait.
 
@@ -45,10 +44,10 @@ implementation with a `match backend { … }`.
 
 **Backend selection is absolute, never a health fallback.** A model carries its
 `BackendKind` (from `ModelInfo.backend`), decided by its *weight format* at
-discovery time — a `.gguf` is `LlamaCpp`; a remote-served id is `VLlm`/`VLlm`
-registry entry is `llama.cpp`. The dispatch (`run_prompt_inner`) matches on that
-field and *only* that field. It never tries another engine because one looks
-healthier; an vLLM model is never served by llama-server even if llama's
+discovery time — a `.gguf` is `LlamaCpp`; a remote-served id is `VLlm`. The
+dispatch (`run_prompt_inner`) matches on that field and *only* that field. It
+never tries another engine because one looks
+healthier; a vLLM model is never served by llama-server even if llama's
 `/health` happens to answer. (Robustness fallbacks exist *within* one backend —
 e.g. llama's `/completion` → `/v1/chat/completions` — but never *across* the
 `BackendKind` boundary.)
@@ -64,7 +63,6 @@ UI (React)
             • wrap emit in make_token_handler (counts tokens, cancels on emit-fail)
             └─ run_prompt_inner(backend, endpoint, …)   // prompt_run.rs
                  match backend {
-                   llama.cpp   => llama.cppBackend::new(ep).generate(&spec, …)
                    LlamaCpp => LlamaCppBackend::new(ep).generate(&spec, …)
                    VLlm     => VLlmBackend::new(ep, key, model).generate(&spec, …)
                  }
@@ -82,13 +80,14 @@ The dispatch site (`prompt_run.rs`, trimmed):
 
 ```rust
 match backend {
-    BackendKind::llama.cpp =>
-        llama.cppBackend::new(endpoint.to_string()).generate(&spec, cancel, on_token).await,
-    BackendKind::LlamaCpp =>
-        LlamaCppBackend::new(endpoint.to_string()).generate(&spec, cancel, on_token).await,
-    BackendKind::VLlm =>
-        VLlmBackend::new(endpoint.to_string(), model.to_string())
-            .generate(&spec, cancel, on_token).await,
+    BackendKind::LlamaCpp => {
+        LlamaCppBackend::new(endpoint.to_string()).generate(&spec, cancel, on_token).await
+    }
+    BackendKind::VLlm => {
+        VLlmBackend::new(endpoint.to_string(), remote_config::vllm().api_key, model.to_string())
+            .generate(&spec, cancel, on_token)
+            .await
+    }
 }
 ```
 
@@ -98,12 +97,11 @@ match backend {
 
 #### File: `inference/backend/backend.rs`
 - **Responsibility:** Define the one streaming-generation contract.
-- **Why:** A single async method lets the prompt/compare/eval layers treat all
-  three engines identically and select via a `BackendKind` match.
+- **Why:** A single async method lets the prompt/compare/eval layers treat both
+  engines identically and select via a `BackendKind` match.
 - **What:** `trait InferenceBackend` with one method, `generate<F: FnMut(&str)>`.
-- **How/Where used:** Implemented by `llama.cppBackend`, `LlamaCppBackend`,
-  `VLlmBackend`; called from `commands/prompt/prompt_run.rs` and the
-  compare/eval paths.
+- **How/Where used:** Implemented by `LlamaCppBackend` and `VLlmBackend`; called
+  from `commands/prompt/prompt_run.rs` and the compare/eval paths.
 
 ```rust
 #[allow(async_fn_in_trait)]
@@ -121,40 +119,39 @@ pub trait InferenceBackend {
 - **Responsibility:** The closed set of engines a model can be served by.
 - **Why:** Surfaces over IPC as `ModelInfo.backend` and is the *only* selector
   for dispatch — backend identity is a property of the model, not a runtime choice.
-- **What:** `enum BackendKind { LlamaCpp (default), VLlm, VLlm }`,
-  `#[serde(rename_all = "snake_case")]` — with per-variant `#[serde(rename)]` on the
-  last two so they round-trip to TS as `"llama_cpp" | "llama_cpp" | "vllm" | "vllm" |
-  "vllm"` (not `"v_llm"`/`"sg_lang"`). `VLlm`/`VLlm` are **remote** OpenAI
-  servers (a GPU box); the rest are local.
-- **How/Where used:** Set at discovery (`llama_discover`, `vllm_discover`, llama.cpp
-  tags, and the remote `/v1/models` query); matched in `run_prompt_inner`, eval, and
-  compare dispatch.
+- **What:** `enum BackendKind { LlamaCpp (default), VLlm }`,
+  `#[serde(rename_all = "snake_case")]` — with a per-variant `#[serde(rename)]` on
+  `VLlm` so it round-trips to TS as `"llama_cpp" | "vllm"` (not `"v_llm"`). `VLlm` is
+  a **remote** OpenAI server (a GPU box); `LlamaCpp` is local.
+  An unknown wire string is **rejected, never silently defaulted** — relabelling
+  another build's measurements as this backend's would break metric comparability
+  (`backend_kind_tests.rs`).
+- **How/Where used:** Set at discovery (`llama_discover`, `vllm_discover`, and the
+  remote `/v1/models` query); matched in `run_prompt_inner`, eval, and compare
+  dispatch.
 
 #### File: `inference/backend/endpoint.rs`
-- **Responsibility:** Resolve a backend to its base URL + optional bearer token,
-  with deliberately non-colliding local ports.
-- **Why:** The local sidecars may run at once.
-  llama-server sits on **8081 not 8080** specifically so a stray `vllm_lm.server`
-  (default 8080) can't shadow it — that exact collision made llama's `/health` pass
-  while inference 404'd. The remote backends have no static default: their URL comes
-  from `UserSettings` via `remote_config`.
-- **What:** consts `LLAMA_SERVER` (8081), `vLLM_SERVER` (8082);
-  `struct ResolvedEndpoint { url, api_key }`;
-  `fn resolve(BackendKind) -> AppResult<ResolvedEndpoint>` (local = static/dynamic
-  URL + no auth; vLLM reads its dynamic port; vLLM read `remote_config` and
-  **error clearly when the URL is unset** — "set it in Settings", not an opaque
-  connect error); `fn base_url(BackendKind) -> String` (url only, infallible — an
-  unconfigured remote yields `""`, which probes treat as unavailable).
+- **Responsibility:** Resolve a backend to its base URL + optional bearer token.
+- **Why:** llama-server sits on **8081, not 8080**, specifically so a
+  manually-launched OpenAI-compatible server on the community-default 8080 can't
+  shadow it — that exact collision made llama's `/health` pass while inference
+  404'd. The remote backend has no static default: its URL comes from
+  `UserSettings` via `remote_config`.
+- **What:** one const, `LLAMA_SERVER` (8081) — the remote backend has no const
+  because it has no default; `struct ResolvedEndpoint { url, api_key }`;
+  `fn resolve(BackendKind) -> AppResult<ResolvedEndpoint>` (local = static URL +
+  no auth; vLLM reads `remote_config` and **errors clearly when the URL is unset**
+  — "set it in Settings", not an opaque connect error); `fn base_url(BackendKind)
+  -> String` (url only, infallible — an unconfigured remote yields `""`, which
+  probes treat as unavailable).
 - **How/Where used:** `prompt.rs` resolves up front (so an unconfigured remote fails
   before the run token spins up); compare/eval `endpoint_for` helpers call `base_url`;
   health/discovery.
 
 ```rust
-pub const LLAMA_SERVER: &str = "http://localhost:8081";
 pub const LLAMA_SERVER: &str = "http://localhost:8081"; // NOT 8080
-pub const vLLM_SERVER: &str = "http://localhost:8082";
 pub struct ResolvedEndpoint { pub url: String, pub api_key: Option<String> }
-pub fn resolve(kind: BackendKind) -> AppResult<ResolvedEndpoint> { /* local statics; remote from remote_config */ }
+pub fn resolve(kind: BackendKind) -> AppResult<ResolvedEndpoint> { /* local static; remote from remote_config */ }
 pub fn base_url(kind: BackendKind) -> String { resolve(kind).map(|r| r.url).unwrap_or_default() }
 ```
 
@@ -164,8 +161,7 @@ pub fn base_url(kind: BackendKind) -> String { resolve(kind).map(|r| r.url).unwr
 - **Why:** vLLM run on a remote GPU, so their URL + optional bearer key are
   user settings, and `inference/` can't read Tauri state. The settings command layer
   pushes them here on load and on every save; `endpoint::resolve` reads them.
-- **What:** `struct RemoteEndpoint { url, api_key }`; `set_vllm/vllm`,
-  `set_vllm/vllm` (setters trim blanks to `None` so an empty Settings field reads
+- **What:** `struct RemoteEndpoint { url, api_key }`; `set_vllm`/`vllm` (setters trim blanks to `None` so an empty Settings field reads
   as "unconfigured").
 
 ---
@@ -184,7 +180,7 @@ pub fn base_url(kind: BackendKind) -> String { resolve(kind).map(|r| r.url).unwr
 
 #### File: `inference/generate/generate_options.rs`
 - **Responsibility:** The sampler knobs, named after llama.cpp's API.
-- **Why:** One options struct shared by all three; each wire codec remaps field
+- **Why:** One options struct shared by both; each wire codec remaps field
   names (`num_predict` → llama `n_predict` → vLLM `max_tokens`).
 - **What:** `struct GenerateOptions { temperature, top_p, top_k, num_predict,
   repeat_penalty, seed, num_ctx, stop }` (all `Option`, `skip_serializing_if`);
@@ -234,7 +230,7 @@ pub fn ns_to_ms(ns: u64) -> u64 { ns / 1_000_000 }
   pull/long generation can run unbounded), `body_or_note(resp)` (annotates a
   failed body read rather than returning `""`). UA `quantamind/<version>` matters
   for HF endpoints behind Cloudflare.
-- **How/Where used:** `streaming_client()` in all three `stream_generate`s and
+- **How/Where used:** `streaming_client()` in both `stream_generate`s and
   llama.cpp blob/create; `probe_client()` in blob existence checks.
 
 #### File: `inference/http/ndjson.rs`
@@ -329,7 +325,7 @@ spawn, so the request carries no model name).
   stops. Posting a raw prompt to `/completion` (the old primary) applies **no**
   template — the model never emits EOS and loops to `n_predict`. That endpoint
   is now only a **404 fallback** for older builds; if it 404s too, the error
-  names the likely port collision (e.g. `vllm_lm.server` on 8080). Both routes
+  names the likely port collision (a server on the community-default 8080). Both routes
   hit the same process — never a cross-`BackendKind` jump.
 - **What:** `stream_generate(...)` orchestrates two helpers. `stream_chat` POSTs
   a llama-owned `ChatRequest` (`messages:[{system},{user}]`, keeps `seed` +
@@ -383,7 +379,7 @@ GenerateStats {
 ### `inference/openai/` — shared OpenAI-compatible SSE codec
 
 The `/v1/chat/completions` streaming wire, shared by **every** backend that
-speaks it: vllm_lm.server, vLLM, and vLLM (llama.cpp reuses the chunk/stats
+speaks it: vLLM (llama.cpp reuses the chunk/stats
 types on its own primary chat path). Each server is **multi-model** (the model id
 *is* sent) and streams SSE. Extracted here (rather than living inside `inference/vllm/`)
 so a new OpenAI-wire backend is one thin adapter over this codec — no cross-backend
@@ -393,8 +389,8 @@ so a new OpenAI-wire backend is one thin adapter over this codec — no cross-ba
 - **Responsibility:** Stream `/v1/chat/completions` (OpenAI SSE) for any such server.
 - **What:** `stream_generate(endpoint, api_key: Option<&str>, model, prompt,
   system, options, think, cancel, on_token)`. When `api_key` is `Some`, attaches
-  `Authorization: Bearer` (remote vLLM launched with `--api-key`); local
-  vllm_lm.server passes `None`. The initial `.send()` is **raced against `cancel`**
+  `Authorization: Bearer` (remote vLLM launched with `--api-key`); the local
+  llama.cpp path passes `None`. The initial `.send()` is **raced against `cancel`**
   (`tokio::select! { biased; cancel … ; send … }`) because a wedged server (e.g. a
   non-chat model loaded) can accept the TCP connection but never return response
   headers, blocking `.send()` forever. Terminates on a choice's `finish_reason`, a
@@ -426,12 +422,12 @@ if let Some(choice) = chunk.choices.into_iter().next() {
   vLLM **omit `usage` from streamed chunks** without it (token counts came
   back `None`), and they send that `usage` in a **separate trailing chunk** (choices
   `[]`) *after* the `finish_reason` chunk — so `chat_stream` records the finish reason
-  but keeps reading until `[DONE]` rather than returning early. vllm_lm.server puts
+  but keeps reading until `[DONE]` rather than returning early. vLLM puts
   usage on the finish chunk and tolerates the flag, so it's unaffected.
 - **What:** `ChatRequest` (OpenAI shape: `model`, `messages`, `stream:true`,
   `max_tokens` ← `num_predict`, `temperature`, `top_p`, `top_k`,
   `repetition_penalty` ← `repeat_penalty`, `chat_template_kwargs.enable_thinking`).
-  System text becomes a `system` message. **No `seed`** — vllm_lm.server has no seed
+  System text becomes a `system` message. **No `seed`** — vLLM has no seed
   field, so these runs aren't seed-reproducible and the seed is intentionally dropped
   (vLLM accept the same body; unknown template kwargs are dropped by jinja).
 
@@ -439,7 +435,7 @@ if let Some(choice) = chunk.choices.into_iter().next() {
 - **What:** `ChatChunk { choices, usage }`, `Choice { delta, finish_reason }`,
   `Delta { content, reasoning }`, `Usage { prompt_tokens, completion_tokens,
   total_tokens }` (all optional — usage is version-dependent and may never arrive);
-  `strip_sse(line)`. The reasoning field accepts both `reasoning` (vllm_lm.server)
+  `strip_sse(line)`. The reasoning field accepts both `reasoning`
   and `reasoning_content` (vLLM) via `#[serde(alias)]`.
 
 #### File: `inference/openai/chat_stats.rs`
@@ -450,20 +446,23 @@ if let Some(choice) = chunk.choices.into_iter().next() {
 
 ### `inference/vllm/`
 
-`vllm_lm.server` on Apple Silicon; **multi-model**, OpenAI-compatible SSE — the wire
-codec is the shared `inference/openai/` module above; this dir holds only the
-adapter + Apple-Silicon gate + process management.
+A **remote** GPU server speaking OpenAI-compatible SSE. The wire codec is the
+shared `inference/openai/` module above, so this dir holds only the adapter —
+there is no process management here, because we never spawn or reap a vLLM.
 
 #### File: `inference/vllm/vllm_backend.rs`
-- **What:** `struct VLlmBackend { endpoint, model }`; `impl InferenceBackend`.
-  Delegates to `openai::chat_stream::stream_generate` with `api_key: None` (local,
-  unauthenticated). Unlike llama, `spec.model` **is** sent; `keep_alive` has no vLLM
-  equivalent.
+- **What:** `struct VLlmBackend { endpoint, api_key, model }`; `impl InferenceBackend`.
+  Delegates to `openai::chat_stream::stream_generate`. Being remote it carries the
+  user-configured `endpoint` + optional bearer `api_key`; being multi-model,
+  `spec.model` **is** sent (unlike llama). `spec.keep_alive` has no vLLM equivalent
+  and is not part of the request.
+- **Note:** the bearer is attached only over `https` or loopback —
+  `remote_guard::credential_allowed` fails closed, so a key is silently withheld
+  over plain `http://` to a remote host (`[QM-INSECURE-KEY]`).
 
 #### File: `inference/vllm/mod.rs`
-- **What:** `vllm_supported() -> bool` — the single `cfg!(all(macos, aarch64))`
-  gate for the whole vLLM path (discovery/install/start are no-ops/errors
-  elsewhere).
+- **What:** `pub mod vllm_backend;` — nothing else. vLLM is remote, so it has no
+  platform gate and no install/start path.
 
 ## Backend comparison
 
@@ -496,8 +495,7 @@ from the three local backends on exactly the axes that matter:
   `UserSettings` via `remote_config`; `endpoint::resolve` errors clearly when unset.
 - **Same wire as vLLM.** OpenAI SSE `/v1/chat/completions` via the shared
   `inference/openai/` codec (multi-model, `usage`-only stats, no seed). Native
-  tool-calls via `openai::chat_tools` (bearer). Adapters: `inference/vllm/vllm_backend.rs`,
-  `inference/vllm/vllm_backend.rs`.
+  tool-calls via `openai::chat_tools` (bearer). Adapter: `inference/vllm/vllm_backend.rs`.
 - **Health/discovery** via `commands/remote/` (`GET /v1/models` with bearer). The
   `model.backend` binding is **server-sourced** (`/v1/models`), so it never collides
   with vLLM's disk-sourced safetensors discovery.
@@ -587,78 +585,40 @@ else {
 }
 ```
 
-### `commands/vllm/`
+### `commands/remote/`
+
+vLLM is remote, so there is **no start/stop/install surface at all** — only
+health, credential, and model-list probes. (Earlier revisions of this document
+described a `commands/vllm/` launcher with a dynamic port and a stderr reader,
+and a `commands/llama_cpp/` ownership handshake. Neither module exists; both
+were left behind when those backends were removed.)
 
 | File | Role |
 |---|---|
-| `vllm_start.rs` | `start_vllm_server` / `stop_vllm_server` / `vllm_server_status`. |
-| `vllm_server_types.rs` | `VLlmServerState`, `VLlmStartResult`, `VLlmServerStatus`, `Running`. |
-| `health_vllm.rs` | `check_vllm_health` via `GET /v1/models`. |
-| `vllm_discover.rs` | scan the weights folder for `*.gguf` → `LlamaCpp` models. |
-| `vllm_install.rs` | `install_vllm_model` — HF snapshot download into `~/.quantamind/vllm`. |
-| `vllm_models.rs` | `list_vllm_models` (from disk) / `delete_vllm_model` (symlink-safe). |
+| `remote_health.rs` | `remote_health` / `check_vllm_health` (`GET /v1/models`), plus `probe_remote_credential` / `check_vllm_credential` returning the full `RemoteAuthStatus` space so a rejected key is never conflated with a down server. |
+| `remote_models.rs` | `list_remote_models(ep, backend)` and the `check_vllm_health`-style wrapper `list_vllm_models()`. |
 
-- **`start_vllm_server`** (`vllm_start.rs`): gate on `vllm_supported()`;
-  `AlreadyRunning` if same model; `kill_all_servers()` otherwise; `locate` the
-  exe; `find_available_port(8082)`; `spawn_server`; take stderr and
-  `spawn_stderr_reader`; `state.store(Running{…}, port)` (which `set_vllm_port`).
-  **Does NOT block on readiness** — weight load is slow; the UI polls
-  `check_vllm_health` + `vllm_server_status` instead.
-- **`VLlmServerState`** (`vllm_server_types.rs`): `store` sets the dynamic port;
-  `kill_all_servers` clears it + reaps; `status()` uses `try_wait` to report
-  `Running{phase,model}` vs `Exited{code, stderr_tail}` (the tail diagnoses the
-  death). A `Drop` impl is the teardown backstop because `Child` *detaches* (does
-  not kill) on drop — the primary reap is the `lib.rs` exit hook.
+- **Runnable = reachable + ≥1 model + credential OK.** A 2xx from `/v1/models` is
+  accepted only when the body carries an array `data`; anything else counts as
+  unreachable, so a captive portal or a reverse proxy returning HTML can't read
+  as a healthy backend.
+- **The bearer is withheld, not sent, over insecure transport.**
+  `remote_guard::credential_allowed` fails closed: credentialed HTTP is
+  https-only (loopback exempt), and the withholding is reported as
+  `[QM-INSECURE-KEY]` rather than failing silently.
 
-```rust
-// vllm_start.rs — dynamic port + stderr-aware launcher, NON-blocking readiness
-state.kill_all_servers()?;                          // ownership: stop a different model first
-let exe = locate(configured.as_deref())?;           // → NotFound
-let port = find_available_port(PORT_BASE)?;         // → NoFreePort
-let mut child = spawn_server(&exe, &build_spawn_args(&model_path, port))?;
-if let Some(err) = child.stderr.take() { spawn_stderr_reader(err, phase.clone(), tail.clone()); }
-state.store(Running { child, model: model_path, phase, tail }, port);  // set_vllm_port(port)
-Ok(VLlmStartResult::Started { pid, port })
-```
+### The one app-managed server: `commands/llama/`
 
-### `commands/llama_cpp/`
+`llama-server` is the only process QuantaMind spawns and reaps. Its lifecycle
+guards are documented in **`backend-overview.md`** (`is_our_server_cmd`,
+`reap_managed`, `sweep_orphans`, and the signal reaper).
 
-| File | Role |
-|---|---|
-| `llama_cpp_start.rs` | `start_llama_cpp` / `stop_llama_cpp`; `llama.cppStartState`. |
-| `llama_cpp_runtime.rs` | reachability probe, `resolve_llama_cpp`, spawn/kill, ready poll. |
-
-- **Ownership handshake is the key guard here.** llama.cpp is the user's own daemon.
-  `start_llama_cpp` only `remember`s a pid when *it* spawned `llama-server -m MODEL.gguf --port 8081 --jinja`; an
-  `AlreadyRunning` result (a pre-existing user daemon) is **never** reaped.
-  `stop_owned` kills only the app-spawned pid (used by `stop`, the exit reap, the
-  signal reaper, and a `Drop` backstop). A separate `stop_llama_cpp` command uses
-  `pkill -f "llama-server -m MODEL.gguf --port 8081 --jinja"` for an explicit user stop.
-- **`kill_pid` is graceful-then-hard:** SIGTERM, a short grace (`kill -0` liveness
-  poll, ~600ms), then SIGKILL if still alive — so the app-spawned llama.cpp can't
-  outlive the app. Reached on **three** exit paths, all idempotent: Cmd+Q
-  (`RunEvent::ExitRequested`), SIGINT/SIGTERM (the signal reaper), and **window
-  close** (`on_window_event` → `reap_managed` + `app.exit(0)` — the macOS path,
-  where closing the window doesn't otherwise quit the app and would orpha llama.cpp).
-- `start_llama_cpp` guards a re-entrant `in_progress` flag; `start_llama_cpp_inner`
-  short-circuits to `AlreadyRunning` if already reachable, else
-  `resolve_llama_cpp()` (`which` → Homebrew/usr-local), `spawn_serve`, and **block
-  on `wait_until_ready()`** (poll the weights folder ≤10s). Auto-start is macOS-only;
-  elsewhere `spawn_serve`/`kill_serve` return `UNSUPPORTED_OS_MSG`.
-
-```rust
-// llama_cpp_start.rs — only reap a server WE spawned
-if let llama.cppStartResult::Started { pid } = &result { state.remember(*pid); }
-// stop_owned(): kill only the remembered pid; a user daemon (AlreadyRunning) is untouched
-```
-
----
 
 ## Data-flow walkthrough — one streaming generation per backend
 
 **llama.cpp** — `run_prompt(backend=llama.cpp)` → `prompt.rs` picks
 `default_for(llama.cpp)` (`:8081`), wraps emit in `make_token_handler` →
-`run_prompt_inner` → `llama.cppBackend::generate` → `llama_cpp::stream_generate`:
+`run_prompt_inner` → `LlamaCppBackend::generate` → `llama::stream_generate`:
 `streaming_client()` POSTs `GenerateRequest{stream:true, …}` to `/v1/chat/completions`;
 the read loop splits NDJSON lines, deserializes `GenerateChunk`, calls
 `on_token(chunk.response)`; on `done:true` returns `chunk.stats()` with all six
