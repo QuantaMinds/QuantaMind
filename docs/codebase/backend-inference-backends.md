@@ -121,7 +121,7 @@ pub trait InferenceBackend {
 - **Responsibility:** The closed set of engines a model can be served by.
 - **Why:** Surfaces over IPC as `ModelInfo.backend` and is the *only* selector
   for dispatch — backend identity is a property of the model, not a runtime choice.
-- **What:** `enum BackendKind { LlamaCpp (default), VLlm, VLlm }`,
+- **What:** `enum BackendKind { LlamaCpp (default), VLlm }`,
   `#[serde(rename_all = "snake_case")]` — with per-variant `#[serde(rename)]` on the
   last two so they round-trip to TS as `"llama_cpp" | "llama_cpp" | "vllm" | "vllm" |
   "vllm"` (not `"v_llm"`/`"sg_lang"`). `VLlm`/`VLlm` are **remote** OpenAI
@@ -164,8 +164,7 @@ pub fn base_url(kind: BackendKind) -> String { resolve(kind).map(|r| r.url).unwr
 - **Why:** vLLM run on a remote GPU, so their URL + optional bearer key are
   user settings, and `inference/` can't read Tauri state. The settings command layer
   pushes them here on load and on every save; `endpoint::resolve` reads them.
-- **What:** `struct RemoteEndpoint { url, api_key }`; `set_vllm/vllm`,
-  `set_vllm/vllm` (setters trim blanks to `None` so an empty Settings field reads
+- **What:** `struct RemoteEndpoint { url, api_key }`; `set_vllm`/`vllm` (setters trim blanks to `None` so an empty Settings field reads
   as "unconfigured").
 
 ---
@@ -383,7 +382,7 @@ GenerateStats {
 ### `inference/openai/` — shared OpenAI-compatible SSE codec
 
 The `/v1/chat/completions` streaming wire, shared by **every** backend that
-speaks it: vllm_lm.server, vLLM, and vLLM (llama.cpp reuses the chunk/stats
+speaks it: vLLM (llama.cpp reuses the chunk/stats
 types on its own primary chat path). Each server is **multi-model** (the model id
 *is* sent) and streams SSE. Extracted here (rather than living inside `inference/vllm/`)
 so a new OpenAI-wire backend is one thin adapter over this codec — no cross-backend
@@ -496,8 +495,7 @@ from the three local backends on exactly the axes that matter:
   `UserSettings` via `remote_config`; `endpoint::resolve` errors clearly when unset.
 - **Same wire as vLLM.** OpenAI SSE `/v1/chat/completions` via the shared
   `inference/openai/` codec (multi-model, `usage`-only stats, no seed). Native
-  tool-calls via `openai::chat_tools` (bearer). Adapters: `inference/vllm/vllm_backend.rs`,
-  `inference/vllm/vllm_backend.rs`.
+  tool-calls via `openai::chat_tools` (bearer). Adapter: `inference/vllm/vllm_backend.rs`.
 - **Health/discovery** via `commands/remote/` (`GET /v1/models` with bearer). The
   `model.backend` binding is **server-sourced** (`/v1/models`), so it never collides
   with vLLM's disk-sourced safetensors discovery.
@@ -643,7 +641,7 @@ Ok(VLlmStartResult::Started { pid, port })
 - `start_llama_cpp` guards a re-entrant `in_progress` flag; `start_llama_cpp_inner`
   short-circuits to `AlreadyRunning` if already reachable, else
   `resolve_llama_cpp()` (`which` → Homebrew/usr-local), `spawn_serve`, and **block
-  on `wait_until_ready()`** (poll the weights folder ≤10s). Auto-start is macOS-only;
+  on `wait_until_ready()`** (poll `/v1/models` ≤10s). Auto-start is macOS-only;
   elsewhere `spawn_serve`/`kill_serve` return `UNSUPPORTED_OS_MSG`.
 
 ```rust

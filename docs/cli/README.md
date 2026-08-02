@@ -17,10 +17,14 @@ exact fix command, so you're never stuck googling.
 **0 · Prerequisite: a running inference server with ≥1 model.** Fastest path is llama.cpp:
 
 ```bash
-# macOS: brew install llama_cpp · Linux: curl -fsSL https://github.com/ggml-org/llama.cppinstall.sh | sh
-# Windows: winget install llama.cpp.llama.cpp (runs as a service after install)
-llama-server -m MODEL.gguf --port 8081 --jinja &
-llama-server -m qwen2.5:3b        # ~2 GB — a good first model to gate
+# macOS: brew install llama.cpp
+# Linux / Windows: the desktop app bundles llama-server — or build/download from
+#   https://github.com/ggml-org/llama.cpp
+#
+# Start it on a GGUF you already have. --jinja is REQUIRED: without it
+# generations loop instead of stopping.
+llama-server -m ./models/Qwen2.5-3B-Instruct-Q4_K_M.gguf \
+  --host 127.0.0.1 --port 8081 --jinja -c 8192 &
 ```
 
 Already running llama.cpp / vLLM instead? Skip this — `qm doctor` finds whatever is up.
@@ -212,7 +216,7 @@ no prompts. Ordered cheapest-first per backend — **reachable? → models? → 
 tool-calling? → version** — and every failure carries the exact fix (shown, never run).
 
 ```
-qm doctor [--backend <llama_cpp|llama_cpp|vllm|vllm>] [--base <url>] [--model <name>] [--json]
+qm doctor [--backend <llama_cpp|vllm>] [--base <url>] [--model <name>] [--json]
 ```
 
 | Flag | Meaning | Default / env |
@@ -234,7 +238,7 @@ least one backend is runnable, else `3`, so `qm doctor && qm run` short-circuits
 | Server down / wrong port | `[QM-BACKEND-UNREACHABLE] … — start it: <command>` |
 | Server up, key rejected (401/403) | `[QM-UNAUTHORIZED] <host> rejected the API key — check QM_API_KEY` |
 | Key set but URL is plain http | `[QM-INSECURE-KEY] <host> — the key was withheld. Use https or drop the key.` |
-| Reachable, no models | `[QM-NO-MODELS] <backend> is up but has no models — pull/serve one: llama-server -m qwen2.5` |
+| Reachable, no models | `[QM-NO-MODELS] <backend> is up but has no models — pull/serve one: start the server with a model loaded` |
 
 **Exit:** `0` at least one runnable backend · `3` none runnable / unreachable · `2` bad args.
 
@@ -265,7 +269,7 @@ llama_cpp     http://localhost:8081       ! reachable  v0.24.0  models: 0
 
 No runnable backend — fix the findings above, then re-run `qm doctor`.
 # stderr:
-[QM-NO-MODELS] llama_cpp is up but has no models — pull/serve one: llama-server -m qwen2.5
+[QM-NO-MODELS] llama_cpp is up but has no models — pull/serve one: start the server with a model loaded
 $ echo $?
 3
 ```
@@ -285,7 +289,7 @@ qm run [--backend <kind>] [--model <name>] [--collection easy-coding] [--profile
 
 | Flag | Meaning | Default |
 |---|---|---|
-| `--backend <kind>` | llama_cpp / llama_cpp / vllm / vllm / vllm. | qm.json, then interactive/llama_cpp |
+| `--backend <kind>` | `llama_cpp` (aliases `llama-cpp`, `llamacpp`) or `vllm`. | qm.json, then interactive/`llama_cpp` |
 | `--model <name>` | Model to run. Env `QM_MODEL`. | qm.json, else interactive pick |
 | `--base <url>` | Endpoint override (remote backends). Env `QM_BASE`. | qm.json / default port |
 | `--collection <id>` | Built-in collection id. | `easy-coding` |

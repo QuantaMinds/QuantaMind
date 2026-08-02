@@ -112,12 +112,16 @@ gh repo edit --enable-discussions
 pnpm tauri dev
 # Edit src/App.tsx, save, see the window reload. If yes → ready.
 
-# 8. Pull llama.cpp models
-brew install llama_cpp
-llama-server -m MODEL.gguf --port 8081 --jinja &
-llama-server -m llama3.2:1b       # dev workhorse, ~700MB
-llama-server -m phi3.5:latest     # variety for later phases
-curl http://localhost:8081the weights folder
+# 8. Get llama.cpp + a couple of dev GGUFs
+brew install llama.cpp            # macOS; Windows/Linux ship a bundled llama-server
+
+# Download GGUFs into ./models (Hugging Face, or the app's Models tab), then serve one.
+# --jinja is required — without it generations loop instead of stopping.
+llama-server -m ./models/Llama-3.2-1B-Instruct-Q4_K_M.gguf \
+  --host 127.0.0.1 --port 8081 --jinja -c 8192 &   # dev workhorse, ~700MB
+# Phi-3.5-mini is a good second model for variety in later phases.
+
+curl http://localhost:8081/v1/models
 ```
 
 All 8 steps green → development environment ready. Day 1 starts with Phase 1
@@ -513,7 +517,7 @@ one. Built one step at a time.
   highest-quality one; honest when nothing fits or hardware is unknown.
 - **5.6 Backend auto-selection (done).** A backend is **coupled to the model's
   weight format** — an vLLM model runs only on vLLM, a GGUF only on
-  llama.cpp/llama.cpp — so selection is the absolute `model.backend` mapping, never
+  llama.cpp — so selection is the absolute `model.backend` mapping, never
   a health-based fallback. Compare rows are now **backend-aware** (`rows_for`
   takes a backend per model; `run_compare` forwards each model's backend, so a
   mixed-backend compare dispatches each row to the right server — previously all
@@ -571,7 +575,7 @@ one. Built one step at a time.
   guess** — flagged when the template has no chat-role markers AND `tools` isn't a
   capability, with the **evidence** surfaced (`base_reason`) so it reads "likely
   base — …", not an absolute claim. **llama.cpp-only** (the data lives in the GGUF header);
-  other backends show "Not available — llama.cpp only". `inference/llama_cpp/llama_cpp_show.rs`
+  other backends show "Not available — llama.cpp only". `inference/llama/llama_props.rs`
   (Tauri-free client; raw `model_info` kept for the 5.11 KV predictor) +
   `commands/models/model_inspect.rs`; UI `features/models/.../TemplatePanel.tsx` on
   the Tests tab. First of the **5.10+ diagnostics** band (metadata + local math).

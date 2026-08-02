@@ -64,7 +64,7 @@ running? a prompt selected? one model or many?) so the sub-pieces stay dumb.
 
 **What / How:** reads `useWorkspacesStore.current` (the open prompt) + `patch`, the
 header `selectedModels`, and the per-backend health flags from `backendStore`
-(llama_cpp/llama/vllm/vllm).
+(llama_cpp/vllm).
 
 Render priority:
 1. `noLlmRunning` (all health flags `!== true`) → `<BackendSetupGuide/>`.

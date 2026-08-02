@@ -206,15 +206,17 @@ running you'll see "llama.cpp isn't running".
   works on **macOS, Windows, and Linux** (Phase 2). QuantaMind resolves
   `llama_cpp` on PATH (`which` on macOS/Linux, `where.exe` on Windows) plus
   well-known install prefixes: `/opt/homebrew/bin` and `/usr/local/bin` on
-  macOS; `%LOCALAPPDATA%\Programs\llama.cpp\llama_cpp.exe` and
-  `C:\Program Files\llama.cpp\llama_cpp.exe` on Windows; `/usr/local/bin` and
+  macOS; `%LOCALAPPDATA%\Programs\llama.cpp\llama-server.exe` and
+  `C:\Program Files\llama.cpp\llama-server.exe` on Windows; `/usr/local/bin` and
   `/usr/bin` on Linux.
-- If it isn't installed, install per-OS:
-  - **macOS:** `brew install llama_cpp`
-  - **Windows:** `winget install llama.cpp.llama.cpp`
-  - **Linux:** `curl -fsSL https://github.com/ggml-org/llama.cppinstall.sh | sh`
-- Or run `llama-server -m MODEL.gguf --port 8081 --jinja` in a terminal.
-- Confirm it's up: `curl http://localhost:8081the weights folder` should return JSON.
+- If it isn't installed:
+  - **macOS:** `brew install llama.cpp`
+  - **Windows / Linux:** the desktop app bundles `llama-server` — press ▶ in the
+    header. To run your own, build or download it from
+    [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp).
+- Or run it yourself: `llama-server -m MODEL.gguf --host 127.0.0.1 --port 8081 --jinja -c 8192`.
+  `--jinja` is required — without it generations loop instead of stopping.
+- Confirm it's up: `curl http://localhost:8081/v1/models` should return JSON.
 - On Windows the child is spawned with `CREATE_NO_WINDOW` (no console flash)
   and its own process group (R1), so QuantaMind's Stop control cleanly kills
   llama.cpp's whole tree without touching QuantaMind itself.
@@ -258,7 +260,7 @@ templated `/v1/chat/completions` precisely to prevent this. If you still see it:
 
 A llama.cpp run (or the Context Stress Test) can fail with *"The prompt (N
 tokens) is larger than the M-token context window this model was loaded with."*
-Unlike llama.cpp, **llama.cpp fixes its context window at launch** (the `-c` flag) —
+**llama.cpp fixes its context window at launch** (the `-c` flag) —
 there's no per-request resize. QuantaMind launches `llama-server` with `-c` sized
 from the **Context window** param (`num_ctx`); when that param is empty it uses
 the GGUF's context capped at 8K (so a small machine never allocates a giant KV

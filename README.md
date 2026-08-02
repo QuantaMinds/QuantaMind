@@ -4,7 +4,7 @@
 
 **The pre-deployment gate for local AI agents.**
 
-Benchmark any **llama.cpp**, **llama.cpp**, or **vLLM** model for *agentic readiness* on your own hardware — and get a **Ready / Conditional / Not Ready** verdict before you wire it into an agent. Runs fully local by default (nothing leaves the machine); optionally point it at a **remote vLLM** GPU server when you need to bench a model bigger than your box.
+Benchmark any **llama.cpp** or **vLLM** model for *agentic readiness* on your own hardware — and get a **Ready / Conditional / Not Ready** verdict before you wire it into an agent. Runs fully local by default (nothing leaves the machine); optionally point it at a **remote vLLM** GPU server when you need to bench a model bigger than your box.
 
 <sub>Local-first · No telemetry · No account · pass^k scoring · hardware-aware · one ~30 MB binary</sub>
 
@@ -55,8 +55,9 @@ Prebuilt for macOS (Apple Silicon + Intel), Linux (x64 + arm64, plus a fully sta
 QuantaMind drives a model you already run locally — so you need a backend up (the default is [llama.cpp](https://github.com/ggml-org/llama.cpp)):
 
 ```bash
-# 1. Start a backend and pull a small model to gate
-llama-server -m llama3.2:1b
+# 1. Start a backend with a small model to gate (llama-server takes a .gguf path)
+llama-server -m ./models/Llama-3.2-1B-Instruct-Q4_K_M.gguf \
+  --host 127.0.0.1 --port 8081 --jinja -c 8192
 
 # 2. Probe your backends — every failure prints its exact fix
 qm doctor
@@ -254,7 +255,7 @@ None. The only outbound HTTP is to your local llama.cpp and (when you ask) to Hu
 
 Apache 2.0 — see [`LICENSE`](./LICENSE).
 
-Built on [Tauri](https://tauri.app/), [llama.cpp](https://github.com/ggml-org/llama.cpp), [llama.cpp](https://github.com/ggerganov/llama.cpp), [Hugging Face](https://huggingface.co/), [Monaco Editor](https://microsoft.github.io/monaco-editor/), and the [React](https://react.dev/) / [Vite](https://vitejs.dev/) / [Tailwind](https://tailwindcss.com/) / [Zustand](https://github.com/pmndrs/zustand) stack — plus the open-weights model communities (Meta, Mistral, Qwen, Microsoft, Google, DeepSeek, and many others).
+Built on [Tauri](https://tauri.app/), [llama.cpp](https://github.com/ggml-org/llama.cpp), [Hugging Face](https://huggingface.co/), [Monaco Editor](https://microsoft.github.io/monaco-editor/), and the [React](https://react.dev/) / [Vite](https://vitejs.dev/) / [Tailwind](https://tailwindcss.com/) / [Zustand](https://github.com/pmndrs/zustand) stack — plus the open-weights model communities (Meta, Mistral, Qwen, Microsoft, Google, DeepSeek, and many others).
 
 <div align="center">
 <br/>
