@@ -1,0 +1,80 @@
+name: "QuantaMind certify"
+description: "Gate a deploy on YOUR OWN agent: seed a world, run your command, grade the real end state, k times."
+
+# There is deliberately NO api-key input. Action inputs are logged, and this action
+# needs no credential of its own — `qm certify` issues no model call. Your agent's
+# provider key comes from the calling job's env/secrets and is inherited by the
+# child process (every QM_* variable is stripped from it first).
+
+inputs:
+  suite:
+    description: "Path to the suite file (a JSON array of world tasks)."
+    required: true
+  agent:
+    description: >-
+      The agent command. Placeholders {task} {workspace} {task_file} {db} are
+      substituted into ARGUMENTS only and are never shell-interpreted.
+    required: true
+  k:
+    description: "Override every task's k (strict pass^k: all k must pass)."
+    required: false
+    default: ""
+  timeout:
+    description: "Per-attempt wall-clock cap, in seconds."
+    required: false
+    default: "300"
+  fail-on:
+    description: "conditional | notready | never"
+    required: false
+    default: "conditional"
+  clean-env:
+    description: "Allowlist the agent's environment instead of inheriting it."
+    required: false
+    default: "false"
+  env-passthrough:
+    description: "Space-separated variable NAMES to pass through under clean-env. Values are never logged."
+    required: false
+    default: ""
+  install:
+    description: "release (prebuilt binary) | source (cargo build)"
+    required: false
+    default: "release"
+  backend-path:
+    description: "Path to the backend crate, for install=source."
+    required: false
+    default: "backend"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install qm (prebuilt)
+      if: inputs.install == 'release'
+      shell: bash
+      run: |
+        curl -fsSL https://github.com/QuantaMinds/QuantaMind/releases/latest/download/quantamind-installer.sh | sh
+        echo "QM_BIN=$HOME/.local/bin/qm" >> "$GITHUB_ENV"
+
+    - name: Build qm from source
+      if: inputs.install == 'source'
+      uses: dtolnay/rust-toolchain@stable
+    - if: inputs.install == 'source'
+      uses: Swatinem/rust-cache@v2
+    - name: cargo build --bin qm
+      if: inputs.install == 'source'
+      shell: bash
+      working-directory: ${{ inputs.backend-path }}
+      run: |
+        cargo build --release --bin qm --no-default-features
+        echo "QM_BIN=$PWD/target/release/qm" >> "$GITHUB_ENV"
+
+    - name: qm certify
+      shell: bash
+      run: |
+        set -o pipefail
+        ARGS=(--suite "${{ inputs.suite }}" --timeout "${{ inputs.timeout }}" --fail-on "${{ inputs.fail-on }}")
+        [ -n "${{ inputs.k }}" ] && ARGS+=(--k "${{ inputs.k }}")
+        [ "${{ inputs.clean-env }}" = "true" ] && ARGS+=(--clean-env)
+        for name in ${{ inputs.env-passthrough }}; do ARGS+=(--env "$name"); done
+        # The agent command goes after `--`. qm hands it to the OS as a list; it is
+        # never passed through a shell, so task text cannot be interpreted.
+        "$QM_BIN" certify "${ARGS[@]}" -- ${{ inputs.agent }}

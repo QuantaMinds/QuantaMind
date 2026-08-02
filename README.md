@@ -68,6 +68,20 @@ qm init
 
 In the **desktop app**: open the **Tests** tab, pick your model, run a built-in agentic collection — then check **Agent Report** for the verdict.
 
+### Already have an agent? Gate *it* instead
+
+`qm certify` inverts the question. Instead of benchmarking a model, it makes **your agent the system
+under test**: it seeds a world, runs your command against it, grades the real end state, and repeats
+k times. It issues **no model call** — your agent owns its model — so there's no SDK to install and
+no code to change.
+
+```bash
+qm certify --suite ./qm/suite.json -- ./my-agent --task "{task}" --workspace "{workspace}"
+```
+
+The grade is the world, not the words: an agent that *says* it filed the refund and touched nothing
+fails. See the **[`certify` reference](./docs/cli/README.md#certify--gate-a-deploy-on-your-own-agent)**.
+
 Full CLI reference, container images, checksums + attestation verification: **[CLI quickstart](./docs/cli/README.md#quickstart--three-commands-to-your-first-verdict)**.
 
 > 💬 **Hit a snag?** [Troubleshooting](./docs/reference.md#troubleshooting) covers the common ones — including macOS's ["developer cannot be verified" dialog](./docs/reference.md#macos-gatekeeper). Setup bugs are real bugs: [open an issue](https://github.com/QuantaMinds/QuantaMind/issues) or ask in [Discord](https://discord.gg/qN5uTn9KKA).

@@ -219,6 +219,18 @@ matches the convention; PR body references "closes #N" when applicable.
 The single most important section in the repo. Follow it literally — one step
 at a time.
 
+**Rule 6 for model-free features.** The loop mandates a live run against a real
+llama.cpp model. Some features issue no model call at all — `qm certify` grades a
+*customer's* agent and never talks to a model. There, the equivalent live gate is
+a **real subprocess**: real spawn, real cwd, real pipes, real kill
+(`backend/tests/certify_gate.rs`). This substitution is recorded here rather than
+silently skipped, because the point of rule 6 is that unit tests only prove the
+path you told them to run — and that holds whether the thing under test is a
+model or a process. It earned its keep immediately: three defects in `qm certify`
+(a relative program path resolving against the wrong directory, a missing binary
+reporting "retry", an unmeasured attempt misreported as agent flakiness) were
+invisible to a green unit suite.
+
 For every unit of work (one step, one ticket, one feature slice):
 
 ```
