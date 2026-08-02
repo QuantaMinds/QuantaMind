@@ -5,7 +5,7 @@ use crate::inference::http::http::{body_or_note, streaming_client};
 use crate::inference::llama::llama_timings::Timings;
 use crate::inference::openai::chat_chunk::Usage;
 use crate::inference::openai::chat_stats::from_usage;
-use crate::inference::ollama::ollama_chat::{normalize_args, ChatResult, NativeToolCall};
+use crate::inference::chat::native_call::{normalize_args, ChatResult, NativeToolCall};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -14,7 +14,7 @@ use serde_json::Value;
 /// `commands/llama/llama_runtime::build_spawn_args`) so the embedded template's
 /// tool grammar is applied. Non-streaming — tool responses are small.
 ///
-/// Returns the SAME `ChatResult` as Ollama's `chat_with_tools` so the native
+/// Returns the SAME `ChatResult` as the server's `chat_with_tools` so the native
 /// turn canonicalizes tool calls identically across backends. `tools` is a
 /// pre-built JSON array (the eval layer shapes it) — a backend client must not
 /// depend on the eval layer.

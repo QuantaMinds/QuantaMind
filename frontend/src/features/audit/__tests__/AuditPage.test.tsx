@@ -17,7 +17,7 @@ import { useEvalRegistryStore } from "../../eval/state/evalRegistryStore";
 import { useBatchStore } from "../../eval/state/batchStore";
 import { useBackendStore } from "../../../shared/state/backendStore";
 
-const summary = (model: string, backend: "ollama" | "llama_cpp") => ({
+const summary = (model: string, backend: "llama_cpp" | "vllm") => ({
   ts: "2026-06-01T00:00:00Z", model, backend,
   parse_rate: null, tool_selection_acc: null, arg_acc: null, abstain_acc: null,
   composite: 0.8, n: 5,
@@ -25,7 +25,7 @@ const summary = (model: string, backend: "ollama" | "llama_cpp") => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
-  useBackendStore.setState({ selectedBackend: "ollama" });
+  useBackendStore.setState({ selectedBackend: "llama_cpp" });
   useBatchStore.setState({ report: null });
   useEvalRegistryStore.setState({ presets: [{ id: "easy-coding", label: "Coding", domain: "coding", tier: "easy" }], collections: [], init: vi.fn().mockResolvedValue(undefined) });
 });
@@ -43,7 +43,7 @@ describe("AuditPage", () => {
   it("shows only the selected backend's models in the history (not the previous backend's)", async () => {
     vi.mocked(invoke).mockImplementation((cmd: string) => {
       if (cmd === "load_collection_history")
-        return Promise.resolve([summary("llama3", "ollama"), summary("qwen.gguf", "llama_cpp")]);
+        return Promise.resolve([summary("llama3", "vllm"), summary("qwen.gguf", "llama_cpp")]);
       return Promise.resolve([]);
     });
     useBackendStore.setState({ selectedBackend: "llama_cpp" });
@@ -92,10 +92,10 @@ describe("AuditPage", () => {
     vi.mocked(invoke).mockImplementation((cmd: string) =>
       cmd === "load_collection_history" ? Promise.resolve([summary("qwen.gguf", "llama_cpp")]) : Promise.resolve([]),
     );
-    useBackendStore.setState({ selectedBackend: "ollama" }); // no ollama runs, one llama.cpp run
+    useBackendStore.setState({ selectedBackend: "vllm" }); // no vLLM runs, one llama.cpp run
     render(<AuditPage />);
     const note = await screen.findByTestId("audit-history-other-backend");
-    expect(note).toHaveTextContent("No runs for Ollama yet");
+    expect(note).toHaveTextContent("No runs for vLLM yet");
     expect(note).toHaveTextContent("1 run recorded under other backends");
     expect(screen.queryByTestId("history-timeline")).not.toBeInTheDocument();
   });
@@ -105,7 +105,7 @@ describe("AuditPage", () => {
     vi.mocked(invoke).mockImplementation((cmd: string) => {
       if (cmd === "load_collection_history") {
         n += 1;
-        return Promise.resolve(n === 1 ? [] : [summary("llama3", "ollama")]);
+        return Promise.resolve(n === 1 ? [] : [summary("llama3", "llama_cpp")]);
       }
       return Promise.resolve([]);
     });

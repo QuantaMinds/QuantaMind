@@ -2,7 +2,6 @@ import { useCompareStore } from "../state/compareStore";
 import { useNavStore } from "../../../shared/state/navStore";
 import { CompareColumn } from "./CompareColumn";
 import { MetricsChart } from "./MetricsChart";
-import { CompareDiff } from "./CompareDiff";
 import { ExportButtons } from "./ExportButtons";
 import { LatencyTimelines } from "../../inspector/components/timeline/LatencyTimelines";
 
@@ -18,8 +17,7 @@ export function AnalysisTab() {
       <section data-testid="tab-analysis" className="space-y-2">
         <h2 className="text-lg font-semibold">Analysis</h2>
         <p data-testid="analysis-empty" className="text-sm text-gray-500">
-          Run a model in the Workspace (or pick 2+ Ollama models in the header to
-          compare) — then come here to compare throughput, time-to-first-token,
+          Run a model in the Workspace — then come here to compare throughput, time-to-first-token,
           and outputs.
         </p>
       </section>
@@ -40,7 +38,6 @@ export function AnalysisTab() {
               workspace latency report exports from where its panels now live. */}
           <LatencyTimelines active={topView === "compare"} showExport />
           <MetricsChart />
-          <CompareDiff />
           <ExportButtons />
         </>
       )}

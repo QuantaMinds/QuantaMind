@@ -37,10 +37,9 @@ React UI  ──(invoke "command_name", args)──▶  Rust #[tauri::command]
 | Page | Covers | Source roots |
 |---|---|---|
 | [backend-overview.md](backend-overview.md) | Entry points, command registration, IPC contract, app lifecycle, errors, sync, time, validation, metrics | `lib.rs`, `main.rs`, `commands/mod.rs`, `commands/app_lifecycle.rs`, `commands/emit.rs`, `errors.rs`, `sync.rs`, `time_iso.rs`, `validation/`, `metrics/` |
-| [backend-inference-backends.md](backend-inference-backends.md) | The `InferenceBackend` trait, HTTP/NDJSON plumbing, and the engines (local: Ollama, llama.cpp, MLX; remote: vLLM, SGLang) | `inference/backend/`, `inference/http/`, `inference/llama/`, `inference/mlx/`, `inference/ollama/`, `inference/openai/`, `inference/vllm/`, `inference/sglang/`, `inference/generate/`, `inference/token_handler.rs`, `inference/chat/`, `commands/remote/` |
-| [backend-models-hf-gguf.md](backend-models-hf-gguf.md) | Model listing/inspection/pull, Hugging Face browse+install, GGUF parsing, Modelfile create, VRAM math | `commands/models/`, `commands/hf/`, `commands/gguf/`, `inference/hf/`, `inference/gguf/`, `inference/pull/`, `inference/create/`, `inference/vram_math.rs` |
+| [backend-inference-backends.md](backend-inference-backends.md) | The `InferenceBackend` trait, HTTP/NDJSON plumbing, and the engines (local: llama.cpp, vLLM, SGLang; remote: vLLM, SGLang) | `inference/backend/`, `inference/http/`, `inference/llama/`, `inference/vllm/`, `inference/llama_cpp/`, `inference/openai/`, `inference/vllm/`, `inference/sglang/`, `inference/generate/`, `inference/token_handler.rs`, `inference/chat/`, `commands/remote/` |
+| [backend-models-hf-gguf.md](backend-models-hf-gguf.md) | Model listing/inspection/pull, Hugging Face browse+install, GGUF parsing, chat-template config create, VRAM math | `commands/models/`, `commands/hf/`, `commands/gguf/`, `inference/hf/`, `inference/gguf/`, `inference/pull/`, `inference/create/`, `inference/vram_math.rs` |
 | [backend-eval-engine.md](backend-eval-engine.md) | Tool-calling eval, agentic runner, Context Stress Test, readiness/VRAM-fit, batch queue, scoring | `commands/eval/`, `inference/eval/` |
-| [backend-compare.md](backend-compare.md) | Side-by-side multi-model runner, memory-fit gate, export | `commands/compare/`, `inference/compare/` |
 | [backend-prompt-workspace-system.md](backend-prompt-workspace-system.md) | Single-prompt run, prompt templates, workspaces, history, settings, storage, system/hardware | `commands/prompt/`, `commands/prompt_templates/`, `commands/workspace/`, `commands/settings/`, `commands/storage/`, `commands/system/` |
 | [backend-persistence.md](backend-persistence.md) | On-disk stores: prompts, evals, history, jobs, readiness, publish, settings, workspaces | `persistence/` |
 | [backend-cli.md](backend-cli.md) | The headless `qm` CLI: doctor probe, zero-config init, run/verdict engine, validate gate, costs/transcripts capture, exit-code contract | `src/bin/qm/`, `cli/` |
@@ -54,7 +53,7 @@ React UI  ──(invoke "command_name", args)──▶  Rust #[tauri::command]
 | [frontend-workspace.md](frontend-workspace.md) | Workspace tab (prompt editor, model select, run/stream, server controls) + workspace file tree | `features/workspace/`, `features/workspaces/` |
 | [frontend-compare-analysis.md](frontend-compare-analysis.md) | Analysis tab (compare columns, diff, metrics chart, export) | `features/compare/` |
 | [frontend-eval.md](frontend-eval.md) | Tests tab (manager, matrix, pipeline, scoreboard, trajectory, Context Stress Test, tool-call) | `features/eval/` |
-| [frontend-models.md](frontend-models.md) | Models + Downloads tabs (HF/Ollama/local install, cards, storage) | `features/models/` |
+| [frontend-models.md](frontend-models.md) | Models + Downloads tabs (HF/llama.cpp/local install, cards, storage) | `features/models/` |
 | [frontend-inspector-quant-agentreport.md](frontend-inspector-quant-agentreport.md) | Latency tab, Quant sub-tab, Agent Report tab | `features/inspector/`, `features/quant/`, `features/agentReport/` |
 | [frontend-support-features.md](frontend-support-features.md) | Settings, Onboarding, Docs (guides + reference + ⌘K), Updater, Feedback, History, Audit | `features/settings/`, `features/onboarding/`, `features/docs/`, `features/updater/`, `features/feedback/`, `features/history/`, `features/audit/` |
 
@@ -95,7 +94,7 @@ data model.
    and warns on legacy Windows paths.
 4. `.on_window_event(...)` reaps sidecars + `app.exit(0)` on `CloseRequested` —
    on macOS closing the window doesn't quit a Tauri app, so without this the
-   spawned Ollama would linger after "closing" the app.
+   spawned llama.cpp would linger after "closing" the app.
 5. `.invoke_handler(generate_handler![...])` exposes ~120 commands.
 6. `.run(reap_on_exit)` guarantees child servers die with the app (Cmd+Q path);
    the signal reaper covers SIGINT/SIGTERM. Three exit paths, one idempotent reap.

@@ -68,22 +68,22 @@ describe("RunControls", () => {
       <RunControls
         status="idle"
         canRun={true}
-        blockedHint="Start the MLX backend to run this model"
+        blockedHint="Start llama.cpp to run this model"
         onRun={onRun}
         onCancel={() => {}}
       />,
     );
     const run = screen.getByRole("button", { name: /run/i });
     expect(run).toBeDisabled();
-    expect(run).toHaveAttribute("title", "Start the MLX backend to run this model");
-    expect(screen.getByTestId("run-blocked-hint")).toHaveTextContent("Start the MLX backend");
+    expect(run).toHaveAttribute("title", "Start llama.cpp to run this model");
+    expect(screen.getByTestId("run-blocked-hint")).toHaveTextContent("Start llama.cpp");
     fireEvent.click(run);
     expect(onRun).not.toHaveBeenCalled();
   });
 
   it("Run re-enables when blockedHint clears", () => {
     const { rerender } = render(
-      <RunControls status="idle" canRun={true} blockedHint="Start Ollama first"
+      <RunControls status="idle" canRun={true} blockedHint="Start llama.cpp first"
         onRun={() => {}} onCancel={() => {}} />,
     );
     expect(screen.getByRole("button", { name: /run/i })).toBeDisabled();

@@ -68,13 +68,13 @@ The rule-7 invariants from `CLAUDE.md`. Every change must uphold all of them:
   (`frontend/src/shared/monacoSetup.ts` bundles `monaco-editor` + its worker locally instead
   of `@monaco-editor/react`'s default jsDelivr load), so the app ships zero runtime remote code
   and works fully offline.
-- **Sidecars (loopback).** Ollama (`:11434`), llama-server (`:8081`) and MLX (`:8082/8083`)
+- **Sidecars (loopback).** llama.cpp (`:8081`), llama-server (`:8081`) and vLLM (`:8082/8083`)
   run unauthenticated on `127.0.0.1`. They are reachable by any local
   process while running (standard local-LLM model). These are external processes we don't own,
   so they legitimately speak `http` on loopback — a blanket `https`-only client would break
   them; the credential guard (rule 7d) is instead scoped to requests that CARRY a key. The one
   listener the app itself runs — the OAuth callback — validates the `Host` header is loopback
-  (DNS-rebinding defense, cf. Ollama CVE-2024-28224). The MLX locator prefers the configured
+  (DNS-rebinding defense, cf. llama.cpp CVE-2024-28224). The vLLM locator prefers the configured
   path, then known-safe install dirs, and only then `$PATH` (with a warning), to blunt
   PATH-poisoning.
 - **Publish (`api.quantamind.co`) — the only exfiltration path.** OAuth2 + PKCE + a `state`

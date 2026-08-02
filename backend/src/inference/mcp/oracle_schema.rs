@@ -8,7 +8,7 @@
 //! `type`, `properties` (recursive), `required`, `enum`, `additionalProperties`
 //! (reject hallucinated args), array `items`. Unknown keywords are lenient.
 
-use crate::inference::ollama::ollama_chat::NativeToolCall;
+use crate::inference::chat::native_call::NativeToolCall;
 use crate::mcp::registry::split_namespaced;
 use crate::mcp::wire::Tool;
 use serde_json::Value;

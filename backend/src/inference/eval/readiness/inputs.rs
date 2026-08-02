@@ -318,8 +318,8 @@ pub fn pass_k_of(col: &BatchColumn) -> Option<f64> {
     native_first_source(col).and_then(|a| a.pass_k())
 }
 
-/// Resolve a column's real quantization: the Ollama installed-models registry first,
-/// else parse it from the model name (a GGUF / llama.cpp / MLX model, or Ollama
+/// Resolve a column's real quantization: the the server installed-models registry first,
+/// else parse it from the model name (a GGUF / llama.cpp model, or the server
 /// offline). NEVER fabricated — it's the quant the name actually encodes, the same one
 /// the VerdictTable shows — so a publish row (which requires a quant) isn't dropped just
 /// because the registry was unavailable. `None` only when neither source knows it.

@@ -2,12 +2,12 @@ import { useEffect, useState } from "react";
 import { inspectModel, estimateKvCacheBytes, type ModelDims } from "../ipc/system/inspect";
 import type { BackendKind } from "../ipc/models/storage";
 
-/// Fetch a model's architecture dims (Ollama /api/show) and the KV-cache bytes
+/// Fetch a model's architecture dims (from its GGUF header) and the KV-cache bytes
 /// for the chosen context length. `dims`/`kvBytes` are null when unavailable
-/// (non-Ollama, or metadata missing) — the caller then falls back to the
+/// (metadata missing, or a remote backend) — the caller then falls back to the
 /// file-size heuristic. The KV math is the canonical Rust formula, not a copy.
 /// `capabilities` rides along from the same /api/show response (null = not
-/// reported / probe failed / non-Ollama) — Ollama grants `tools` only when the
+/// reported / probe failed) — a template grants `tools` only when the
 /// model's template references `.Tools`, so callers gate native FC on it.
 export function useVramFit(model: string | undefined, backend: BackendKind | undefined, ctxLen: number) {
   const [dims, setDims] = useState<ModelDims | null>(null);

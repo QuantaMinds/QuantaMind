@@ -19,7 +19,7 @@ import type { ToolTask } from "../../../shared/ipc/eval/registry";
 const task: ToolTask = { id: "t", category: "single", prompt: "p", tools: [], expected: { type: "call", name: "x", args: {} } };
 const args = (over: Partial<RunProbeArgs> = {}): RunProbeArgs => ({
   model: "qwen2.5-coder:7b",
-  backend: "ollama",
+  backend: "llama_cpp",
   collectionId: "finance",
   tasks: [task],
   maxTokens: 8000,
@@ -58,7 +58,7 @@ describe("cliffStore", () => {
     // The backend builds the ladder + pads + classifies; the store just forwards.
     const call = vi.mocked(runContextCliff).mock.calls[0];
     expect(call[0]).toBe("qwen2.5-coder:7b"); // model
-    expect(call[1]).toBe("ollama"); // backend
+    expect(call[1]).toBe("llama_cpp"); // backend
     expect(call[2]).toBe("finance"); // collectionId
     expect(call[4]).toEqual({ kind: "preset", preset: "corporate_policy" }); // source
     expect(call[5]).toBe(8000); // maxTokens
@@ -167,7 +167,7 @@ describe("cliffStore", () => {
   });
 
   it("setRequest / consumeRequest is one-shot (pre-fill carried once)", () => {
-    useCliffStore.getState().setRequest({ model: "m", backend: "ollama", collectionId: "c", maxTokens: 8000, steps: 5 });
+    useCliffStore.getState().setRequest({ model: "m", backend: "llama_cpp", collectionId: "c", maxTokens: 8000, steps: 5 });
     expect(useCliffStore.getState().consumeRequest()?.model).toBe("m");
     expect(useCliffStore.getState().request).toBeNull();
     expect(useCliffStore.getState().consumeRequest()).toBeNull();

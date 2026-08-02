@@ -15,14 +15,9 @@ pub mod eval;
 pub mod gguf;
 #[cfg(feature = "gui")]
 pub mod hf;
-#[cfg(feature = "gui")]
 pub mod llama;
 pub mod mcp;
-#[cfg(feature = "gui")]
-pub mod mlx;
 pub mod models;
-#[cfg(feature = "gui")]
-pub mod ollama;
 pub mod prompt;
 #[cfg(feature = "gui")]
 pub mod prompt_templates;
@@ -31,7 +26,6 @@ pub mod publish;
 pub mod remote;
 #[cfg(feature = "gui")]
 pub mod settings;
-#[cfg(feature = "gui")]
 pub mod storage;
 pub mod system;
 #[cfg(feature = "gui")]

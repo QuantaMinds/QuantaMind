@@ -2,16 +2,16 @@ import { describe, it, expect } from "vitest";
 import { classifyError } from "../core/errorInfo";
 
 describe("classifyError", () => {
-  it("classifies Ollama-down (raw connection error)", () => {
+  it("classifies a down local server (raw connection error)", () => {
     const info = classifyError("error trying to connect: Connection refused (os error 61)");
-    expect(info.title).toMatch(/Ollama isn't running/);
-    expect(info.actionHint).toBe("start_ollama");
-    expect(info.learnMore).toContain("#ollama-not-running");
+    expect(info.title).toMatch(/server isn't running/i);
+    expect(info.actionHint).toBe("start_server");
+    expect(info.learnMore).toContain("#server-not-running");
   });
 
-  it("classifies Ollama-down (already-friendly message)", () => {
-    const info = classifyError("Ollama is not running. Start Ollama and try again.");
-    expect(info.title).toMatch(/Ollama isn't running/);
+  it("classifies a down local server (already-friendly message)", () => {
+    const info = classifyError("The local server is not running. Start it and try again.");
+    expect(info.title).toMatch(/server isn't running/i);
   });
 
   it("classifies model-not-found", () => {

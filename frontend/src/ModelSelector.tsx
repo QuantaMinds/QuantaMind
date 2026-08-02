@@ -10,9 +10,10 @@ import { useParamsStore } from "./shared/state/paramsStore";
 import { useModelSettingsStore } from "./features/models/state/modelSettingsStore";
 import { usePopoverDismiss } from "./shared/ui/usePopoverDismiss";
 
-/// The global model picker in the header, filtered to the selected backend. Ollama
-/// is multi-select (1 → single run, 2+ → a compare in the Workspace); llama.cpp/MLX
-/// are single-select. Writes the global selectedModelStore — every page reads it.
+/// The global model picker in the header, filtered to the selected backend.
+/// Single-select: every supported backend serves one model per launch, so there
+/// is no multi-model selection. Writes the global selectedModelStore — every page
+/// reads it.
 export function ModelSelector() {
   const selectedBackend = useBackendStore((s) => s.selectedBackend);
   const selectedModels = useSelectedModelStore((s) => s.selectedModels);
@@ -28,7 +29,6 @@ export function ModelSelector() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  const multi = selectedBackend === "ollama";
   const generative = dedupeByDigest(
     list.filter((m) => !isEmbeddingModel(m) && m.backend === selectedBackend),
   );
@@ -39,8 +39,8 @@ export function ModelSelector() {
 
   const pick = (m: { name: string; size_bytes: number; backend: typeof selectedBackend; path?: string }) => {
     const entry = { name: m.name, backend: m.backend, size_bytes: m.size_bytes, path: m.path };
-    if (!multi) { setSelectedModels(has(m.name) ? [] : [entry]); setOpen(false); return; }
-    setSelectedModels(has(m.name) ? selectedModels.filter((s) => s.name !== m.name) : [...selectedModels, entry]);
+    setSelectedModels(has(m.name) ? [] : [entry]);
+    setOpen(false);
   };
 
   const labelFor = (name: string) => modelLabel(list.find((x) => x.name === name) ?? { name });
@@ -63,7 +63,7 @@ export function ModelSelector() {
         <div className="absolute z-20 mt-1 w-72 max-h-72 overflow-y-auto bg-surface border rounded shadow text-sm">
           <label
             className="flex items-center gap-2 px-3 py-2 border-b text-xs text-gray-600 select-none"
-            title="Keep the model resident across runs (Ollama). Off lets it unload when idle, freeing memory; the just-run model stays inspectable for a few minutes."
+            title="Keep the model resident across runs. Off lets it unload when idle, freeing memory; the just-run model stays inspectable for a few minutes."
           >
             <input
               type="checkbox"
@@ -97,14 +97,6 @@ export function ModelSelector() {
                 aria-pressed={active}
                 className={`w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-gray-100 ${active ? "bg-blue-50" : ""}`}
               >
-                {multi && (
-                  <span
-                    aria-hidden
-                    className={`inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border text-[10px] leading-none ${active ? "bg-blue-600 border-blue-600 text-white" : "border-gray-300"}`}
-                  >
-                    {active ? "✓" : ""}
-                  </span>
-                )}
                 <span className="flex-1 truncate">{modelLabel(m)}</span>
                 <span
                   role="checkbox"

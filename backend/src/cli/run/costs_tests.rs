@@ -74,12 +74,12 @@ fn kv_at_peak_is_all_or_nothing_and_scales_exactly() {
     assert_eq!(kv.f16_bytes / kv.q4_0_bytes, 4);
 }
 
-/// Provenance strings name whichever measurement exists — resident (Ollama) beats
+/// Provenance strings name whichever measurement exists — resident  beats
 /// on-disk (llama.cpp); neither → an explicit not-measurable, never a silent 0.
 #[test]
 fn memory_facts_name_their_provenance() {
-    let ollama = BatchColumn { weights_vram_bytes: Some(8), weights_total_bytes: Some(9), ..Default::default() };
-    let f = memory_facts(Some(&ollama), None);
+    let resident = BatchColumn { weights_vram_bytes: Some(8), weights_total_bytes: Some(9), ..Default::default() };
+    let f = memory_facts(Some(&resident), None);
     assert_eq!(f.model_bytes, Some(8));
     assert!(f.model_bytes_provenance.contains("size_vram"));
     let llama = BatchColumn { weights_total_bytes: Some(9), ..Default::default() };

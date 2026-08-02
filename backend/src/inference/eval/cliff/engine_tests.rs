@@ -21,7 +21,7 @@ impl ModelTurn for CliffModel {
     }
 }
 
-/// A model behind a REAL context window, scripted from the live Ollama behaviour this
+/// A model behind a REAL context window, scripted from the live server behaviour this
 /// guards against: a prompt past `window` is not rejected — it is silently TRUNCATED to fit
 /// (so the injected needle is dropped and the task can no longer be answered) and
 /// `prompt_eval_count` saturates at `window` no matter how much padding was sent. Verified
@@ -490,7 +490,7 @@ async fn the_needle_is_swept_across_all_default_depths() {
 // them precisely because the scripted models had no context window to overflow — the
 // harness truncating its own needle away is something only a real backend does.
 //
-// Run (Ollama):    cargo test --lib live_cliff_ollama -- --ignored --nocapture
+// Run:              cargo test --lib live_cliff_local -- --ignored --nocapture
 // Run (llama.cpp): cargo test --lib live_cliff_llama  -- --ignored --nocapture
 // Override with QM_LIVE_MODEL / QM_LIVE_CTX (llama.cpp: the server's launch `-c`).
 
@@ -525,8 +525,8 @@ fn assert_live_report_is_honest(report: &CliffReport, ctx_limit: u32, label: &st
 }
 
 #[tokio::test]
-#[ignore = "live: requires a running Ollama server and a pulled model"]
-async fn live_cliff_ollama_reports_no_fabricated_cliff_at_the_window() {
+#[ignore = "live: requires a running local server with a model loaded"]
+async fn live_cliff_local_reports_no_fabricated_cliff_at_the_window() {
     use crate::inference::backend::backend_kind::BackendKind;
     use crate::inference::eval::agentic::model_turn::BackendTurn;
 
@@ -536,7 +536,7 @@ async fn live_cliff_ollama_reports_no_fabricated_cliff_at_the_window() {
     let max_tokens = window - 2048;
 
     let turn = BackendTurn {
-        backend: BackendKind::Ollama,
+        backend: BackendKind::LlamaCpp,
         endpoint: "http://127.0.0.1:11434".into(),
         model: model.clone(),
         cancel: CancellationToken::new(),
@@ -555,8 +555,8 @@ async fn live_cliff_ollama_reports_no_fabricated_cliff_at_the_window() {
         &CancellationToken::new(), &mut |_, _, _| {}, &mut |_| {},
     )
     .await
-    .expect("live Ollama probe");
-    assert_live_report_is_honest(&report, window, &format!("ollama/{model}"));
+    .expect("live server probe");
+    assert_live_report_is_honest(&report, window, &format!("llama_cpp/{model}"));
 }
 
 #[tokio::test]

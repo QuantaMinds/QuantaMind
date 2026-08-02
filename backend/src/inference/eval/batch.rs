@@ -1,6 +1,5 @@
 use crate::errors::AppResult;
 use crate::inference::backend::backend_kind::BackendKind;
-use crate::inference::backend::endpoint;
 use crate::inference::eval::agentic::build::sandbox_for;
 use crate::inference::eval::agentic::model_turn::ModelTurn;
 use crate::inference::eval::agentic::sandbox::DeterministicSandbox;
@@ -17,8 +16,6 @@ use crate::inference::params::InferenceParams;
 use crate::inference::eval::toolcall::score::verdict_passed;
 use crate::inference::eval::toolcall::tasks::{is_agentic, ToolTask};
 use crate::inference::eval::run_summary::RunSummary;
-use crate::inference::ollama::ollama::force_unload;
-use crate::inference::ollama::ollama_show::probe_supports_tools;
 use futures_util::stream::{self, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -35,7 +32,7 @@ pub enum TaskOutcome {
     Agentic { report: AgenticReport },
     Error {
         message: String,
-        /// The error was a host memory OOM (Metal/CUDA out-of-memory, Ollama OOM-kill) —
+        /// The error was a host memory OOM (Metal/CUDA out-of-memory, the server OOM-kill) —
         /// classified HERE, once, so every consumer (UI badge, ceiling suggestion) reads
         /// the same verdict instead of re-matching strings. `#[serde(default)]` so
         /// persisted pre-flag outcomes load as `false`.
@@ -45,7 +42,7 @@ pub enum TaskOutcome {
 }
 
 /// Host memory OOM, by message. Matches the strings the local backends actually emit
-/// (Ollama/llama.cpp "out of memory", macOS Metal `kIOGPUCommandBufferCallbackErrorOutOfMemory`,
+/// (llama.cpp "out of memory", macOS Metal `kIOGPUCommandBufferCallbackErrorOutOfMemory`,
 /// the "not enough memory" copy `errors.rs` maps) — deliberately NARROW: an ambiguous
 /// infra error stays `InfraHost` without the OOM claim.
 pub fn is_oom_message(msg: &str) -> bool {
@@ -79,15 +76,6 @@ pub struct NoVramGate;
 impl VramGate for NoVramGate {
     async fn unload(&self, _model: &str) -> AppResult<()> {
         Ok(())
-    }
-}
-
-/// Production gate: Ollama `keep_alive:0` + poll `/api/ps` until VRAM is 0
-/// (assert-and-fail). The only gate that touches hardware.
-pub struct OllamaVramGate;
-impl VramGate for OllamaVramGate {
-    async fn unload(&self, model: &str) -> AppResult<()> {
-        force_unload(endpoint::OLLAMA, model).await
     }
 }
 
@@ -242,7 +230,7 @@ pub enum NativeErrorClass {
     /// No task errored.
     #[default]
     None,
-    /// Backend/transport error (Ollama OOM-killed or crashed under host pressure, a 5xx, a
+    /// Backend/transport error (the server OOM-killed or crashed under host pressure, a 5xx, a
     /// dropped connection, a transport timeout). NOT a capability signal — the machine.
     InfraHost,
     /// The native tool API rejected the request (a 4xx): this model can't express the
@@ -292,7 +280,7 @@ pub struct BatchColumn {
     pub backend: BackendKind,
     pub toolcall: Option<ToolCallReport>,
     pub agentic: Option<AggAgentic>,
-    /// Phase 7.2: the parallel NATIVE function-calling aggregate (Ollama `/api/chat`
+    /// Phase 7.2: the parallel NATIVE function-calling aggregate (the OpenAI tool wire
     /// `tool_calls`), when measured. `None` = not run / unsupported backend → N/A.
     /// `#[serde(default)]` so pre-7.2 reports still load.
     #[serde(default)]
@@ -305,7 +293,7 @@ pub struct BatchColumn {
     /// (and non-thinking columns) load as `false`.
     #[serde(default)]
     pub is_thinking: bool,
-    /// This model's turns were CPU-offloaded (Ollama spilled it past VRAM) — a slow-inference
+    /// This model's turns were CPU-offloaded (the server spilled it past VRAM) — a slow-inference
     /// signal the runner uses to grant a larger per-step budget. Surfaced so a slow verdict reads
     /// as "offloaded", not "incapable". `#[serde(default)]` so older reports load as `false`.
     #[serde(default)]
@@ -315,7 +303,7 @@ pub struct BatchColumn {
     /// recorded / older report. `#[serde(default)]`.
     #[serde(default)]
     pub ctx_ceiling: Option<u32>,
-    /// Weight placement measured from `/api/ps` at run start (Ollama only; `None` elsewhere /
+    /// Weight placement measured from `/api/ps` at run start (the server only; `None` elsewhere /
     /// older reports). `offload_bytes` = size − size_vram — the measured CPU spill QUANTITY
     /// behind `cpu_offloaded` (the "why 3 tok/s" answer). `weights_vram_bytes` is the constant
     /// weights baseline the Inspector's memory breakdown stacks under the per-task KV cost.
@@ -327,7 +315,7 @@ pub struct BatchColumn {
     pub offload_bytes: Option<u64>,
     /// The quantization `/api/ps` CLAIMS for the loaded model (e.g. "Q4_K_M") — the tag's
     /// assertion, never verified truth. Part of the run-config stamp so a later run-comparison
-    /// view is a view, not a migration. `None` when unreported (llama.cpp/MLX, older reports).
+    /// view is a view, not a migration. `None` when unreported (llama.cpp, older reports).
     #[serde(default)]
     pub quantization_claimed: Option<String>,
     /// KV-cache precision the LOCAL llama-server was launched with ("f16" | "q8_0"), from the
@@ -347,12 +335,6 @@ pub struct BatchReport {
     /// before Phase 7.4 (and the engine, which doesn't know the param) still load.
     #[serde(default)]
     pub num_ctx: Option<u32>,
-    /// The running Ollama server version (`/api/version`) when this batch ran. Stamped so a
-    /// NATIVE tool-calling regression on a version bump is diagnosable — the honest
-    /// garbled/foreign verdict reads as "at Ollama vX", not a silent zero. `None` if not probed
-    /// / Ollama down. `#[serde(default)]` so older reports load.
-    #[serde(default)]
-    pub ollama_version: Option<String>,
     /// The leaderboard identity hash for THIS run — content-verified at run time: `Some(hash)`
     /// ONLY when the run's tasks are byte-for-byte the pristine bundled collection; `None` for a
     /// custom/imported collection OR any edit (the fork-on-edit guard). Publish reads THIS (never
@@ -587,7 +569,7 @@ where
 }
 
 /// The VRAM-safe, **resumable** sequential dispatcher. For each target model:
-/// (1) the **VRAM-isolation gate** unloads the previous Ollama model and asserts
+/// (1) the **VRAM-isolation gate** unloads the previous model and asserts
 /// its VRAM cleared before this one loads — an `Err` here propagates and **halts**
 /// the run with the job log intact (never loads onto dirty VRAM); (2) every task
 /// runs in order — a unit already in `prior` is **folded silently** (no re-run, no
@@ -620,10 +602,10 @@ where
     let mut columns = Vec::with_capacity(targets.len());
     let mut prev: Option<(String, BackendKind)> = None;
     for target in targets {
-        // VRAM-isolation gate: evict the previous Ollama model and confirm VRAM
-        // freed before this model loads. Assert-and-fail — Err halts (log intact).
-        if let Some((pm, pb)) = &prev {
-            if *pb == BackendKind::Ollama && pm != &target.model {
+        // VRAM-isolation gate: evict the previous model and confirm VRAM freed
+        // before this one loads. Assert-and-fail — Err halts (log intact).
+        if let Some((pm, _)) = &prev {
+            if pm != &target.model {
                 gate.unload(pm).await?;
             }
         }
@@ -734,9 +716,9 @@ where
         });
         prev = Some((target.model.clone(), target.backend));
     }
-    // The engine is param-agnostic; the command layer stamps `num_ctx`/`ollama_version`/reasoning
+    // The engine is param-agnostic; the command layer stamps `num_ctx`/reasoning
     // budget after.
-    Ok(BatchReport { collection_id: collection_id.to_string(), columns, num_ctx: None, ollama_version: None, collection_hash: None, think_preset: None, params: None })
+    Ok(BatchReport { collection_id: collection_id.to_string(), columns, num_ctx: None, collection_hash: None, think_preset: None, params: None })
 }
 
 /// Build a partial `BatchReport` from already-completed units ONLY — no execution.
@@ -783,7 +765,7 @@ pub fn fold_report(
             }
         })
         .collect();
-    BatchReport { collection_id: collection_id.to_string(), columns, num_ctx: None, ollama_version: None, collection_hash: None, think_preset: None, params: None }
+    BatchReport { collection_id: collection_id.to_string(), columns, num_ctx: None, collection_hash: None, think_preset: None, params: None }
 }
 
 fn unit_of(target: &ModelTarget, task: &ToolTask, outcome: TaskOutcome, is_native: bool) -> CompletedUnit {
@@ -798,8 +780,8 @@ fn unit_of(target: &ModelTarget, task: &ToolTask, outcome: TaskOutcome, is_nativ
 
 /// Phase 7.2: measure NATIVE function-calling per model and fold a parallel
 /// `agentic_native_fc` aggregate onto each column — the same agentic tasks, the
-/// same sandbox/scoring, but driven by `make_native` (Ollama `/api/chat` tools in
-/// production, a scripted turn in tests). Only Ollama columns whose model is in
+/// same sandbox/scoring, but driven by `make_native` (the OpenAI tool wire tools in
+/// production, a scripted turn in tests). Only the server columns whose model is in
 /// `supported` (the capability probe ran upstream) get a native run; others stay
 /// `None` (N/A). Native steps ARE streamed to the UI sink (tagged `is_native`) so the user can
 /// watch the native trajectory in the Evaluator. Best-effort: a native run that errors leaves
@@ -840,7 +822,7 @@ where
         }
         // `supported` already holds only native-capable models for THIS run's backend
         // (resolved by `probe_native_tools`), so membership is the whole gate — native
-        // FC follows the running server, not a hardcoded Ollama check.
+        // FC follows the running server, not a hardcoded the server check.
         if !supported.contains(&col.model) {
             continue;
         }
@@ -966,21 +948,17 @@ where
     Ok(())
 }
 
-/// Does this backend+model support a NATIVE tool-calling API? Ollama answers via
-/// `/api/show`'s `tools` capability; llama.cpp launched with `--jinja` applies the
-/// model's embedded tool grammar (treated as capable — a template lacking tool
-/// support simply yields no `tool_calls`, which the harness labels honestly); MLX
-/// has no native tool API. Mirrors the prompt path's backend dispatch so native
-/// FC follows whichever server is running. Lives here (not in the command layer)
-/// because both the GUI batch command and the headless CLI dispatch through it.
-pub(crate) async fn probe_native_tools(backend: BackendKind, endpoint_url: &str, model: &str) -> bool {
+/// Does this backend+model support a NATIVE tool-calling API? Every remaining
+/// backend serves the OpenAI tool wire — llama.cpp launched with `--jinja` applies
+/// the model's embedded tool grammar, as do the remote vLLM/SGLang servers — so all
+/// are treated as capable. A template lacking tool support simply yields no
+/// `tool_calls`, which the harness labels honestly rather than pre-judging here.
+/// Kept as a function (not a constant) so a future backend with a real capability
+/// probe has one place to hook in, and so both the GUI batch command and the
+/// headless CLI keep dispatching through the same seam.
+pub(crate) async fn probe_native_tools(backend: BackendKind, _endpoint_url: &str, _model: &str) -> bool {
     match backend {
-        BackendKind::Ollama => probe_supports_tools(endpoint_url, model).await,
-        // llama.cpp (`--jinja`) and the remote OpenAI servers apply the model's
-        // tool grammar; a template lacking tool support simply yields no
-        // `tool_calls`, which the harness labels honestly.
         BackendKind::LlamaCpp | BackendKind::VLlm | BackendKind::SgLang => true,
-        BackendKind::Mlx => false,
     }
 }
 

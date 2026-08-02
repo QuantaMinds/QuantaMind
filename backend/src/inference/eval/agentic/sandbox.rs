@@ -56,7 +56,7 @@ pub enum EndStateRule {
 /// tool schemas injected into the system prompt, the deterministic mock results,
 /// and the end-state success criterion. No native function-calling — the agent
 /// emits raw-text JSON calls and the sandbox replies in text, so the identical
-/// environment runs across Ollama / llama.cpp / MLX.
+/// environment runs across llama.cpp.
 /// How the sandbox answers a tool call. `StaticMocks` is the v1 default (canonical
 /// call -> authored response). `WorldState` is the Phase 9-v2 mode: responses are
 /// derived from a ground-truth map the model must discover via tools.

@@ -1,12 +1,11 @@
 import { useEffect } from "react";
 import type { BackendKind } from "./shared/ipc/models/storage";
 import { useBackendStore } from "./shared/state/backendStore";
-import { useMlxBackend, useLlamaBackend, useVllmBackend, useSglangBackend } from "./features/workspace/hooks/useBackendHealth";
+import { useLlamaBackend, useVllmBackend, useSglangBackend } from "./features/workspace/hooks/useBackendHealth";
 import { useRemoteEndpointsStore } from "./features/workspace/state/remoteEndpointsStore";
 
-const BASE_BACKENDS: { id: BackendKind; label: string }[] = [
+const BACKENDS: { id: BackendKind; label: string }[] = [
   { id: "llama_cpp", label: "llama.cpp" },
-  { id: "ollama", label: "Ollama" },
   { id: "vllm", label: "vLLM" },
   { id: "sglang", label: "SGLang" },
 ];
@@ -16,27 +15,23 @@ function dotClass(healthy: boolean | null): string {
   return `inline-block h-2 w-2 rounded-full ${color}`;
 }
 
-/// The global LLM-backend picker in the header — a dropdown (llama.cpp / Ollama,
-/// plus MLX on Apple Silicon where mlx_lm.server can run). The whole app scopes
-/// its model list and runs to the selected backend (architecture.md rule 7). The
-/// dot reflects the selected backend's server: green = running. useMlxBackend /
-/// useLlamaBackend poll their health into backendStore (Ollama via the StatusBar).
+/// The global LLM-backend picker in the header — a dropdown (llama.cpp, plus the
+/// remote vLLM / SGLang servers). The whole app scopes its model list and runs to
+/// the selected backend (architecture.md rule 7). The dot reflects the selected
+/// backend's server: green = running. The `use*Backend` hooks poll health into
+/// backendStore.
 export function BackendSelector() {
   // Load the configured remote endpoints once so the vLLM/SGLang pollers can gate on them —
   // without this they'd default to unconfigured and never poll even when an endpoint IS set.
   useEffect(() => {
     void useRemoteEndpointsStore.getState().load();
   }, []);
-  const { appleSilicon } = useMlxBackend();
   useLlamaBackend();
   useVllmBackend();
   useSglangBackend();
   const selected = useBackendStore((s) => s.selectedBackend);
   const setSelected = useBackendStore((s) => s.setSelectedBackend);
   const healthy = useBackendStore((s) => s.isHealthy(selected));
-  const backends = appleSilicon
-    ? [...BASE_BACKENDS, { id: "mlx" as BackendKind, label: "MLX" }]
-    : BASE_BACKENDS;
   return (
     <div
       data-testid="header-backend-selector"
@@ -51,7 +46,7 @@ export function BackendSelector() {
         onChange={(e) => setSelected(e.target.value as BackendKind)}
         className="text-sm bg-transparent outline-none cursor-pointer"
       >
-        {backends.map((b) => (
+        {BACKENDS.map((b) => (
           <option key={b.id} value={b.id}>
             {b.label}
           </option>

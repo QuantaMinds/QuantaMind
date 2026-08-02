@@ -122,7 +122,7 @@ export function useBatchRun() {
           available = false;
         }
         if (!available) {
-          const label = backend === "llama_cpp" ? "llama.cpp" : backend === "mlx" ? "MLX" : "Ollama";
+          const label = "llama.cpp";
           useBatchStore
             .getState()
             .setError(`${label} server isn't reachable — start it from the Workspace status bar, then re-run.`);
@@ -172,7 +172,7 @@ export function useBatchRun() {
       }
       if (!available) {
         const label =
-          target.backend === "llama_cpp" ? "llama.cpp" : target.backend === "mlx" ? "MLX" : "Ollama";
+          target.backend === "llama_cpp" ? "llama.cpp" : target.backend === "vllm" ? "vLLM" : "SGLang";
         useBatchStore
           .getState()
           .setError(`${label} server isn't reachable — start it from the Workspace status bar, then re-run.`);

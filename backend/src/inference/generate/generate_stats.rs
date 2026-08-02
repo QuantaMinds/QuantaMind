@@ -2,7 +2,7 @@ use serde::Serialize;
 
 /// Server-reported metrics from a backend's final stream chunk, normalized to
 /// milliseconds. Every field is optional: a backend reports only what it knows
-/// (Ollama gives load + prompt-eval; llama.cpp gives prompt/predict timings),
+/// (the server gives load + prompt-eval; llama.cpp gives prompt/predict timings),
 /// and `None` means "not measured" — never fabricate a zero. See
 /// `docs/architecture.md#robustness`.
 #[derive(Default, Clone, Serialize, PartialEq, Debug)]
@@ -15,19 +15,19 @@ pub struct GenerateStats {
     pub total_ms: Option<u64>,
     /// Prompt tokens served from the server's prompt cache (prefix reuse) rather
     /// than recomputed — llama.cpp's `timings.cache_n`. `None` for backends that
-    /// don't report it (Ollama, MLX). On an agentic turn whose transcript prefix
+    /// don't report it (the server, the remote server). On an agentic turn whose transcript prefix
     /// was reused, this is high and `prompt_eval_ms` ≈ 0.
     pub cache_n: Option<u32>,
     /// Why generation stopped, from the backend's final chunk: `"stop"` (natural end /
     /// stop token) vs `"length"` (hit the `num_predict` output cap → the turn was
-    /// TRUNCATED mid-output). llama.cpp/MLX report `finish_reason`; Ollama reports
+    /// TRUNCATED mid-output). llama.cpp report `finish_reason`; some servers report
     /// `done_reason` (mapped to `"length"` on cap). `None` for backends/paths that
     /// don't surface it. The agentic runner reads this to distinguish a real capability
     /// failure from a harness-truncation it can retry with a larger budget.
     pub finish_reason: Option<String>,
     /// How many STRUCTURED `tool_calls` the backend's native tool API returned for this turn.
     ///
-    /// `None` = no native tool channel was used at all (the prompt path, MLX, a plain
+    /// `None` = no native tool channel was used at all (the prompt path, the remote server, a plain
     /// generate) — **or an older record that never measured it**. `Some(0)` = the native API
     /// WAS asked and returned none, so any calls scored afterwards were salvaged out of the
     /// `content` text by `extract_calls`, and are NOT native function-calling.
@@ -48,13 +48,13 @@ pub struct GenerateStats {
     /// (llama-server `/tokenize` over the accumulated `reasoning_content` text,
     /// `add_special:false`). Excludes the channel-marker/EOG tokens, so
     /// `thinking + answer ≈ eval_count − ~3` (reconciled live within 1%). `None` when the
-    /// backend can't measure it: Ollama has no tokenize endpoint (404 on 0.24.0,
-    /// ollama#12030 unmerged — its combined `eval_count` must NOT be relabeled as
+    /// backend can't measure it: the server has no tokenize endpoint (404 on 0.24.0,
+    /// the server#12030 unmerged — its combined `eval_count` must NOT be relabeled as
     /// thinking), a terse model emits no reasoning channel, or the tokenize call failed.
     pub thinking_tokens: Option<u32>,
 }
 
-/// Nanoseconds → whole milliseconds (Ollama reports ns durations).
+/// Nanoseconds → whole milliseconds (some servers report ns durations).
 pub fn ns_to_ms(ns: u64) -> u64 {
     ns / 1_000_000
 }

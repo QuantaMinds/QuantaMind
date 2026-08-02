@@ -25,7 +25,7 @@ fn masks_generic_user_segment_for_another_user() {
 
 #[test]
 fn leaves_non_home_paths_untouched() {
-    assert_eq!(redact_path("/usr/local/bin/ollama"), "/usr/local/bin/ollama");
+    assert_eq!(redact_path("/usr/local/bin/the server"), "/usr/local/bin/the server");
     assert_eq!(redact_path("qwen3:8b"), "qwen3:8b");
     assert_eq!(redact_path("meta-llama/Llama-3-8B"), "meta-llama/Llama-3-8B");
 }

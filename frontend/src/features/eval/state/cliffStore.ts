@@ -29,7 +29,7 @@ export interface CliffRequest {
   steps: number;
   /// GGUF path for a llama.cpp model, carried so the probe can match the RUNNING server by
   /// its exact launch path. Without it the override drops the path → the backend compares the
-  /// server's real path against "" → false "WrongModel" ("Start llama.cpp with …"). Absent for Ollama.
+  /// server's real path against "" → false "WrongModel" ("Start llama.cpp with …"). Absent for remote backends.
   path?: string;
 }
 

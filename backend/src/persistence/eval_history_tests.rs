@@ -6,7 +6,7 @@ fn summary(ts: &str, composite: f64) -> RunSummary {
     RunSummary {
         ts: ts.into(),
         model: "llama3.2:1b".into(),
-        backend: BackendKind::Ollama,
+        backend: BackendKind::LlamaCpp,
         parse_rate: Some(1.0),
         tool_selection_acc: Some(1.0),
         arg_acc: Some(0.5),
@@ -24,7 +24,7 @@ fn summary(ts: &str, composite: f64) -> RunSummary {
 fn old_summary_without_agentic_fields_still_loads() {
     // Back-compat: history written before Phase 6 omits pass_k/agentic_avg_steps/
     // effort; #[serde(default)] must fill them with None.
-    let json = r#"[{"ts":"t","model":"m","backend":"ollama","parse_rate":1.0,"tool_selection_acc":1.0,"arg_acc":1.0,"abstain_acc":null,"composite":0.9,"n":2}]"#;
+    let json = r#"[{"ts":"t","model":"m","backend":"llama_cpp","parse_rate":1.0,"tool_selection_acc":1.0,"arg_acc":1.0,"abstain_acc":null,"composite":0.9,"n":2}]"#;
     let parsed: Vec<RunSummary> = serde_json::from_str(json).unwrap();
     assert_eq!(parsed[0].pass_k, None);
     assert_eq!(parsed[0].effort, None);

@@ -39,7 +39,7 @@ describe("coldWarmSummary", () => {
 });
 
 describe("coldWarmState", () => {
-  it("is 'unsupported' when runs exist but none report load_ms (MLX/llama.cpp)", () => {
+  it("is 'unsupported' when runs exist but none report load_ms (llama.cpp)", () => {
     const st = coldWarmState([e("m", null, 600), e("m", null, 620), e("m", null, 590)], "m");
     expect(st.kind).toBe("unsupported");
   });

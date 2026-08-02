@@ -27,7 +27,7 @@ beforeEach(() => {
     init: vi.fn().mockResolvedValue(undefined),
   });
   useInstalledModelsStore.setState({
-    list: [{ name: "m1", size_bytes: 1, modified_at: "", family: "", parameter_size: "", quantization: "", backend: "ollama" }],
+    list: [{ name: "m1", size_bytes: 1, modified_at: "", family: "", parameter_size: "", quantization: "", backend: "llama_cpp" }],
     status: "ready", error: null, lastRefreshedAt: 1,
   });
 });
@@ -36,7 +36,7 @@ describe("MatrixPanel", () => {
   it("loads the active collection and runs a matrix for the toggled models", async () => {
     const report = {
       collection_id: "easy-coding", avg_score: 0.5,
-      columns: [{ model: "m1", backend: "ollama", error: null,
+      columns: [{ model: "m1", backend: "llama_cpp", error: null,
         report: { n: 1, parse_rate: 1, tool_selection_acc: 1, arg_acc: 1, abstain_acc: null, composite: 0.5,
           per_task: [{ id: "w", category: "single", verdict: { parsed: true, tool_match: true, args_match: true, abstain_correct: null } }] } }],
     };
@@ -54,7 +54,7 @@ describe("MatrixPanel", () => {
     await waitFor(() => expect(runCollectionMatrix).toHaveBeenCalledOnce());
     const [collectionId, targets, passedTasks] = vi.mocked(runCollectionMatrix).mock.calls[0];
     expect(collectionId).toBe("easy-coding");
-    expect(targets).toEqual([{ model: "m1", backend: "ollama" }]);
+    expect(targets).toEqual([{ model: "m1", backend: "llama_cpp" }]);
     expect(passedTasks).toHaveLength(1);
     await waitFor(() => expect(screen.getByTestId("eval-matrix-cell-w-m1")).toBeTruthy());
   });

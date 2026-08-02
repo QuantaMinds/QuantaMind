@@ -7,13 +7,15 @@ vi.mock("@tauri-apps/api/event", () => ({
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("../../storage/StorageSection", () => ({ StorageSection: () => null }));
 vi.mock("../../../../../shared/ipc/models/storage", () => ({
-  getInstalledModelsWithStats: vi.fn(),
   listVllmModels: vi.fn().mockResolvedValue([]),
   listSglangModels: vi.fn().mockResolvedValue([]),
-  removeModel: vi.fn(),
+}));
+vi.mock("../../../../../shared/ipc/models/llama_start", () => ({
+  listLlamaModels: vi.fn(),
+  deleteLlamaModel: vi.fn(),
 }));
 
-import { getInstalledModelsWithStats } from "../../../../../shared/ipc/models/storage";
+import { listLlamaModels } from "../../../../../shared/ipc/models/llama_start";
 import { DownloadsTab } from "../DownloadsTab";
 import { useModelStore } from "../../../state/modelStore";
 import { useInstalledModelsStore } from "../../../state/installedModelsStore";
@@ -23,7 +25,7 @@ beforeEach(() => {
     downloads: {},
     pendingLocalPath: null,
   });
-  vi.mocked(getInstalledModelsWithStats).mockReset();
+  vi.mocked(listLlamaModels).mockReset();
   useInstalledModelsStore.setState({
     list: [], status: "idle", error: null, lastRefreshedAt: null,
   });
@@ -31,14 +33,14 @@ beforeEach(() => {
 
 describe("DownloadsTab", () => {
   it("shows empty copy when nothing is in-progress and nothing installed", async () => {
-    vi.mocked(getInstalledModelsWithStats).mockResolvedValue([]);
+    vi.mocked(listLlamaModels).mockResolvedValue([]);
     render(<DownloadsTab />);
     expect(await screen.findByTestId("downloads-empty-active")).toBeInTheDocument();
     expect(await screen.findByTestId("downloads-empty-installed")).toBeInTheDocument();
   });
 
   it("renders in-progress entry with progress bar and a Cancel button", async () => {
-    vi.mocked(getInstalledModelsWithStats).mockResolvedValue([]);
+    vi.mocked(listLlamaModels).mockResolvedValue([]);
     useModelStore.getState().upsertDownload({
       id: "qwen2.5:7b", source: "huggingface", name: "qwen2.5:7b",
       status: "downloading", percent: 37, bytesCompleted: 100, bytesTotal: 271,
@@ -49,11 +51,11 @@ describe("DownloadsTab", () => {
   });
 
   it("renders installed models with a Delete button per item", async () => {
-    vi.mocked(getInstalledModelsWithStats).mockResolvedValue([
+    vi.mocked(listLlamaModels).mockResolvedValue([
       {
-        name: "phi3.5:latest",
+        name: "phi3.5", path: "/g/phi3.5.gguf",
         family: "phi3", parameter_size: "3.8B", quantization: "Q4_K_M",
-        size_bytes: 2_400_000_000, modified_at: "2026-05-22", backend: "ollama" as const,
+        size_bytes: 2_400_000_000, modified_at: "2026-05-22", backend: "llama_cpp" as const,
       },
     ]);
     render(<DownloadsTab />);

@@ -33,11 +33,11 @@ describe("modeFrom", () => {
 });
 
 describe("buildRunCommand", () => {
-  const base = { backend: "ollama" as const, model: "qwen2.5:7b", collection: "medium-coding", isCustom: false, mode: "native" as const, thinking: "standard", k: 8 };
+  const base = { backend: "llama_cpp" as const, model: "qwen2.5:7b", collection: "medium-coding", isCustom: false, mode: "native" as const, thinking: "standard", k: 8 };
 
   it("builds a built-in `qm run` with exact flags", () => {
     expect(buildRunCommand({ ...base, tier: undefined }).command).toBe(
-      "qm run --backend ollama --model qwen2.5:7b --collection medium-coding --mode native --thinking standard --k 8",
+      "qm run --backend llama_cpp --model qwen2.5:7b --collection medium-coding --mode native --thinking standard --k 8",
     );
   });
   it("includes --tier only when set (auto → omitted, CLI uses the collection tier)", () => {
@@ -69,17 +69,17 @@ describe("buildRunCommand", () => {
 
 describe("buildPromptCommand", () => {
   it("builds `qm prompt` with params + a stdin note (Workspace's real equivalent)", () => {
-    const c = buildPromptCommand({ backend: "ollama", model: "qwen2.5:7b", params: { temperature: 0.8 } });
-    expect(c.command).toBe("qm prompt --backend ollama --model qwen2.5:7b --temperature 0.8");
+    const c = buildPromptCommand({ backend: "llama_cpp", model: "qwen2.5:7b", params: { temperature: 0.8 } });
+    expect(c.command).toBe("qm prompt --backend llama_cpp --model qwen2.5:7b --temperature 0.8");
     expect(c.note).toMatch(/stdin/);
   });
 });
 
 describe("buildRunHistory", () => {
   it("is a runnable save + re-assess chain", () => {
-    const c = buildRunHistory({ backend: "ollama", model: "qwen2.5:7b", collection: "easy-coding", isCustom: false, profile: "general-agent" });
+    const c = buildRunHistory({ backend: "llama_cpp", model: "qwen2.5:7b", collection: "easy-coding", isCustom: false, profile: "general-agent" });
     expect(c.command).toBe(
-      "qm run --backend ollama --model qwen2.5:7b --collection easy-coding --save-report run.json && qm report --report run.json --profile general-agent",
+      "qm run --backend llama_cpp --model qwen2.5:7b --collection easy-coding --save-report run.json && qm report --report run.json --profile general-agent",
     );
   });
 });

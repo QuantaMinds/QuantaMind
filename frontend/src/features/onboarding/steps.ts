@@ -1,9 +1,9 @@
-export type OnboardingStep = "ollama" | "model" | "ready";
+export type OnboardingStep = "server" | "model" | "ready";
 
-/// Which onboarding step to show, derived from live state. Ollama first,
-/// then a model, then the ready-to-go scaffold.
-export function currentStep(ollamaHealthy: boolean | null, modelCount: number): OnboardingStep {
-  if (ollamaHealthy !== true) return "ollama";
+/// Which onboarding step to show, derived from live state: get a local server
+/// running, then install a model, then scaffold a ready-to-go workspace.
+export function currentStep(serverHealthy: boolean | null, modelCount: number): OnboardingStep {
+  if (serverHealthy !== true) return "server";
   if (modelCount === 0) return "model";
   return "ready";
 }

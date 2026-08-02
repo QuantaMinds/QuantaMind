@@ -1,16 +1,12 @@
 use crate::errors::{AppError, AppResult};
 use crate::inference::backend::backend_kind::BackendKind;
 use crate::inference::backend::remote_config::{self, RemoteEndpoint};
-use crate::inference::mlx::server::mlx_endpoint::mlx_endpoint;
 
-/// Default HTTP base for each backend. Ollama serves on its well-known port; the
-/// bundled `llama-server` and `mlx_lm.server` sidecars each use a distinct port so
-/// all can run side by side. llama-server is on **8081** (NOT 8080) so it can't be
-/// shadowed by a manually-launched `mlx_lm.server`, whose default port is 8080 —
-/// that collision made llama's `/health` pass while inference 404'd.
-pub const OLLAMA: &str = "http://localhost:11434";
+/// Default HTTP base for the bundled `llama-server` sidecar. It sits on **8081**
+/// (NOT 8080) so a manually-launched OpenAI-compatible server on the community
+/// default 8080 can't shadow it — that collision made llama's `/health` pass
+/// while inference 404'd.
 pub const LLAMA_SERVER: &str = "http://localhost:8081";
-pub const MLX_SERVER: &str = "http://localhost:8082";
 
 /// A fully-resolved endpoint: the base URL plus an optional bearer token. Local
 /// backends carry no token; the remote vLLM/SGLang servers may (launched with
@@ -21,16 +17,14 @@ pub struct ResolvedEndpoint {
     pub api_key: Option<String>,
 }
 
-/// Resolve a backend to its base URL + auth. Local backends are static (MLX reads
-/// its app-managed dynamic port); the remote backends read the user-configured
-/// endpoint from `remote_config` and error clearly when it isn't set — so an
-/// unconfigured run fails with "set it in Settings", not an opaque connect error.
+/// Resolve a backend to its base URL + auth. The local sidecar is static; the
+/// remote backends read the user-configured endpoint from `remote_config` and
+/// error clearly when it isn't set — so an unconfigured run fails with "set it
+/// in Settings", not an opaque connect error.
 pub fn resolve(kind: BackendKind) -> AppResult<ResolvedEndpoint> {
     let local = |url: String| ResolvedEndpoint { url, api_key: None };
     Ok(match kind {
-        BackendKind::Ollama => local(OLLAMA.to_string()),
         BackendKind::LlamaCpp => local(LLAMA_SERVER.to_string()),
-        BackendKind::Mlx => local(mlx_endpoint()),
         BackendKind::VLlm => remote(remote_config::vllm(), "vLLM")?,
         BackendKind::SgLang => remote(remote_config::sglang(), "SGLang")?,
     })
@@ -58,15 +52,15 @@ mod tests {
     use crate::inference::backend::remote_config::CONFIG_TEST_LOCK;
 
     #[test]
-    fn ollama_and_llama_have_distinct_static_ports() {
-        assert!(base_url(BackendKind::Ollama).ends_with(":11434"));
+    fn llama_uses_its_distinct_static_port() {
         assert!(base_url(BackendKind::LlamaCpp).ends_with(":8081"));
-        assert_ne!(base_url(BackendKind::Ollama), base_url(BackendKind::LlamaCpp));
+        // 8081, not the community-default 8080 a hand-launched server would take.
+        assert!(!base_url(BackendKind::LlamaCpp).ends_with(":8080"));
     }
 
     #[test]
     fn local_backends_resolve_to_http_urls_with_no_auth() {
-        for kind in [BackendKind::Ollama, BackendKind::LlamaCpp, BackendKind::Mlx] {
+        for kind in [BackendKind::LlamaCpp] {
             let r = resolve(kind).expect("local always resolves");
             assert!(r.url.starts_with("http://"), "{kind:?}");
             assert!(r.api_key.is_none(), "{kind:?}");

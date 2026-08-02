@@ -50,7 +50,7 @@ list area. tsc clean; EvalManager + mcp suites 45 tests green.
   + server → schema-valid rate + attribution). Quick-add chips for the reference
   filesystem/sqlite servers.
 - **Live-verified**: the real `BackendDriver` scored a world task end-to-end —
-  Ollama `qwen3.5:9b` created `result.txt` across fresh worlds → **2/2 ready**.
+  llama.cpp `qwen3.5:9b` created `result.txt` across fresh worlds → **2/2 ready**.
 
 ## Remaining (honest status)
 - **Streaming live trace** (Screen 5): the verdict is returned at the end; a

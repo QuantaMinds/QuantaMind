@@ -25,11 +25,11 @@ export const PARAMS: ParamInfo[] = [
   { key: "top_k", label: "Top K", min: 0, max: 100, step: 1, slider: true, integer: true,
     placeholder: "40", tooltip: "Sample only from the K most likely tokens. 0 disables the cutoff." },
   { key: "max_tokens", label: "Max tokens", min: 0, max: 4096, step: 1, slider: true, integer: true,
-    placeholder: "unlimited", tooltip: "Cap on generated tokens (Ollama num_predict). Empty = model default." },
+    placeholder: "unlimited", tooltip: "Cap on generated tokens. Empty = model default." },
   { key: "repeat_penalty", label: "Repeat penalty", min: 0, max: 2, step: 0.05, slider: true, integer: false,
     placeholder: "1.1", tooltip: "Discourage repetition. Above 1 penalizes repeated tokens." },
   { key: "seed", label: "Seed", min: 0, max: 0, step: 1, slider: false, integer: true,
     placeholder: "random", tooltip: "Fixed seed gives reproducible output. Empty = random each run." },
   { key: "num_ctx", label: "Context window", min: 0, max: 131072, step: 1024, slider: false, integer: true,
-    placeholder: "model default (4096)", tooltip: "Context window (num_ctx). Higher lets the model use more of its window for long prompts, but uses more KV-cache memory. Empty = the model/server default. Ollama applies it per run; llama.cpp fixes context at launch, so changing this restarts llama.cpp to apply. MLX is fixed by the model." },
+    placeholder: "model default (4096)", tooltip: "Context window (num_ctx). Higher lets the model use more of its window for long prompts, but uses more KV-cache memory. Empty = the model/server default. llama.cpp fixes context at launch, so changing this restarts the server to apply. A remote server's window is fixed by however it was launched." },
 ];

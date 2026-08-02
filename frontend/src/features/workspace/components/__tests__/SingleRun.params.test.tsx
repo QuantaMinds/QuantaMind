@@ -12,7 +12,7 @@ import { useWorkspacesStore } from "../../../workspaces/state/workspaceStore";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  useBackendStore.setState({ selectedBackend: "ollama", ollamaHealthy: true, llamaHealthy: null, mlxHealthy: null });
+  useBackendStore.setState({ selectedBackend: "llama_cpp", llamaHealthy: true });
   useParamsStore.setState({ globalParams: {}, keepLoaded: false });
   useWorkspacesStore.setState({
     root: "/ws", tree: [], currentPath: "/ws/a.quantamind.yaml",
@@ -28,7 +28,7 @@ describe("SingleRun routes the global params to run_prompt", () => {
     fireEvent.click(screen.getByRole("button", { name: /^run$/i }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("run_prompt", expect.anything()));
     const call = vi.mocked(invoke).mock.calls.find((c) => c[0] === "run_prompt");
-    expect(call?.[1]).toMatchObject({ model: "llama3.2:1b", params: { temperature: 0, seed: 42 }, backend: "ollama" });
+    expect(call?.[1]).toMatchObject({ model: "llama3.2:1b", params: { temperature: 0, seed: 42 }, backend: "llama_cpp" });
   });
 
   it("omits params entirely when globalParams is empty (backend default applies)", async () => {
@@ -39,7 +39,7 @@ describe("SingleRun routes the global params to run_prompt", () => {
     expect((call?.[1] as Record<string, unknown>).params).toBeUndefined();
   });
 
-  it("omits keepAlive by default (Ollama default unload) and sends -1 when keep-loaded is on", async () => {
+  it("omits keepAlive by default and sends -1 when keep-loaded is on", async () => {
     const { unmount } = render(<SingleRun model="llama3.2:1b" />);
     fireEvent.click(screen.getByRole("button", { name: /^run$/i }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("run_prompt", expect.anything()));

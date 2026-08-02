@@ -4,14 +4,14 @@ import type { BackendKind } from "../../../../shared/ipc/models/storage";
 /// Metadata inspector + template/base-model guard for an installed model. Shows
 /// the raw chat template as inert text (never injected HTML), the reported
 /// capabilities, and a base-model advisory when the metadata looks like a
-/// text-completion model. Ollama-only — other backends show "Not available".
+/// text-completion model. Shows "Not available" when no backend exposes it.
 export function TemplatePanel({ model, backend }: { model: string; backend: BackendKind }) {
   const { data, status } = useModelInspect(model, backend);
 
   if (status === "loading") return <p className="text-xs text-gray-500" data-testid="inspect-loading">Inspecting model…</p>;
   if (status === "error" || !data) return <p className="text-xs text-red-600" data-testid="inspect-error">Couldn't inspect this model.</p>;
   if (!data.available)
-    return <p className="text-xs text-gray-500" data-testid="inspect-unavailable">{data.note ?? "Not available — Ollama only"}</p>;
+    return <p className="text-xs text-gray-500" data-testid="inspect-unavailable">{data.note ?? "Not available for this backend"}</p>;
 
   return (
     <div className="space-y-2 text-sm" data-testid="template-panel">

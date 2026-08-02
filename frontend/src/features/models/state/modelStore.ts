@@ -2,10 +2,9 @@ import { create } from "zustand";
 import { z } from "zod";
 import type { RepoKind } from "../../../shared/ipc/models/hf_browse";
 
-// Narrowed to the three Add-Model sub-tabs now that AddModelModal is
-// gone (M.5.81). Downloads and Storage are top-level tabs via
+// The Add-Model sub-tabs. Downloads and Storage are top-level tabs via
 // `navStore.topView`, not sub-tabs of the Models page.
-export const TabIdSchema = z.enum(["ollama", "huggingface", "local"]);
+export const TabIdSchema = z.enum(["huggingface", "local"]);
 export type TabId = z.infer<typeof TabIdSchema>;
 
 export type DownloadStatus =
@@ -14,7 +13,7 @@ export type DownloadStatus =
   | "success"
   | "error"
   | "cancelled";
-export type DownloadSource = "ollama" | "huggingface" | "local";
+export type DownloadSource = "huggingface" | "local";
 
 export interface DownloadEntry {
   id: string;
@@ -25,7 +24,6 @@ export interface DownloadEntry {
   bytesCompleted?: number;
   bytesTotal?: number;
   error?: string | null;
-  pullId?: string;
   phaseLabel?: string;
 }
 
@@ -35,11 +33,10 @@ export interface ModelStore {
   downloads: Record<string, DownloadEntry>;
   activeHfName: string | null;
   activeLocalName: string | null;
-  pullNames: Record<string, string>;
   hfSearchQuery: string;
   hfSelectedRepo: string | null;
   // Tags of the selected hit — used to route the detail by the repo's actual
-  // format (mlx-tagged → MLX action) rather than the search toggle.
+  // format rather than the search toggle.
   hfSelectedTags: string[];
   hfRepoKind: RepoKind;
   setActiveTab: (t: TabId) => void;
@@ -48,20 +45,17 @@ export interface ModelStore {
   removeDownload: (id: string) => void;
   setActiveHfName: (n: string | null) => void;
   setActiveLocalName: (n: string | null) => void;
-  recordPullName: (pullId: string, name: string) => void;
-  removePullName: (pullId: string) => void;
   setHfSearchQuery: (q: string) => void;
   setHfSelectedRepo: (repo: string | null, tags?: string[]) => void;
   setHfRepoKind: (k: RepoKind) => void;
 }
 
 export const useModelStore = create<ModelStore>((set) => ({
-  activeTab: "ollama",
+  activeTab: "huggingface",
   pendingLocalPath: null,
   downloads: {},
   activeHfName: null,
   activeLocalName: null,
-  pullNames: {},
   hfSearchQuery: "",
   hfSelectedRepo: null,
   hfSelectedTags: [],
@@ -78,19 +72,11 @@ export const useModelStore = create<ModelStore>((set) => ({
     }),
   setActiveHfName: (n) => set({ activeHfName: n }),
   setActiveLocalName: (n) => set({ activeLocalName: n }),
-  recordPullName: (pullId, name) =>
-    set((s) => ({ pullNames: { ...s.pullNames, [pullId]: name } })),
-  removePullName: (pullId) =>
-    set((s) => {
-      const next = { ...s.pullNames };
-      delete next[pullId];
-      return { pullNames: next };
-    }),
   setHfSearchQuery: (q) => set({ hfSearchQuery: q }),
   setHfSelectedRepo: (repo, tags = []) =>
     set({ hfSelectedRepo: repo, hfSelectedTags: repo ? tags : [] }),
   // Switching kind drops any open repo detail — a GGUF repo's detail makes no
-  // sense under MLX and vice versa.
+  // sense under another format and vice versa.
   setHfRepoKind: (k) => set({ hfRepoKind: k, hfSelectedRepo: null, hfSelectedTags: [] }),
 }));
 

@@ -40,7 +40,7 @@ pub fn max_steps_for(tier: Tier) -> u32 {
 /// The old flat 256 cap for non-thinking models was a structural failure guarantee — a
 /// `write_file(content=…)` payload can't fit in 256 tokens, so the call truncated mid-string,
 /// parsed to zero calls, and scored Malformed/Hallucinated regardless of model SIZE. Likewise a
-/// reasoning model's `<think>` is charged against the SAME `num_predict` as the answer (Ollama
+/// reasoning model's `<think>` is charged against the SAME `num_predict` as the answer (the server
 /// caps the TOTAL — proven live: qwen3.5:9b spent ~3700/4096 tokens thinking and returned an empty
 /// answer), so an undersized scratchpad starves the answer. Token budget is a hidden correctness
 /// parameter; sizing it so truncation approaches zero lets the eval measure capability, not the cap.
@@ -81,7 +81,7 @@ pub enum ThinkPreset {
 ///
 /// §5 is PROVISIONAL, not closed. Live measurement (`backend/tests/agentic_truncation_sweep.rs`,
 /// per-tier `<think>` histogram) so far covers a NARROW envelope: two reasoning models that are
-/// BOTH Qwen-family (qwen3.5:9b via Ollama, OmniCoder-9B via MLX), Easy/Medium/Hard only, CODING
+/// BOTH Qwen-family (qwen3.5:9b via the server, OmniCoder-9B via the remote server), Easy/Medium/Hard only, CODING
 /// only. In that envelope reasoning is short — qwen3.5 est-tokens P95 = Easy 113 / Medium 341 /
 /// Hard 414 (max 1083) — with ZERO `finish=length` on all three backends. That validates CONSISTENCY
 /// (two near-identical points) + that these caps hold for Qwen-coding — it does NOT validate the
@@ -91,7 +91,7 @@ pub enum ThinkPreset {
 ///     1,935 / Hard 1,102 vs qwen 341 / 414), and Standard STILL held it (Med 32% / Hard 11% of
 ///     budget). This CONFIRMS the ~2.5× spread is real (larger, even) and that trimming toward the
 ///     qwen P95 would have TRUNCATED gemma-4 — the margin is empirically justified, not wasteful.
-///     Caveat: single-sample proxy prompts via Ollama, not the full harness distribution; an even
+///     Caveat: single-sample proxy prompts via the server, not the full harness distribution; an even
 ///     chattier family (gpt-oss-20b) OOM'd on this 16GB box and stays untested.
 ///   • EXTREME: no histogram row exists for it; it's the longest-horizon, highest-reasoning tier,
 ///     the one most likely to blow a budget, and it was never run.

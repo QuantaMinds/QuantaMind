@@ -10,7 +10,6 @@ vi.mock("../../../shared/ipc/settings/userSettings", () => ({
 vi.mock("../../../shared/ipc/system/onboarding", () => ({
   RECOMMENDED_MODEL: "llama3.2:1b",
   scaffoldOnboardingWorkspace: vi.fn().mockResolvedValue("/ws"),
-  pullModel: vi.fn().mockResolvedValue("pull-1"),
 }));
 
 import { OnboardingCoach } from "../components/OnboardingCoach";
@@ -18,12 +17,11 @@ import { useOnboardingStore } from "../state/onboardingStore";
 import { useBackendStore } from "../../../shared/state/backendStore";
 import { useInstalledModelsStore } from "../../models/state/installedModelsStore";
 import { useNavStore } from "../../../shared/state/navStore";
-import { pullModel } from "../../../shared/ipc/system/onboarding";
 
 beforeEach(() => {
   vi.clearAllMocks();
   useOnboardingStore.setState({ complete: false });
-  useBackendStore.setState({ ollamaHealthy: true });
+  useBackendStore.setState({ llamaHealthy: true });
   useInstalledModelsStore.setState({ list: [] });
   useNavStore.setState({ topView: "workspace" });
 });
@@ -35,18 +33,17 @@ describe("OnboardingCoach", () => {
     expect(screen.queryByTestId("onboarding-coach")).toBeNull();
   });
 
-  it("shows the Ollama step when not healthy", () => {
-    useBackendStore.setState({ ollamaHealthy: false });
+  it("shows the server step when llama.cpp isn't healthy", () => {
+    useBackendStore.setState({ llamaHealthy: false });
     render(<OnboardingCoach />);
-    expect(screen.getByTestId("onboarding-ollama")).toBeTruthy();
+    expect(screen.getByTestId("onboarding-server")).toBeTruthy();
   });
 
-  it("shows the model step and pulls the recommended model", () => {
+  it("shows the model step and sends the user to the Models tab", () => {
     render(<OnboardingCoach />);
     expect(screen.getByTestId("onboarding-model")).toBeTruthy();
-    fireEvent.click(screen.getByTestId("onboarding-pull"));
-    expect(pullModel).toHaveBeenCalledWith("llama3.2:1b");
-    expect(useNavStore.getState().topView).toBe("downloads");
+    fireEvent.click(screen.getByTestId("onboarding-browse"));
+    expect(useNavStore.getState().topView).toBe("models");
   });
 
   it("shows the ready step and finishes on open", async () => {

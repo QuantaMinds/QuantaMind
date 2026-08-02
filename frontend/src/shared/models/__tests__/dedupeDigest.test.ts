@@ -5,7 +5,7 @@ const m = (name: string, digest?: string) => ({ name, digest });
 
 describe("dedupeByDigest", () => {
   it("collapses the same blob imported under multiple tags (first wins)", () => {
-    // The real-world case: one model pushed into Ollama under two tag names.
+    // The real-world case: one model registered under two tag names.
     const out = dedupeByDigest([
       m("gemma-2b_q3_k_l:latest", "3d3d"),
       m("gemma-2b_q2_k:latest", "948a"),
@@ -23,9 +23,9 @@ describe("dedupeByDigest", () => {
     expect(out).toHaveLength(2);
   });
 
-  it("never merges entries without a digest (llama.cpp / MLX)", () => {
-    const out = dedupeByDigest([m("phi3"), m("llama3"), m("mlx-x")]);
-    expect(out.map((x) => x.name)).toEqual(["phi3", "llama3", "mlx-x"]);
+  it("never merges entries without a digest (llama.cpp)", () => {
+    const out = dedupeByDigest([m("phi3"), m("llama3"), m("remote-x")]);
+    expect(out.map((x) => x.name)).toEqual(["phi3", "llama3", "remote-x"]);
   });
 
   it("treats an empty-string digest as absent", () => {

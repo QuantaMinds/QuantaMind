@@ -26,7 +26,7 @@ pub struct TaskCostRow {
     /// True only when the thinking count is a MEASURED channel split (llama.cpp
     /// /tokenize); false ⇒ the backend's combined count → render "(no split)".
     pub thinking_split_measured: bool,
-    /// Measured prefix-cache reuse (llama.cpp `cache_n` only; Ollama reports none).
+    /// Measured prefix-cache reuse (llama.cpp `cache_n` only; some servers report none).
     pub cache_hit_tokens_total: Option<u64>,
     /// Max single-run token occupancy — sizes the KV figure. Sums above can exceed it:
     /// they accumulate across runs; this is one moment.
@@ -60,13 +60,13 @@ pub struct KvAtPeak {
 /// verbatim — the same ladder the app's Latency view shows.
 #[derive(Serialize, Clone, Debug, PartialEq)]
 pub struct MemoryFacts {
-    /// Ollama: resident size from /api/ps (weights + context reservation). llama.cpp:
+    /// the server: resident size from /api/ps (weights + context reservation). llama.cpp:
     /// the GGUF size at launch when the app stamped it. `None` = not measurable.
     pub model_bytes: Option<u64>,
     pub model_bytes_provenance: &'static str,
     pub offload_bytes: Option<u64>,
     pub quantization_claimed: Option<String>,
-    /// "f16" | "q8_0" from an app-launched llama-server; `None` = unreported (Ollama,
+    /// "f16" | "q8_0" from an app-launched llama-server; `None` = unreported (the server,
     /// or an externally managed server — never guessed).
     pub kv_cache_type: Option<String>,
     pub kv_at_peak: Option<KvAtPeak>,

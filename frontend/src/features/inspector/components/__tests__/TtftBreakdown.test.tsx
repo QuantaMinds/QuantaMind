@@ -45,7 +45,7 @@ describe("TtftBreakdown", () => {
     // COLD llama run: cache_n is a measured 0, the whole 250 recomputed → present, "0 reused".
     rerender(<TtftBreakdown ttftMs={820} stats={{ prompt_eval_ms: 300, prompt_eval_count: 250, cache_n: 0 }} />);
     expect(screen.getByTestId("ttft-prefix-cache")).toHaveTextContent("0 reused / 250 recomputed");
-    // OLLAMA (no feature): cache_n absent → the line is ABSENT (not a false "0 reused").
+    // A backend without the feature: cache_n absent → the line is ABSENT (not a false "0 reused").
     rerender(<TtftBreakdown ttftMs={820} stats={{ prompt_eval_ms: 300, prompt_eval_count: 250 }} />);
     expect(screen.queryByTestId("ttft-prefix-cache")).toBeNull();
   });

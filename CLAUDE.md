@@ -18,9 +18,9 @@ Project guide for Claude Code sessions. Read this top-to-bottom before any work.
    the relevant section under `docs/` in the same commit.
 5. **Locked tech stack.** Do not substitute libraries. See `docs/process.md#tech-stack`.
    Alternatives go to `docs/process.md#future-considerations`, never into code.
-6. **Test LIVE against a real Ollama model — every time.** Unit tests / `tsc` /
+6. **Test LIVE against a real llama.cpp model — every time.** Unit tests / `tsc` /
    vitest are necessary but never sufficient. After they pass, run the change
-   against an actual model from Ollama (`:11434`) and inspect the real output.
+   against an actual model from llama.cpp (`:8081`) and inspect the real output.
    This project's hardest bugs (empty `.` output, foreign-dialect soup, the
    native-path discard, read_file acking empty) surfaced ONLY by running the live
    model — a green test just proves the path you told it to run.
@@ -45,7 +45,7 @@ Project guide for Claude Code sessions. Read this top-to-bottom before any work.
 3. Write the test for the expected behavior
 4. Run the test — must pass
 5. Inspect actual output vs expected output — must match in shape AND value
-6. Run it LIVE against a real Ollama model and inspect the real output (rule 6)
+6. Run it LIVE against a real llama.cpp model and inspect the real output (rule 6)
 7. Update the relevant section(s) under docs/
 8. Commit (Conventional Commits)
 9. Only now: move to the next step

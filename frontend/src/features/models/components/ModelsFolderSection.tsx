@@ -9,7 +9,7 @@ import { formatIpcError } from "../../../shared/ipc/core/error";
 import { useInstalledModelsStore } from "../state/installedModelsStore";
 
 /// Shows the shared GGUF weights folder (used by llama.cpp directly and
-/// imported into Ollama) and lets the user point it elsewhere.
+/// loaded by llama-server) and lets the user point it elsewhere.
 export function ModelsFolderSection() {
   const [path, setPath] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +38,7 @@ export function ModelsFolderSection() {
       <span className="text-xs font-medium text-gray-700">Model weights folder</span>
       <p className="text-[11px] text-gray-500">
         GGUFs you download (Hugging Face or local file) are kept here for llama.cpp
-        and imported into Ollama when it's running.
+        and loaded by llama-server when it runs.
       </p>
       <div className="flex items-center gap-2">
         <code data-testid="models-folder-path" className="flex-1 truncate text-xs text-gray-600">

@@ -53,7 +53,7 @@ type Status = { status: "Collapsed"; depth: number } | { status: "NoCliff"; test
 const reportOf = (status: Status, points: ReturnType<typeof rung>[], cliff_tokens: number | null = null) => ({ points, status, cliff_tokens });
 
 const dims = (context_length: number) => ({
-  // `tools` present: the representative Ollama model — the no-tools gate has its own tests.
+  // `tools` present: the representative model — the no-tools gate has its own tests.
   available: true, note: null, template: "", capabilities: ["completion", "tools"], family: null,
   parameter_size: null, quantization: null, is_base_guess: false, base_reason: null,
   dims: { layers: 0, head_count: 0, head_count_kv: 0, embedding_length: 0, context_length },
@@ -69,11 +69,11 @@ beforeEach(() => {
   vi.mocked(getHardwareSnapshot).mockResolvedValue(null as never);
   vi.mocked(loadedModels).mockResolvedValue([] as never);
   useInstalledModelsStore.setState({
-    list: [{ name: "m", size_bytes: 1, modified_at: "", family: "", parameter_size: "", quantization: "", backend: "ollama" }],
+    list: [{ name: "m", size_bytes: 1, modified_at: "", family: "", parameter_size: "", quantization: "", backend: "llama_cpp" }],
     status: "ready", error: null, lastRefreshedAt: 1,
   });
   // The probe runs the global header model — select it.
-  useSelectedModelStore.setState({ selectedModels: [{ name: "m", backend: "ollama", size_bytes: 1 }] });
+  useSelectedModelStore.setState({ selectedModels: [{ name: "m", backend: "llama_cpp", size_bytes: 1 }] });
   useParamsStore.setState({ globalParams: {} });
   // Bypass real init (IPC) — seed presets so the panel loads its own dataset.
   useEvalRegistryStore.setState({
@@ -96,14 +96,7 @@ describe("ContextCliffPanel", () => {
     expect(screen.getByTestId("cliff-method-prompt")).toBeEnabled();
   });
 
-  it("disables Native FC on MLX (no native tool API) — prompt-based only", () => {
-    useSelectedModelStore.setState({ selectedModels: [{ name: "m", backend: "mlx", size_bytes: 1 }] });
-    render(<ContextCliffPanel />);
-    expect(screen.getByTestId("cliff-method-native")).toBeDisabled();
-    expect(screen.getByTestId("cliff-method-prompt")).toBeEnabled();
-  });
-
-  it("warns before running when the requested depth won't fit device memory (Ollama)", async () => {
+  it("warns before running when the requested depth won't fit device memory", async () => {
     const GB = 1024 ** 3;
     vi.mocked(inspectModel).mockResolvedValue(dims(8192) as never);
     vi.mocked(estimateKvCacheBytes).mockResolvedValue((20 * GB) as never); // huge KV at depth
@@ -218,16 +211,16 @@ describe("ContextCliffPanel", () => {
     await waitFor(() => expect(runContextCliff).toHaveBeenCalled());
     const call = vi.mocked(runContextCliff).mock.calls[0];
     expect(call[0]).toBe("m"); // model
-    expect(call[1]).toBe("ollama"); // backend
+    expect(call[1]).toBe("llama_cpp"); // backend
     expect(call[4]).toEqual({ kind: "preset", preset: "corporate_policy" }); // source
     // Global params flow through; the backend pins greedy (temp 0) + num_ctx — not the panel.
     expect(call[7]).toEqual({ temperature: 0.2 });
   });
 
-  it("with 2+ selected Ollama models, a dropdown picks which one the probe runs", async () => {
+  it("with 2+ selected models, a dropdown picks which one the probe runs", async () => {
     useSelectedModelStore.setState({ selectedModels: [
-      { name: "m", backend: "ollama", size_bytes: 1 },
-      { name: "m2", backend: "ollama", size_bytes: 1 },
+      { name: "m", backend: "llama_cpp", size_bytes: 1 },
+      { name: "m2", backend: "llama_cpp", size_bytes: 1 },
     ] });
     vi.mocked(runContextCliff).mockResolvedValue(reportOf({ status: "NoCliff", tested: 5000 }, [rung(5000, 1.0)], 5000) as never);
     render(<ContextCliffPanel />);
@@ -242,7 +235,7 @@ describe("ContextCliffPanel", () => {
 
   // The regression these two guard: the slider used to offer the model's FULL context
   // window, but the backend runs the probe at `maxTokens + CLIFF_CTX_HEADROOM` — so the
-  // deepest rung asked for MORE context than the model has, for every model. Ollama
+  // deepest rung asked for MORE context than the model has, for every model. A server
   // answers that by silently clamping and truncating the prompt (deleting the needle,
   // saturating `prompt_eval_count` → a fabricated cliff depth); llama.cpp refuses with
   // "raise the context window", which is impossible. The ladder must fit the window.
@@ -270,7 +263,7 @@ describe("ContextCliffPanel", () => {
   it("pre-fills model + collection + max tokens + steps from a Matrix request and does NOT auto-run", async () => {
     const { useCliffStore } = await import("../state/cliffStore");
     // The Matrix sets this before navigating to Audit.
-    useCliffStore.setState({ request: { model: "m2", backend: "ollama", collectionId: "easy-coding", maxTokens: 8192, steps: 7 } });
+    useCliffStore.setState({ request: { model: "m2", backend: "llama_cpp", collectionId: "easy-coding", maxTokens: 8192, steps: 7 } });
 
     render(<ContextCliffPanel />);
     await waitFor(() => expect(getBuiltinCollection).toHaveBeenCalledWith("easy-coding"));
@@ -362,7 +355,7 @@ describe("ContextCliffPanel", () => {
     render(<ContextCliffPanel />);
     await waitFor(() => expect(getBuiltinCollection).toHaveBeenCalled());
     // No request at mount → header model. Then the user clicks Run probe on the Matrix:
-    act(() => useCliffStore.setState({ request: { model: "m3", backend: "ollama", collectionId: "easy-coding", maxTokens: 4096, steps: 3 } }));
+    act(() => useCliffStore.setState({ request: { model: "m3", backend: "llama_cpp", collectionId: "easy-coding", maxTokens: 4096, steps: 3 } }));
     await waitFor(() => expect((screen.getByTestId("cliff-model-select") as HTMLSelectElement).value).toBe("m3"));
     expect((screen.getByTestId("cliff-test-steps") as HTMLInputElement).value).toBe("3");
     expect(useCliffStore.getState().request).toBeNull(); // consumed
@@ -383,7 +376,7 @@ describe("thinking budget control", () => {
   });
 
   it("shows the preset for a thinking model (default Standard) and sends the choice with the run", async () => {
-    useSelectedModelStore.setState({ selectedModels: [{ name: "qwen3.5-9b", backend: "ollama", size_bytes: 1 }] });
+    useSelectedModelStore.setState({ selectedModels: [{ name: "qwen3.5-9b", backend: "llama_cpp", size_bytes: 1 }] });
     vi.mocked(runContextCliff).mockResolvedValue(reportOf({ status: "NoCliff", tested: 0 }, [rung(0, 1.0)]) as never);
     render(<ContextCliffPanel />);
     await waitFor(() => expect(screen.getByTestId("cliff-run")).not.toBeDisabled());
@@ -603,22 +596,13 @@ describe("llama.cpp running-window cap", () => {
   });
 });
 
-describe("Ollama native tool-capability gate", () => {
-  // Ollama grants `tools` only when the model's template references `.Tools` — an
+describe("native tool-capability gate", () => {
+  // A template grants `tools` only when it references `.Tools` — an
   // imported GGUF with a plain template never gets it, and every native run 400s.
   // The ceiling must show BEFORE the click (same rule as the llama.cpp window cap):
   // previously the panel defaulted to Native FC and refused post-click on every run,
-  // which read as "Ollama doesn't work with the stress test".
-  it("disables Native FC when /api/show reports no `tools`, falls back visibly, names the cause", async () => {
-    vi.mocked(inspectModel).mockResolvedValue({ ...dims(8192), capabilities: ["completion"] } as never);
-    render(<ContextCliffPanel />);
-    await waitFor(() => expect(screen.getByTestId("cliff-method-native")).toBeDisabled());
-    // Prompt-based becomes the EFFECTIVE method, shown active — never a silent no-op run.
-    expect(screen.getByTestId("cliff-method-prompt")).toBeEnabled();
-    expect(screen.getByTestId("cliff-native-unavailable")).toHaveTextContent("no native tool support");
-  });
-
-  it("keeps Native FC for an Ollama model WITH the tools capability", async () => {
+  // which read as "this backend doesn't work with the stress test".
+  it("keeps Native FC for a model WITH the tools capability", async () => {
     vi.mocked(inspectModel).mockResolvedValue(dims(8192) as never);
     render(<ContextCliffPanel />);
     // Wait for the inspect round-trip so a late no-tools flip would be caught.
@@ -628,7 +612,7 @@ describe("Ollama native tool-capability gate", () => {
   });
 
   it("fails OPEN while capabilities are unknown (backend gate still refuses honestly)", async () => {
-    vi.mocked(inspectModel).mockRejectedValue(new Error("ollama down"));
+    vi.mocked(inspectModel).mockRejectedValue(new Error("server down"));
     render(<ContextCliffPanel />);
     await waitFor(() => expect(screen.getByTestId("cliff-method-native")).toBeEnabled());
     expect(screen.queryByTestId("cliff-native-unavailable")).toBeNull();

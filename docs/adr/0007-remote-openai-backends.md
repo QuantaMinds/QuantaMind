@@ -5,13 +5,13 @@
 
 ## Context
 
-QuantaMind is local-first: every LLM backend so far — Ollama, the bundled
-`llama-server`, and `mlx_lm.server` — runs on `localhost` and is (mostly)
+QuantaMind is local-first: every LLM backend so far — llama.cpp, the bundled
+`llama-server`, and `vllm_lm.server` — runs on `localhost` and is (mostly)
 app-managed, with a hardcoded `http://localhost:<port>` endpoint and no auth.
 
 But GPU inference at useful sizes doesn't fit a laptop. To benchmark and run against
 vLLM and SGLang we need to reach a **remote GPU** (initially a GCP L4, 24 GB). These
-servers speak the same OpenAI `/v1/chat/completions` wire MLX already uses, but live
+servers speak the same OpenAI `/v1/chat/completions` wire vLLM already uses, but live
 off-box and are typically launched with `--api-key`. Nothing in the codebase could
 express "a backend the app does not spawn, reached at a user-configured URL with a
 bearer token."
@@ -35,7 +35,7 @@ the local-first assumption on purpose:
 
 - A remote backend is one thin adapter over the shared codec plus a settings-backed
   endpoint — no new lifecycle machinery. `model.backend` stays absolute and is
-  server-sourced (`/v1/models`), so it never collides with MLX's disk discovery.
+  server-sourced (`/v1/models`), so it never collides with vLLM's disk discovery.
 - The app can now send prompts to a user-controlled remote host. This is opt-in
   (empty by default) and gated in the UI on a health probe, but it is a real widening
   of the trust/network boundary — hence this ADR records it explicitly.

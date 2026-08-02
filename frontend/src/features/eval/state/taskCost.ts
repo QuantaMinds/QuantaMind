@@ -13,11 +13,11 @@ export interface TaskCost {
   outputTokensTotal: number | null;
   reasoningTokensTotal: number | null;
   /// Prompt tokens served from the server's prefix cache, summed — MEASURED, and only
-  /// llama.cpp reports it (`timings.cache_n`). Null on Ollama/MLX: cache reuse there is
-  /// not measurable (ollama#8008) and must show "Not available".
+  /// llama.cpp reports it (`timings.cache_n`). Null on a remote backend: cache reuse there is
+  /// not measurable on every backend and must show "Not available".
   cacheHitTokensTotal: number | null;
   /// True iff any step carried `cache_n` — the KV token-occupancy tier is then "computed
-  /// from measured tokens" (llama.cpp); false ⇒ "estimated" (Ollama/MLX token accounting
+  /// from measured tokens" (llama.cpp); false ⇒ "estimated" (a remote backend token accounting
   /// saturates; see backend-token-accounting notes).
   kvTokensMeasured: boolean;
   /// True iff any step's thinking count is a MEASURED channel split (llama.cpp /tokenize);

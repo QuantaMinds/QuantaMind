@@ -5,7 +5,7 @@ use std::process::Child;
 use std::sync::Mutex;
 
 /// Outcome of a `start_llama_server` call. Tagged by `status` so the frontend
-/// can branch without positional decoding (mirrors `OllamaStartResult`).
+/// can branch without positional decoding (mirrors `the serverStartResult`).
 #[derive(Serialize, Debug, PartialEq)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum LlamaStartResult {
@@ -94,7 +94,7 @@ impl LlamaServerState {
     }
 
     /// The running server's `(model_path, launch ctx)`, if any — so the Inspector can surface
-    /// the loaded llama.cpp model (Ollama's `/api/ps` only knows Ollama models).
+    /// the loaded llama.cpp model (a placement API only knows models).
     pub fn running_summary(&self) -> Option<(String, u32)> {
         self.inner.lock_recover().as_ref().map(|s| (s.model_path.clone(), s.ctx))
     }

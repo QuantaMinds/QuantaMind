@@ -2,7 +2,7 @@ import { useCallback } from "react";
 import { useInstalledModelsStore } from "../state/installedModelsStore";
 import { modelLabel } from "../../../shared/models/modelLabel";
 
-/// Resolve a bare model name — which for MLX is the on-disk path used as the
+/// Resolve a bare model name — which may be the on-disk path used as the
 /// wire id — to its friendly label (the HF repo) via the installed-models list.
 /// Falls back to the raw name when the model isn't installed (e.g. an old
 /// history entry for a removed model).

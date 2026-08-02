@@ -210,7 +210,7 @@ if abstain != matches!(t.expected, Expected::NoCall) { return Err(bad(&t.id, "ex
   mis-built model can emit an unparseable non-JSON dialect (harmony-ish soup like
   `<|tool_response|>call:reply(text='…')`, or `call:reply{text:<|"|>…<|"|>}`). The harness
   does NOT salvage these — `harmony_calls` already drops them (paren form has no `{`; the
-  `<|"|>`-wrapped body fails `relax_object`), matching what Ollama's native parser also
+  `<|"|>`-wrapped body fails `relax_object`), matching what llama.cpp's native parser also
   drops, so the bench never scores looser than a real deployment. Instead the runner labels
   such a no-call turn `ForeignDialect` (its own `FailureKind`/`StepKind`/`TopError`/tally),
   distinct from `Malformed`/`Hallucinated`. The detector requires BOTH a channel control
@@ -304,7 +304,7 @@ let composite = (!subs.is_empty()).then(|| subs.iter().sum::<f64>() / subs.len()
 
 The agentic runner is a **sandboxed multi-step tool loop**: the model emits
 raw-text JSON tool calls, a deterministic sandbox replies in text (no native
-function-calling required, so it runs identically across Ollama/llama.cpp/MLX),
+function-calling required, so it runs identically across llama.cpp / vLLM / SGLang),
 and the loop runs `k` times for Pass^k reliability.
 
 **Thinking models.** The per-turn output budget is normally `num_predict = 256`
@@ -331,9 +331,9 @@ from the measured generated-token count on a thinking turn (not just on a `Trunc
 `ReasoningOverrun` turn), so the Trace Debugger can sum "how much it thought" per run.
 
 **Run-cost + config stamp (Inspector Test-run view).** `BatchColumn` additionally carries the
-measured weight placement from the same `/api/ps` probe — `weights_total_bytes` /
+measured weight placement from the same the server's status endpoint probe — `weights_total_bytes` /
 `weights_vram_bytes` / `offload_bytes` (= size − size_vram, the CPU-spill QUANTITY behind the
-`cpu_offloaded` bool) — plus `quantization_claimed` (the tag's assertion from `/api/ps`
+`cpu_offloaded` bool) — plus `quantization_claimed` (the tag's assertion from the server's status endpoint
 `details.quantization_level`, junk values "unknown"/"" dropped, never verified truth) and
 `kv_cache_type` ("f16" | "q8_0" from the stored `LaunchPlan`; `None` for an externally-started
 llama-server — its flags are unknowable). `AgenticReport.wall_ms` is the batch-layer-measured
@@ -357,8 +357,8 @@ the runner prefers it over the combined-`eval_count` fallback and stamps
 `TrajectoryStep.thinking_split_measured` so the UI can label provenance (a dedicated flag,
 NOT the `reasoning == output` equality heuristic — a run truncated mid-think has a measured
 split that still equals the total). Reconciled live: `tokenize(reasoning) +
-tokenize(answer) = predicted_n − ~3` channel-marker/EOG tokens (1%). Ollama stays `None`:
-no tokenize endpoint (404 on 0.24.0, ollama#12030 unmerged) and streamed chunks are NOT
+tokenize(answer) = predicted_n − ~3` channel-marker/EOG tokens (1%). llama.cpp stays `None`:
+no tokenize endpoint (404 on 0.24.0, llama_cpp#12030 unmerged) and streamed chunks are NOT
 tokens (measured live: 228 thinking chunks vs eval_count 300) — the combined count must
 never be relabeled as thinking. Best-effort: a failed tokenize call degrades to `None`,
 never a guess. D9's budget math stays on `eval_count` (budget consumed = ALL generated
@@ -480,7 +480,7 @@ FaultInjection::TransientError { status_code, clears_after } => {
   `BackendTurn{backend,endpoint,model,cancel,options,keep_alive}` (dispatch by
   `BackendKind`); `NativeToolTurn{backend,endpoint,model,tools,options,…}` — native
   FC follows the running server, dispatching `chat_with_tools` by `BackendKind`
-  (Ollama `/api/chat`, llama.cpp OpenAI `/v1/chat/completions`; MLX has none),
+  (llama.cpp `/v1/chat/completions`, llama.cpp OpenAI `/v1/chat/completions`; vLLM has none),
   then `synthesize_calls` for the shared canonical text.
 - **Options merge (`merge_eval_options`):** `BackendTurn::run` merges the header's global
   eval params with the harness per-turn spec **field-wise** — it does NOT let one replace the
@@ -494,13 +494,13 @@ FaultInjection::TransientError { status_code, clears_after } => {
   256 cap and the cache fix (`b97d79c`) were silently dead whenever the header sent params.
 - **Per-model stop tokens (`resolve_model_stops`):** after the merge, `BackendTurn::run`
   fills `options.stop` (when unset) with the model's real end-of-turn markers, resolved once
-  per run (memoized in `BackendTurn.stop_cache`) from Ollama `/api/show`
+  per run (memoized in `BackendTurn.stop_cache`) from llama.cpp the GGUF header
   `general.architecture` → `detect_template().stop_tokens`. **Why it matters:** harmony
   models (gpt-oss) end turns on `<|return|>`/`<|call|>` and gemma on `<end_of_turn>` — none a
   plain EOS — so without stops they emit the markers as literal text and run to the token cap,
-  hallucinating a whole multi-turn transcript (the infinite-generation bug). `/api/show` is
+  hallucinating a whole multi-turn transcript (the infinite-generation bug). the GGUF header is
   metadata-only (no weight load → no model-switch latency); unknown families resolve to `[]`
-  (prior no-stop behavior). Ollama-only for now (llama.cpp/MLX is a follow-up). NOTE: this
+  (prior no-stop behavior). llama.cpp-only for now (llama.cpp is a follow-up). NOTE: this
   cures gpt-oss's loop; gemma4's separate pad-token collapse is unrelated and unfixed here.
 - **Anti-collapse repeat penalty (`EVAL_REPEAT_PENALTY = 1.1`):** every eval spec
   (agentic `runner`, single-turn `toolcall`, `cliff` probe) sets
@@ -522,35 +522,35 @@ FaultInjection::TransientError { status_code, clears_after } => {
   could still pay that on the first rung; out of scope here.
 - **Keep-alive floor:** `batch_cmd::agentic_keep_alive` floors the batch `keep_alive`
   at `AGENTIC_KEEP_ALIVE_SECS=600` when the UI leaves it unset (an explicit value, incl.
-  `-1`=forever, still wins). Without it Ollama's default 5-min idle unload can evict the
+  `-1`=forever, still wins). Without it llama.cpp's default 5-min idle unload can evict the
   model — and its prefix-KV cache — across an inter-task/inter-turn gap mid-batch, so the
   warm-up's load wouldn't survive the ~k×max_steps sequential calls.
 - **Context window (`num_ctx`):** the agentic loop re-sends the whole growing transcript
   every step; `runner::agentic_num_ctx(max_steps)` sizes `num_ctx` to
   `clamp(2048 + max_steps·384, 4096, 16384)`. Left at the model default (~4096) a
-  multi-step transcript overflows → Ollama context-shift, which busts the automatic
+  multi-step transcript overflows → llama.cpp context-shift, which busts the automatic
   prefix-KV cache (full re-prefill every turn — the stall) AND silently drops the
   earliest turns.
 
 ### Reasoning-model budget handling (D1–D9)
 A reasoning model's `<think>` scratchpad is charged against the SAME `num_predict` as the
-answer, and Ollama routes it into a separate `thinking` field. If the harness ignores that and
+answer, and llama.cpp routes it into a separate `thinking` field. If the harness ignores that and
 the budget is too small, reasoning eats the whole cap and the answer comes back empty — a
 capable model is then mis-scored `Truncated`. Proven live: qwen3.5:9b spent ~3700/4096 tokens
 thinking → empty answer. The fix, across the runner / `model_turn` / `difficulty::passk` /
 `hwclass` / `report` / `step`:
 - **Capture the reasoning (D1):** both backends stream the scratchpad in a SEPARATE field, which
   `stream_generate` reads and re-emits wrapped in inline `<think>…</think>` so the runner's
-  `strip_think` + the D9 accounting handle every backend uniformly. Ollama: `think:true` → the
+  `strip_think` + the D9 accounting handle every backend uniformly. llama.cpp: `think:true` → the
   `thinking` field. **llama.cpp: modern llama-server (`--jinja`, default `--reasoning-format`)
   EXTRACTS `<think>` out of `content` into a `reasoning_content` field** — it does NOT leave it
   inline, contrary to an earlier assumption. Proven live: qwen3.5-9b emitted 187 `reasoning_content`
   chunks with 0 captured until `ChatDelta.reasoning_content` + the `<think>`-wrap were added
   (`llama::stream_chat`); after the fix, 14 `<think>` turns captured on the same collection. A terse
   model, or `--reasoning-format none` (which keeps `<think>` inline), sends no `reasoning_content`
-  and the wrap is a no-op. **MLX is unverified** — its template may emit untagged reasoning, in which
-  case `strip_think` no-ops and MLX would regress; a known gap until an MLX reasoning model can be
-  inspected (`inference/mlx`). The lesson: reasoning-channel behavior MUST be verified per backend
+  and the wrap is a no-op. **vLLM is unverified** — its template may emit untagged reasoning, in which
+  case `strip_think` no-ops and vLLM would regress; a known gap until an vLLM reasoning model can be
+  inspected (`inference/vllm`). The lesson: reasoning-channel behavior MUST be verified per backend
   live, never assumed from another backend's docs.
 - **Fixed per-tier budget, NOT hardware-scaled (D2):** `passk::think_tokens_for_preset(tier,
   ThinkPreset)` — `Lean/Standard/Deep` presets, each a constant. Reasoning length is a property of
@@ -563,7 +563,7 @@ thinking → empty answer. The fix, across the runner / `model_turn` / `difficul
   `BackendTurn.ctx_ceiling` from the batch command's hardware snapshot. Hardware decides *whether*
   the fixed budget fits, never *how much* the model may think; a box too small yields an honest
   `Truncated (context-bound)`. (Precise per-model ceiling + llama.cpp launch-`-c` lockstep are a
-  tracked follow-up; the class band covers the Ollama case.)
+  tracked follow-up; the class band covers the llama.cpp case.)
 - **Honest labels (D7/D9):** on a length-cut, zero-call turn the runner classifies with usage
   numbers (`stats.eval_count` vs `base_predict`; `prompt_eval_count + cache_n` vs `num_ctx`):
   `FailureKind::ReasoningOverrun` when the per-turn BUDGET capped generation while the window had
@@ -819,12 +819,12 @@ its first run could report `requested_runs: None`, indistinguishable from "k was
 the whole TASK in `Error` (re-run on resume), and a user-initiated stop must never be reported
 as an infra failure.
 
-**Under `BackendTurn` (the real Ollama/llama.cpp/MLX/vLLM/SGLang path):** `stream_generate`
-(`inference/ollama/ollama.rs`) races `cancel.cancelled()` against BOTH the initial
-`client.post(...).send()` (connect + Ollama's own model-load + prompt-prefill — can take
+**Under `BackendTurn` (the real llama.cpp / vLLM / SGLang/vLLM/SGLang path):** `stream_generate`
+(`inference/llama_cpp/llama_cpp.rs`) races `cancel.cancelled()` against BOTH the initial
+`client.post(...).send()` (connect + llama.cpp's own model-load + prompt-prefill — can take
 several seconds on a cold/large model, measured ~8s for a 35B Q8 model live, entirely before
 the fix) AND every subsequent chunk of the streaming response, via `tokio::select!`. Live
-tests (`ollama.rs::tests::live_cancel_*`, `#[ignore]`d — real Ollama on `:11434`) measure both
+tests (`llama_cpp.rs::tests::live_cancel_*`, `#[ignore]`d — real llama.cpp on `:8081`) measure both
 paths landing in a few hundred ms, not seconds. Without racing the CONNECT phase too, a click
 during that window sat inert until the first response byte finally arrived.
 
@@ -957,7 +957,7 @@ Regression tests: `a_single_task_flip_at_one_position_is_not_a_cliff`,
 
 **The measurement invariant — a rung is only real if it fit.** Every ladder depth must
 sit inside the context window the backend actually gave us, because both backends fail
-*dishonestly* past it: Ollama silently clamps `num_ctx` and truncates the prompt (deleting
+*dishonestly* past it: llama.cpp silently clamps `num_ctx` and truncates the prompt (deleting
 the needle, and pinning `prompt_eval_count` at the window so it reads identically no matter
 how much padding is sent), and llama.cpp rejects the request outright, aborting the run. So
 `ctx_limit` threads through the engine and bounds three things: `cap_bytes` (never *build* a
@@ -967,7 +967,7 @@ itself is `occupancy` = `prompt_eval_count + cache_n`, not `prompt_eval_count` a
 llama.cpp serves a cached prefix and reports only the recomputed part (see `run_position`).
 Regression tests: `a_rung_truncated_at_the_context_window_is_dropped_not_reported_as_a_cliff`,
 `a_cache_served_prompt_is_measured_at_its_true_size_not_the_recomputed_part`, plus the
-`#[ignore]`d `live_cliff_ollama_*` / `live_cliff_llama_*` (rule 6 — scripted models have no
+`#[ignore]`d `live_cliff_llama_cpp_*` / `live_cliff_llama_*` (rule 6 — scripted models have no
 window to overflow, so only a live backend exercises any of this).
 
 ### File: `mod.rs`
@@ -1236,7 +1236,7 @@ agentic tasks, with VRAM isolation between models and durable crash-resume.
 
 - **Key types:** `TaskOutcome::{Single{passed,trace}, Agentic{report}, Error{message}}`;
   `CompletedUnit{model, task_id, category, outcome, is_native}` (the durable
-  resumable unit); `VramGate` trait (`NoVramGate` / `OllamaVramGate` — evict prior
+  resumable unit); `VramGate` trait (`NoVramGate` / `llama.cppVramGate` — evict prior
   model + assert VRAM cleared, `Err` halts); `BatchSink` (`task_started` /
   `agentic_turn` / `task_done`); `AggAgentic` (strict Pass^k: `tasks_passed` =
   tasks where every run passed; `pass_k() = tasks_passed/tasks_total`; `by_tier:
@@ -1249,7 +1249,7 @@ agentic tasks, with VRAM isolation between models and durable crash-resume.
   (Phase 9B: `agg_agentic` buckets reports by tier and computes per-tier `avg_steps`
   + merged `failures` alongside the strict Pass^k — feeding the Agent Report deep-dive);
   `BatchColumn{model, backend, toolcall, agentic, agentic_native_fc, error}`;
-  `BatchReport{collection_id, columns, num_ctx, ollama_version, collection_hash,
+  `BatchReport{collection_id, columns, num_ctx, llama_cpp_version, collection_hash,
   think_preset, params}` — `params` is the run's full inference params, stamped by the
   command layer (like `num_ctx`) so publish reads what the run used, never the live
   global header.
@@ -1317,7 +1317,7 @@ if let Some(unit) = done.get(&(target.model.as_str(), task.id.as_str())) {
 ## Folder: `commands/eval/`
 
 Thin Tauri IPC skin: streams events, persists, isolates hardware. Helpers
-`endpoint_for(backend)` (MLX dynamic port else default) and `traces_dir(app)` live
+`endpoint_for(backend)` (vLLM dynamic port else default) and `traces_dir(app)` live
 in `toolcall_cmd` and are imported by the other command modules.
 
 ### File: `mod.rs`
@@ -1371,7 +1371,7 @@ in `toolcall_cmd` and are imported by the other command modules.
   events AND persists each agentic turn + terminal outcome to
   `jobs::transcripts` (`agentic_transcripts/`, latest batch only, best-effort —
   a write failure warns loudly and the run continues; see
-  `backend-persistence.md`); `OllamaVramGate` isolation; shared `run_passes` core.
+  `backend-persistence.md`); `llama.cppVramGate` isolation; shared `run_passes` core.
 
 ```rust
 // Transactional finish: persist → verify on disk → only THEN delete the job log
@@ -1398,19 +1398,19 @@ let _ = queue::delete(&job_path);
   model field) → `start_with_model_msg`; `Ready{ctx}` with `ctx < needed_ctx` →
   `raise_or_reduce_msg`. Returning `Err` before the ladder means a user-managed server
   loaded with the wrong model or too small a `-c` yields one honest message instead of a
-  400 on every deep rung (or a silently mis-scored model). **Ollama VRAM pre-flight
-  (additive):** since Ollama sizes `num_ctx` per request, a separate branch estimates the
+  400 on every deep rung (or a silently mis-scored model). **llama.cpp VRAM pre-flight
+  (additive):** since llama.cpp sizes `num_ctx` per request, a separate branch estimates the
   deepest rung's footprint (`vram_fit::try_profile` with the device cap from `snapshot()` via
   `device_cap_bytes`) and returns `cliff_vram_msg` ("reduce Max Tokens to about N") when it
   won't fit — kept distinct from the llama.cpp identity guard (different backends fail
-  differently). MLX has no readable weights/dims, so it's left to size per request.
+  differently). vLLM has no readable weights/dims, so it's left to size per request.
   **Native tool-calling:** `run_native_fc: Option<bool>` selects the path — prompt (a shared
   `BackendTurn`) vs native (a per-task `NativeToolTurn` factory built via `cliff_terminal`),
   run through `run_cliff_with_factory` (see `cliff::engine`). Native is gated by
-  `probe_native_tools` (reused from `batch_cmd`) — MLX / a no-tools template → refuse with
+  `probe_native_tools` (reused from `batch_cmd`) — vLLM / a no-tools template → refuse with
   "switch to Prompt-based". A native cliff persists under a `"{model}::native_fc"` key so it
   never clobbers the prompt-based cliff the readiness verdict reads. `assess_readiness`
-  loads the persisted batch report, pulls real weights/quant from Ollama, computes
+  loads the persisted batch report, pulls real weights/quant from llama.cpp, computes
   per-column VRAM fit via `vram_fit::try_profile` (only when `cap_bytes` set),
   builds verdicts via `verdict_for`, then `recommend::rank`.
 
@@ -1459,7 +1459,7 @@ let _ = queue::delete(&job_path);
    `run_batch_resumable` folds the `done` units silently (no re-run), runs only the
    remaining `(model, task)` pairs. Errors and cancellations were never recorded, so
    they re-run.
-4. VRAM gate evicts the prior Ollama model and asserts VRAM cleared before the next
+4. VRAM gate evicts the prior llama.cpp model and asserts VRAM cleared before the next
    loads (an `Err` halts with the log intact). On success: transactional finish
    (persist → verify on disk → delete the job log).
 

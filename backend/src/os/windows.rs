@@ -64,7 +64,7 @@ impl EngineHost for WindowsHost {
     fn graceful_stop(pid: u32) -> Result<(), String> {
         // Safe: the child was spawned with CREATE_NEW_PROCESS_GROUP, so its
         // pid IS its group id. Signaling the group takes down the whole tree
-        // (Ollama's model-runner grandchildren included) — verified by the
+        // (the model-runner grandchildren included) — verified by the
         // R1 live gate ("after Stop, confirm no orphaned grandchildren").
         unsafe { GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid) }
             .map_err(|e| format!("GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, {pid}) failed: {e}"))

@@ -141,7 +141,7 @@ export function EditProfileModal({
         <div className="grid grid-cols-1 gap-3 border-t border-slate-100 pt-3">
           <Toggle label="Forbid infinite loops" hint="Any loop-capped run → NotReady" checked={forbidLoop} onChange={setForbidLoop} />
           <Toggle label="Forbid hallucinated done" hint="Any fake-“done” completion → NotReady" checked={forbidHall} onChange={setForbidHall} />
-          <Toggle label="Require full VRAM fit" hint="Partial offload (or unmeasured) → NotReady. Ollama-only." checked={requireVram} onChange={setRequireVram} />
+          <Toggle label="Require full VRAM fit" hint="Partial offload (or unmeasured) → NotReady. Local backends only." checked={requireVram} onChange={setRequireVram} />
           <Toggle label="Require native FC" hint="Native tool-calling must be supported + measured." checked={requireNative} onChange={setRequireNative} />
         </div>
 

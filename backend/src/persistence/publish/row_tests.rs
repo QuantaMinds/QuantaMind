@@ -7,7 +7,7 @@ use crate::inference::eval::readiness::types::{CliffStatus, ReadinessVerdict};
 fn verdict(model: &str, pass_k: Option<f64>, quant: Option<&str>) -> ModelVerdict {
     ModelVerdict {
         model: model.to_string(),
-        backend: BackendKind::Ollama,
+        backend: BackendKind::LlamaCpp,
         verdict: ReadinessVerdict {
             status: Readiness::Conditional,
             blocking: vec!["this reason must never reach the wire".into()],

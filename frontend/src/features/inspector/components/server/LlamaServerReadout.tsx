@@ -4,7 +4,7 @@ import { useBackendStore } from "../../../../shared/state/backendStore";
 import { formatBytes } from "../../../../shared/format/bytes";
 
 /// A one-time **spawn** readout for llama.cpp, shown only when it's the active
-/// backend. Unlike Ollama (which loads per-request and surfaces load as a phase),
+/// backend. Unlike a per-request loader (which surfaces load as a phase),
 /// llama.cpp loads the model once at server spawn and keeps it resident — so this
 /// is a server-startup fact, deliberately separate from the per-request TTFT phase
 /// bar, not faked into it. Nothing renders when no server is up or the readout is

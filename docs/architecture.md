@@ -7,7 +7,7 @@ folder rules. Companion docs: `process.md` (how we work) and `reference.md`
 ## Architecture
 
 QuantaMind is a Tauri desktop app: React/TS frontend, Rust backend, JSON IPC,
-HTTP to a local Ollama server.
+HTTP to a local llama.cpp server.
 
 ### Mental model
 
@@ -32,7 +32,7 @@ HTTP to a local Ollama server.
                               │ HTTP
                               ▼
                 ┌─────────────────────────────┐
-                │   Ollama (localhost:11434)  │
+                │   llama.cpp (localhost:8081)  │
                 └─────────────────────────────┘
 ```
 
@@ -51,7 +51,7 @@ HTTP to a local Ollama server.
 
 - `commands/` — IPC entry points. Thin: validate, wire Tauri, delegate to a pure
   core. The **only** layer that names `tauri::` types. See [Layering](#layering).
-  `run_prompt` is backend-aware (dispatches to Ollama or the `llama-server`
+  `run_prompt` is backend-aware (dispatches to llama.cpp or the `llama-server`
   sidecar per the request's `backend`); the workspace sidebar's backend list picks it.
   `commands/publish/` (Phase 8) holds the share/publish commands: `export_cmd` is a
   thin offline PNG sink (ships in every build); the auth + send surface
@@ -70,7 +70,7 @@ HTTP to a local Ollama server.
   contains **zero** Windows/Linux code, a Windows build contains zero
   macOS/Linux code, and so on. `host.rs` type-aliases `Host` to the right impl
   via `cfg`, with a `compile_error!` for unsupported target OSes. Every
-  lifecycle module (`commands/{ollama,llama,mlx}/…_runtime.rs`, plus
+  lifecycle module (`commands/{llama_cpp,llama,vllm}/…_runtime.rs`, plus
   `commands/app_lifecycle.rs`) uses `os::Host::…` instead of scattering
   `#[cfg(target_os = "…")]` blocks. Methods: `resolve_on_path` (`which` on
   macOS/Linux vs `where.exe` on Windows), `envs_for_lib_dir`
@@ -95,13 +95,13 @@ HTTP to a local Ollama server.
   in shipped paths: a `disallowed_methods` clippy lint (`backend/clippy.toml`)
   denies it on Windows, forcing new spawns through `Host::command`.
 - `inference/` — backend adapters behind the `InferenceBackend` trait
-  (`backend.rs`). `OllamaBackend`, `LlamaCppBackend` (a `llama-server` sidecar),
-  and `MlxBackend` (`mlx_lm.server`, Apple Silicon) today; callers build one by
+  (`backend.rs`). `llama.cppBackend`, `LlamaCppBackend` (a `llama-server` sidecar),
+  and `VLlmBackend` (`vllm_lm.server`, Apple Silicon) today; callers build one by
   matching `BackendKind` (a closed enum — no `dyn`/`async-trait`). Cloud adds
   another variant. Both sidecar backends have an **app-managed lifecycle**: the
-  app spawns/kills the server (`commands/{llama,mlx}/…start`), reaps children on
-  exit (`commands/app_lifecycle.rs`), and the MLX server runs on a dynamic port
-  resolved via `inference/mlx/server/mlx_endpoint.rs` — not a hardcoded `:8082`.
+  app spawns/kills the server (`commands/{llama,vllm}/…start`), reaps children on
+  exit (`commands/app_lifecycle.rs`), and the vLLM server runs on a dynamic port
+  resolved via `inference/vllm/server/vllm_endpoint.rs` — not a hardcoded `:8082`.
   **Tauri-free and must not import `crate::commands`** — when it must report
   progress it takes a sink trait (see [Layering](#layering)), not an `AppHandle`.
 - `metrics/` — measurements: TTFT, tokens/sec, VRAM.
@@ -115,14 +115,14 @@ HTTP to a local Ollama server.
   size-capped, validated on every read/write). The shared GGUF weights folder
   resolves via `UserSettings.models_folder` → `storage_disk::gguf_dir_resolved`
   (`UserSettingsState::weights_dir`); HF + local installs land there for
-  llama.cpp and import into Ollama when reachable. Per-OS default (Phase 4):
+  llama.cpp and import into llama.cpp when reachable. Per-OS default (Phase 4):
   `~/.quantamind/gguf` on Unix (via `os::user_dirs::data_dir()` — backwards
   compatible), `%LOCALAPPDATA%\QuantaMind\gguf` on Windows (no env-var
-  gymnastics for a fresh install). `models_dir` (Ollama's on-disk model
-  location) uses `dirs::home_dir()` so `%USERPROFILE%\.ollama\models` resolves
-  on Windows without setting `OLLAMA_MODELS`. `warn_on_legacy_windows_paths()`
+  gymnastics for a fresh install). `models_dir` (llama.cpp's on-disk model
+  location) uses `dirs::home_dir()` so `%USERPROFILE%\.llama_cpp\models` resolves
+  on Windows without setting `QUANTAMIND_GGUF_DIR`. `warn_on_legacy_windows_paths()`
   runs at startup and stderr-logs (never auto-moves) if a legacy
-  `~/.quantamind/{gguf,mlx}` sits alongside the new Windows default —
+  `~/.quantamind/{gguf,vllm}` sits alongside the new Windows default —
   irreplaceable user weights are the reason.
 - `validation/` — schemas. Shared by commands and persistence.
 - `errors.rs` — single `AppError` enum. No `unwrap()` outside tests.
@@ -152,7 +152,7 @@ HTTP to a local Ollama server.
    parameters (`paramsStore`) define "what am I running and how" for the whole
    app, surfaced in the global header. They are not owned by any feature slice —
    a feature must not own state every other feature reads. The model selection is
-   an array: Ollama is multi-select (2+ → a compare), llama.cpp/MLX single. The
+   an array: llama.cpp is multi-select (2+ → a compare), llama.cpp single. The
    model list is filtered to the selected backend; switching backend reconciles
    the selection imperatively inside `setSelectedBackend` (trims off-backend
    models), never via a cross-store subscription. Every page reads this global
@@ -328,10 +328,10 @@ because it hides.
 
 A read that aggregates two independent sources must not fail wholesale when one
 is down. `get_disk_usage` reports filesystem free/total (from `sysinfo`) plus a
-model-bytes sum (from Ollama `/api/tags`). Ollama being unreachable zeroes only
+model-bytes sum (from llama.cpp the weights folder). llama.cpp being unreachable zeroes only
 the model sum (`disk_usage_for`) — it never fails the whole call, which used to
-surface "Ollama is not running" inside the *Storage* panel. The zeroed sum is
-not a leaky "done" signal: the Ollama-down state is shown distinctly by the
+surface "the server is unreachable" inside the *Storage* panel. The zeroed sum is
+not a leaky "done" signal: the llama.cpp-down state is shown distinctly by the
 status bar and the installed-models list, so the user is never misled.
 
 `clear_app_cache` (Downloads → **Clear cache**) deletes only regenerable caches
@@ -378,7 +378,7 @@ Enforced by a guardrail test on each side (`backend/tests/folder_taxonomy.rs`,
 they mirror their source one-to-one, so their size is already bounded.
 
 > **Known debt (2026-06):** four backend folders are currently over the limit —
-> `persistence/` (12), `inference/eval/toolcall/` (11), `commands/mlx/` (11),
+> `persistence/` (12), `inference/eval/toolcall/` (11), `commands/vllm/` (11),
 > `commands/llama/` (11). The taxonomy test is kept in its **own** target
 > (`folder_taxonomy.rs`), separate from the dependency-law target
 > (`layering_guard.rs`), so the law can gate CI while this split is worked off as a
@@ -390,16 +390,16 @@ These four folders exceeded the limit and are split as follows (the reorg lands
 one folder per commit, behavior unchanged).
 
 - **backend `commands/`** (was 36 files): `prompt/` · `compare/` · `models/` ·
-  `hf/` · `gguf/` · `ollama/` · `workspace/` · `storage/` · `settings/` ·
+  `hf/` · `gguf/` · `llama_cpp/` · `workspace/` · `storage/` · `settings/` ·
   `system/` (health, feasibility, hardware, onboarding)
-- **backend `inference/`** (was 33 files): `ollama/` · `llama/` · `mlx/`
-  (wire + chunk + stats + stream + backend, plus `mlx/server/` =
+- **backend `inference/`** (was 33 files): `llama_cpp/` · `llama/` · `vllm/`
+  (wire + chunk + stats + stream + backend, plus `vllm/server/` =
   runtime/locate/stderr/endpoint for the launcher) · `gguf/` · `hf/` · `pull/` ·
   `create/` · `compare/` · `eval/` (deterministic mini-eval task + scoring, plus
   `eval/toolcall/` — prompt-based, single-turn, structural tool-call eval) ·
   `http/` (http + ndjson) · `backend/` (trait + kind) · `generate/` (spec +
   options) · `chat/` (templates) · `vram_math.rs` (canonical f16 KV-cache formula,
-  unit-tested). `ollama/` also has `ollama_show.rs` — the Tauri-free `/api/show` client
+  unit-tested). `llama_cpp/` also has `llama_cpp_show.rs` — the Tauri-free the GGUF header client
   (template, capabilities, raw `model_info`) behind `commands/models/model_inspect.rs`
   (which also parses `ModelInspect.dims` + exposes `estimate_kv_cache_bytes`); frontend IPC
   in `shared/ipc/system/inspect.ts`. The KV-aware VRAM fit lives in
@@ -407,7 +407,7 @@ one folder per commit, behavior unchanged).
   first hosted it was removed; ParamsControl and the Context Stress Test still consume the hook);
   the curated memory-bandwidth lookup is in `commands/system/hardware_mem.rs`. The 5.12–5.15
   diagnostics are mostly frontend over data already fetched:
-  `features/eval/CpuFallbackBanner` (silent CPU fallback, from `/api/ps`), `features/inspector/ContextBudgetBar`
+  `features/eval/CpuFallbackBanner` (silent CPU fallback, from the server's status endpoint), `features/inspector/ContextBudgetBar`
   (prompt_eval_count / context_length), and the Context Stress Test (`features/eval/cliff.ts` +
   `useContextCliff` + `ContextCliffChart`, visx). Built-in eval presets (curated + `tasks_finance.json`)
   are enumerated by `toolcall/tasks.rs::BUILTIN_COLLECTIONS` behind `list_builtin_collections` /
@@ -426,7 +426,7 @@ one folder per commit, behavior unchanged).
   execution path (`run_agentic_with` drives Pass^k via a per-run sandbox factory).
 - **frontend `features/workspace/components/`** (was 17 files): `model-select/` ·
   `prompt/` (editor + params) · `run/` (single/multi + controls + output) ·
-  `status/` (status bar, ollama control, errors)
+  `status/` (status bar, llama_cpp control, errors)
 - **frontend `shared/ipc/`** (was 26 files), grouped by domain: `core/` (client,
   error, errorInfo, timeout, types) · `events/` (event names + payload zod
   schemas) · `compare/` · `models/` · `workspace/` · `settings/` · `system/` ·
@@ -518,12 +518,12 @@ QM-Dev/
 │   │   ├── main.rs
 │   │   ├── lib.rs
 │   │   ├── commands/{mod,prompt,models,settings,workspace}.rs
-│   │   ├── inference/{mod,ollama,llama_cpp,mlx,traits}.rs
+│   │   ├── inference/{mod,llama_cpp,llama_cpp,vllm,traits}.rs
 │   │   ├── metrics/{mod,timing,vram}.rs
 │   │   ├── persistence/{mod,prompts,history}.rs
 │   │   ├── validation/{mod,schemas}.rs
 │   │   └── errors.rs
-│   ├── tests/{ollama_stream,models_list,prompt_stream}.rs
+│   ├── tests/{llama_cpp_stream,models_list,prompt_stream}.rs
 │   ├── Cargo.toml
 │   ├── tauri.conf.json
 │   ├── build.rs
@@ -567,6 +567,6 @@ The Tauri app is the default bin (`backend/src/main.rs`). The **`qm` CLI** is a 
 `quantamind_lib`, render, map the exit code — no logic in the bin. All CLI command engines live under
 **`backend/src/cli/`** — `cli/doctor/`, `cli/run/`, `cli/init/` — composing the existing per-backend
 health/credential/capability probes rather than re-implementing them. Where a command has genuinely
-per-engine logic it's split per engine: `cli/doctor/probe/{ollama,openai_local,remote}` (the three
+per-engine logic it's split per engine: `cli/doctor/probe/{llama_cpp,openai_local,remote}` (the three
 distinct reachability strategies). Reference: [docs/cli/README.md](cli/README.md).
 

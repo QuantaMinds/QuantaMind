@@ -105,13 +105,13 @@ async fn stream_chat(
     let mut timings = None;
     // Modern llama-server streams a reasoning model's scratchpad in `delta.reasoning_content` (not
     // `content`) BEFORE the answer. Re-emit it as an inline `<think>…</think>` block so the runner's
-    // `strip_think` + D9 accounting handle llama.cpp identically to Ollama. `think_open` tracks the
+    // `strip_think` + D9 accounting handle llama.cpp identically to the server. `think_open` tracks the
     // open tag: closed when the answer (`content`) starts or the stream ends. A terse model (or
     // `--reasoning-format none`) sends no `reasoning_content`, so this stays a no-op.
     let mut think_open = false;
     // The raw reasoning-channel text, kept verbatim so the finished turn can be tokenized
     // with the model's OWN tokenizer (`/tokenize`) — the only honest thinking/answer token
-    // split (streamed delta counts are NOT token counts; proven live on Ollama: 228 chunks
+    // split (streamed delta counts are NOT token counts; proven live on some backends: 228 chunks
     // vs eval_count 300).
     let mut reasoning_text = String::new();
     // Every SUCCESS exit breaks this loop with its stats so the single tail below can stamp
@@ -297,7 +297,7 @@ mod tests {
 
     /// A reasoning model on modern llama-server streams its scratchpad in `delta.reasoning_content`
     /// (extracted out of `content`). We must re-wrap it inline as `<think>…</think>` so `strip_think`
-    /// + D9 accounting see it — identical to the Ollama `thinking` field. Without this the reasoning
+    /// + D9 accounting see it — identical to the the server `thinking` field. Without this the reasoning
     /// is silently dropped on llama.cpp (proven live: qwen3.5 emitted 187 reasoning_content chunks,
     /// 0 captured before this fix).
     #[tokio::test]

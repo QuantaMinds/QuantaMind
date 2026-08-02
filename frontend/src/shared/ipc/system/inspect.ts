@@ -2,8 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { z } from "zod";
 import type { BackendKind } from "../models/storage";
 
-/// Model metadata from Ollama's /api/show (template, capabilities) + an advisory
-/// base-model guess. `available` is false on non-Ollama backends.
+/// Model metadata (template, capabilities) + an advisory base-model guess.
+/// `available` is false when no backend exposes it.
 export const ModelDimsSchema = z.object({
   layers: z.number().int().nonnegative(),
   head_count: z.number().int().nonnegative(),
@@ -35,7 +35,7 @@ export async function inspectModel(model: string, backend: BackendKind): Promise
   return ModelInspectSchema.parse(await invoke("inspect_model", { model, backend }));
 }
 
-/// KV-cache storage precision (llama.cpp/Ollama cache-type wire names). f16 is
+/// KV-cache storage precision (llama.cpp cache-type wire names). f16 is
 /// the conservative baseline; q8_0 ≈ half the bytes, q4_0 ≈ a quarter — exact
 /// integer scaling of the canonical formula, computed in Rust.
 export type KvPrecision = "f16" | "q8_0" | "q4_0";

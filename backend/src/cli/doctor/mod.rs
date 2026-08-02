@@ -16,22 +16,20 @@ pub use report::DoctorReport;
 use crate::inference::backend::backend_kind::BackendKind;
 
 /// Every backend, in scan order.
-const ALL: [BackendKind; 5] = [
-    BackendKind::Ollama,
+const ALL: [BackendKind; 3] = [
     BackendKind::LlamaCpp,
-    BackendKind::Mlx,
     BackendKind::VLlm,
     BackendKind::SgLang,
 ];
 
 /// CLI-supplied options for one doctor run.
 pub struct DoctorOptions {
-    /// Filter to one backend; `None` scans all five.
+    /// Filter to one backend; `None` scans all three.
     pub backend: Option<BackendKind>,
     /// `--base` / `QM_BASE` — only honoured when a single backend is targeted (a
     /// base URL is backend-specific, so it's meaningless applied across a scan).
     pub base: Option<String>,
-    /// `--model` / `QM_MODEL` — enables Ollama's native tool-calling probe.
+    /// `--model` / `QM_MODEL` — names the model to report on.
     pub model: Option<String>,
     /// Remote bearer credential (resolved from env/keychain, never argv).
     pub api_key: Option<String>,

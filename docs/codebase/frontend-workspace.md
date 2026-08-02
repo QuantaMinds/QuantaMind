@@ -2,7 +2,7 @@
 
 The **Workspace** is the primary single-prompt page: a Monaco prompt editor + model
 picker + run controls that **stream tokens** back from the selected local backend
-(Ollama / llama.cpp / MLX), reporting TTFT and tok/s, behind an explicit
+(llama.cpp / vLLM / SGLang), reporting TTFT and tok/s, behind an explicit
 `running → streaming → done | cancelled | error` state machine with clean
 cancellation. It also hosts per-backend **server start/stop** controls and a left-rail
 **file tree** of YAML prompts with autosave.
@@ -25,7 +25,7 @@ the Run trigger, the live stream, and the per-prompt file**.
 ### What it does
 - Renders two Monaco editors: an optional **system** prompt and the **user** prompt.
 - Picks up the model(s) selected in the global header. **1 model → a single streaming
-  run** (`SingleRun`); **2+ models (Ollama) → a compare** (`MultiRun`, documented under
+  run** (`SingleRun`); **2+ models (llama.cpp) → a compare** (`MultiRun`, documented under
   Compare). The single run's live output is mirrored into `compareStore` and shown on the
   **Analysis** tab — the Workspace navigates there on Run.
 - Streams tokens into that output pane and, on completion, records final metrics
@@ -40,10 +40,10 @@ the Run trigger, the live stream, and the per-prompt file**.
 | --- | --- | --- |
 | `run_prompt` (emits `prompt-token` / `prompt-done` / `prompt-cancelled` events) | `useStreamingRun` | backend-prompt-workspace-system.md |
 | `stop_prompt` | `useStreamingRun.cancel` (5s-bounded) | backend-prompt-workspace-system.md |
-| `start_ollama` / `stop_ollama` | `useStartOllama` / `useStopOllama` | backend-inference-backends.md |
+| `start_llama_cpp` / `stop_llama_cpp` | `useStartllama.cpp` / `useStopllama.cpp` | backend-inference-backends.md |
 | `start_llama_server` / `stop_llama_server` | `useStartLlamaServer` / `useStopLlamaServer` | backend-inference-backends.md |
-| `start_mlx_server` / `stop_mlx_server` / `mlx_server_status` | `useMlxServer` | backend-inference-backends.md |
-| Ollama / llama.cpp / MLX `*_health` | `StatusBar`, `useLlamaBackend`, `useMlxBackend` (5s poll) | backend-inference-backends.md |
+| `start_vllm_server` / `stop_vllm_server` / `vllm_server_status` | `useVLlmServer` | backend-inference-backends.md |
+| llama.cpp / vLLM / SGLang `*_health` | `StatusBar`, `useLlamaBackend`, `useVLlmBackend` (5s poll) | backend-inference-backends.md |
 | `open_workspace` / `close_workspace` / `list_workspace_tree` / `recent_workspaces` | `workspaces` store + hooks | backend-prompt-workspace-system.md |
 | `create_prompt` / `load_prompt` / `save_prompt` / `rename_path` / `delete_path` | `workspaces` store + hooks | backend-prompt-workspace-system.md |
 | `list_prompt_templates` | `PromptTemplatePicker` | backend-prompt-workspace-system.md |
@@ -64,19 +64,19 @@ running? a prompt selected? one model or many?) so the sub-pieces stay dumb.
 
 **What / How:** reads `useWorkspacesStore.current` (the open prompt) + `patch`, the
 header `selectedModels`, and the per-backend health flags from `backendStore`
-(ollama/llama/mlx/vllm/sglang).
+(llama_cpp/llama/vllm/vllm/sglang).
 
 Render priority:
 1. `noLlmRunning` (all health flags `!== true`) → `<BackendSetupGuide/>`.
 2. otherwise the prompt UI: `ModelSelectBar`, then — if a prompt is open — the system
    `PromptEditor` (120px), the user-prompt label + `PromptTemplatePicker`, the user
    `PromptEditor`, then `multi ? (HardwareSummary + RunStrategyPicker + MultiRun) : <SingleRun/>`.
-4. `<StatusBar/>` is **always mounted** (even under the setup guide) so its Ollama
+4. `<StatusBar/>` is **always mounted** (even under the setup guide) so its llama.cpp
    health poll keeps running and can flip the page back to the editor.
 
 ```tsx
 const noLlmRunning = useBackendStore(
-  (s) => s.ollamaHealthy !== true && s.llamaHealthy !== true && s.mlxHealthy !== true,
+  (s) => s.llama_cppHealthy !== true && s.llamaHealthy !== true && s.vllmHealthy !== true,
 );
 const sttRunning = useSttRuntimeStore(runningSttEngine);
 const multi = selectedModels.length >= 2;
@@ -138,7 +138,7 @@ const start = useCallback(async (model, prompt, system?, params?, promptPath?, n
   if (system?.trim()) args.system = system.trim();
   if (hasParam(params)) args.params = params;
   args.backend = useBackendStore.getState().selectedBackend;
-  if (useParamsStore.getState().keepLoaded) args.keepAlive = -1; // Ollama keep_alive=-1 → resident
+  if (useParamsStore.getState().keepLoaded) args.keepAlive = -1; // llama.cpp keep_alive=-1 → resident
   try { await invoke("run_prompt", args); }
   catch (e) { initiatedRef.current = false; setError(formatIpcError(e)); setStatus("error"); }
 }, []);
@@ -150,8 +150,8 @@ const cancel = useCallback(async () => {
 ```
 
 Notes:
-- `keepLoaded` on → `keepAlive=-1` (Ollama resident). Off → the arg is **omitted** (not
-  `0`), so Ollama's idle-unload lets the model linger for the Latency tab before freeing.
+- `keepLoaded` on → `keepAlive=-1` (llama.cpp resident). Off → the arg is **omitted** (not
+  `0`), so llama.cpp's idle-unload lets the model linger for the Latency tab before freeing.
 - `cancel()` doesn't itself set a state — the backend emits `prompt-cancelled`, and the
   listener transitions to `cancelled`. If the run already finished, the catch swallows it.
 - Returns `{ output, status, error, metrics, cancelledInfo, start, cancel }`.
@@ -206,13 +206,13 @@ idle ──start──► running ──token──► running (loop)
 ### `SingleRun.tsx`
 **Responsibility:** single-model run trigger wiring `useStreamingRun` to the open prompt,
 header model, params, backend health, hotkeys, the Analysis mirror, and draft autosave.
-**Why/How:** computes `blockedHint` from `backendRunHint(activeBackend, {ollama,llama,mlx})`
+**Why/How:** computes `blockedHint` from `backendRunHint(activeBackend, {llama_cpp,llama,vllm})`
 and `canRun`; on Run navigates to `compare` and calls `start(...)`. Two effects:
 `status==="done" → saveDraftAuto()`, and mirror-into-compareStore on every output/status
 change. Wires `useWorkspaceHotkeys` (Run/Stop/Save, gated to the active workspace view).
 
 ```tsx
-const blockedHint = backendRunHint(activeBackend, { ollama: ollamaHealthy, llama: llamaHealthy, mlx: mlxHealthy });
+const blockedHint = backendRunHint(activeBackend, { llama_cpp: llama_cppHealthy, llama: llamaHealthy, vllm: vllmHealthy });
 const canRun = !!model && prompt.trim().length > 0 && !blockedHint;
 const runNow = () => { if (!model) return;
   useNavStore.getState().setTopView("compare");
@@ -232,8 +232,8 @@ raw `status` string (`data-testid="run-status"`).
 
 | File | Responsibility |
 | --- | --- |
-| `ModelSelectBar.tsx` | Workspace model affordances. The real picker now lives in the **global header**; this keeps the `OllamaEmptyState` (when Ollama is the active backend and down) and an **Add Model** shortcut to the Models tab. |
-| `ModelPicker.tsx` | Legacy inline picker (header now owns selection): de-dupes installed models by digest, filters out embedding models, a `<select>`, an Ollama **Stop** square, **Add Model**; re-`refresh()`es installed models when Ollama flips healthy. |
+| `ModelSelectBar.tsx` | Workspace model affordances. The real picker now lives in the **global header**; this keeps the `llama.cppEmptyState` (when llama.cpp is the active backend and down) and an **Add Model** shortcut to the Models tab. |
+| `ModelPicker.tsx` | Legacy inline picker (header now owns selection): de-dupes installed models by digest, filters out embedding models, a `<select>`, a llama.cpp **Stop** square, **Add Model**; re-`refresh()`es installed models when llama.cpp flips healthy. |
 | `ModelTemperaturePopover.tsx` | Per-model temperature popover (gear icon). Range 0–2, commits on pointer/key-up to `modelSettingsStore.setTemperature(model, v)`; outside-click + Escape close; **Reset to `DEFAULT_TEMPERATURE`**. Disabled until a model is picked. |
 
 ---
@@ -249,7 +249,7 @@ minimap off, `wordWrap:"on"`, font 13, `scrollBeyondLastLine:false`; `onChange` 
 | File | Responsibility |
 | --- | --- |
 | `ParamRow.tsx` | One inference-param row: a slider + number input + reset (↺). Empty input → `undefined` (use model default); parses int/float per `info.integer`; slider falls back to the placeholder default when unset. |
-| `paramsInfo.ts` | `PARAMS[]` display metadata + tooltips for temperature, top_p, top_k, max_tokens, repeat_penalty, seed, num_ctx. Ranges mirror backend `commands/prompt_options.rs`; placeholders show effective defaults. `num_ctx` drives the launch `-c` for llama.cpp too (changing it restarts the server, since llama.cpp fixes context at spawn); Ollama applies it per run; MLX is fixed by the model. |
+| `paramsInfo.ts` | `PARAMS[]` display metadata + tooltips for temperature, top_p, top_k, max_tokens, repeat_penalty, seed, num_ctx. Ranges mirror backend `commands/prompt_options.rs`; placeholders show effective defaults. `num_ctx` drives the launch `-c` for llama.cpp too (changing it restarts the server, since llama.cpp fixes context at spawn); llama.cpp applies it per run; vLLM is fixed by the model. |
 
 ---
 
@@ -259,21 +259,21 @@ minimap off, `wordWrap:"on"`, font 13, `scrollBeyondLastLine:false`; `onChange` 
 
 ### `StatusBar.tsx`
 **Responsibility:** fixed footer showing the model name, a backend **health dot + label**,
-and the last run's metrics. **Why:** it owns the 5s Ollama-health poll (writes
-`setOllamaHealthy`) — the heartbeat that flips the page between setup guide and editor.
-**How:** polls `checkOllamaHealth` every `POLL_MS=5000`; derives the dot/label from
-`backendStatus(activeBackend, health, llamaHealthy, mlxHealthy, model)` so the status
-reflects the **active** backend, not always Ollama; metrics via `formatMetrics`.
+and the last run's metrics. **Why:** it owns the 5s llama.cpp-health poll (writes
+`setllama.cppHealthy`) — the heartbeat that flips the page between setup guide and editor.
+**How:** polls `checkllama.cppHealth` every `POLL_MS=5000`; derives the dot/label from
+`backendStatus(activeBackend, health, llamaHealthy, vllmHealthy, model)` so the status
+reflects the **active** backend, not always llama.cpp; metrics via `formatMetrics`.
 
 | File | Responsibility |
 | --- | --- |
-| `ServerControl.tsx` | Dispatches the single header control by `selectedBackend`: `OllamaControl` / `MlxServerControl` / `LlamaServerControl` for the local backends, or `RemoteServerControl` (read-only status — no start/stop) for the remote vLLM/SGLang. |
+| `ServerControl.tsx` | Dispatches the single header control by `selectedBackend`: `llama.cppControl` / `VLlmServerControl` / `LlamaServerControl` for the local backends, or `RemoteServerControl` (read-only status — no start/stop) for the remote vLLM/SGLang. |
 | `RemoteServerControl.tsx` | Read-only header status for the remote vLLM/SGLang backends (health dot + "configure in Settings" hint); the app can't start a remote server. Health comes from `useRemoteBackends` polling into `backendStore.vllmHealthy`/`sglangHealthy`. |
-| `OllamaControl.tsx` | `PlayStopButton` over `useStartOllama` / `useStopOllama`; hidden until health known (`null`). |
+| `llama.cppControl.tsx` | `PlayStopButton` over `useStartllama.cpp` / `useStopllama.cpp`; hidden until health known (`null`). |
 | `LlamaServerControl.tsx` | Play/Stop the `llama-server` sidecar on the selected llama.cpp model's GGUF (`model.path`); disabled with no path. A start error or hardware-constraint note (from `useStartLlamaServer`) renders as a compact ⚠ chip (`LlamaStartBadge`, folded into the file) — the full text opens in a hover popover (auto-shown once per new message, then hover-only) so the long note can't crush the header row. Error chip wins over the notice chip. |
-| `MlxServerControl.tsx` | Play/Stop the app-managed `mlx_lm.server` on the selected MLX model's dir; the busy spinner covers the multi-minute first-run weight load. |
-| `OllamaEmptyState.tsx` | Ollama-down recovery card: Start / Install (opens download page) / Retry, with `starting` / `success` / `not_installed` / `error` states. |
-| `backendStatus.ts` | Pure: dot+label+aria per backend — Ollama names its version; llama.cpp/MLX name the loaded model and their run state. |
+| `VLlmServerControl.tsx` | Play/Stop the app-managed `vllm_lm.server` on the selected vLLM model's dir; the busy spinner covers the multi-minute first-run weight load. |
+| `llama.cppEmptyState.tsx` | llama.cpp-down recovery card: Start / Install (opens download page) / Retry, with `starting` / `success` / `not_installed` / `error` states. |
+| `backendStatus.ts` | Pure: dot+label+aria per backend — llama.cpp names its version; llama.cpp name the loaded model and their run state. |
 
 ---
 
@@ -285,17 +285,17 @@ never block Run on their own success** — health polling is the source of truth
 
 | Hook | IPC | Status enum | Notes |
 | --- | --- | --- | --- |
-| `useStartOllama` | `start_ollama` | `idle/starting/success/error/not_installed` | on `not_installed` captures `install_url`; `openInstallPage` opens it; success lingers 1s then flips `ollamaHealthy=true` + refreshes installed models. |
-| `useStopOllama` | `stop_ollama` | `idle/stopping/error` | sets `ollamaHealthy=false`. |
+| `useStartllama.cpp` | `start_llama_cpp` | `idle/starting/success/error/not_installed` | on `not_installed` captures `install_url`; `openInstallPage` opens it; success lingers 1s then flips `llama_cppHealthy=true` + refreshes installed models. |
+| `useStopllama.cpp` | `stop_llama_cpp` | `idle/stopping/error` | sets `llama_cppHealthy=false`. |
 | `useStartLlamaServer` | `start_llama_server(path)` | `idle/starting/success/error/not_bundled` | one GGUF at a time; `already_running`/`started` → `llamaHealthy=true`. |
 | `useStopLlamaServer` | `stop_llama_server` | `idle/stopping/error` | sets `llamaHealthy=false`. |
 | `useLlamaBackend` | `*_health` poll (5s) | — | re-probes llama health so a died server doesn't stay "healthy"; no Apple-Silicon gate. |
-| `useMlxBackend` | hardware snapshot + `mlx_health` poll (5s) | — | detects Apple Silicon (only platform MLX runs on); polls only there. Returns `{ appleSilicon }`. |
+| `useVLlmBackend` | hardware snapshot + `vllm_health` poll (5s) | — | detects Apple Silicon (only platform vLLM runs on); polls only there. Returns `{ appleSilicon }`. |
 | `useRemoteBackends` | `check_vllm_health` / `check_sglang_health` poll (5s) | — | `useVllmBackend`/`useSglangBackend` (one file, shared poll helper) write `vllmHealthy`/`sglangHealthy`; false until the endpoint is configured in Settings and reachable. No start/stop hooks — the servers are remote. |
 | `useWorkspaceHotkeys` | — | — | Cmd+Enter Run, Cmd+. Stop, Cmd+S Save, gated by `active`/`canRun`/`running`/`hasPrompt`. |
 
-### `useMlxServer.ts` (the interesting one)
-**Responsibility:** start/stop the app-managed `mlx_lm.server`, polling status + health so a
+### `useVLlmServer.ts` (the interesting one)
+**Responsibility:** start/stop the app-managed `vllm_lm.server`, polling status + health so a
 **multi-minute first-run download** shows "Downloading weights…" without ever failing by
 timeout, and a **died process surfaces its stderr tail** instead of spinning forever.
 **How:** `start` returns immediately, then a `POLL_MS=1500` interval runs `poll()` until
@@ -305,9 +305,9 @@ health goes available (`settle(true)`) or status reports `exited` (`settle(false
 
 ```ts
 const poll = useCallback(async () => {
-  if ((await checkMlxHealth()).available) return settle(true, null);
-  const st = await mlxServerStatus();
-  if (st.state === "exited") settle(false, st.stderr_tail || `mlx_lm.server exited (code ${st.code ?? "?"})`);
+  if ((await checkVLlmHealth()).available) return settle(true, null);
+  const st = await vllmServerStatus();
+  if (st.state === "exited") settle(false, st.stderr_tail || `vllm_lm.server exited (code ${st.code ?? "?"})`);
   else if (st.state === "running") setPhase(st.phase === "downloading" ? "downloading" : "starting");
 }, [settle]);
 ```
@@ -334,7 +334,7 @@ stats? }`.
 
 | File | Responsibility |
 | --- | --- |
-| `runHint.ts` | `backendRunHint(backend, health)` → the Run-block string when the **model's required** backend isn't healthy. No fallback: ollama→"Start Ollama first", llama_cpp→"Start llama.cpp to run this model", mlx→"Start the MLX backend…", vllm/sglang→"Set the vLLM/SGLang server URL in Settings and start it". |
+| `runHint.ts` | `backendRunHint(backend, health)` → the Run-block string when the **model's required** backend isn't healthy. No fallback: llama_cpp→"Start llama.cpp first", llama_cpp→"Start llama.cpp to run this model", vllm→"Start the vLLM backend…", vllm/sglang→"Set the vLLM/SGLang server URL in Settings and start it". |
 | `format.ts` | `formatMetrics(DonePayload)` → `"TTFT {ttft}ms · {tps} tok/s · {n} tokens"` (em-dash when null). |
 
 ---
@@ -343,7 +343,7 @@ stats? }`.
 
 | File | Responsibility |
 | --- | --- |
-| `BackendSetupGuide.tsx` | Shown when no LLM backend is healthy: a 2-col grid of install cards (Ollama / llama.cpp / MLX) with copy-able commands, links, step lists, and "what it runs". `useMlxBackend` filters the Apple-only MLX card off non-Apple-Silicon. The page swaps back to the editor the instant the health poll sees a server. |
+| `BackendSetupGuide.tsx` | Shown when no LLM backend is healthy: a 2-col grid of install cards (llama.cpp / vLLM / SGLang) with copy-able commands, links, step lists, and "what it runs". `useVLlmBackend` filters the Apple-only vLLM card off non-Apple-Silicon. The page swaps back to the editor the instant the health poll sees a server. |
 | `PromptTemplatePicker.tsx` | A `<select>` of bundled prompt templates (`list_prompt_templates`); picking one calls `onInsert(t.body)` → `patch({ user })`. Renders nothing when empty. |
 
 ---

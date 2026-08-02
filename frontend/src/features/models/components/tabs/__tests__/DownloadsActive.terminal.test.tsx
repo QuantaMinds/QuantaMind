@@ -26,7 +26,7 @@ describe("DownloadsActive — terminal states", () => {
 
   it("error entries surface the error message and a Dismiss button", () => {
     useModelStore.getState().upsertDownload({
-      id: "broke", source: "ollama", name: "broke",
+      id: "broke", source: "huggingface", name: "broke",
       status: "error", percent: 0, error: "registration rolled back",
     });
     render(<DownloadsActive />);

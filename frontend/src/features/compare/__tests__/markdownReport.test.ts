@@ -16,7 +16,6 @@ describe("toMarkdown", () => {
   it("includes header, prompt blockquote, and a per-model section with metrics", () => {
     const r = buildReport({
       prompt: "Explain CRDTs.",
-      strategy: "sequential",
       hardwareSnapshot: {
         total_memory_bytes: 32 * 1024 ** 3,
         available_memory_bytes: 18.4 * 1024 ** 3,
@@ -28,7 +27,6 @@ describe("toMarkdown", () => {
     });
     const md = toMarkdown(r);
     expect(md).toContain("# QuantaMind Compare Report");
-    expect(md).toContain("Strategy: sequential");
     expect(md).toContain("Apple Silicon, unified");
     expect(md).toContain("## Prompt");
     expect(md).toContain("> Explain CRDTs.");
@@ -40,7 +38,7 @@ describe("toMarkdown", () => {
 
   it("renders an Error line instead of metrics+body when the row errored", () => {
     const r = buildReport({
-      prompt: "p", strategy: "sequential", hardwareSnapshot: null,
+      prompt: "p", hardwareSnapshot: null,
       selectedModels: [], now: FIXED,
       rows: [ROW({ model: "qwen", status: "error", output: "",
         metrics: null, error: { kind: "inference", message: "HTTP 404" } })],
@@ -53,8 +51,7 @@ describe("toMarkdown", () => {
 
   it("handles a multi-line prompt by quoting each line", () => {
     const r = buildReport({
-      prompt: "line 1\nline 2",
-      strategy: "sequential", hardwareSnapshot: null,
+      prompt: "line 1\nline 2", hardwareSnapshot: null,
       selectedModels: [], rows: [], now: FIXED,
     });
     const md = toMarkdown(r);

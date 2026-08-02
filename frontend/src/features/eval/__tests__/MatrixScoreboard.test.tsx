@@ -20,7 +20,7 @@ beforeEach(() => {
   useBatchStore.getState().reset();
   useEvalRegistryStore.setState({ tasks: [task] });
   useInstalledModelsStore.setState({
-    list: [{ name: MODEL, size_bytes: 1, modified_at: "", family: "", parameter_size: "", quantization: "Q4_K_M", backend: "ollama" }],
+    list: [{ name: MODEL, size_bytes: 1, modified_at: "", family: "", parameter_size: "", quantization: "Q4_K_M", backend: "llama_cpp" }],
     status: "ready",
     error: null,
     lastRefreshedAt: 1,

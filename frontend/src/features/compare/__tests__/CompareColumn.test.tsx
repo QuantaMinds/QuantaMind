@@ -42,11 +42,11 @@ describe("CompareColumn", () => {
     );
   });
 
-  it("omits the cache segment for a backend without it (Ollama: stats present, no cache_n)", () => {
-    const ollama = ROW({ status: "done", output: "ok",
+  it("omits the cache segment for a backend without it (stats present, no cache_n)", () => {
+    const noCache = ROW({ status: "done", output: "ok",
       metrics: { ttft_ms: 142, tokens_per_sec: 38.2, token_count: 218,
         stats: { prompt_eval_count: 250 } } });
-    render(<CompareColumn row={ollama} />);
+    render(<CompareColumn row={noCache} />);
     // Byte-identical to the no-stats case — never a false "cache 0/250".
     expect(screen.getByTestId("compare-metrics-llama3.2:1b")).toHaveTextContent(
       "TTFT 142ms · 38.2 tok/s · 218 tokens",

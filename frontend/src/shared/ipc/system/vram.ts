@@ -1,9 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import { z } from "zod";
 
-// One currently-loaded Ollama model from /api/ps. size_vram is the VRAM portion
+// One currently-resident model. size_vram is the VRAM portion
 // of the size total; the rest is offloaded to system RAM. context_length is a
-// newer Ollama field (full-context KV is preallocated into VRAM).
+// reported when the full-context KV is preallocated into VRAM.
 export const LoadedModelSchema = z.object({
   name: z.string(),
   size_bytes: z.number().int().nonnegative(),

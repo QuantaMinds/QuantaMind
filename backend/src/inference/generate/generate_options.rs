@@ -7,9 +7,9 @@ use serde::Serialize;
 /// the max. A user-set UI value still overrides it (see `merge_eval_options`).
 pub const EVAL_REPEAT_PENALTY: f32 = 1.1;
 
-/// Ollama `/api/generate` `options` block. Field names mirror Ollama's
+/// the server `/api/generate` `options` block. Field names mirror the server's
 /// API (note `num_predict`, not `max_tokens`). Every field is optional so
-/// unset knobs fall back to Ollama's own defaults.
+/// unset knobs fall back to the server's own defaults.
 #[derive(Serialize, Default, Clone, Debug, PartialEq)]
 pub struct GenerateOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -28,7 +28,7 @@ pub struct GenerateOptions {
     /// prompts, at the cost of more KV-cache memory.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_ctx: Option<u32>,
-    /// Stop sequences passed to Ollama (`options.stop`). For models whose end-of-turn
+    /// Stop sequences passed to the server (`options.stop`). For models whose end-of-turn
     /// markers aren't a plain EOS (harmony's `<|return|>`/`<|call|>`, gemma's
     /// `<end_of_turn>`), these are what actually halt generation — without them the model
     /// emits the markers as literal text and loops. Resolved per-model from the chat

@@ -3,7 +3,7 @@ use crate::errors::AppError;
 use crate::inference::eval::toolcall::eval::ToolCallReport;
 
 fn target(model: &str) -> ModelTarget {
-    ModelTarget { model: model.into(), backend: BackendKind::Ollama, is_thinking: false }
+    ModelTarget { model: model.into(), backend: BackendKind::LlamaCpp, is_thinking: false }
 }
 
 fn report(composite: Option<f64>) -> ToolCallReport {

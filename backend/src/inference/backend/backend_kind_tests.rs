@@ -1,18 +1,6 @@
 use super::*;
 
 #[test]
-fn ollama_serializes_as_bare_snake_case_string() {
-    let json = serde_json::to_string(&BackendKind::Ollama).unwrap();
-    assert_eq!(json, "\"ollama\"");
-}
-
-#[test]
-fn ollama_round_trips_through_serde() {
-    let parsed: BackendKind = serde_json::from_str("\"ollama\"").unwrap();
-    assert_eq!(parsed, BackendKind::Ollama);
-}
-
-#[test]
 fn llama_cpp_serializes_as_snake_case_string() {
     let json = serde_json::to_string(&BackendKind::LlamaCpp).unwrap();
     assert_eq!(json, "\"llama_cpp\"");
@@ -22,18 +10,6 @@ fn llama_cpp_serializes_as_snake_case_string() {
 fn llama_cpp_round_trips_through_serde() {
     let parsed: BackendKind = serde_json::from_str("\"llama_cpp\"").unwrap();
     assert_eq!(parsed, BackendKind::LlamaCpp);
-}
-
-#[test]
-fn mlx_serializes_as_snake_case_string() {
-    let json = serde_json::to_string(&BackendKind::Mlx).unwrap();
-    assert_eq!(json, "\"mlx\"");
-}
-
-#[test]
-fn mlx_round_trips_through_serde() {
-    let parsed: BackendKind = serde_json::from_str("\"mlx\"").unwrap();
-    assert_eq!(parsed, BackendKind::Mlx);
 }
 
 #[test]
@@ -52,6 +28,20 @@ fn sglang_serializes_and_round_trips_as_sglang() {
 }
 
 #[test]
-fn default_is_ollama() {
-    assert_eq!(BackendKind::default(), BackendKind::Ollama);
+fn default_is_llama_cpp() {
+    assert_eq!(BackendKind::default(), BackendKind::LlamaCpp);
+}
+
+#[test]
+fn an_unknown_backend_string_is_rejected_rather_than_silently_defaulted() {
+    // A report saved by another build (or a hand-edited one) naming a backend this
+    // build doesn't have must fail loudly on load, not be silently reinterpreted as
+    // llama.cpp — that would relabel someone else's measurements as this backend's
+    // (metric comparability).
+    for unknown in ["\"nope\"", "\"llama_cpp_v2\"", "\"\""] {
+        assert!(
+            serde_json::from_str::<BackendKind>(unknown).is_err(),
+            "{unknown} must not deserialize"
+        );
+    }
 }

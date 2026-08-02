@@ -83,7 +83,7 @@ export const TrajectoryStepSchema = z.object({
   // payloads + test fixtures parse; consumers treat a missing env as "no replay" (`env?.kind`).
   env: EnvViewSchema.optional(),
   // Per-turn prompt-cache reuse (llama.cpp `timings.cache_n`); null/absent for backends
-  // that don't report it (Ollama/MLX) or non-model turns. High → prefix reused (prefill ≈ 0).
+  // that don't report it (a remote backend) or non-model turns. High → prefix reused (prefill ≈ 0).
   cache_n: z.number().int().nonnegative().nullable().optional(),
   // Tokens PROCESSED (prefilled/recomputed) this turn + prefill ms (llama.cpp `prompt_n` /
   // `prompt_ms`). `prefill_tokens` is the recomputed count; total prompt = cache_n +
@@ -96,12 +96,12 @@ export const TrajectoryStepSchema = z.object({
   reasoning_tokens: z.number().int().nonnegative().nullable().optional(),
   // TRUE only when reasoning_tokens is a MEASURED thinking/answer split (the reasoning
   // channel tokenized with the model's own tokenizer — llama.cpp /tokenize). FALSE/absent ⇒
-  // the combined generated count (Ollama reports no split) → the UI shows "(no split)".
+  // the combined generated count (the server reports no split) → the UI shows "(no split)".
   thinking_split_measured: z.boolean().optional(),
   context_used: z.number().int().nonnegative().nullable().optional(),
   context_window: z.number().int().nonnegative().nullable().optional(),
   // Turn-cost split (mirrors Rust `TrajectoryStep`): decode wall-clock (`eval_ms` —
-  // llama.cpp `predicted_ms` / Ollama `eval_duration`), load charged to the turn, server
+  // llama.cpp `predicted_ms`), load charged to the turn, server
   // total, and tokens generated for EVERY model (`output_tokens`, unlike the thinking-only
   // `reasoning_tokens`). Null/absent = the backend didn't report it (never a fabricated 0)
   // or a pre-this-change transcript.
@@ -362,7 +362,7 @@ export const BatchColumnSchema = z.object({
   backend: BackendKindSchema,
   toolcall: ToolCallReportSchema.nullable(),
   agentic: AggAgenticSchema.nullable(),
-  // Phase 7.2: parallel native function-calling aggregate (Ollama /api/chat
+  // Phase 7.2: parallel native function-calling aggregate (the OpenAI tool wire
   // tool_calls), when measured. Nullish so pre-7.2 reports still parse.
   agentic_native_fc: AggAgenticSchema.nullish(),
   error: z.string().nullable(),
@@ -370,7 +370,7 @@ export const BatchColumnSchema = z.object({
   // ranked against terse models. Optional so older reports parse (absent = false).
   is_thinking: z.boolean().optional(),
   // Run-context facts stamped by the command layer (all optional/nullish — older reports
-  // and non-Ollama backends omit them). The Inspector's Test-run view reads these.
+  // and some backends omit them). The Inspector's Test-run view reads these.
   cpu_offloaded: z.boolean().optional(),
   ctx_ceiling: z.number().int().nullish(),
   // Measured weight placement (/api/ps): total vs VRAM-resident, and the CPU-spill
@@ -392,9 +392,6 @@ export const BatchReportSchema = z.object({
   // The run's context length, when set — basis for the readiness VRAM-fit KV-cache
   // estimate. Nullish so reports saved before Phase 7.4 still parse.
   num_ctx: z.number().int().nullish(),
-  // The running Ollama version (`/api/version`) when the batch ran — so a native tool-calling
-  // regression on a version bump is diagnosable. Nullish: older reports / non-Ollama runs omit it.
-  ollama_version: z.string().nullish(),
   // The run's content-verified leaderboard hash (Slice 4): a string ONLY for a pristine bundled
   // collection; null for a custom/imported collection OR any edit (the fork-on-edit guard). Pass
   // this to publish — it's the single source of truth for publishability (the backend never

@@ -39,7 +39,7 @@ describe("vramUsage", () => {
     expect(Math.round(u.pct)).toBe(41);
   });
 
-  it("unified: same result when size_vram equals size (Ollama /api/ps)", () => {
+  it("unified: same result when size_vram equals size", () => {
     const size = 6.6 * 1024 ** 3;
     expect(vramUsage(size, size, 16 * 1024 ** 3, true)).toEqual(
       vramUsage(size, 0, 16 * 1024 ** 3, true),

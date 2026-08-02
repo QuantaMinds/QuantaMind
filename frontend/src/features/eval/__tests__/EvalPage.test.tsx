@@ -35,7 +35,7 @@ const init = vi.fn().mockResolvedValue(undefined);
 beforeEach(() => {
   vi.clearAllMocks();
   useBatchStore.getState().reset();
-  useBackendStore.setState({ selectedBackend: "ollama" });
+  useBackendStore.setState({ selectedBackend: "llama_cpp" });
   useEvalRegistryStore.setState({
     presets: [{ id: "easy-coding", label: "Coding", domain: "coding", tier: "easy" }],
     collections: [],
@@ -44,7 +44,7 @@ beforeEach(() => {
     init,
   });
   useInstalledModelsStore.setState({
-    list: [{ name: "llama3.2:1b", size_bytes: 1, modified_at: "", family: "", parameter_size: "", quantization: "", backend: "ollama" }],
+    list: [{ name: "llama3.2:1b", size_bytes: 1, modified_at: "", family: "", parameter_size: "", quantization: "", backend: "llama_cpp" }],
     status: "ready",
     error: null,
     lastRefreshedAt: 1,
@@ -69,11 +69,11 @@ describe("EvalPage (3-pane workspace)", () => {
     render(<EvalPage />);
     act(() =>
       useBatchStore.setState({
-        report: { collection_id: "easy-coding", columns: [{ model: "llama3.2:1b", backend: "ollama", toolcall: null, agentic: null, error: null }] },
+        report: { collection_id: "easy-coding", columns: [{ model: "llama3.2:1b", backend: "llama_cpp", toolcall: null, agentic: null, error: null }] },
       }),
     );
     expect(useBatchStore.getState().report).not.toBeNull();
-    act(() => useBackendStore.setState({ selectedBackend: "llama_cpp" }));
+    act(() => useBackendStore.setState({ selectedBackend: "vllm" }));
     expect(useBatchStore.getState().report).toBeNull();
   });
 
@@ -81,7 +81,7 @@ describe("EvalPage (3-pane workspace)", () => {
     render(<EvalPage />);
     act(() =>
       useBatchStore.setState({
-        report: { collection_id: "easy-coding", columns: [{ model: "llama3.2:1b", backend: "ollama", toolcall: null, agentic: null, error: null }] },
+        report: { collection_id: "easy-coding", columns: [{ model: "llama3.2:1b", backend: "llama_cpp", toolcall: null, agentic: null, error: null }] },
         outcomeByKey: { "llama3.2:1b weather": { kind: "single", passed: true, trace: {} } } as never,
       }),
     );
@@ -116,7 +116,7 @@ describe("EvalPage (3-pane workspace)", () => {
     act(() =>
       useBatchStore.setState({
         running: true,
-        report: { collection_id: "easy-coding", columns: [{ model: "llama3.2:1b", backend: "ollama", toolcall: null, agentic: null, error: null }] },
+        report: { collection_id: "easy-coding", columns: [{ model: "llama3.2:1b", backend: "llama_cpp", toolcall: null, agentic: null, error: null }] },
       }),
     );
     act(() => useBackendStore.setState({ selectedBackend: "llama_cpp" }));
@@ -141,7 +141,7 @@ describe("EvalPage — k pre-fill from tier (no clobber)", () => {
       isPreset: (v: string) => ["easy-coding", "medium-coding", "hard-coding"].includes(v),
     });
     useInstalledModelsStore.setState({
-      list: [{ name: "llama3.2:1b", size_bytes: 1, modified_at: "", family: "", parameter_size: "", quantization: "", backend: "ollama" }],
+      list: [{ name: "llama3.2:1b", size_bytes: 1, modified_at: "", family: "", parameter_size: "", quantization: "", backend: "llama_cpp" }],
       status: "ready", error: null, lastRefreshedAt: 1,
     });
   });
@@ -227,7 +227,7 @@ describe("EvalPage — results view stays bound to a running batch (nav-persiste
   beforeEach(() => {
     select.mockClear();
     useSelectedModelStore.setState({
-      selectedModels: [{ name: "llama3.2:1b", backend: "ollama", size_bytes: 1 }],
+      selectedModels: [{ name: "llama3.2:1b", backend: "llama_cpp", size_bytes: 1 }],
     });
     useEvalRegistryStore.setState({
       presets: [
@@ -287,7 +287,7 @@ describe("EvalPage — single-task run scope", () => {
   const select = vi.fn().mockResolvedValue(undefined);
   beforeEach(() => {
     select.mockClear();
-    useSelectedModelStore.setState({ selectedModels: [{ name: "llama3.2:1b", backend: "ollama", size_bytes: 1 }] });
+    useSelectedModelStore.setState({ selectedModels: [{ name: "llama3.2:1b", backend: "llama_cpp", size_bytes: 1 }] });
     // Tier "medium" so it survives the Built-in list's tier filter (hwTier mock → medium).
     useEvalRegistryStore.setState({
       presets: [{ id: "med-coding", label: "Coding", domain: "coding", tier: "medium" }],

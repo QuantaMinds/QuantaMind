@@ -31,7 +31,7 @@ async fn all_correct_scores_100() {
         .with_body(ndjson("{\"name\":\"get_weather\",\"args\":{\"city\":\"Paris\"}}"))
         .create_async().await;
 
-    let r = run_eval(BackendKind::Ollama, &server.url(), "m", &[weather_task()]).await.unwrap();
+    let r = run_eval(BackendKind::LlamaCpp, &server.url(), "m", &[weather_task()]).await.unwrap();
     assert_eq!(r.parse_rate, Some(1.0));
     assert_eq!(r.tool_selection_acc, Some(1.0));
     assert_eq!(r.arg_acc, Some(1.0));
@@ -45,7 +45,7 @@ async fn prose_only_gives_zero_parse_rate_not_a_crash() {
         .with_body(ndjson("I'm not sure what you mean, could you clarify?"))
         .create_async().await;
 
-    let r = run_eval(BackendKind::Ollama, &server.url(), "m", &[weather_task()]).await.unwrap();
+    let r = run_eval(BackendKind::LlamaCpp, &server.url(), "m", &[weather_task()]).await.unwrap();
     assert_eq!(r.parse_rate, Some(0.0));
     assert_eq!(r.tool_selection_acc, None); // no parsed call-tasks → n/a, never fabricated
     assert_eq!(r.composite, Some(0.0)); // mean of [0.0]

@@ -5,15 +5,14 @@ use crate::inference::http::http::probe_client;
 use serde::{Deserialize, Serialize};
 
 /// Which backend a HuggingFace repo is being browsed for. Each kind narrows the
-/// search to the matching HuggingFace library tag — `gguf` (Ollama / llama.cpp)
-/// or `mlx` — so only repos that actually carry downloadable files for that
-/// backend surface. (HuggingFace auto-tags a repo with `gguf` when it contains
-/// `.gguf` files.)
+/// search to the matching HuggingFace library tag, so only repos that actually
+/// carry downloadable files for a supported backend surface. Only `gguf` is
+/// runnable today; the enum is the seam for a future weight format.
+/// (HuggingFace auto-tags a repo with `gguf` when it contains `.gguf` files.)
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum RepoKind {
     Gguf,
-    Mlx,
 }
 
 impl RepoKind {
@@ -21,14 +20,13 @@ impl RepoKind {
     fn tag(self) -> &'static str {
         match self {
             RepoKind::Gguf => "gguf",
-            RepoKind::Mlx => "mlx",
         }
     }
 
     /// Whether this hit carries the kind's library tag — so a search only shows
     /// repos with files this backend can actually run. GGUF additionally drops
     /// speech/audio GGUFs: they carry the `gguf` tag but can't run as an LLM on
-    /// Ollama/llama.cpp, so importing them only errors.
+    /// llama.cpp, so importing them only errors.
     fn matches(self, hit: &RawHit) -> bool {
         if !hit.tags.iter().any(|t| t.eq_ignore_ascii_case(self.tag())) {
             return false;
@@ -99,7 +97,7 @@ pub async fn search_models(
         .get(format!("{endpoint}/api/models"))
         .query(&[
             ("search", query.to_string()),
-            // Restrict to the kind's library tag (gguf / mlx) so only repos with
+            // Restrict to the kind's library tag (gguf) so only repos with
             // downloadable files for this backend come back.
             ("filter", kind.tag().to_string()),
             ("sort", "downloads".to_string()),
@@ -145,7 +143,7 @@ pub async fn repo_gguf_files(endpoint: &str, repo: &str) -> AppResult<Vec<HfRepo
         .collect())
 }
 
-/// Files that contribute nothing to loading an MLX model — repo metadata, docs,
+/// Files that contribute nothing to loading an the remote server model — repo metadata, docs,
 /// and licenses. Everything else (config.json, *.safetensors, tokenizer*, etc.)
 /// is kept so `mlx_lm.server` can load the snapshot.
 fn is_snapshot_junk(path: &str) -> bool {
@@ -157,7 +155,7 @@ fn is_snapshot_junk(path: &str) -> bool {
 }
 
 /// Lists every downloadable file in the repo (for a full snapshot), minus
-/// repo/doc junk. Used to mirror an MLX repo to local disk.
+/// repo/doc junk. Used to mirror an the remote server repo to local disk.
 pub async fn repo_all_files(endpoint: &str, repo: &str) -> AppResult<Vec<HfRepoFile>> {
     Ok(fetch_tree(endpoint, repo).await?
         .into_iter()

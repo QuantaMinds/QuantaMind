@@ -41,10 +41,10 @@ export function ModelTimeline({
 }) {
   const [hovered, setHovered] = useState<LatencyBar | null>(null);
   const label = useModelLabel();
-  // The model's ACTUAL backend (llama.cpp reads KV dims from its GGUF; Ollama from /api/show).
+  // The model's ACTUAL backend (llama.cpp reads KV dims from its GGUF header).
   // Resolved by name from the installed list — CompareRow doesn't carry it. Was hardcoded
-  // "ollama", which stranded llama.cpp/MLX on the Ollama path → the KV meters said "Not
-  // available (needs an Ollama model)".
+  // a fixed value, which stranded llama.cpp → the KV meters said "Not
+  // available".
   const backend = useInstalledModelsStore((s) => s.list).find((mm) => mm.name === row.model)?.backend;
   const m = row.metrics;
   const { bars, stats } = buildLatencyBars(m?.timeline ?? [], m?.ttft_ms ?? null);
@@ -105,7 +105,7 @@ export function ModelTimeline({
           promptTokens={m?.stats?.prompt_eval_count ?? null}
           contextLength={vram?.context_length ?? null}
         />
-        {/* Dims resolve per backend: llama.cpp from its GGUF header, Ollama from /api/show. */}
+        {/* Dims resolve per backend: llama.cpp reads them from its GGUF header. */}
         <KvCeilingBars
           modelName={row.model}
           backend={backend}

@@ -333,7 +333,7 @@ export const CACHE_BUST_BELOW = 0.5;
 
 /// Per-turn llama.cpp prefix-cache readout: green when the prefix was reused, amber when it
 /// collapsed (a non-first turn re-prefilled), neutral on the first turn (no prior prefix to
-/// reuse). Renders nothing when the backend doesn't report it (Ollama/MLX → `available`
+/// reuse). Renders nothing when the backend doesn't report it (a remote backend → `available`
 /// false). The single `cacheReuse` gate keeps absence-of-feature absent, not a false "0".
 export function CacheBadge({ s }: { s: TrajectoryStep }) {
   // cacheReuse(cached = cache_n, recomputed = prefill_tokens); total = cache_n + prefill_tokens.
@@ -797,7 +797,7 @@ export function TraceDebugger({
                                           </span>
                                         )}
                                         {/* llama.cpp-only per-turn prefix-cache readout (reused vs recomputed;
-                                            amber on a cache bust). Renders nothing for Ollama/MLX. */}
+                                            amber on a cache bust). Renders nothing for a remote backend. */}
                                         <CacheBadge s={s} />
                                       </div>
 

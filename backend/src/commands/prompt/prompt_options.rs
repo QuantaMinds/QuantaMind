@@ -1,5 +1,5 @@
 use crate::errors::{AppError, AppResult};
-use crate::inference::ollama::ollama::GenerateOptions;
+use crate::inference::generate::generate_options::GenerateOptions;
 use crate::persistence::prompts::schema::InferenceParams;
 
 fn in_range(name: &str, v: Option<f32>, lo: f32, hi: f32) -> AppResult<()> {
@@ -23,8 +23,8 @@ pub fn validate_params(p: &InferenceParams) -> AppResult<()> {
     Ok(())
 }
 
-/// Map persisted per-prompt params onto Ollama's option block.
-/// `max_tokens` becomes Ollama's `num_predict`; `num_ctx` is the context window.
+/// Map persisted per-prompt params onto the server's option block.
+/// `max_tokens` becomes the server's `num_predict`; `num_ctx` is the context window.
 pub fn to_generate_options(p: &InferenceParams) -> GenerateOptions {
     GenerateOptions {
         temperature: p.temperature,

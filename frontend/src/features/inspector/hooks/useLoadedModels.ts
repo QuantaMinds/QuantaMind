@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { loadedModels, type LoadedModel } from "../../../shared/ipc/system/vram";
 
-/// Fetch Ollama's currently-loaded models (/api/ps) on mount, keyed by name so
+/// Fetch the currently-loaded models on mount, keyed by name so
 /// each Inspector row can look up its VRAM footprint. Errors degrade to an
 /// empty map (the IPC wrapper already logs). `refresh` re-reads on demand.
 export function useLoadedModels() {

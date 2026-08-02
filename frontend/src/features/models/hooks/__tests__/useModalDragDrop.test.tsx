@@ -12,8 +12,8 @@ import { useModelStore } from "../../state/modelStore";
 beforeEach(() => {
   onDragDropEvent.mockReset();
   useModelStore.setState({
-    activeTab: "ollama", pendingLocalPath: null,
-    downloads: {}, pullNames: {}, activeHfName: null, activeLocalName: null,
+    activeTab: "huggingface", pendingLocalPath: null,
+    downloads: {}, activeHfName: null, activeLocalName: null,
   });
 });
 

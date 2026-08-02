@@ -9,10 +9,10 @@ import type { InferenceParams } from "../ipc/workspace/prompts";
 export interface ParamsStore {
   globalParams: InferenceParams;
   /// Keep the model resident across runs. Off (default) unloads it after each run
-  /// — Ollama keep_alive=0; on → keep_alive=-1. Only Ollama unloads on demand;
-  /// llama.cpp/MLX hold their model while the sidecar runs.
+  /// — keep_alive=0; on → keep_alive=-1. Only a backend that unloads on demand honours it;
+  /// llama.cpp hold their model while the sidecar runs.
   keepLoaded: boolean;
-  /// When false (and 2+ Ollama models are selected), each model uses its own
+  /// When false, each model uses its own
   /// params from perModelParams instead of globalParams.
   sharedParams: boolean;
   perModelParams: Record<string, InferenceParams>;

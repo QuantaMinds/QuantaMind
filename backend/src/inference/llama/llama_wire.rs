@@ -3,7 +3,7 @@ use crate::inference::llama::llama_timings::Timings;
 use serde::{Deserialize, Serialize};
 
 /// llama-server `/completion` request. Field names follow llama.cpp's server
-/// (`n_predict`, not Ollama's `num_predict`); the model is fixed at spawn so the
+/// (`n_predict`, not the server's `num_predict`); the model is fixed at spawn so the
 /// body carries no model name. System text is prepended to the prompt —
 /// `/completion` applies no chat template.
 #[derive(Serialize)]
@@ -76,8 +76,8 @@ pub struct ChatDelta {
     /// A reasoning model's separate thinking stream. Modern llama-server (`--reasoning-format`
     /// default) EXTRACTS the `<think>` block out of `content` into this field; only the final
     /// answer stays in `content`. Captured and re-wrapped as inline `<think>…</think>` (mirroring
-    /// the Ollama `thinking` field) so the runner's `strip_think` + the D9 accounting see reasoning
-    /// on llama.cpp identically to Ollama. `None`/absent for a terse model or `--reasoning-format none`
+    /// the the server `thinking` field) so the runner's `strip_think` + the D9 accounting see reasoning
+    /// on llama.cpp identically to the server. `None`/absent for a terse model or `--reasoning-format none`
     /// (which leaves `<think>` inline in `content`, still handled by `strip_think`).
     #[serde(default)]
     pub reasoning_content: Option<String>,
@@ -88,7 +88,7 @@ pub struct ChatDelta {
 /// chat template, giving the model its trained turn structure so it emits EOS
 /// and stops — the `/completion` path (raw prompt, no template) is the fallback.
 ///
-/// Unlike mlx's `ChatRequest`, this keeps `seed` (llama.cpp eval runs are
+/// Unlike the shared OpenAI `ChatRequest`, this keeps `seed` (llama.cpp eval runs are
 /// seed-reproducible and must stay so) and carries `stop` when set. The server
 /// is single-model, so `model` is sent only for OpenAI-client compatibility.
 #[derive(Serialize)]
@@ -332,7 +332,7 @@ mod tests {
     }
 
     /// The reason for a llama-specific request: seed-reproducibility and stops
-    /// must survive onto the chat wire (mlx's ChatRequest drops seed).
+    /// must survive onto the chat wire (the shared OpenAI ChatRequest drops seed).
     #[test]
     fn chat_request_preserves_seed_and_stop() {
         let opts = GenerateOptions {

@@ -27,7 +27,7 @@ pub enum FailureKind {
     ReportedInProse,
     /// The model emitted a NON-JSON tool-call dialect the parser can't read (a mis-built
     /// model generating harmony-ish channel tokens — `<|tool_response|>call:NAME(...)`).
-    /// Deliberately NOT salvaged: a real deployment (Ollama's native parser) also drops
+    /// Deliberately NOT salvaged: a real deployment (a server-side native parser) also drops
     /// these forms, so crediting them would make the bench more lenient than production.
     /// Distinct from `Malformed` (broke real JSON) and `Hallucinated` (yielded nothing) so
     /// a template/dialect artifact isn't mislabeled as a model-capability failure.

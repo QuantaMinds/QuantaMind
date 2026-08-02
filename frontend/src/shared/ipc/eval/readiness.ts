@@ -76,7 +76,7 @@ export const ReadinessVerdictSchema = z.object({
 export type ReadinessVerdict = z.infer<typeof ReadinessVerdictSchema>;
 
 /// One model's measured memory footprint vs the allocation cap (Phase 7.4).
-/// Present only when VRAM fit was measured (Ollama + a cap); absent otherwise.
+/// Present only when VRAM fit was measured (a local model + a cap); absent otherwise.
 export const MemoryProfileSchema = z.object({
   weights_bytes: z.number().int().nonnegative(),
   kv_cache_bytes: z.number().int().nonnegative(),
@@ -181,7 +181,7 @@ export const ModelVerdictSchema = z.object({
   // Reasoning-budget context (mirror of the Rust `ModelVerdict` fields). `is_thinking` flags a
   // reasoning model (its token `effort` isn't comparable to a terse model's); `think_preset` is the
   // scratchpad-allowance preset; `ctx_ceiling` the hardware-adaptive window; `cpu_offloaded` whether
-  // Ollama spilled it to CPU. `.optional()` (like `passes`/`total_runs`) so fixtures/pre-fix payloads
+  // the server spilled it to CPU. `.optional()` (like `passes`/`total_runs`) so fixtures/pre-fix payloads
   // omit them; the Rust side always sends them (serde default). Absent → treated as terse/standard.
   is_thinking: z.boolean().optional(),
   cpu_offloaded: z.boolean().optional(),
@@ -241,7 +241,7 @@ export async function deleteReadinessProfile(id: string): Promise<void> {
 }
 
 /// Assess a collection's last persisted batch report against a profile. When
-/// `capBytes` is set, VRAM fit is measured for each Ollama and llama.cpp model
+/// `capBytes` is set, VRAM fit is measured for each llama.cpp model
 /// against that allocation cap. Returns the ranked verdicts plus the right-sizing
 /// summary; empty `verdicts` means no run has been persisted yet.
 export async function assessReadiness(

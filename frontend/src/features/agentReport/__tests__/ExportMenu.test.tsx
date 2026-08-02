@@ -19,7 +19,7 @@ const PROFILE: ReadinessProfile = {
   require_full_vram: false, require_native_fc: false,
 };
 const VERDICTS: ModelVerdict[] = [
-  { model: "qwen", backend: "ollama", verdict: { status: "ready", blocking: [], conditions: [], path: "native_fc" }, pass_k: 0.9 },
+  { model: "qwen", backend: "llama_cpp", verdict: { status: "ready", blocking: [], conditions: [], path: "native_fc" }, pass_k: 0.9 },
 ];
 
 function renderMenu() {

@@ -4,7 +4,6 @@ Documents the **Analysis tab**, the side-by-side model comparison feature, file 
 file. Source root: `frontend/src/features/compare/`.
 
 Cross-references:
-- **Backend contract:** [`backend-compare.md`](./backend-compare.md) — the
   `run_compare`/`stop_compare`/`save_compare_report` commands and the per-model
   event stream this tab consumes.
 - **App shell / nav / stores:** [`frontend-overview.md`](./frontend-overview.md).
@@ -26,7 +25,7 @@ you don't kick off a run your machine can't hold.
   status badge (pending → loading → running → done/cancelled/error). Its done-state
   metrics line (`formatMetrics`) appends a llama.cpp **prefix-cache** segment
   (`cache N/total reused`) only when `cacheReuse(stats.cache_n, stats.prompt_eval_count)`
-  is `available` — purely additive, so Ollama/MLX rows are byte-identical to before.
+  is `available` — purely additive, so the remote backends rows are byte-identical to before.
 - A **metrics bar chart** (`MetricsChart`) — THROUGHPUT (tok/s) and TTFT (ms),
   ASCII bars with data-derived axis ticks and a pairwise diff caret.
 - A **word-level token diff** (`CompareDiff` + `DiffView`) between exactly two

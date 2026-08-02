@@ -74,7 +74,7 @@ pub async fn stream_generate(
     let mut finish: Option<String> = None;
     // A reasoning model streams its scratchpad in `delta.reasoning`/`reasoning_content` (not
     // `content`). Re-emit it as inline `<think>…</think>` so the runner's `strip_think` + D9
-    // accounting handle every OpenAI-wire backend identically to Ollama/llama.cpp. `think_open`
+    // accounting handle every OpenAI-wire backend identically to llama.cpp. `think_open`
     // tracks the open tag: closed when the answer (`content`) starts or the stream ends. A terse
     // model (or enable_thinking:false) sends no `reasoning`, so this is a no-op.
     let mut think_open = false;

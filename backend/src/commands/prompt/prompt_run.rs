@@ -7,9 +7,7 @@ use crate::inference::backend::remote_config;
 use crate::inference::generate::generate_spec::GenerateSpec;
 use crate::inference::generate::generate_stats::GenerateStats;
 use crate::inference::llama::llama_backend::LlamaCppBackend;
-use crate::inference::mlx::mlx_backend::MlxBackend;
-use crate::inference::ollama::ollama::GenerateOptions;
-use crate::inference::ollama::ollama_backend::OllamaBackend;
+use crate::inference::generate::generate_options::GenerateOptions;
 use crate::inference::sglang::sglang_backend::SgLangBackend;
 use crate::inference::vllm::vllm_backend::VLlmBackend;
 use tokio_util::sync::CancellationToken;
@@ -45,16 +43,8 @@ pub async fn run_prompt_inner(
         think: None,
     };
     match backend {
-        BackendKind::Ollama => {
-            OllamaBackend::new(endpoint.to_string()).generate(&spec, cancel, on_token).await
-        }
         BackendKind::LlamaCpp => {
             LlamaCppBackend::new(endpoint.to_string()).generate(&spec, cancel, on_token).await
-        }
-        BackendKind::Mlx => {
-            MlxBackend::new(endpoint.to_string(), model.to_string())
-                .generate(&spec, cancel, on_token)
-                .await
         }
         BackendKind::VLlm => {
             VLlmBackend::new(endpoint.to_string(), remote_config::vllm().api_key, model.to_string())

@@ -20,9 +20,9 @@ describe("docs render", () => {
   });
 
   it("renders a fenced code block, a callout, and an anchored heading", () => {
-    render(<DocMarkdown markdown={"## Setup\n\n```bash\nollama pull qwen3.5\n```\n\n> [!TIP]\n> Use prompt-based mode."} />);
+    render(<DocMarkdown markdown={"## Setup\n\n```bash\nllama-server -m qwen3.5.gguf\n```\n\n> [!TIP]\n> Use prompt-based mode."} />);
     // Code block content
-    expect(screen.getByTestId("doc-code").textContent).toContain("ollama pull qwen3.5");
+    expect(screen.getByTestId("doc-code").textContent).toContain("llama-server -m qwen3.5.gguf");
     // Callout with its label
     const callout = screen.getByTestId("doc-callout");
     expect(callout.textContent).toContain("Tip");
@@ -32,8 +32,8 @@ describe("docs render", () => {
   });
 
   it("renders a pipe table with header cells", () => {
-    render(<DocMarkdown markdown={"| Backend | Note |\n| --- | --- |\n| Ollama | easy |"} />);
+    render(<DocMarkdown markdown={"| Backend | Note |\n| --- | --- |\n| llama.cpp | easy |"} />);
     expect(screen.getByText("Backend")).toBeTruthy();
-    expect(screen.getByText("Ollama")).toBeTruthy();
+    expect(screen.getByText("llama.cpp")).toBeTruthy();
   });
 });

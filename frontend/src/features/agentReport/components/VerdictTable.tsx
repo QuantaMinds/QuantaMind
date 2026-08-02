@@ -181,7 +181,7 @@ const ctxLabel = (n: number) => (n >= 1024 ? `${Math.round(n / 1024)}k` : `${n}`
 /// keeps that promise on screen, not just in the HTML export.
 export function memoryLineText(m: MemoryProfile | null | undefined, backend: BackendKind): string {
   if (!m) {
-    return backend !== "ollama" ? "VRAM fit: N/A (single-model backend)" : "";
+    return backend !== "llama_cpp" ? "VRAM fit: N/A (remote backend)" : "";
   }
   const note = !m.fits ? "won't fit" : m.pressure ? "high VRAM pressure" : "fits";
   const est = m.estimated ? " · est." : "";

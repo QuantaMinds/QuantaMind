@@ -25,7 +25,7 @@ pub struct RunConfig {
     pub max_steps: Option<u32>,
     pub params: Option<InferenceParams>,
     pub keep_alive: Option<i32>,
-    /// Run the NATIVE tool-calling pass (Ollama `/api/chat` tool_calls).
+    /// Run the NATIVE tool-calling pass (the OpenAI tool wire tool_calls).
     pub native: bool,
     /// Run the PROMPT-based pass (JSON-in-text proxy). At least one of `native`/`prompt` is set by
     /// the UI. `#[serde(default = "default_true")]` → a job log written before this field resumes

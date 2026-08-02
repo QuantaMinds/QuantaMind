@@ -12,7 +12,7 @@ use crate::errors::AppResult;
 use crate::inference::backend::backend_kind::BackendKind;
 use crate::inference::mcp::bridge::{chat, execute_call, select_calls, ToolExecution};
 use crate::inference::mcp::gate::Decision;
-use crate::inference::ollama::ollama_chat::NativeToolCall;
+use crate::inference::chat::native_call::NativeToolCall;
 use crate::mcp::client::McpClient;
 use serde_json::Value;
 

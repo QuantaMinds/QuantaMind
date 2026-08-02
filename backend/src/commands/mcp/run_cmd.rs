@@ -442,7 +442,6 @@ pub async fn run_mcp_byo_batch(
         collection_id: BYO_COLLECTION.to_string(),
         columns: vec![byo_column(&model, backend, &agg, agg.successes, agg.total_calls)],
         num_ctx: None,
-        ollama_version: None,
         collection_hash: None, // never publishable — no answer key
         think_preset: None,
         params: None,
@@ -548,7 +547,7 @@ mod byo_report_tests {
         // 5 valid of 6 calls ≠ a clean pass — and there's no answer key anyway.
         assert!(!report.is_strict_pass(), "a diagnostic must never read as a strict pass");
 
-        let col = byo_column("m", BackendKind::Ollama, &diag, 4, 6);
+        let col = byo_column("m", BackendKind::LlamaCpp, &diag, 4, 6);
         let ag = col.agentic.expect("BYO column has an agentic aggregate");
         assert!(ag.diagnostic.is_some(), "the aggregate carries the diagnostic");
         assert_eq!(ag.pass_k(), None, "tasks_total=0 → Model Results shows no pass^k for BYO");

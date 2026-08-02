@@ -357,14 +357,14 @@ mod tests {
         }
     }
 
-    /// LIVE (ignored): field-scoped getters against a real Ollama model. Runs the API-key
+    /// LIVE (ignored): field-scoped getters against a real model. Runs the API-key
     /// rotation task and dumps every call + injected tool result, so we can eyeball that
     /// `get_service` surfaces ONLY `class` (no `active_sessions` leak) while `check_sessions`
     /// surfaces `active_sessions` — the whole point of the field-projection change (cp3 is now
     /// load-bearing, not redundant). Run:
     ///   cargo test --lib live_field_scoped_rotation -- --ignored --nocapture
     #[tokio::test]
-    #[ignore = "hits a live Ollama on :11434 with qwen2.5-coder-7b-instruct installed"]
+    #[ignore = "live: requires a running local server with qwen2.5-coder-7b-instruct loaded"]
     async fn live_field_scoped_rotation_splits_class_from_sessions() {
         use crate::inference::backend::backend_kind::BackendKind;
         use crate::inference::eval::agentic::build::sandbox_for;
@@ -381,7 +381,7 @@ mod tests {
         // Prompt path (JSON dialect) — the same path the reported failing run used; no native
         // tool support needed, so it runs on any chat model.
         let turn = BackendTurn {
-            backend: BackendKind::Ollama,
+            backend: BackendKind::LlamaCpp,
             endpoint: "http://localhost:11434".into(),
             model,
             cancel: CancellationToken::new(),

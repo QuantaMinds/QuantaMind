@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import type { BackendKind } from "../../../shared/ipc/models/storage";
-import { getHardwareSnapshot } from "../../../shared/ipc/compare/hardware";
-import { checkLlamaHealth, checkMlxHealth, checkVllmHealth, checkSglangHealth } from "../../../shared/ipc/core/client";
+import { checkLlamaHealth, checkVllmHealth, checkSglangHealth } from "../../../shared/ipc/core/client";
 import { useBackendStore } from "../../../shared/state/backendStore";
 import { useInstalledModelsStore } from "../../models/state/installedModelsStore";
 import { useRemoteEndpointsStore } from "../state/remoteEndpointsStore";
@@ -64,27 +63,6 @@ export function usePolledBackendHealth(
 export function useLlamaBackend(): void {
   const setLlamaHealthy = useBackendStore((s) => s.setLlamaHealthy);
   usePolledBackendHealth("llama_cpp", checkLlamaHealth, setLlamaHealthy);
-}
-
-// Detects Apple Silicon (the only platform where mlx_lm.server can run) and, when present, polls
-// MLX health. Off Apple Silicon MLX is never offered, so the poll is gated off (`enabled: false`).
-export function useMlxBackend(): { appleSilicon: boolean } {
-  const [appleSilicon, setAppleSilicon] = useState(false);
-  const setMlxHealthy = useBackendStore((s) => s.setMlxHealthy);
-
-  useEffect(() => {
-    let cancelled = false;
-    getHardwareSnapshot()
-      .then((hw) => !cancelled && setAppleSilicon(hw.is_apple_silicon))
-      .catch(() => !cancelled && setAppleSilicon(false));
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  usePolledBackendHealth("mlx", checkMlxHealth, setMlxHealthy, { enabled: appleSilicon });
-
-  return { appleSilicon };
 }
 
 // vLLM/SGLang run on a remote GPU box. They are polled ONLY when an endpoint is configured in

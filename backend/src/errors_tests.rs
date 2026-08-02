@@ -55,9 +55,9 @@ fn from_serde_error_maps_to_invalid_task_schema() {
 }
 
 #[test]
-fn friendly_maps_connection_refused_to_ollama_down() {
+fn friendly_maps_connection_refused_to_server_down() {
     let e = AppError::Inference("error trying to connect: Connection refused".into());
-    assert_eq!(e.friendly(), "Ollama is not running. Start Ollama and try again.");
+    assert_eq!(e.friendly(), "The local server is not running. Start it and try again.");
 }
 
 #[test]

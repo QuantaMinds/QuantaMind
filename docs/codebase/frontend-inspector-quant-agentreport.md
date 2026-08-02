@@ -60,7 +60,7 @@ Eval batch ────▶ Quant      (score: pass-rate + tool-call spread per q
 
 | Surface | Key components | IPC command(s) | State store | Backend doc |
 |---|---|---|---|---|
-| **Latency** | `InspectorPage`, `LatencyTimelines` (also reused under the Analysis tab), `ModelTimeline`, `TtftBreakdown`, `TokenTimeline`, `LatencyHistogram`, `ColdWarmPanel`, `RegressionAlert`, `LeakBanner`, `VramBar`, `ContextBudgetBar` | `get_hardware_snapshot`, `get_loaded_models`, `history_list`, (leak) process-RSS sampler | `compareStore` (rows), `leakStore` (RSS series), reads `cliffStore` | [prompt-workspace](./backend-prompt-workspace-system.md), [compare](./backend-compare.md) |
+| **Latency** | `InspectorPage`, `LatencyTimelines` (also reused under the Analysis tab), `ModelTimeline`, `TtftBreakdown`, `TokenTimeline`, `LatencyHistogram`, `ColdWarmPanel`, `RegressionAlert`, `LeakBanner`, `VramBar`, `ContextBudgetBar` | `get_hardware_snapshot`, `get_loaded_models`, `history_list`, (leak) process-RSS sampler | `compareStore` (rows), `leakStore` (RSS series), reads `cliffStore` | [prompt-workspace](./backend-prompt-workspace-system.md) |
 | **Quant** | `QuantPage`, `quantPick`, `recommend`, `useVramFit`, `useQuantEval`, `useQuantToolcall` | `inspect_model`, `estimate_kv_cache_bytes`, `list_evals`+`run_eval_task`, `run_toolcall_eval`, `get_hardware_snapshot` | `installedModelsStore`, `selectedModelStore`, local hook state | [eval-engine](./backend-eval-engine.md), [models-hf-gguf](./backend-models-hf-gguf.md) |
 | **Agent Report** | `AgentReportPage`, `VerdictTable`, `RecommendationBanner`, `ExecutiveVerdict`, `TierProgressionMatrix`, `FailureTaxonomy`, `EditProfileModal`, `ExportMenu`, `StatusBadge` | `assess_readiness`, `list_readiness_profiles`, `save_readiness_profile`, `get_hardware_snapshot`, `get_hardware_tier`, `save_readiness_image` | `readinessStore`, reads `evalRegistryStore` | [eval-engine](./backend-eval-engine.md) |
 | **Publish** | `PublishButton`, `PublishDialog`, `WhatsSharedPanel`, `writeupLink` | `preview_publish_payload`, `publish_to_board`, `start_login` | none (passes `verdicts` through) | [publish](./backend-publish.md) |
@@ -70,7 +70,7 @@ Eval batch ────▶ Quant      (score: pass-rate + tool-call spread per q
 ## 1. Latency
 
 `features/inspector/` — a hidden-but-mounted tab. `InspectorPage` re-reads
-`/api/ps` + run history every time the tab is opened (the model that just ran is
+the server's status endpoint + run history every time the tab is opened (the model that just ran is
 loaded by then), then renders one `ModelTimeline` per compare row that has a
 `timeline`. The `format/*` modules are **pure transforms** that turn raw IPC data
 (per-token timings, GGUF stats, history entries, RSS samples) into chart series;
@@ -125,7 +125,7 @@ over-bucketed; `[]` for <2 gaps. A bin holding any outlier-flagged gap sets
 warm (`≤ 500`) runs and headline the **prompt-independent** cold-start cost
 (`deltaLoadMs`), with TTFT shown as prompt-dependent context. **Why:** honest
 tri-state via `coldWarmState` — `ready` / `insufficient` ("run cold then warm") /
-`unsupported` (backend reports no `load_ms`, e.g. MLX/llama.cpp keep the model
+`unsupported` (backend reports no `load_ms`, e.g. vLLM/llama.cpp keep the model
 resident) — so it never shows a forever-misleading "run it again" hint on a
 backend that can't measure it. Returns `null` until ≥1 cold and ≥1 warm exist.
 
@@ -143,8 +143,8 @@ fabricates a baseline.
 the **same model** and rose monotonically with net growth above a 256 MB noise
 floor. **Why:** requiring one model avoids false positives from model switches
 (loading a different model legitimately raises RSS). `leakStore` is a session-only
-(non-persisted, last-30) series of Ollama process RSS, sampled at each run
-completion via `ollamaRss()`; tagging each sample with the model that ran is what
+(non-persisted, last-30) series of llama.cpp process RSS, sampled at each run
+completion via `llama_cppRss()`; tagging each sample with the model that ran is what
 lets the heuristic ignore switch jumps.
 
 ```ts
@@ -165,7 +165,7 @@ or shows "stable". `RegressionAlert` is per-model: hidden when `insufficient`.
 `vramUsage(sizeBytes, sizeVramBytes, deviceTotalBytes)` → resident bytes, offload
 (spilled to RAM = `size − resident`), total (device pool, or model size when the
 pool is unknown so the bar still renders), and clamped `pct`. `pickLoaded` matches
-a run's model in `/api/ps` results tolerating the `:latest` tag both ways.
+a run's model in the server's status endpoint results tolerating the `:latest` tag both ways.
 
 ### `components/InspectorPage.tsx`
 
@@ -190,8 +190,8 @@ after. Disk history (transcripts) is a recorded deferral.
 |---|---|
 | `evalRunHelp.tsx` | One source of truth for the view's InfoButton copy (page / memory panel / task card) — every explanation names the metric's provenance tier; the user-facing glossary lives in the Docs tab's "Latency & memory of a Test run" page (`docs/content.ts`). |
 | `EvalRunPanel.tsx` | Orchestrator: groups BOTH passes per model→task — prompt (`stepsByKey`/`outcomeByKey`) and native (`nativeStepsByKey`/`nativeOutcomeByKey`) render as separate cards (native tagged `native FC`; different eval methods, costs never blended per the comparability rule) — computes `taskCost` per cell, resolves the model's backend (report column stamp, else installed-list lookup — never guessed), rolls up peak context / max RSS across both passes, finds the OOM task. A native-only run MUST surface its trajectory (the 2026-07-20 smoke regression). |
-| `TaskMetricsCard.tsx` | Per task: outcome badge (Pass n/k, red **Out of memory** on `TaskOutcome::Error.oom`), prefill/decode/output/thinking/cache/peak-context cells (null → "Not available", never 0 — Ollama cache reuse names ollama#8008 in its hint), per-step stacked prefill/decode track, RSS line labeled *"max of step-end samples (whole process: weights + residue)"*. |
-| `MemoryEstimatePanel.tsx` | The stacked memory answer with a PROVENANCE label on every row: **Model in memory** `measured (/api/ps size_vram — weights + the KV/context buffer Ollama reserves at load, so it reads ABOVE the raw weight file)` + spilled-to-CPU `measured (size − size_vram)` + **KV at the run's peak** (the headline — `computed from measured tokens (llama.cpp)` vs `estimated (formula)`, `~` when `kv_estimated`, at the run's actual `kv_cache_type`) + RSS `diagnostic` (GPU-wired buffers may not appear in RSS — it can legitimately read BELOW the model's in-memory size). Adds the run's **context-window budget** line (peak single-run tokens / the window the run launched with: `ctx_ceiling` → report `num_ctx` → a truncated step's `context_window`, never guessed) and the shared `KvCeilingBars` (f16/q8_0/q4_0) on the run's model. Fit verdict via `fitOfNeed(model+KV, available)` labeled *planning estimate*. On OOM: the actionable ceiling answer from `useKvCeilings` — REFUSES to suggest when dims are unreadable. Data flows through the SAME hooks as the workspace meters (`useKvCeilings`/`useHardware`, cancel-on-cleanup, NO one-shot ref guards — StrictMode's dev double-mount starved the earlier bespoke fetch into permanent "Not available"). |
+| `TaskMetricsCard.tsx` | Per task: outcome badge (Pass n/k, red **Out of memory** on `TaskOutcome::Error.oom`), prefill/decode/output/thinking/cache/peak-context cells (null → "Not available", never 0 — llama.cpp cache reuse names llama_cpp#8008 in its hint), per-step stacked prefill/decode track, RSS line labeled *"max of step-end samples (whole process: weights + residue)"*. |
+| `MemoryEstimatePanel.tsx` | The stacked memory answer with a PROVENANCE label on every row: **Model in memory** `measured (the server status endpoint size_vram — weights + the KV/context buffer llama.cpp reserves at load, so it reads ABOVE the raw weight file)` + spilled-to-CPU `measured (size − size_vram)` + **KV at the run's peak** (the headline — `computed from measured tokens (llama.cpp)` vs `estimated (formula)`, `~` when `kv_estimated`, at the run's actual `kv_cache_type`) + RSS `diagnostic` (GPU-wired buffers may not appear in RSS — it can legitimately read BELOW the model's in-memory size). Adds the run's **context-window budget** line (peak single-run tokens / the window the run launched with: `ctx_ceiling` → report `num_ctx` → a truncated step's `context_window`, never guessed) and the shared `KvCeilingBars` (f16/q8_0/q4_0) on the run's model. Fit verdict via `fitOfNeed(model+KV, available)` labeled *planning estimate*. On OOM: the actionable ceiling answer from `useKvCeilings` — REFUSES to suggest when dims are unreadable. Data flows through the SAME hooks as the workspace meters (`useKvCeilings`/`useHardware`, cancel-on-cleanup, NO one-shot ref guards — StrictMode's dev double-mount starved the earlier bespoke fetch into permanent "Not available"). |
 
 ### `components/timeline/LatencyTimelines.tsx` {#latencytimelines}
 
@@ -199,10 +199,10 @@ The shared latency-metrics panel used by BOTH the **Latency** tab and, below the
 live answer, the **Analysis** tab — so the two surfaces show byte-identical
 metrics. Reads `compareStore.rows`, filters to rows with a non-empty `timeline`,
 and maps each to a `ModelTimeline`; renders `null` (host owns its empty state)
-until a run carries per-token data. Pulls `useLoadedModels` (`/api/ps` VRAM),
+until a run carries per-token data. Pulls `useLoadedModels` (the server's status endpoint VRAM),
 `useRunHistory` (cold/warm + regression input), `useHardware` (device memory
 pool), and `useParentWidth` (chart sizing), plus the shared colour legend and a
-`Refresh VRAM` button. `active` re-reads `/api/ps` + history when its host tab is
+`Refresh VRAM` button. `active` re-reads the server's status endpoint + history when its host tab is
 (re)opened; `showExport` adds the `ExportReportButton` (Latency tab only).
 
 ### `components/ModelTimeline.tsx`
@@ -218,7 +218,7 @@ calls `buildLatencyBars` and `buildHistogram` once and threads the results down.
 |---|---|
 | `TokenTimeline.tsx` | visx `<Bar>` chart: x = cumulative `tMs`, y = gap latency (scaled to `gapMaxMs` so jitter stays visible, TTFT clamps); dashed vertical phase-boundary lines (slate load / violet prefill / amber TTFT); per-bar invisible hit-rect drives hover. |
 | `LatencyHistogram.tsx` | visx band/linear histogram of the `HistogramBucket[]`; outlier bins rose (`#e11d48`), hover shows the bin's `lo–hi ms · count`. |
-| `TtftBreakdown.tsx` | stacked horizontal CSS bar (load/prefill/stream-gen) sized by `%`; shows "not available for this backend" via `buildTtftSegments(...).available`. Adds a llama.cpp **prefix-cache reuse** line (`· prefix cache: N reused / M recomputed`) gated on `cacheReuse(stats.cache_n, stats.prompt_eval_count).available` — absent for Ollama/MLX (`cache_n` null), a measured `0 reused` for a cold llama run (the two render differently by design). |
+| `TtftBreakdown.tsx` | stacked horizontal CSS bar (load/prefill/stream-gen) sized by `%`; shows "not available for this backend" via `buildTtftSegments(...).available`. Adds a llama.cpp **prefix-cache reuse** line (`· prefix cache: N reused / M recomputed`) gated on `cacheReuse(stats.cache_n, stats.prompt_eval_count).available` — absent for the remote backends (`cache_n` null), a measured `0 reused` for a cold llama run (the two render differently by design). |
 | `VramBar.tsx` | ASCII-cell (`█`/`░`) memory monitor: model cells + system-base cells over the device pool, with an 85% OOM-risk marker; system base derived only when **both** VRAM totals are reported (else it would fabricate a figure). |
 | `ContextBudgetBar.tsx` | ASCII context-window monitor: `prompt_eval_count / context_length`; overlays an indicative context-limit marker from `cliffStore.cliffForModel(model)` (backend-hydrated, not browser-cached); hot at ≥95%. |
 | `kv/KvCeilingBars.tsx` | Three ASCII ceiling bars (f16/q8_0/q4_0) — how much context this machine holds at each KV-cache precision, via `useKvCeilings` (`inspect_model` dims + `context_ceilings` IPC, passed the measured `workingSetBytes` from `deviceMemory`). On Apple Silicon it also renders (a) a **GPU-ADDRESSABLE line** — `~<usable> of <total> usable by the GPU (macOS Metal limit)`, framing the budget as the measured slice not the whole pool — and (b) a **fit-verdict chip** (`fitBadge` over the Rust `FitVerdict`: green *fits* / amber *tight* / red *spills to CPU*; `unknown`/absent → no chip, never guessed), answering the capability question a ceiling can't. Shared x-scale, cliff marker + model-max tick/clamp, Q4 dual caveat (quality **and** long-context slowdown) + "never auto-launches a q4_0 cache", plus a **capacity ≠ capability** caption ("memory only — not speed, not GPU-fit"). `null` ceiling → "Not available", never fabricated. |
@@ -230,7 +230,7 @@ calls `buildLatencyBars` and `buildHistogram` once and threads the results down.
 
 | Hook | Does |
 |---|---|
-| `useLoadedModels` | `get_loaded_models` → `Map<name, LoadedModel>`; `refresh()` on demand; errors → empty map. Source = Ollama `/api/ps` **plus** the running llama.cpp model: the app-spawned server (`running_summary`), or — when the app started none — a `/props` probe of port 8081 so an **externally-started** `llama-server` (a manual launch, or one the `qm` CLI started) still surfaces its footprint + KV ceilings instead of "Not available". |
+| `useLoadedModels` | `get_loaded_models` → `Map<name, LoadedModel>`; `refresh()` on demand; errors → empty map. Source = llama.cpp the server's status endpoint **plus** the running llama.cpp model: the app-spawned server (`running_summary`), or — when the app started none — a `/props` probe of port 8081 so an **externally-started** `llama-server` (a manual launch, or one the `qm` CLI started) still surfaces its footprint + KV ceilings instead of "Not available". |
 | `useRunHistory` | `history_list` → `HistoryEntry[]`; errors → `[]`. |
 | `useHardware` + `deviceMemory` | `get_hardware_snapshot` once; `deviceMemory` derives the pool total, the `unified` flag (Apple RAM vs NVIDIA VRAM), and — on Apple Silicon — `workingSetBytes` (the measured Metal GPU limit from `gpu.gpu_working_set_bytes`; null on discrete GPUs where VRAM already IS the budget). |
 | `useParentWidth` | `ResizeObserver` → container width for SVG sizing. |
@@ -322,8 +322,8 @@ filtered by the collection's `v2_header` domain) and unions each model's ladder 
 model/backend is never pulled in, so no cross-model "Frankenstein ladder"). The
 selected collection's tier entries win on collision; the headline `pass_k`/`status`
 stay per the selected collection. A custom collection (no `v2_header`) skips the merge.
-`quantization` is `resolve_quant`: the Ollama registry first, else
-`quant_from_filename(model)` — so a llama.cpp/MLX/offline model still carries the real
+`quantization` is `resolve_quant`: the llama.cpp registry first, else
+`quant_from_filename(model)` — so a llama.cpp/offline model still carries the real
 quant the name encodes (publishable, never fabricated).
 
 ### `components/VerdictTable.tsx` — the verdict rows — **IMPORTANT**
@@ -440,9 +440,9 @@ global header, so editing the header after a run can't change what's published. 
 result is only publishable once it has a *measured Pass^k* and a *known
 quantization*; the empty/excluded states explain why a model was dropped, and
 `disabledReason` is surfaced as the button tooltip so a greyed-out Publish is
-never a dead end. (The *quantization* requirement is satisfied for non-Ollama
+never a dead end. (The *quantization* requirement is satisfied for non-llama.cpp
 backends too: `assess_readiness` falls back to parsing the quant from the model
-name, so a measured llama.cpp/MLX/offline-Ollama row is no longer dropped with a
+name, so a measured llama.cpp/offline-llama.cpp row is no longer dropped with a
 spurious "0 rows" / "no measured results".)
 
 ```ts

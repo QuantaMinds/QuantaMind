@@ -20,7 +20,7 @@ const GIB = 1024 ** 3;
 const verdicts: ModelVerdict[] = [
   {
     model: "qwen",
-    backend: "ollama",
+    backend: "llama_cpp",
     verdict: { status: "ready", blocking: [], conditions: [], path: "prompt_based" },
     memory: {
       weights_bytes: 5 * GIB,
@@ -34,7 +34,7 @@ const verdicts: ModelVerdict[] = [
   },
   {
     model: "phi3.5",
-    backend: "ollama",
+    backend: "llama_cpp",
     verdict: {
       status: "not_ready",
       blocking: ["pass^k 0.40 < 0.80 required", "tool <name> not in <schema>"],

@@ -6,12 +6,12 @@
 ## Context
 
 Several values in the engine are *closed sets*: the inference backend
-(`BackendKind` = Ollama | LlamaCpp | Mlx), how the agentic sandbox answers a tool call
+(`BackendKind` = LlamaCpp | VLlm | SgLang), how the agentic sandbox answers a tool call
 (`ResponderKind` = StaticMocks | WorldState | FileSystem | WebCorpus | WebUi), readiness
 (`Verdict`), end-state rules, step kinds. These are determinism-critical: a wrong branch
 silently mis-scores a model.
 
-A string (`"ollama"`) or an open `&str` discriminator compiles, but a typo or a newly
+A string (`"llama_cpp"`) or an open `&str` discriminator compiles, but a typo or a newly
 added case fails *silently* — a default branch swallows it.
 
 ## Decision

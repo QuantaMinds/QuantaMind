@@ -9,14 +9,14 @@ describe("batchToCsv", () => {
       columns: [
         {
           model: "qwen",
-          backend: "ollama",
+          backend: "llama_cpp",
           toolcall: null,
           agentic: { tasks_passed: 3, tasks_total: 5, passes: 3, total_runs: 5, avg_steps: 2.4, avg_output_tokens_success: 120, schema_resilience: null, top_error: "hallucinated", failures: { infinite_loop_hits: 0, hallucinated_completions: 2, malformed_json_calls: 0, schema_unrecovered_calls: 0 } },
           error: null,
         },
         {
           model: "loopy",
-          backend: "ollama",
+          backend: "llama_cpp",
           toolcall: null,
           agentic: { tasks_passed: 0, tasks_total: 5, passes: 0, total_runs: 5, avg_steps: null, avg_output_tokens_success: null, schema_resilience: null, top_error: "infinite_loop", failures: { infinite_loop_hits: 5, hallucinated_completions: 0, malformed_json_calls: 0, schema_unrecovered_calls: 0 } },
           error: null,

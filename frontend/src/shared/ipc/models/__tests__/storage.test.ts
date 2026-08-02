@@ -11,9 +11,9 @@ const base = {
 };
 
 describe("InstalledModelInfoSchema backend field", () => {
-  it("accepts an ollama-backed model", () => {
-    const parsed = InstalledModelInfoSchema.parse({ ...base, backend: "ollama" });
-    expect(parsed.backend).toBe("ollama");
+  it("accepts a locally-backed model", () => {
+    const parsed = InstalledModelInfoSchema.parse({ ...base, backend: "llama_cpp" });
+    expect(parsed.backend).toBe("llama_cpp");
   });
 
   it("accepts a llama_cpp-backed model", () => {

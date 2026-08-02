@@ -1,14 +1,14 @@
 //! Single-turn bridge: offer a model the MCP tools, take its call(s), execute
 //! each against a real MCP server, return the (inert) result. Dispatches by
-//! backend — Ollama `/api/chat` and llama.cpp OpenAI `/v1` both return the shared
-//! `ChatResult`; MLX has no native tool API. ALL model output is untrusted
+//! backend — the OpenAI tool wire and llama.cpp OpenAI `/v1` both return the shared
+//! `ChatResult`; a template without a tool grammar yields no calls. ALL model output is untrusted
 //! (OWASP-LLM): results are returned as inert text, never executed.
 
 use crate::errors::{AppError, AppResult};
 use crate::inference::backend::backend_kind::BackendKind;
 use crate::inference::generate::generate_options::GenerateOptions;
 use crate::inference::llama::llama_chat;
-use crate::inference::ollama::ollama_chat::{self, ChatResult, NativeToolCall};
+use crate::inference::chat::native_call::{ChatResult, NativeToolCall};
 use crate::mcp::client::McpClient;
 use crate::mcp::registry::split_namespaced;
 use crate::mcp::wire::{CallToolResult, ContentBlock, Tool};
@@ -132,8 +132,8 @@ pub async fn execute_call(client: &McpClient, call: &NativeToolCall) -> AppResul
 }
 
 /// Call the model for ONE turn on the given backend, returning the shared
-/// `ChatResult`. The single dispatch point — Ollama `/api/chat`, llama.cpp `/v1`;
-/// MLX/remote have no native tool wire here.
+/// `ChatResult`. The single dispatch point — the OpenAI tool wire, llama.cpp `/v1`;
+/// the remote server/remote have no native tool wire here.
 pub async fn chat(
     backend: BackendKind,
     endpoint: &str,
@@ -144,14 +144,11 @@ pub async fn chat(
     options: Option<GenerateOptions>,
 ) -> AppResult<ChatResult> {
     match backend {
-        BackendKind::Ollama => {
-            ollama_chat::chat_with_tools(endpoint, model, system, user, tools, options, Some(false)).await
-        }
         BackendKind::LlamaCpp => {
             llama_chat::chat_with_tools(endpoint, model, system, user, tools, options).await
         }
         other => Err(AppError::Inference(format!(
-            "{other:?} has no native tool-calling for MCP — select Ollama or llama.cpp"
+            "{other:?} has no native tool-calling for MCP — select llama.cpp"
         ))),
     }
 }
@@ -165,7 +162,7 @@ pub struct SingleTurn {
 }
 
 /// One single-turn exchange: offer `tools`, take the model's call(s), execute
-/// each against `client`. MLX (no native tool API) is rejected.
+/// each against `client`. the remote server (no native tool API) is rejected.
 #[allow(clippy::too_many_arguments)]
 pub async fn single_turn(
     backend: BackendKind,

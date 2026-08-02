@@ -31,7 +31,7 @@ describe("VramBar", () => {
   });
 
   it("renders the real /api/ps footprint honestly: pressure marker is a static amber planning estimate, never an OOM claim", () => {
-    // REAL bytes captured live from Ollama /api/ps for llama-3.2-1b-instruct:iq3_m
+    // REAL bytes captured live for llama-3.2-1b-instruct:iq3_m
     // (0.66 GB weights + preallocated 4096-ctx KV cache = the loaded footprint).
     // Nothing measures where this machine OOMs, so the UI must not claim an "OOM
     // ceiling" — the marker is the backend's PRESSURE_FRACTION planning threshold.

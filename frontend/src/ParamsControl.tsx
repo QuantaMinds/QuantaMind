@@ -9,7 +9,7 @@ import { useVramFit } from "./shared/memory/useVramFit";
 import { usePopoverDismiss } from "./shared/ui/usePopoverDismiss";
 
 /// The global inference-parameters popover in the header. Edits the single
-/// globalParams every run reads. When 2+ Ollama models are selected, a "same for
+/// globalParams every run reads. A "same for
 /// all" toggle switches to per-model overrides. Reuses ParamRow + PARAMS so the
 /// ranges/tooltips stay in one place.
 export function ParamsControl() {
@@ -27,12 +27,13 @@ export function ParamsControl() {
   usePopoverDismiss(open, ref, () => setOpen(false));
 
   const setCount = Object.values(globalParams).filter((v) => v !== undefined).length;
-  // Per-model params only make sense for an Ollama 2+ compare.
-  const perModelMode = selectedBackend === "ollama" && selectedModels.length >= 2;
+  // Per-model params needed a multi-model run, which no supported backend can serve.
+  const perModelMode = false;
   // The model's max context window (num_ctx) — fetched only while the popover is
-  // open, and only for a single Ollama model (the "Use max" affordance below).
-  const soloOllama = selectedBackend === "ollama" && selectedModels.length === 1 ? selectedModels[0] : null;
-  const { dims } = useVramFit(open && soloOllama ? soloOllama.name : undefined, soloOllama?.backend, globalParams.num_ctx ?? 4096);
+  // open, and only for a local model whose GGUF header can be read (the "Use max"
+  // affordance below). A remote server exposes no dims, so it stays "Not available".
+  const soloLocal = selectedBackend === "llama_cpp" && selectedModels.length === 1 ? selectedModels[0] : null;
+  const { dims } = useVramFit(open && soloLocal ? soloLocal.name : undefined, soloLocal?.backend, globalParams.num_ctx ?? 4096);
   const modelMax = dims?.context_length ?? null;
 
   return (

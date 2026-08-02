@@ -13,13 +13,15 @@ use tokio_util::sync::CancellationToken;
 #[tokio::test]
 async fn emit_failure_cancels_stream_and_metrics_match_real_emits() {
     let mut server = Server::new_async().await;
-    let body = "{\"response\":\"A\",\"done\":false}\n\
-                {\"response\":\"B\",\"done\":false}\n\
-                {\"response\":\"C\",\"done\":false}\n\
-                {\"response\":\"D\",\"done\":false}\n\
-                {\"response\":\"E\",\"done\":true}\n";
+    let body = concat!(
+        "data: {\"choices\":[{\"delta\":{\"content\":\"A\"},\"finish_reason\":null}]}\n\n",
+        "data: {\"choices\":[{\"delta\":{\"content\":\"B\"},\"finish_reason\":null}]}\n\n",
+        "data: {\"choices\":[{\"delta\":{\"content\":\"C\"},\"finish_reason\":null}]}\n\n",
+        "data: {\"choices\":[{\"delta\":{\"content\":\"D\"},\"finish_reason\":null}]}\n\n",
+        "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+    );
     let _mock = server
-        .mock("POST", "/api/generate")
+        .mock("POST", "/v1/chat/completions")
         .with_status(200)
         .with_body(body)
         .create_async()
@@ -36,7 +38,7 @@ async fn emit_failure_cancels_stream_and_metrics_match_real_emits() {
     };
     let handler = make_token_handler(fake_emit, cancel.clone(), timing.clone());
 
-    let result = run_prompt_inner(BackendKind::Ollama, &server.url(), "m", "p", None, None, None, cancel.clone(), handler).await;
+    let result = run_prompt_inner(BackendKind::LlamaCpp, &server.url(), "m", "p", None, None, None, cancel.clone(), handler).await;
 
     assert!(result.is_ok(), "stream should exit cleanly on emit-failure cancel");
     assert!(cancel.is_cancelled(), "emit failure must have triggered cancel");

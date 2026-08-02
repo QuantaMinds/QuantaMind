@@ -59,7 +59,7 @@ describe("AgentReportPage", () => {
   it("assesses the selected collection + profile and renders the verdict table", async () => {
     vi.mocked(assessReadiness).mockResolvedValue({
       verdicts: [
-        { model: "qwen", backend: "ollama", verdict: { status: "ready", blocking: [], conditions: [], path: "prompt_based" } },
+        { model: "qwen", backend: "llama_cpp", verdict: { status: "ready", blocking: [], conditions: [], path: "prompt_based" } },
       ],
       right_sizing: [],
       right_sizing_hint: null,
@@ -78,7 +78,7 @@ describe("AgentReportPage", () => {
   it("auto-refreshes only when a batch completes for the shown collection or its domain", async () => {
     vi.mocked(assessReadiness).mockResolvedValue({
       verdicts: [
-        { model: "qwen", backend: "ollama", verdict: { status: "ready", blocking: [], conditions: [], path: "prompt_based" } },
+        { model: "qwen", backend: "llama_cpp", verdict: { status: "ready", blocking: [], conditions: [], path: "prompt_based" } },
       ],
       right_sizing: [],
       right_sizing_hint: null,

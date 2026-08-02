@@ -34,7 +34,7 @@ describe("AnalysisTab", () => {
     expect(screen.queryByTestId("metrics-chart")).toBeNull();
   });
 
-  it("renders charts + diff once two models have finished", () => {
+  it("renders the answer column and charts once a run has finished", () => {
     useCompareStore.setState({ rows: [doneRow("a"), doneRow("b")] });
     render(<AnalysisTab />);
     expect(screen.queryByTestId("analysis-empty")).toBeNull();
@@ -43,7 +43,6 @@ describe("AnalysisTab", () => {
     expect(screen.getByTestId("compare-output-b")).toHaveTextContent("out b");
     // …analysis below.
     expect(screen.getByTestId("metrics-chart")).toBeInTheDocument();
-    expect(screen.getByTestId("compare-diff")).toBeInTheDocument();
   });
 
   it("shows the full per-model latency metrics below the live answer once a run has a timeline", () => {

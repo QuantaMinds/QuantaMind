@@ -1,7 +1,6 @@
 //! Per-engine backend probing for `qm doctor`. The dispatcher + the shared HTTP
 //! helpers live here; each inference engine's strategy is its own child module:
-//! - [`ollama`] — native `/api/version` + `/api/tags` + `/api/show` (tools capability).
-//! - [`openai_local`] — llama.cpp / MLX over the OpenAI `/v1/models` surface, no auth.
+//! - [`openai_local`] — llama.cpp over the OpenAI `/v1/models` surface, no auth.
 //! - [`remote`] — vLLM / SGLang, run through the credential classifier.
 //!
 //! No new network logic anywhere: reachability, the credential classifier, and the
@@ -12,12 +11,10 @@ use crate::commands::remote::remote_health::host_of;
 use crate::inference::backend::backend_kind::BackendKind;
 use crate::inference::backend::endpoint;
 use crate::inference::backend::remote_guard::credential_allowed;
-use crate::inference::mlx::server::mlx_endpoint::mlx_endpoint;
 use reqwest::Client;
 use serde::Deserialize;
 use std::time::Duration;
 
-mod ollama;
 mod openai_local;
 mod remote;
 
@@ -35,9 +32,7 @@ fn candidates(kind: BackendKind, override_base: Option<&str>) -> Vec<String> {
         return vec![b.to_string()];
     }
     match kind {
-        BackendKind::Ollama => vec![endpoint::OLLAMA.to_string()],
         BackendKind::LlamaCpp => vec![endpoint::LLAMA_SERVER.to_string(), "http://localhost:8080".into()],
-        BackendKind::Mlx => vec![mlx_endpoint(), "http://localhost:8080".into()],
         BackendKind::VLlm => vec!["http://localhost:8000".into()],
         BackendKind::SgLang => vec!["http://localhost:30000".into()],
     }
@@ -68,31 +63,6 @@ async fn openai_models(c: &Client, ep: &str, key: Option<&str>) -> Option<Vec<St
     Some(list.data.into_iter().map(|m| m.id).collect())
 }
 
-#[derive(Deserialize)]
-struct OllamaTags {
-    #[serde(default)]
-    models: Vec<OllamaTag>,
-}
-#[derive(Deserialize)]
-struct OllamaTag {
-    name: String,
-}
-
-/// Ollama's installed models via `GET /api/tags`. Empty vec on any error — the
-/// caller renders "no models installed" (a loud finding), never a fabricated list.
-async fn ollama_models(c: &Client, ep: &str) -> Vec<String> {
-    let Ok(resp) = c.get(format!("{ep}/api/tags")).send().await else {
-        return vec![];
-    };
-    if !resp.status().is_success() {
-        return vec![];
-    }
-    resp.json::<OllamaTags>()
-        .await
-        .map(|t| t.models.into_iter().map(|m| m.name).collect())
-        .unwrap_or_default()
-}
-
 /// A down/unresponsive backend, with its endpoint redacted (scheme+host+port).
 fn unreachable(kind: BackendKind, ep: &str) -> BackendDoctor {
     BackendDoctor {
@@ -107,8 +77,7 @@ fn unreachable(kind: BackendKind, ep: &str) -> BackendDoctor {
 }
 
 /// Probe one backend into a `BackendDoctor`, dispatching to the per-engine strategy.
-/// `model` enables Ollama's native-FC check; `key` is the remote bearer credential
-/// (never from argv).
+/// `key` is the remote bearer credential (never from argv).
 pub async fn probe_backend(
     kind: BackendKind,
     override_base: Option<&str>,
@@ -119,9 +88,9 @@ pub async fn probe_backend(
     let Some(c) = client() else {
         return unreachable(kind, &cands[0]);
     };
+    let _ = model;
     match kind {
-        BackendKind::Ollama => ollama::probe(&c, &cands[0], model).await,
-        BackendKind::LlamaCpp | BackendKind::Mlx => openai_local::probe(&c, kind, &cands).await,
+        BackendKind::LlamaCpp => openai_local::probe(&c, kind, &cands).await,
         BackendKind::VLlm | BackendKind::SgLang => remote::probe(&c, kind, &cands[0], key).await,
     }
 }

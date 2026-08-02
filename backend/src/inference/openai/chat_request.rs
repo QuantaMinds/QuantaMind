@@ -34,7 +34,7 @@ pub struct ChatRequest {
     /// true and false) so an `is_thinking=false` eval run is TRULY non-thinking — otherwise a
     /// `has_thinking` model reasons by default and blows the smaller non-thinking budget. Ignored by
     /// non-reasoning templates (jinja drops unknown kwargs). Supported by mlx_lm.server, vLLM, and
-    /// SGLang (verified vs ml-explore/mlx-lm#1352).
+    /// SGLang.
     pub chat_template_kwargs: ChatTemplateKwargs,
 }
 

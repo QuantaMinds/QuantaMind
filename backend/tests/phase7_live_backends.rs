@@ -1,10 +1,10 @@
-//! Phase 7 LIVE-backend suite — drives the real Ollama / llama.cpp / MLX servers
+//! Phase 7 LIVE-backend suite — drives the real the server / llama.cpp / the remote server servers
 //! and real models through the app's own inference + eval + readiness code. Every
 //! test is `#[ignore]` (it needs live servers + GB-scale models, so it never runs
 //! in the normal `cargo test`). Run explicitly:
 //!
 //!   cargo test --test phase7_live_backends -- --ignored --nocapture
-//!   cargo test --test phase7_live_backends live_ollama -- --ignored --nocapture
+//!   cargo test --test phase7_live_backends live_the server -- --ignored --nocapture
 //!
 //! Model paths default to this machine's layout and are overridable by env var.
 
@@ -18,8 +18,8 @@ use quantamind_lib::inference::eval::readiness::recommend;
 use quantamind_lib::inference::eval::readiness::types::{ModelVerdict, Readiness};
 use quantamind_lib::inference::eval::toolcall::eval::run_eval;
 use quantamind_lib::inference::eval::toolcall::tasks::{Call, Expected, ToolSchema, ToolTask};
-use quantamind_lib::inference::ollama::ollama_chat::chat_with_tools;
-use quantamind_lib::inference::ollama::ollama_show::probe_supports_tools;
+use quantamind_lib::inference::the server::the server_chat::chat_with_tools;
+use quantamind_lib::inference::the server::the server_show::probe_supports_tools;
 use serde_json::{json, Value};
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
@@ -29,17 +29,17 @@ use tokio_util::sync::CancellationToken;
 fn home() -> String {
     std::env::var("HOME").unwrap()
 }
-fn ollama_tool_model() -> String {
-    std::env::var("QM_OLLAMA_MODEL").unwrap_or_else(|_| "llama3.2:3b".into())
+fn the server_tool_model() -> String {
+    std::env::var("QM_LIVE_MODEL").unwrap_or_else(|_| "llama3.2:3b".into())
 }
-fn ollama_notools_model() -> String {
-    std::env::var("QM_OLLAMA_NOTOOLS").unwrap_or_else(|_| "gamma-2b-instruct-ft-awesome-chatgpt-prompts:q2_k".into())
+fn notools_model() -> String {
+    std::env::var("QM_LIVE_NOTOOLS").unwrap_or_else(|_| "gamma-2b-instruct-ft-awesome-chatgpt-prompts:q2_k".into())
 }
 fn llama_gguf() -> String {
     std::env::var("QM_LLAMA_GGUF").unwrap_or_else(|_| format!("{}/.quantamind/gguf/llama-3.2-1b-instruct_q8_0.gguf", home()))
 }
-fn mlx_model() -> String {
-    std::env::var("QM_MLX_MODEL").unwrap_or_else(|_| format!("{}/.quantamind/mlx/mlx-community_Llama-3.2-1B-Instruct-4bit", home()))
+fn remote_model() -> String {
+    std::env::var("QM_the remote server_MODEL").unwrap_or_else(|_| format!("{}/.quantamind/remote/remote-community_Llama-3.2-1B-Instruct-4bit", home()))
 }
 
 fn weather_tools() -> Value {
@@ -92,37 +92,37 @@ fn called_weather_paris(name: &str, args: &Value) -> bool {
             .unwrap_or(false)
 }
 
-// ── S3 — Ollama native function-calling against a REAL tool-capable model ─────
+// ── S3 — the server native function-calling against a REAL tool-capable model ─────
 
 #[tokio::test]
 #[ignore]
-async fn live_ollama_native_tool_call_and_capability_probe() {
-    let model = ollama_tool_model();
-    let res = chat_with_tools(endpoint::OLLAMA, &model, "You are a helpful assistant.", "What is the weather in Paris? Call the tool.", &weather_tools(), None)
+async fn live_the server_native_tool_call_and_capability_probe() {
+    let model = the server_tool_model();
+    let res = chat_with_tools(endpoint::LLAMA_SERVER, &model, "You are a helpful assistant.", "What is the weather in Paris? Call the tool.", &weather_tools(), None)
         .await
         .expect("native /api/chat call failed");
-    println!("[ollama native FC] model={model} tool_calls={:?} content={:?}", res.tool_calls, res.content);
+    println!("[the server native FC] model={model} tool_calls={:?} content={:?}", res.tool_calls, res.content);
     assert!(!res.tool_calls.is_empty(), "expected a native tool_call from {model}");
     let tc = &res.tool_calls[0];
     assert!(called_weather_paris(&tc.name, &tc.args), "expected get_weather(Paris), got {}({})", tc.name, tc.args);
 
     // Capability probe: tool-capable model true, non-tool model false.
-    let tools_ok = probe_supports_tools(endpoint::OLLAMA, &model).await;
-    let notools = probe_supports_tools(endpoint::OLLAMA, &ollama_notools_model()).await;
-    println!("[capability probe] {model}={tools_ok}  {}={notools}", ollama_notools_model());
+    let tools_ok = probe_supports_tools(endpoint::LLAMA_SERVER, &model).await;
+    let notools = probe_supports_tools(endpoint::LLAMA_SERVER, &notools_model()).await;
+    println!("[capability probe] {model}={tools_ok}  {}={notools}", notools_model());
     assert!(tools_ok, "{model} should report the tools capability");
-    assert!(!notools, "{} should NOT report tools (N/A path)", ollama_notools_model());
+    assert!(!notools, "{} should NOT report tools (N/A path)", notools_model());
 }
 
-// ── S1 — Ollama single-turn tool-calling eval (real scoring) ─────────────────
+// ── S1 — the server single-turn tool-calling eval (real scoring) ─────────────────
 
 #[tokio::test]
 #[ignore]
-async fn live_ollama_toolcall_eval_scores_a_real_model() {
-    let model = ollama_tool_model();
-    let report = run_eval(BackendKind::Ollama, endpoint::OLLAMA, &model, &[weather_task()]).await.expect("run_eval failed");
+async fn live_the server_toolcall_eval_scores_a_real_model() {
+    let model = the server_tool_model();
+    let report = run_eval(BackendKind::LlamaCpp, endpoint::LLAMA_SERVER, &model, &[weather_task()]).await.expect("run_eval failed");
     println!(
-        "[ollama toolcall eval] model={model} n={} parse={:?} select={:?} arg={:?} composite={:?}",
+        "[the server toolcall eval] model={model} n={} parse={:?} select={:?} arg={:?} composite={:?}",
         report.n, report.parse_rate, report.tool_selection_acc, report.arg_acc, report.composite
     );
     assert_eq!(report.n, 1);
@@ -133,13 +133,13 @@ async fn live_ollama_toolcall_eval_scores_a_real_model() {
 
 #[tokio::test]
 #[ignore]
-async fn live_ollama_native_passk_drives_verdict_and_recommender() {
-    let model = ollama_tool_model();
+async fn live_the server_native_passk_drives_verdict_and_recommender() {
+    let model = the server_tool_model();
     let k = std::env::var("QM_K").ok().and_then(|s| s.parse().ok()).unwrap_or(5u32);
     let tools = weather_tools();
     let mut passes = 0u32;
     for i in 0..k {
-        match chat_with_tools(endpoint::OLLAMA, &model, "You are a helpful assistant.", "What is the weather in Paris? Call the tool.", &tools, None).await {
+        match chat_with_tools(endpoint::LLAMA_SERVER, &model, "You are a helpful assistant.", "What is the weather in Paris? Call the tool.", &tools, None).await {
             Ok(r) => {
                 let ok = r.tool_calls.first().map(|t| called_weather_paris(&t.name, &t.args)).unwrap_or(false);
                 if ok {
@@ -151,7 +151,7 @@ async fn live_ollama_native_passk_drives_verdict_and_recommender() {
         }
     }
     let pass_k = passes as f64 / k as f64;
-    println!("[ollama native pass^k] model={model} passes={passes}/{k} pass_k={pass_k:.2}");
+    println!("[the server native pass^k] model={model} passes={passes}/{k} pass_k={pass_k:.2}");
 
     // Build a real column from the measured native pass^k, then run the SAME
     // verdict + recommender the GUI/CLI use.
@@ -164,7 +164,7 @@ async fn live_ollama_native_passk_drives_verdict_and_recommender() {
         top_error: TopError::None,
         failures: FailureTracker::default(),
     };
-    let col = BatchColumn { model: model.clone(), backend: BackendKind::Ollama, toolcall: None, agentic: None, agentic_native_fc: Some(native), error: None };
+    let col = BatchColumn { model: model.clone(), backend: BackendKind::LlamaCpp, toolcall: None, agentic: None, agentic_native_fc: Some(native), error: None };
     let p = profile(0.80);
     let v = verdict_for(&col, Some(true), false, None, &p);
     println!("[verdict @min_pass_k=0.80] {model} => {:?}  path={:?}  blocking={:?}", v.status, v.path, v.blocking);
@@ -173,7 +173,7 @@ async fn live_ollama_native_passk_drives_verdict_and_recommender() {
     use quantamind_lib::inference::eval::readiness::types::{AgentPath, ReadinessVerdict};
     let mk = |m: &str, s: Readiness, eff: f64| ModelVerdict {
         model: m.into(),
-        backend: BackendKind::Ollama,
+        backend: BackendKind::LlamaCpp,
         verdict: ReadinessVerdict { status: s, blocking: vec![], conditions: vec![], path: AgentPath::NativeFc },
         memory: None,
         avg_steps: Some(1.0),
@@ -183,7 +183,7 @@ async fn live_ollama_native_passk_drives_verdict_and_recommender() {
         cliff_tokens: None,
     };
     let mut board = vec![
-        ModelVerdict { model: model.clone(), backend: BackendKind::Ollama, verdict: v.clone(), memory: None, avg_steps: Some(1.0), effort: Some(20.0), pass_k: None, quantization: None, cliff_tokens: None },
+        ModelVerdict { model: model.clone(), backend: BackendKind::LlamaCpp, verdict: v.clone(), memory: None, avg_steps: Some(1.0), effort: Some(20.0), pass_k: None, quantization: None, cliff_tokens: None },
         mk("synthetic-notready", Readiness::NotReady, 10.0),
         mk("synthetic-ready-costly", Readiness::Ready, 999.0),
     ];
@@ -205,14 +205,14 @@ async fn diagnose_prompt_based_scoring_accuracy() {
     use quantamind_lib::inference::eval::toolcall::eval::run_eval_traced;
     use quantamind_lib::inference::eval::toolcall::tasks::tasks;
 
-    let model = ollama_tool_model();
+    let model = the server_tool_model();
     let all = tasks();
     let single: Vec<_> = all.into_iter().filter(|t| t.category != "agentic").collect();
     println!("=== prompt-based scoring of {} single-turn tasks on {model} ===", single.len());
     let mut pass = 0;
     for t in &single {
         let (_r, traces) =
-            run_eval_traced(BackendKind::Ollama, endpoint::OLLAMA, &model, std::slice::from_ref(t), None).await.unwrap();
+            run_eval_traced(BackendKind::LlamaCpp, endpoint::LLAMA_SERVER, &model, std::slice::from_ref(t), None).await.unwrap();
         let v = &traces[0].trace.verdict;
         let passed = match v.abstain_correct {
             Some(ok) => ok,
@@ -239,13 +239,13 @@ async fn diagnose_prompt_based_scoring_accuracy() {
 }
 
 // ── S1+S2+S4+S5+S6 — a REAL agentic multi-model batch → verdicts → recommender ─
-// Runs the app's real engine (run_batch_resumable) over two live Ollama models
-// with the REAL Ollama VRAM-isolation gate and a real job log, then walks the
+// Runs the app's real engine (run_batch_resumable) over two live the server models
+// with the REAL the server VRAM-isolation gate and a real job log, then walks the
 // readiness scenarios off the resulting BatchReport.
 
 use quantamind_lib::inference::eval::agentic::sandbox::{EndStateRule, MockResponse, TaskCheckpoint};
 use quantamind_lib::inference::eval::agentic::spec::AgenticSpec;
-use quantamind_lib::inference::eval::batch::{run_batch_resumable, BatchSink, OllamaVramGate, TaskOutcome};
+use quantamind_lib::inference::eval::batch::{run_batch_resumable, BatchSink, the serverVramGate, TaskOutcome};
 use quantamind_lib::inference::eval::agentic::model_turn::BackendTurn;
 use quantamind_lib::inference::eval::readiness::inputs::assess_report;
 use quantamind_lib::inference::eval::toolcall::matrix::ModelTarget;
@@ -281,11 +281,11 @@ fn weather_agentic_task() -> ToolTask {
 #[tokio::test]
 #[ignore]
 async fn live_full_readiness_walk_real_agentic_batch() {
-    let strong = ollama_tool_model(); // llama3.2:3b — should navigate the sandbox
-    let weak = std::env::var("QM_OLLAMA_WEAK").unwrap_or_else(|_| "llama-3.2-1b-instruct_q8_0:latest".into());
+    let strong = the server_tool_model(); // llama3.2:3b — should navigate the sandbox
+    let weak = std::env::var("QM_LIVE_WEAK").unwrap_or_else(|_| "llama-3.2-1b-instruct_q8_0:latest".into());
     let targets = vec![
-        ModelTarget { model: strong.clone(), backend: BackendKind::Ollama },
-        ModelTarget { model: weak.clone(), backend: BackendKind::Ollama },
+        ModelTarget { model: strong.clone(), backend: BackendKind::LlamaCpp },
+        ModelTarget { model: weak.clone(), backend: BackendKind::LlamaCpp },
     ];
     let tasks = vec![weather_agentic_task()];
 
@@ -300,7 +300,7 @@ async fn live_full_readiness_walk_real_agentic_batch() {
         let _ = queue::append(&rec_path, u);
     };
 
-    println!("[batch] running REAL agentic batch over {strong} + {weak} with OllamaVramGate (VRAM isolation between models)…");
+    println!("[batch] running REAL agentic batch over {strong} + {weak} with the serverVramGate (VRAM isolation between models)…");
     let sink: Arc<dyn BatchSink> = Arc::new(SilentSink);
     let report = run_batch_resumable(
         "live-collection",
@@ -308,10 +308,10 @@ async fn live_full_readiness_walk_real_agentic_batch() {
         &tasks,
         CancellationToken::new(),
         sink,
-        move |t: &ModelTarget| BackendTurn { backend: t.backend, endpoint: endpoint::OLLAMA.to_string(), model: t.model.clone(), cancel: CancellationToken::new(), options: None, keep_alive: None },
+        move |t: &ModelTarget| BackendTurn { backend: t.backend, endpoint: endpoint::LLAMA_SERVER.to_string(), model: t.model.clone(), cancel: CancellationToken::new(), options: None, keep_alive: None },
         &[],
         &record,
-        &OllamaVramGate,
+        &the serverVramGate,
     )
     .await
     .expect("batch failed");
@@ -379,7 +379,7 @@ async fn live_full_readiness_walk_real_agentic_batch() {
     assert!(queue::load(&path).unwrap().is_none(), "discard removes the log");
 
     // ── S6: a model with no agentic data is never Ready ──
-    let bare = BatchColumn { model: "ghost".into(), backend: BackendKind::Ollama, toolcall: None, agentic: None, agentic_native_fc: None, error: None };
+    let bare = BatchColumn { model: "ghost".into(), backend: BackendKind::LlamaCpp, toolcall: None, agentic: None, agentic_native_fc: None, error: None };
     let bare_report = quantamind_lib::inference::eval::batch::BatchReport { collection_id: "x".into(), num_ctx: None, columns: vec![bare] };
     let bv = assess_report(&bare_report, &profile(0.60));
     println!("\n=== S6: no-agentic-data model => {:?} (must be NotReady) ===", bv[0].verdict.status);
@@ -388,7 +388,7 @@ async fn live_full_readiness_walk_real_agentic_batch() {
     // Sanity: the strong model should have produced real agentic data.
     let strong_col = report.columns.iter().find(|c| c.model == strong).unwrap();
     assert!(strong_col.agentic.is_some() || strong_col.error.is_some(), "strong model produced neither data nor an error");
-    println!("\n[done] real agentic batch + S1/S4/S5/S6 walked against live Ollama.");
+    println!("\n[done] real agentic batch + S1/S4/S5/S6 walked against live the server.");
 }
 
 // ── S2 — real VRAM fit from REAL model dims, flips at a low cap ───────────────
@@ -400,9 +400,9 @@ async fn live_s2_real_vram_fit_flips_with_cap() {
     use quantamind_lib::commands::storage::storage::fetch_installed_with_stats;
     use quantamind_lib::inference::eval::readiness::vram_fit::estimate;
 
-    let model = ollama_tool_model();
-    let dims = fetch_dims(&model).await.expect("fetch_dims (Ollama /api/show) failed");
-    let weights = fetch_installed_with_stats(endpoint::OLLAMA)
+    let model = the server_tool_model();
+    let dims = fetch_dims(&model).await.expect("fetch_dims (the server /api/show) failed");
+    let weights = fetch_installed_with_stats(endpoint::LLAMA_SERVER)
         .await
         .ok()
         .and_then(|v| v.into_iter().find(|m| m.name == model || m.name == format!("{model}:latest")).map(|m| m.size_bytes))
@@ -420,7 +420,7 @@ async fn live_s2_real_vram_fit_flips_with_cap() {
     p.require_full_vram = true;
     let col = BatchColumn {
         model: model.clone(),
-        backend: BackendKind::Ollama,
+        backend: BackendKind::LlamaCpp,
         toolcall: None,
         agentic: Some(AggAgentic { passes: 2, total_runs: 2, avg_steps: Some(2.0), avg_output_tokens_success: Some(50.0), schema_resilience: None, top_error: TopError::None, failures: FailureTracker::default() }),
         agentic_native_fc: None,
@@ -476,37 +476,37 @@ async fn live_llamacpp_spawn_and_generate() {
     assert!(!out.trim().is_empty(), "llama.cpp produced no tokens");
 }
 
-// ── MLX — locate + spawn the REAL mlx_lm.server + generate ────────────────────
+// ── the remote server — locate + spawn the REAL remote_lm.server + generate ────────────────────
 
 #[tokio::test]
 #[ignore]
-async fn live_mlx_spawn_and_generate() {
-    use quantamind_lib::inference::mlx::server::mlx_endpoint::{mlx_endpoint, set_mlx_port};
-    use quantamind_lib::inference::mlx::server::mlx_locate::locate;
-    use quantamind_lib::inference::mlx::server::mlx_runtime::{build_spawn_args, find_available_port, kill_server, spawn_server};
+async fn live_remote_spawn_and_generate() {
+    use quantamind_lib::inference::remote::server::remote_endpoint::{remote_endpoint, set_remote_port};
+    use quantamind_lib::inference::remote::server::remote_locate::locate;
+    use quantamind_lib::inference::remote::server::remote_runtime::{build_spawn_args, find_available_port, kill_server, spawn_server};
     use std::path::PathBuf;
 
-    let model = mlx_model();
-    assert!(PathBuf::from(&model).exists(), "MLX model dir not found: {model}");
-    let exe = locate(None).expect("mlx_lm.server not found in PATH/venvs");
-    println!("[mlx] server exe = {exe:?}");
-    let port = find_available_port(8082).expect("no free MLX port");
-    set_mlx_port(port);
+    let model = remote_model();
+    assert!(PathBuf::from(&model).exists(), "the remote server model dir not found: {model}");
+    let exe = locate(None).expect("remote_lm.server not found in PATH/venvs");
+    println!("[remote] server exe = {exe:?}");
+    let port = find_available_port(8082).expect("no free the remote server port");
+    set_remote_port(port);
 
-    let mut child = spawn_server(&exe, &build_spawn_args(&model, port)).expect("spawn mlx_lm.server");
-    println!("[mlx] spawned pid={} on :{port} model={model}", child.id());
+    let mut child = spawn_server(&exe, &build_spawn_args(&model, port)).expect("spawn remote_lm.server");
+    println!("[remote] spawned pid={} on :{port} model={model}", child.id());
 
-    // mlx_lm.server has no /health; poll by attempting a tiny generation (weights
+    // remote_lm.server has no /health; poll by attempting a tiny generation (weights
     // load can take ~30–60s on first run).
-    let ep = mlx_endpoint();
+    let ep = remote_endpoint();
     let mut out = String::new();
     let mut ok = false;
     for attempt in 0..60 {
         tokio::time::sleep(Duration::from_secs(2)).await;
         out.clear();
-        match quantamind_lib::inference::mlx::mlx::stream_generate(&ep, &model, "Reply with exactly one short sentence: say hello.", None, None, CancellationToken::new(), |t| out.push_str(t)).await {
+        match quantamind_lib::inference::remote::remote::stream_generate(&ep, &model, "Reply with exactly one short sentence: say hello.", None, None, CancellationToken::new(), |t| out.push_str(t)).await {
             Ok(stats) if !out.trim().is_empty() => {
-                println!("[mlx] ready after ~{}s  output={:?}  tokens={:?}", attempt * 2, out.trim(), stats.eval_count);
+                println!("[remote] ready after ~{}s  output={:?}  tokens={:?}", attempt * 2, out.trim(), stats.eval_count);
                 ok = true;
                 break;
             }
@@ -515,5 +515,5 @@ async fn live_mlx_spawn_and_generate() {
         }
     }
     let _ = kill_server(&mut child); // always reap
-    assert!(ok, "MLX server never produced output for {model}");
+    assert!(ok, "the remote server server never produced output for {model}");
 }

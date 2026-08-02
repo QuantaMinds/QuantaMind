@@ -29,7 +29,7 @@ describe("DownloadsActive auto-clear", () => {
     });
     useModelStore.getState().upsertDownload({
       id: "bad",
-      source: "ollama",
+      source: "huggingface",
       name: "bad",
       status: "error",
       percent: 0,

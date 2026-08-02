@@ -2,12 +2,11 @@ use crate::commands::emit::log_emit;
 use crate::commands::eval::toolcall_cmd::{endpoint_for, list_builtin_collections};
 use crate::commands::models::model_inspect::fetch_dims;
 use crate::commands::prompt::prompt_options::{to_generate_options, validate_params};
-use crate::commands::storage::storage::fetch_installed_with_stats;
+use crate::commands::storage::storage_types::InstalledModelInfo;
 use crate::commands::system::hardware::snapshot;
 use crate::commands::llama::llama_server_types::{LlamaProbeReadiness, LlamaServerState};
 use crate::errors::AppError;
 use crate::inference::backend::backend_kind::BackendKind;
-use crate::inference::backend::endpoint;
 use crate::inference::vram_math::KvPrecision;
 use crate::commands::eval::batch_cmd::probe_native_tools;
 use crate::inference::eval::agentic::difficulty::passk::{answer_tokens_for, ThinkPreset};
@@ -38,6 +37,16 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager};
 use tokio_util::sync::CancellationToken;
+
+/// Every model installed in the shared weights folder, read straight off disk.
+/// Replaces the old model-registry API call: the GGUF header carries the same
+/// facts the readiness table needs (weight bytes for the VRAM fit, the real
+/// quantization for the table). Best-effort — an unreadable folder yields an
+/// empty list and those fields stay N/A rather than failing the assess.
+fn installed_models() -> Vec<InstalledModelInfo> {
+    let dir = crate::commands::storage::storage_disk::gguf_dir();
+    crate::commands::llama::llama_discover::discover_gguf_models(&[dir.as_path()])
+}
 
 /// Live per-rung progress for the context-cliff probe (the panel's progress bar).
 pub const EVENT_CLIFF_PROGRESS: &str = "cliff-progress";
@@ -160,7 +169,7 @@ fn cliff_window_msg(model: &str, context_length: u32, needed_ctx: u32, headroom:
 }
 
 /// The model's own context window is a HARD ceiling on a measurable depth, and exceeding it
-/// fails SILENTLY rather than loudly: Ollama clamps `num_ctx` down to the trained window and
+/// fails SILENTLY rather than loudly: the server clamps `num_ctx` down to the trained window and
 /// truncates the prompt — which deletes the injected needle and pins `prompt_eval_count` at
 /// the window, so the rung fails for a reason the model never caused and its "verified" depth
 /// is a saturated counter (a fabricated number). Refuse up front instead. Pure over the
@@ -229,7 +238,7 @@ fn llama_profile_from_meta(
     try_profile(Some(weights_bytes), Some(dims), num_ctx, cap_bytes, plan.kv.precision())
 }
 
-/// The requested depth won't fit this machine's memory for an Ollama model (Ollama sizes
+/// The requested depth won't fit this machine's memory for a model (the server sizes
 /// context per request, so it would silently spill to CPU or OOM mid-ladder). Names the
 /// real footprint vs the cap and an ESTIMATED safe Max-Tokens — KV grows ~linearly with
 /// context, so scaling the remaining budget is a fair estimate (labelled "about"), never a
@@ -374,7 +383,7 @@ pub async fn run_context_cliff(
     // user-managed), so verify up front that the RIGHT model is loaded with a wide
     // enough `-c`. Without this the ladder would 400 on every deep rung — or worse,
     // silently score whatever other model is loaded (the request `model` field is
-    // ignored by the single-model server). Ollama/MLX size per request, so skip them.
+    // ignored by the single-model server). some backends size per request, so skip them.
     if backend == BackendKind::LlamaCpp {
         let path = model_path.as_deref().unwrap_or("");
         if let Some(err) = llama_cliff_gate(path, llama_state.probe_readiness(path), &model, needed_ctx, headroom) {
@@ -382,42 +391,38 @@ pub async fn run_context_cliff(
         }
     }
 
-    // Ollama sizes `num_ctx` per REQUEST, so a too-deep ladder silently spills to CPU or
-    // OOMs mid-run — a different failure from llama.cpp's spawn-time window (guarded above),
-    // so a separate, additive guard. Pre-flight the DEEPEST rung's memory fit with the same
-    // exact-weights + real-KV-vs-cap estimate the readiness table uses, and refuse up front
-    // with a readable "reduce Max Tokens" message. MLX exposes no weights/dims to estimate,
-    // so it's left to size per request as before. Only blocks when the fit is actually
-    // MEASURABLE (weights + dims + a device cap all present) — a missing input is never a
-    // guessed block.
-    if backend == BackendKind::Ollama {
-        // One `/api/show` for BOTH Ollama gates below (the window ceiling and the memory fit).
-        let probed = fetch_dims(&model).await;
+    // Additive pre-flight: even with a wide enough server window, the DEEPEST rung's
+    // KV cache plus the weights may not fit this machine — which shows up as a CPU
+    // spill or a mid-run OOM rather than a clean error. Estimate it up front from the
+    // exact on-disk weight bytes and the GGUF's real dims (the same inputs the
+    // readiness table uses) and refuse with a readable "reduce Max Tokens". Only
+    // blocks when the fit is actually MEASURABLE (weights + dims + a device cap all
+    // present) — a missing input is never a guessed block.
+    if backend == BackendKind::LlamaCpp {
+        // One GGUF header read feeds BOTH gates below (the window ceiling and the memory fit).
+        let probed = fetch_dims(&model);
 
-        // Gate 1 — the model's context window. Must run before the memory gate: a depth the
-        // model physically cannot hold is wrong even on a machine with memory to spare, and
-        // Ollama accepts the oversized `num_ctx` silently, so nothing downstream would catch it.
+        // Gate 1 — the model's OWN declared context window, which is stricter than the
+        // running server's `-c` checked above: a depth the model physically cannot hold
+        // is wrong even on a machine with memory to spare.
         if let Some(err) = cliff_window_gate(probed.as_ref().map(|d| d.context_length as u32), &model, needed_ctx, headroom) {
             return Err(err);
         }
 
-        // Gate 2 — this machine's memory at that depth (Ollama sizes num_ctx per request).
+        // Gate 2 — this machine's memory at that depth.
         let hw = snapshot();
         if let Some(cap) = device_cap_bytes(hw.gpu.unified, hw.total_memory_bytes, hw.gpu.vram_total_bytes) {
-            let installed = fetch_installed_with_stats(endpoint::OLLAMA).await.unwrap_or_default();
+            let installed = installed_models();
             let weights: HashMap<String, u64> = installed.iter().map(|m| (m.name.clone(), m.size_bytes)).collect();
             let w = registry_get(&weights, &model).copied();
-            let dims = match w {
-                Some(_) => probed.as_ref().map(|d| Dims {
-                    layers: d.layers,
-                    head_count: d.head_count,
-                    head_count_kv: d.head_count_kv,
-                    embedding_length: d.embedding_length,
-                    context_length: d.context_length as u32,
-                    kv_estimated: d.kv_estimated,
-                }),
-                None => None,
-            };
+            let dims = w.and_then(|_| probed.as_ref()).map(|d| Dims {
+                layers: d.layers,
+                head_count: d.head_count,
+                head_count_kv: d.head_count_kv,
+                embedding_length: d.embedding_length,
+                context_length: d.context_length as u32,
+                kv_estimated: d.kv_estimated,
+            });
             if let Some(profile) = try_profile(w, dims, Some(needed_ctx), Some(cap), KvPrecision::F16) {
                 if !profile.fits {
                     return Err(AppError::Inference(cliff_vram_msg(&model, needed_ctx, &profile, headroom)));
@@ -426,13 +431,13 @@ pub async fn run_context_cliff(
         }
     }
 
-    // Native tool-calling gate: MLX has no native tool API, and a model whose template lacks
+    // Native tool-calling gate: a model whose template lacks
     // tool support can't run native either — refuse up front (mirrors the batch's
     // `probe_native_tools`) so the user gets a clear "switch to Prompt-based" instead of a
     // ladder of empty tool calls.
     if native && !probe_native_tools(backend, &endpoint_for(backend), &model).await {
         return Err(AppError::Inference(format!(
-            "\"{model}\" can't run native tool-calling on this backend — switch the Context Stress Test to Prompt-based (or start llama.cpp with --jinja / use an Ollama model with tool support)."
+            "\"{model}\" can't run native tool-calling on this backend — switch the Context Stress Test to Prompt-based, or start llama.cpp with --jinja and a tool-capable model."
         )));
     }
 
@@ -618,9 +623,9 @@ pub struct ReadinessAssessment {
 /// Assess the collection's last persisted batch report against a profile. Scoring
 /// is `readiness::assess` — the one source of truth shared with the future CLI;
 /// this command adds no scoring logic of its own. When `cap_bytes` is set it also
-/// measures VRAM fit for each **Ollama** and **llama.cpp** column (exact weights +
+/// measures VRAM fit for each **the server** and **llama.cpp** column (exact weights +
 /// real KV cache at the run's `num_ctx` vs the cap; llama.cpp graded at the launch's
-/// actual KV precision); MLX/remote backends and an absent cap leave fit unmeasured
+/// actual KV precision); the remote server/remote backends and an absent cap leave fit unmeasured
 /// (`memory = None`) — never a guessed fit. Empty verdicts means no run has been
 /// persisted yet (the page shows an empty state).
 #[tauri::command]
@@ -636,11 +641,11 @@ pub async fn assess_readiness(
         None => return Ok(ReadinessAssessment { verdicts: Vec::new(), right_sizing: Vec::new(), right_sizing_hint: None }),
     };
 
-    // Real model metadata by name (Ollama `/api/tags` + `/api/show`): the weight
+    // Real model metadata by name, read from the installed GGUF headers: the weight
     // size (for VRAM fit) and the real quantization (for the table — never guessed).
-    // Best-effort: if Ollama is down the maps are empty and those fields stay N/A
-    // rather than failing the assess.
-    let installed = fetch_installed_with_stats(endpoint::OLLAMA).await.unwrap_or_default();
+    // Best-effort: with nothing installed the maps are empty and those fields stay
+    // N/A rather than failing the assess.
+    let installed = installed_models();
     let weights: HashMap<String, u64> = installed.iter().map(|m| (m.name.clone(), m.size_bytes)).collect();
     let quants: HashMap<String, String> =
         installed.iter().filter(|m| !m.quantization.is_empty()).map(|m| (m.name.clone(), m.quantization.clone())).collect();
@@ -679,10 +684,10 @@ pub async fn assess_readiness(
 
     let mut out = Vec::with_capacity(report.columns.len());
     for col in &report.columns {
-        let memory = if cap_bytes.is_some() && col.backend == BackendKind::Ollama {
+        let memory = if cap_bytes.is_some() && col.backend == BackendKind::LlamaCpp {
             let w = registry_get(&weights, &col.model).copied();
             let dims = match w {
-                Some(_) => fetch_dims(&col.model).await.map(|d| Dims {
+                Some(_) => fetch_dims(&col.model).map(|d| Dims {
                     layers: d.layers,
                     head_count: d.head_count,
                     head_count_kv: d.head_count_kv,
@@ -692,7 +697,7 @@ pub async fn assess_readiness(
                 }),
                 None => None,
             };
-            // Ollama's cache type is a server-global env var (`OLLAMA_KV_CACHE_TYPE`)
+            // Some servers set cache type via a server-global env var
             // that silently falls back to f16 per-architecture — unverifiable from
             // here, so the gate stays at the f16 default it ships with.
             try_profile(w, dims, report.num_ctx, cap_bytes, KvPrecision::F16)
@@ -704,15 +709,15 @@ pub async fn assess_readiness(
                 llama_profile_from_meta(weights, &meta, report.num_ctx, cap_bytes, total)
             })
         } else {
-            // MLX (server exposes no KV-quant flags) and remote vLLM/SGLang (cache
+            // servers that expose no KV-quant flags and remote vLLM/SGLang (cache
             // dtype is a server-launch flag we can't verify): no measured fit here.
             None
         };
         let fits_in_vram = memory.as_ref().map(|m| m.fits);
         let vram_pressure = memory.as_ref().map(|m| m.pressure).unwrap_or(false);
         let cliff = registry_get(&cliffs, &col.model).cloned().unwrap_or_default();
-        // Real quant: the Ollama registry first, else parsed from the model name (a
-        // GGUF/llama.cpp/MLX or offline-Ollama model) so the row can publish. Model-level —
+        // Real quant: the model registry first, else parsed from the model name (a
+        // GGUF/llama.cpp or offline-model) so the row can publish. Model-level —
         // shared across the column's per-path rows.
         let quantization = resolve_quant(registry_get(&quants, &col.model).cloned(), &col.model);
         // One verdict PER MEASURED PATH (native + prompt): the per-path emission sources each
@@ -792,7 +797,7 @@ mod cliff_preflight_tests {
 
     /// THE REGRESSION. The panel defaulted Max Tokens to the model's FULL context window,
     /// and the probe runs at `max_tokens + CLIFF_CTX_HEADROOM` — so the deepest rung asked
-    /// for more context than the model has, for EVERY model. Ollama does not reject that: it
+    /// for more context than the model has, for EVERY model. the server does not reject that: it
     /// silently clamps `num_ctx` to the trained window and truncates the prompt, deleting the
     /// injected needle and pinning `prompt_eval_count` at the window. The rung then fails for
     /// a reason the model never caused, and reports a saturated (fabricated) depth as
@@ -800,7 +805,7 @@ mod cliff_preflight_tests {
     #[test]
     fn cliff_window_gate_refuses_a_depth_the_model_cannot_hold() {
         // Max Tokens = the full 32768 window → needed_ctx = 34816 > 32768. Verified live:
-        // Ollama answers this request with n_ctx = 32768 and a truncated prompt.
+        // the server answers this request with n_ctx = 32768 and a truncated prompt.
         let err = cliff_window_gate(Some(32_768), "qwen2.5:3b", 34_816, CLIFF_CTX_HEADROOM).expect("must refuse");
         let m = err.to_string();
         assert!(m.contains("32768"), "names the model's real window: {m}");
@@ -946,11 +951,14 @@ mod cliff_preflight_tests {
         assert!(m.to_lowercase().contains("reduce"), "tells the user to reduce Max Tokens: {m}");
     }
 
-    /// The native-method gate refuses MLX outright (it has no native tool-calling API) without a
-    /// network call — so a native cliff on MLX fails fast with a clear "switch to Prompt-based".
+    /// Every remaining backend serves the OpenAI tool wire, so the gate admits them all
+    /// without a network call — a template lacking a tool grammar is caught later and
+    /// labelled honestly rather than pre-judged here.
     #[tokio::test]
-    async fn native_tools_gate_refuses_mlx() {
-        assert!(!probe_native_tools(BackendKind::Mlx, "", "any-model").await);
+    async fn native_tools_gate_admits_every_supported_backend() {
+        for b in [BackendKind::LlamaCpp, BackendKind::VLlm, BackendKind::SgLang] {
+            assert!(probe_native_tools(b, "", "any-model").await, "{b:?}");
+        }
     }
 }
 

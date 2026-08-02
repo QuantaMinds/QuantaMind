@@ -17,8 +17,9 @@ export const HfRepoFileSchema = z.object({
 export type HfRepoFile = z.infer<typeof HfRepoFileSchema>;
 
 /// Which backend a repo must be usable by — selects the HF tag the search
-/// filters on. `gguf` for Ollama/llama.cpp, `mlx` for the MLX server.
-export type RepoKind = "gguf" | "mlx";
+/// filters on. Only GGUF repos are runnable now, so this is a single-variant
+/// seam kept for a future weight format rather than a user-facing choice.
+export type RepoKind = "gguf";
 
 export async function hfSearch(
   query: string,
@@ -34,8 +35,8 @@ export async function hfRepoFiles(repo: string): Promise<HfRepoFile[]> {
   return z.array(HfRepoFileSchema).parse(raw);
 }
 
-/// All downloadable files in a repo (the MLX snapshot set) — used to show the
-/// total download size + fit estimate before an MLX download.
+/// All downloadable files in a repo — used to show the total download size +
+/// fit estimate before a download.
 export async function hfRepoAllFiles(repo: string): Promise<HfRepoFile[]> {
   const raw = await invoke("hf_repo_all_files", { repo });
   return z.array(HfRepoFileSchema).parse(raw);

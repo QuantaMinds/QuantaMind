@@ -13,7 +13,7 @@ const CACHE_DIRS: &[&str] = &["jobs", "history", "batch_reports", "traces", "cli
 const CACHE_FILES: &[&str] = &["recent_workspaces.yaml"];
 
 /// HuggingFace cache subdirs holding regenerable model/dataset snapshots. The
-/// MLX tooling caches downloads here, separate from the app's canonical
+/// the remote server tooling caches downloads here, separate from the app's canonical
 /// weights in `~/.quantamind`. The auth `token`/`stored_tokens` files sit
 /// alongside these and are deliberately excluded so a clear never signs the
 /// user out — only the re-downloadable snapshots are removed.
@@ -56,7 +56,7 @@ pub fn clear_cache_in(base: &Path) -> AppResult<u64> {
     Ok(freed)
 }
 
-/// Resolve the HuggingFace cache root. The HF library (MLX model loads)
+/// Resolve the HuggingFace cache root. The HF library (the remote server model loads)
 /// caches snapshots here, separate from the app's own `~/.quantamind` weights.
 /// Honors `HF_HOME`, else falls back to `$HOME/.cache/huggingface`.
 fn hf_cache_dir() -> PathBuf {
@@ -87,7 +87,7 @@ pub fn clear_hf_cache_in(hf_home: &Path) -> AppResult<u64> {
 /// Clear regenerable app caches (eval history, batch reports, job logs, traces,
 /// context-cliff measurements, recent-workspace list). Returns bytes freed.
 /// When `include_models` is set, also wipes the HuggingFace snapshot cache
-/// (re-downloadable MLX weights) — the app's canonical `~/.quantamind`
+/// (re-downloadable the remote server weights) — the app's canonical `~/.quantamind`
 /// models, custom eval collections, readiness profiles, and user settings are
 /// never touched.
 #[tauri::command]

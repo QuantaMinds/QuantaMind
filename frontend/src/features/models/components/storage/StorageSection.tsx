@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { getDiskUsage, type DiskUsage } from "../../../../shared/ipc/models/storage";
 import { clearAppCache } from "../../../../shared/ipc/cache";
 import { formatBytes } from "../../../../shared/format/bytes";
-import { StoragePathSection } from "../StoragePathSection";
 import { ModelsFolderSection } from "../ModelsFolderSection";
 import { ClearCacheConfirm } from "./ClearCacheConfirm";
 import { formatIpcError } from "../../../../shared/ipc/core/error";
@@ -10,8 +9,7 @@ import { useInstalledModelsStore } from "../../state/installedModelsStore";
 import { useBatchStore } from "../../../eval/state/batchStore";
 import { useCliffStore } from "../../../eval/state/cliffStore";
 
-/// Storage controls shown at the top of the Downloads page: the Ollama models
-/// path, the shared GGUF weights folder, and a disk-usage summary.
+/// Storage controls shown at the top of the Downloads page: the shared GGUF weights folder, and a disk-usage summary.
 export function StorageSection() {
   const list = useInstalledModelsStore((s) => s.list);
   const [usage, setUsage] = useState<DiskUsage | null>(null);
@@ -50,11 +48,10 @@ export function StorageSection() {
 
   return (
     <div data-testid="storage-section" className="flex flex-col gap-3">
-      <StoragePathSection />
       <ModelsFolderSection />
       {usage && (
         <div className="text-xs text-gray-600" data-testid="disk-summary">
-          Models: {formatBytes(usage.ollama_models_bytes)} / Free:{" "}
+          Models: {formatBytes(usage.models_bytes)} / Free:{" "}
           {formatBytes(usage.free_bytes)} on disk
         </div>
       )}

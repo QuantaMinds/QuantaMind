@@ -172,7 +172,7 @@ pub struct ReadinessVerdict {
 }
 
 /// A verdict paired with the model it judged — one row of the Agent Report. The
-/// `memory` profile is present when VRAM fit was measured (Ollama with a cap),
+/// `memory` profile is present when VRAM fit was measured (the server with a cap),
 /// `None` for single-model backends or when no cap was supplied.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ModelVerdict {
@@ -226,7 +226,7 @@ pub struct ModelVerdict {
     /// beside the token count rather than rank the two on it. `#[serde(default)]` = `false`.
     #[serde(default)]
     pub is_thinking: bool,
-    /// Ollama spilled this model's weights onto the CPU (didn't fit in VRAM) — a slow-inference
+    /// the server spilled this model's weights onto the CPU (didn't fit in VRAM) — a slow-inference
     /// signal, surfaced so a slow verdict reads as "offloaded", not "incapable". `#[serde(default)]`.
     #[serde(default)]
     pub cpu_offloaded: bool,

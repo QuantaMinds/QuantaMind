@@ -26,7 +26,7 @@ function friendly(msg: string): string {
       || msg.includes("os error 61")
       || msg.includes("tcp connect error")
       || (msg.includes("error sending request") && msg.includes("localhost:11434"))) {
-    return "Ollama is not running. Start Ollama and try again.";
+    return "The local server is not running. Start it and try again.";
   }
   return msg;
 }

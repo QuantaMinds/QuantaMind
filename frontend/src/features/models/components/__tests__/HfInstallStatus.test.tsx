@@ -37,17 +37,6 @@ describe("HfInstallStatus", () => {
     expect(onCancel).toHaveBeenCalledOnce();
   });
 
-  it("renders 'Installing into Ollama…' while installing", () => {
-    render(
-      <HfInstallStatus
-        state={base({ status: "installing" })}
-        onCancel={() => {}}
-        onReset={() => {}}
-      />,
-    );
-    expect(screen.getByTestId("hf-installing")).toHaveTextContent("Installing into Ollama…");
-  });
-
   it("renders explicit success banner with a dismiss button on success", () => {
     const onReset = vi.fn();
     render(

@@ -17,7 +17,6 @@ const FILES = [
   { path: "Test-7B-Q5_K_M.gguf", size_bytes: 5_000_000_000 },
 ];
 const handlers: Record<string, EventCallback<unknown>> = {};
-const fire = (event: string, payload: unknown) => handlers[event]({ event, id: 0, payload });
 
 beforeEach(() => {
   for (const k of Object.keys(handlers)) delete handlers[k];
@@ -35,7 +34,7 @@ beforeEach(() => {
     return Promise.reject(new Error(`unknown ${cmd}`));
   });
   __resetDownloadEventBusForTests();
-  useModelStore.setState({ downloads: {}, pullNames: {}, activeHfName: null });
+  useModelStore.setState({ downloads: {}, activeHfName: null });
   useInstalledModelsStore.setState({
     list: [], status: "idle", error: null, lastRefreshedAt: null,
   });
@@ -92,19 +91,4 @@ describe("HuggingFaceRepoDetail (live variants)", () => {
     expect(blocked).toHaveAttribute("title", expect.stringMatching(/multimodal|projection/i));
   });
 
-  it("installing event flips status to 'Installing…'", async () => {
-    vi.mocked(invoke).mockImplementation((cmd: string) => {
-      if (cmd === "hf_repo_files") return Promise.resolve(FILES);
-      if (cmd === "list_models") return Promise.resolve([]);
-      if (cmd === "install_hf_gguf") return new Promise(() => {});
-      return Promise.reject(new Error(`unknown ${cmd}`));
-    });
-    render(<HuggingFaceRepoDetail repo={REPO} onBack={() => {}} />);
-    await screen.findByTestId("variant-Q4_K_M");
-    await act(async () => {
-      fireEvent.click(screen.getAllByRole("button", { name: /install/i })[0]);
-    });
-    act(() => fire("hf-progress", { phase: "installing" }));
-    expect(screen.getByTestId("hf-installing")).toBeInTheDocument();
-  });
 });

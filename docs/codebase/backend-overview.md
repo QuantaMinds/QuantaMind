@@ -165,7 +165,7 @@ Notes:
 **Responsibility:** the module map for all command groups. · **Why:** enforces
 the "split by concern" rule — one folder per concern, no `utils`. · **What:** 18
 `pub mod` declarations (`app_lifecycle`, `compare`, `emit`, `eval`,
-`gguf`, `hf`, `llama`, `mlx`, `models`, `ollama`, `prompt`, `prompt_templates`,
+`gguf`, `hf`, `llama`, `vllm`, `models`, `llama_cpp`, `prompt`, `prompt_templates`,
 `publish`, `remote`, `settings`, `storage`, `system`, `workspace`).
 `remote` holds the vLLM/SGLang health + `/v1/models` discovery commands (one
 module, both backends). · **How/Where used:** every command path in `lib.rs`
@@ -183,13 +183,12 @@ its type, retrievable anywhere as `tauri::State<'_, T>` or
 | State struct | Inner | Purpose | Owning module / doc |
 |---|---|---|---|
 | `prompt::RunState` | `Mutex<Option<CancellationToken>>` | Cancel the single in-flight prompt run (`run_prompt`/`stop_prompt`). | `commands/prompt` |
-| `models::models_pull::PullState` | `Mutex<HashMap<String,CancellationToken>>` | Per-model cancellation for concurrent Ollama pulls. | [backend-models-hf-gguf.md](backend-models-hf-gguf.md) |
+| `models::models_pull::PullState` | `Mutex<HashMap<String,CancellationToken>>` | Per-model cancellation for concurrent llama.cpp pulls. | [backend-models-hf-gguf.md](backend-models-hf-gguf.md) |
 | `hf::hf_install::HfInstallState` | `Mutex<Option<CancellationToken>>` | Cancel the active HuggingFace GGUF install. | [backend-models-hf-gguf.md](backend-models-hf-gguf.md) |
-| `compare::CompareRunState` *(alias → `inference::compare::compare_state`)* | run handles | Track/stop A-vs-B compare runs. | [backend-compare.md](backend-compare.md) |
 | `settings::model_settings::ModelSettingsState` | `Mutex<ModelSettingsMap>` + `Mutex<bool>` loaded flag | In-memory per-model settings (e.g. temperature), lazy-loaded from disk. | `commands/settings` |
-| `ollama::ollama_start::OllamaStartState` | `Mutex<bool>` in-progress + `Mutex<Option<u32>>` started_pid | Track the `ollama serve` **we** spawned so we only kill our own daemon. | [backend-inference-backends.md](backend-inference-backends.md) |
+| `llama_cpp::llama_cpp_start::llama.cppStartState` | `Mutex<bool>` in-progress + `Mutex<Option<u32>>` started_pid | Track the `llama-server -m MODEL.gguf --port 8081 --jinja` **we** spawned so we only kill our own daemon. | [backend-inference-backends.md](backend-inference-backends.md) |
 | `llama::llama_server_types::LlamaServerState` | `Mutex<Option<RunningServer>>` | Handle to the spawned `llama-server` sidecar. | [backend-inference-backends.md](backend-inference-backends.md) |
-| `mlx::mlx_server_types::MlxServerState` | `Mutex<Option<Running>>` | Handle(s) to the spawned `mlx_lm.server`. | [backend-inference-backends.md](backend-inference-backends.md) |
+| `vllm::vllm_server_types::VLlmServerState` | `Mutex<Option<Running>>` | Handle(s) to the spawned `vllm_lm.server`. | [backend-inference-backends.md](backend-inference-backends.md) |
 | `workspace::workspaces::WorkspaceState` | `Mutex<Option<PathBuf>>` | Currently-open workspace root path. | [backend-persistence.md](backend-persistence.md) |
 | `settings::user_settings::UserSettingsState` | `Mutex<UserSettings>` + loaded flag | App-wide user settings, lazy-loaded. | [backend-persistence.md](backend-persistence.md) |
 | `eval::batch_cmd::BatchRunState` | `Mutex<Option<CancellationToken>>` | Cancel the running batch eval. | [backend-eval-engine.md](backend-eval-engine.md) |
@@ -215,16 +214,16 @@ The `invoke_handler!` table registers **127** commands. Grouped by
 | `eval` | 29 | Eval engine: load/run tasks, tool-call eval + trace, custom/builtin collections, matrix runs, batch (run/stop/resume/discard), readiness profiles + assess, Context Stress Test. | [backend-eval-engine.md](backend-eval-engine.md) |
 | `workspace` | 15 | Workspace open/close/current/tree/recent, prompt file CRUD (load/save/create/rename/delete), run history (append/list/get/clear/remove). | [backend-persistence.md](backend-persistence.md) |
 | `settings` | 7 | Model settings (get + set temperature), storage path get/validate, user settings get/set + resolve models folder. | `commands/settings`, [backend-persistence.md](backend-persistence.md) |
-| `mlx` | 7 | MLX health, list/delete/install models, server start/stop/status. | [backend-inference-backends.md](backend-inference-backends.md) |
-| `system` | 5 | Hardware snapshot, loaded models, Ollama RSS, Ollama health, onboarding-workspace scaffold. | `commands/system` |
+| `vllm` | 7 | vLLM health, list/delete/install models, server start/stop/status. | [backend-inference-backends.md](backend-inference-backends.md) |
+| `system` | 5 | Hardware snapshot, loaded models, llama.cpp RSS, llama.cpp health, onboarding-workspace scaffold. | `commands/system` |
 | `hf` | 6 | HuggingFace search, repo files (+all), model card, install GGUF, cancel install. | [backend-models-hf-gguf.md](backend-models-hf-gguf.md) |
-| `models` | 5 | Ollama list/inspect, KV-cache estimate, pull/cancel-pull. | [backend-models-hf-gguf.md](backend-models-hf-gguf.md) |
+| `models` | 5 | llama.cpp list/inspect, KV-cache estimate, pull/cancel-pull. | [backend-models-hf-gguf.md](backend-models-hf-gguf.md) |
 | `llama` | 5 | llama-server start/stop + health, list/delete llama models. | [backend-inference-backends.md](backend-inference-backends.md) |
 | `storage` | 4 | Installed models + stats, remove model, clear cache (opt-in `include_models` also wipes the HF snapshot cache, keeping the auth token), disk usage. | `commands/storage` |
 | `publish` | 4–5* | Save readiness image (always); preview/publish/login (gated out of enterprise builds). | [backend-publish.md](backend-publish.md) |
-| `compare` | 3 | Run/stop compare, save compare report. | [backend-compare.md](backend-compare.md) |
+| `compare` | 1 | Save a compare report. | `commands/compare` |
 | `prompt` | 2 | Run/stop a single streamed prompt. | `commands/prompt` |
-| `ollama` | 2 | Start/stop the Ollama daemon we own. | [backend-inference-backends.md](backend-inference-backends.md) |
+| `llama_cpp` | 2 | Start/stop the llama.cpp daemon we own. | [backend-inference-backends.md](backend-inference-backends.md) |
 | `gguf` | 2 | Inspect a GGUF file, install a local GGUF. | [backend-models-hf-gguf.md](backend-models-hf-gguf.md) |
 | `prompt_templates` | 1 | List bundled prompt templates. | `commands/prompt_templates` |
 
@@ -235,7 +234,7 @@ build's registered names in the table.
 `app_lifecycle` and `emit` are in `commands/` but expose **no** `#[tauri::command]`s
 — they are spine helpers (below), not part of the IPC table. `doctor` is likewise **not** in the
 IPC table: it's the pure engine behind the `qm doctor` CLI (`cli/doctor/{report,probe,render}`, with
-per-engine probing split under `cli/doctor/probe/{ollama,openai_local,remote}`),
+per-engine probing split under `cli/doctor/probe/{llama_cpp,openai_local,remote}`),
 composing the existing per-backend health/credential/capability probes — see `backend/src/bin/qm/`.
 
 ---
@@ -246,13 +245,13 @@ composing the existing per-backend health/credential/capability probes — see `
 app, by any exit path. · **Why:** Tauri does **not** kill child processes when it
 exits, and `RunEvent::ExitRequested` only fires on a *graceful* quit (Cmd+Q) — not
 on a signal kill or a `tauri dev` rebuild SIGKILL. Without these guards a stale
-`llama-server`/`mlx_lm.server`/owned-`ollama` keeps holding its
+`llama-server`/`vllm_lm.server`/owned-`llama_cpp` keeps holding its
 port (→ `EADDRINUSE` next launch) and unified memory. This module closes every
 gap. · **How/Where used:** wired in three places in `lib.rs` — `sweep_orphans()`
 and `install_signal_reaper(...)` in `.setup`, `reap_on_exit` passed to `.run(...)`.
 
-The three guarded targets: `llama-server`, `mlx_lm.server`, and
-the `ollama serve` *we* started (never a user's pre-existing daemon).
+The three guarded targets: `llama-server`, `vllm_lm.server`, and
+the `llama-server -m MODEL.gguf --port 8081 --jinja` *we* started (never a user's pre-existing daemon).
 
 ### Conservative identity (`is_our_server_cmd`)
 
@@ -262,7 +261,7 @@ one of our server binaries:
 
 ```rust
 const OUR_MARKER: &str = ".quantamind";
-const SERVER_BINS: &[&str] = &["llama-server", "mlx_lm.server"];
+const SERVER_BINS: &[&str] = &["llama-server", "vllm_lm.server"];
 
 fn is_our_server_cmd(cmd: &str) -> bool {
     cmd.contains(OUR_MARKER) && SERVER_BINS.iter().any(|b| cmd.contains(b))
@@ -284,15 +283,15 @@ pub fn reap_on_exit(app: &AppHandle, event: RunEvent) {
 }
 ```
 
-`reap_managed` reaches into managed state — `MlxServerState::kill_all_servers`,
-`LlamaServerState::stop`, `SttServerState::stop`, `OllamaStartState::stop_owned`
+`reap_managed` reaches into managed state — `VLlmServerState::kill_all_servers`,
+`LlamaServerState::stop`, `SttServerState::stop`, `llama.cppStartState::stop_owned`
 — logging each failure (no silent swallow):
 
 ```rust
 fn reap_managed(app: &AppHandle) {
-    if let Err(e) = app.state::<MlxServerState>().kill_all_servers() { eprintln!("mlx reap failed: {e}"); }
+    if let Err(e) = app.state::<VLlmServerState>().kill_all_servers() { eprintln!("vllm reap failed: {e}"); }
     if let Err(e) = app.state::<LlamaServerState>().stop()           { eprintln!("llama reap failed: {e}"); }
-    if let Err(e) = app.state::<OllamaStartState>().stop_owned()     { eprintln!("ollama reap failed: {e}"); }
+    if let Err(e) = app.state::<llama.cppStartState>().stop_owned()     { eprintln!("llama_cpp reap failed: {e}"); }
 }
 ```
 
@@ -375,7 +374,7 @@ pub enum AppError {
 ```
 
 So a JS rejection looks like `{ kind: "not_found", message: "…" }`. `friendly()`
-upgrades known raw strings (e.g. "Connection refused"/"os error 61" → "Ollama is
+upgrades known raw strings (e.g. "Connection refused"/"os error 61" → "llama.cpp is
 not running…"; "model … not found" → install hint; OOM → smaller-model hint).
 
 ## Event emission — `backend/src/commands/emit.rs`
@@ -499,7 +498,7 @@ Out of scope to deep-dive (per-backend docs own the internals); included as the
 map the spine sits above. `inference/mod.rs` declares 18 submodules:
 
 `backend`, `chat`, `compare`, `create`, `eval`, `generate`, `gguf`, `hf`,
-`http`, `llama`, `mlx`, `ollama`, `openai` (the shared OpenAI SSE codec),
+`http`, `llama`, `vllm`, `llama_cpp`, `openai` (the shared OpenAI SSE codec),
 `pull`, `sglang`, `vllm`, plus three leaf files `params.rs`
 (`InferenceParams` — the domain home of the sampling params, re-exported by
 `persistence::prompts::schema`), `token_handler.rs` and `vram_math.rs`.
@@ -533,7 +532,7 @@ bundling. Key points:
 The IPC capability that grants the `main` window its permissions. Allows the
 **core**, **dialog**, **updater**, and **process** plugin defaults, plus a
 *scoped* `shell:allow-open` restricted to an explicit URL allow-list
-(`ollama.com/download`, `ollama.com/library`, `huggingface.co/**`,
+(`github.com/ggml-org/llama.cpp`, `huggingface.co/models?library=gguf`, `huggingface.co/**`,
 `quantamind.co/**`, `mailto:info@quantamind.co**`). The shell open is the only
 non-default-scoped grant — the app cannot open arbitrary URLs.
 
@@ -562,9 +561,8 @@ in `CLAUDE.md` / `docs/process.md#tech-stack`.
 ## Cross-references
 
 - Eval engine & readiness/cliff: [backend-eval-engine.md](backend-eval-engine.md)
-- Model browse/pull (Ollama/HF/GGUF): [backend-models-hf-gguf.md](backend-models-hf-gguf.md)
-- Inference backends (Ollama/llama/MLX, server spawn): [backend-inference-backends.md](backend-inference-backends.md)
-- Compare runs: [backend-compare.md](backend-compare.md)
+- Model browse/pull (llama.cpp/HF/GGUF): [backend-models-hf-gguf.md](backend-models-hf-gguf.md)
+- Inference backends (llama.cpp/llama/vLLM, server spawn): [backend-inference-backends.md](backend-inference-backends.md)
 - Publish / auth / export: [backend-publish.md](backend-publish.md)
 - Persistence (workspaces, history, settings on disk): [backend-persistence.md](backend-persistence.md)
 - Architecture law (layering, sink/thin-command, robustness): `../architecture.md`

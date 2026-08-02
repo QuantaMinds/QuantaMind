@@ -1,7 +1,5 @@
 import { useBackendStore } from "../../../../shared/state/backendStore";
-import { OllamaControl } from "./OllamaControl";
 import { LlamaServerControl } from "./LlamaServerControl";
-import { MlxServerControl } from "./MlxServerControl";
 import { RemoteServerControl, isRemoteBackend } from "./RemoteServerControl";
 
 /// The single header Start/Stop control. Reflects the active backend chosen in
@@ -10,8 +8,6 @@ import { RemoteServerControl, isRemoteBackend } from "./RemoteServerControl";
 /// status readout instead.
 export function ServerControl() {
   const activeBackend = useBackendStore((s) => s.selectedBackend);
-  if (activeBackend === "ollama") return <OllamaControl />;
-  if (activeBackend === "mlx") return <MlxServerControl />;
   if (isRemoteBackend(activeBackend)) return <RemoteServerControl backend={activeBackend} />;
   return <LlamaServerControl />;
 }

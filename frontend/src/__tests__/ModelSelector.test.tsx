@@ -14,19 +14,20 @@ const mk = (name: string, backend: InstalledModelInfo["backend"], path?: string)
 });
 
 const LIST: InstalledModelInfo[] = [
-  mk("llama3.2:1b", "ollama"),
-  mk("phi3:mini", "ollama"),
+  mk("llama3.2:1b", "vllm"),
+  mk("phi3:mini", "vllm"),
   mk("qwen.gguf", "llama_cpp", "/w/qwen.gguf"),
 ];
 
 beforeEach(() => {
-  useBackendStore.setState({ selectedBackend: "ollama" });
+  useBackendStore.setState({ selectedBackend: "llama_cpp" });
   useSelectedModelStore.setState({ selectedModels: [] });
   useInstalledModelsStore.setState({ list: LIST, status: "ready", error: null });
 });
 
 describe("ModelSelector (global header)", () => {
   it("lists only models for the selected backend", () => {
+    useBackendStore.setState({ selectedBackend: "vllm" });
     render(<ModelSelector />);
     fireEvent.click(screen.getByTestId("header-model-dropdown"));
     expect(screen.getByTestId("header-model-option-llama3.2:1b")).toBeInTheDocument();
@@ -34,21 +35,7 @@ describe("ModelSelector (global header)", () => {
     expect(screen.queryByTestId("header-model-option-qwen.gguf")).toBeNull();
   });
 
-  it("Ollama is multi-select: a second pick adds, not replaces", () => {
-    render(<ModelSelector />);
-    fireEvent.click(screen.getByTestId("header-model-dropdown"));
-    fireEvent.click(screen.getByTestId("header-model-option-llama3.2:1b"));
-    fireEvent.click(screen.getByTestId("header-model-option-phi3:mini"));
-    expect(useSelectedModelStore.getState().selectedModels.map((m) => m.name)).toEqual([
-      "llama3.2:1b", "phi3:mini",
-    ]);
-    expect(screen.getByTestId("header-model-dropdown")).toHaveTextContent("2 models");
-    // toggling one off removes it
-    fireEvent.click(screen.getByTestId("header-model-option-llama3.2:1b"));
-    expect(useSelectedModelStore.getState().selectedModels.map((m) => m.name)).toEqual(["phi3:mini"]);
-  });
-
-  it("non-Ollama is single-select: a pick replaces, carries backend + path", () => {
+  it("single-select: a pick replaces, carrying backend + path", () => {
     useBackendStore.setState({ selectedBackend: "llama_cpp" });
     render(<ModelSelector />);
     fireEvent.click(screen.getByTestId("header-model-dropdown"));
@@ -59,6 +46,7 @@ describe("ModelSelector (global header)", () => {
   });
 
   it("switching backend trims a now-mismatched selection (reconcile)", () => {
+    useBackendStore.setState({ selectedBackend: "vllm" });
     render(<ModelSelector />);
     fireEvent.click(screen.getByTestId("header-model-dropdown"));
     fireEvent.click(screen.getByTestId("header-model-option-llama3.2:1b"));
@@ -68,7 +56,7 @@ describe("ModelSelector (global header)", () => {
   });
 
   it("shows an empty-state when the backend has no models", () => {
-    useBackendStore.setState({ selectedBackend: "mlx" });
+    useBackendStore.setState({ selectedBackend: "sglang" });
     render(<ModelSelector />);
     fireEvent.click(screen.getByTestId("header-model-dropdown"));
     expect(screen.getByText("No models for this backend.")).toBeInTheDocument();

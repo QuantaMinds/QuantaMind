@@ -65,13 +65,13 @@ beforeEach(() => {
   // A mocked run never receives its batch-complete event, so `running` would stay
   // true and the next click would hit the Stop path — reset it between tests.
   useBatchStore.getState().reset();
-  useBackendStore.setState({ selectedBackend: "ollama" });
+  useBackendStore.setState({ selectedBackend: "llama_cpp" });
   useInstalledModelsStore.setState({
-    list: [{ name: "llama3.2:1b", size_bytes: 1, modified_at: "", family: "", parameter_size: "", quantization: "Q4_0", backend: "ollama" }],
+    list: [{ name: "llama3.2:1b", size_bytes: 1, modified_at: "", family: "", parameter_size: "", quantization: "Q4_0", backend: "llama_cpp" }],
     status: "ready", error: null, lastRefreshedAt: 1,
   });
   // The eval model dropdown is driven by the GLOBAL selection (not a per-page list).
-  useSelectedModelStore.setState({ selectedModels: [{ name: "llama3.2:1b", backend: "ollama", size_bytes: 1 }] });
+  useSelectedModelStore.setState({ selectedModels: [{ name: "llama3.2:1b", backend: "llama_cpp", size_bytes: 1 }] });
   useEvalRegistryStore.setState({
     presets: [{ id: "easy-coding", label: "Coding", domain: "coding", tier: "easy" }],
     collections: ["my-evals"],
@@ -87,8 +87,8 @@ describe("EvalManager Sidebar Controls", () => {
   it("lists the GLOBAL selection in the Model dropdown (single source of truth)", () => {
     useSelectedModelStore.setState({
       selectedModels: [
-        { name: "qwen3.5:9b", backend: "ollama", size_bytes: 1 },
-        { name: "llama3.2:1b", backend: "ollama", size_bytes: 1 },
+        { name: "qwen3.5:9b", backend: "llama_cpp", size_bytes: 1 },
+        { name: "llama3.2:1b", backend: "llama_cpp", size_bytes: 1 },
       ],
     });
     render(<EvalManager {...props({ model: "qwen3.5:9b" })} />);
@@ -112,8 +112,9 @@ describe("EvalManager Sidebar Controls", () => {
     expect(screen.getByTestId("info-popup-iterations")).toHaveTextContent(/Pass\^k/);
   });
 
-  it("shows the llama.cpp jinja note under native tool-calling, hidden for Ollama", () => {
-    // Ollama (set in beforeEach): the Ollama view is unchanged — no llama note.
+  it("shows the llama.cpp jinja note under native tool-calling, hidden for a remote backend", () => {
+    // A remote server's launch flags are unknowable, so the note would be noise.
+    useBackendStore.setState({ selectedBackend: "vllm" });
     const { rerender } = render(<EvalManager {...props()} />);
     expect(screen.queryByTestId("eval-method-llama-jinja-note")).toBeNull();
     // Switch the running backend to llama.cpp → the jinja/template note appears.
@@ -127,7 +128,7 @@ describe("EvalManager Sidebar Controls", () => {
     const { rerender } = render(<EvalManager {...props({ model: "" })} />);
     expect(screen.getByTestId("eval-run-all")).toHaveAttribute("title", "Select a model at the top");
     // Model present but the collection has no tasks → the button says no tasks.
-    useSelectedModelStore.setState({ selectedModels: [{ name: "llama3.2:1b", backend: "ollama", size_bytes: 1 }] });
+    useSelectedModelStore.setState({ selectedModels: [{ name: "llama3.2:1b", backend: "llama_cpp", size_bytes: 1 }] });
     useEvalRegistryStore.setState({ tasks: [] });
     rerender(<EvalManager {...props()} />);
     expect(screen.getByTestId("eval-run-all")).toHaveAttribute("title", "This collection has no tasks");
@@ -285,7 +286,7 @@ describe("EvalManager Sidebar Controls", () => {
     await waitFor(() => {
       expect(runBatchEval).toHaveBeenCalledWith(
         "easy-coding",
-        [{ model: "llama3.2:1b", backend: "ollama", is_thinking: false }],
+        [{ model: "llama3.2:1b", backend: "llama_cpp", is_thinking: false }],
         sampleTasks,
         12, // the editable k, always sent
         8,
@@ -312,32 +313,32 @@ describe("EvalManager Sidebar Controls", () => {
     expect(runBatchEval).not.toHaveBeenCalled();
   });
 
-  it("resolves an Ollama :latest tag mismatch instead of no-opping the run", async () => {
+  it("resolves a :latest tag mismatch instead of no-opping the run", async () => {
     vi.mocked(runBatchEval).mockResolvedValue({ collection_id: "easy-coding", columns: [] });
     useInstalledModelsStore.setState({
-      list: [{ name: "phi3.5:latest", size_bytes: 1, modified_at: "", family: "", parameter_size: "", quantization: "Q4_0", backend: "ollama" }],
+      list: [{ name: "phi3.5:latest", size_bytes: 1, modified_at: "", family: "", parameter_size: "", quantization: "Q4_0", backend: "llama_cpp" }],
       status: "ready", error: null, lastRefreshedAt: 1,
     });
-    useSelectedModelStore.setState({ selectedModels: [{ name: "phi3.5:latest", backend: "ollama", size_bytes: 1 }] });
+    useSelectedModelStore.setState({ selectedModels: [{ name: "phi3.5:latest", backend: "llama_cpp", size_bytes: 1 }] });
     // Header model carries the bare tag; the selected entry has `:latest` — an exact === no-ops.
     render(<EvalManager {...props({ model: "phi3.5" })} />);
     fireEvent.click(screen.getByTestId("eval-run-all"));
     await waitFor(() => expect(runBatchEval).toHaveBeenCalled());
     // The RESOLVED entry's name is what runs (correct for the backend).
     expect(vi.mocked(runBatchEval).mock.calls[0][1]).toEqual([
-      { model: "phi3.5:latest", backend: "ollama", is_thinking: false },
+      { model: "phi3.5:latest", backend: "llama_cpp", is_thinking: false },
     ]);
   });
 
   it("surfaces a batch-run store error in the EvalManager banner (not only the far scoreboard)", () => {
     // A failed run writes to batchStore.error; EvalManager must render it beside the button so
     // the click is never a silent no-op.
-    useBatchStore.setState({ error: "Ollama server isn't reachable — start it from the Workspace status bar, then re-run." });
+    useBatchStore.setState({ error: "llama.cpp server isn't reachable — start it from the Workspace status bar, then re-run." });
     render(<EvalManager {...props()} />);
-    expect(screen.getByTestId("eval-manager-error")).toHaveTextContent(/Ollama server isn't reachable/i);
+    expect(screen.getByTestId("eval-manager-error")).toHaveTextContent(/llama\.cpp server isn't reachable/i);
   });
 
-  it("surfaces a failed run for a NON-Ollama backend too (backend-agnostic)", async () => {
+  it("surfaces a failed run for a remote backend too (backend-agnostic)", async () => {
     vi.mocked(healthFor).mockResolvedValueOnce({ available: false, version: null });
     useInstalledModelsStore.setState({
       list: [{ name: "qwen-gguf", size_bytes: 1, modified_at: "", family: "", parameter_size: "", quantization: "Q4_0", backend: "llama_cpp" }],
@@ -449,7 +450,7 @@ describe("EvalManager Sidebar Controls", () => {
     await waitFor(() => {
       expect(runBatchEval).toHaveBeenCalledWith(
         "easy-coding",
-        [{ model: "llama3.2:1b", backend: "ollama", is_thinking: false }],
+        [{ model: "llama3.2:1b", backend: "llama_cpp", is_thinking: false }],
         sampleTasks,
         5, // editable k, always sent
         8,

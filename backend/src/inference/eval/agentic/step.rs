@@ -77,7 +77,7 @@ pub struct TrajectoryStep {
     pub env: EnvView,
     /// Prompt tokens this turn served from the server's prompt cache (prefix reuse)
     /// vs recomputed — llama.cpp's `timings.cache_n`. `None` when the backend doesn't
-    /// report it (Ollama/MLX) or the turn produced no model response (timeout/terminal).
+    /// report it (some backends) or the turn produced no model response (timeout/terminal).
     /// Surfaces per-turn prefix-reuse in the trace: a high value means the transcript
     /// prefix was reused (prefill ≈ 0) rather than re-prefilled.
     #[serde(default)]
@@ -92,16 +92,16 @@ pub struct TrajectoryStep {
     /// cache bust re-incurs. `None` when the backend doesn't report it / no model response.
     #[serde(default)]
     pub prefill_ms: Option<u64>,
-    /// Wall-clock spent DECODING this turn (llama.cpp `timings.predicted_ms`, Ollama
+    /// Wall-clock spent DECODING this turn (llama.cpp `timings.predicted_ms`, the server
     /// `eval_duration`). With `prefill_ms` this is the per-turn prefill/decode split the
     /// Latency view charts. `None` when unreported / no model response.
     #[serde(default)]
     pub eval_ms: Option<u64>,
-    /// Model-load time the server charged to THIS turn (Ollama `load_duration`; a warm turn
+    /// Model-load time the server charged to THIS turn (the server `load_duration`; a warm turn
     /// reports ~0, a cold first turn the real load). `None` on backends that don't report it.
     #[serde(default)]
     pub load_ms: Option<u64>,
-    /// Server-reported wall-clock for the whole turn (Ollama `total_duration`). NOT the sum of
+    /// Server-reported wall-clock for the whole turn (the server `total_duration`). NOT the sum of
     /// the parts — includes queueing/tokenize. `None` on backends that don't report it.
     #[serde(default)]
     pub total_ms: Option<u64>,
@@ -126,7 +126,7 @@ pub struct TrajectoryStep {
     /// TRUE only when `reasoning_tokens` is a MEASURED thinking/answer split — the reasoning
     /// channel's text tokenized with the model's own tokenizer (llama.cpp `/tokenize`).
     /// FALSE means the value is the backend's combined generated count for a thinking model
-    /// (Ollama reports no split — the UI must show "(no split)"). A dedicated flag, not the
+    /// (some servers report no split — the UI must show "(no split)"). A dedicated flag, not the
     /// `reasoning == output` equality heuristic: a run truncated mid-think has a genuinely
     /// measured split that still equals the total.
     #[serde(default)]

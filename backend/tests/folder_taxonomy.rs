@@ -3,7 +3,7 @@
 //! limit.
 //!
 //! KNOWN PRE-EXISTING DEBT (2026-06): four folders are over the limit —
-//! `persistence/` (12), `inference/eval/toolcall/` (11), `commands/mlx/` (11),
+//! `persistence/` (12), `inference/eval/toolcall/` (11),
 //! `commands/llama/` (11). Splitting them is import-churny and is tracked as a
 //! dedicated refactor (docs/restructure-todo.md), kept out of CI's required
 //! checks so the dependency-law guard (`layering_guard.rs`) can gate PRs without

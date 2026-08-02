@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 vi.mock("../../../../shared/ipc/models/storage", () => ({
-  getInstalledModelsWithStats: vi.fn(),
   listVllmModels: vi.fn().mockResolvedValue([]),
   listSglangModels: vi.fn().mockResolvedValue([]),
 }));
@@ -11,7 +10,7 @@ vi.mock("../../../../shared/ipc/models/llama_start", () => ({
 }));
 
 import { listen, type EventCallback } from "@tauri-apps/api/event";
-import { getInstalledModelsWithStats } from "../../../../shared/ipc/models/storage";
+import { listLlamaModels } from "../../../../shared/ipc/models/llama_start";
 import {
   startInstalledModelsBus,
   __resetInstalledModelsBusForTests,
@@ -29,8 +28,8 @@ beforeEach(() => {
     handlers[event] = cb as EventCallback<unknown>;
     return Promise.resolve(() => { delete handlers[event]; });
   });
-  vi.mocked(getInstalledModelsWithStats).mockReset();
-  vi.mocked(getInstalledModelsWithStats).mockResolvedValue([]);
+  vi.mocked(listLlamaModels).mockReset();
+  vi.mocked(listLlamaModels).mockResolvedValue([]);
   __resetInstalledModelsBusForTests();
   useInstalledModelsStore.setState({
     list: [], status: "idle", error: null, lastRefreshedAt: null,
@@ -42,7 +41,7 @@ describe("installedModelsBus", () => {
     await startInstalledModelsBus();
     // refresh() fans out to both backends via allSettled — let it settle.
     await new Promise((r) => setTimeout(r, 0));
-    expect(getInstalledModelsWithStats).toHaveBeenCalledTimes(1);
+    expect(listLlamaModels).toHaveBeenCalledTimes(1);
     expect(useInstalledModelsStore.getState().status).toBe("ready");
   });
 
@@ -50,10 +49,10 @@ describe("installedModelsBus", () => {
     await startInstalledModelsBus();
     // Wait for the first refresh to settle so the second isn't coalesced.
     await new Promise((r) => setTimeout(r, 0));
-    vi.mocked(getInstalledModelsWithStats).mockClear();
+    vi.mocked(listLlamaModels).mockClear();
     fire("models-changed", null);
     await new Promise((r) => setTimeout(r, 0));
-    expect(getInstalledModelsWithStats).toHaveBeenCalledTimes(1);
+    expect(listLlamaModels).toHaveBeenCalledTimes(1);
   });
 
   it("is idempotent — second call returns the same promise, no re-attach", async () => {

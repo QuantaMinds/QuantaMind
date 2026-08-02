@@ -72,7 +72,7 @@ The whole setup takes ~5 minutes on macOS.
 <tr valign="top"><td>
 
 ```bash
-brew install rust node pnpm ollama
+brew install rust node pnpm llama_cpp
 xcode-select --install
 ```
 
@@ -85,19 +85,19 @@ sudo apt update && sudo apt install -y \
   curl wget file libxdo-dev libssl-dev \
   libayatana-appindicator3-dev \
   librsvg2-dev patchelf
-# Rust, Node 20+, pnpm, Ollama
+# Rust, Node 20+, pnpm, llama.cpp
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - \
   && sudo apt install -y nodejs
 corepack enable pnpm
-curl -fsSL https://ollama.com/install.sh | sh
+curl -fsSL https://github.com/ggml-org/llama.cppinstall.sh | sh
 ```
 
 </td><td>
 
 ```powershell
 winget install Rustlang.Rustup OpenJS.NodeJS `
-  pnpm.pnpm Ollama.Ollama `
+  pnpm.pnpm llama.cpp.llama.cpp `
   Microsoft.VisualStudio.2022.BuildTools
 # Add "Desktop development with C++" in the
 # VS installer (MSVC linker). WebView2 ships
@@ -107,11 +107,11 @@ winget install Rustlang.Rustup OpenJS.NodeJS `
 
 </td></tr></table>
 
-**2 · Start Ollama + pull a small model**
+**2 · Start llama.cpp + pull a small model**
 
 ```bash
-ollama serve &                 # Windows: runs as a service after install
-ollama pull llama3.2:1b
+llama-server -m MODEL.gguf --port 8081 --jinja &                 # Windows: runs as a service after install
+llama-server -m llama3.2:1b
 ```
 
 **3 · Clone, install, run**
@@ -132,9 +132,9 @@ pnpm tauri build          # production → backend/target/release/bundle/ (.dmg 
 | **Rust** | 1.75+ | required |
 | **Node** | 20+ | required |
 | **pnpm** | 9+ | required |
-| **Ollama** | latest | required — the default backend |
+| **llama.cpp** | latest | required — the default backend |
 | **llama.cpp** (`llama-server`) | latest | optional — run GGUF models directly |
-| **MLX** (`pip install mlx-lm`) | latest | optional — Apple Silicon only |
+| **vLLM** (`pip install vllm-lm`) | latest | optional — Apple Silicon only |
 | **vLLM** / **SGLang** | latest | optional — a **remote** OpenAI-compatible GPU server; set its URL (+ `--api-key`) in Settings |
 
 </details>
@@ -148,7 +148,7 @@ If you hit `program not found: cargo metadata` or `linker link.exe not found`:
 
 ```powershell
 # Refresh PATH for this session (already permanent on the User env var).
-$env:Path = "$env:USERPROFILE\.cargo\bin;$env:APPDATA\npm;$env:LOCALAPPDATA\Programs\Ollama;$env:Path"
+$env:Path = "$env:USERPROFILE\.cargo\bin;$env:APPDATA\npm;$env:LOCALAPPDATA\Programs\llama.cpp;$env:Path"
 
 # Source MSVC env into PowerShell. Adjust the path for your VS version
 # (2022\BuildTools, 2022\Community, or 18\Community for VS 2026).
@@ -280,7 +280,7 @@ Full table in [`docs/process.md#conventions`](./docs/process.md#conventions).
 | TS components / types | `PascalCase` | `PromptEditor` |
 | React component file | `PascalCase.tsx` | `PromptEditor.tsx` |
 | TS non-component file | `kebab-case.ts` | `use-streaming-run.ts` |
-| Rust file | `snake_case.rs` | `ollama.rs` |
+| Rust file | `snake_case.rs` | `llama_cpp.rs` |
 | Branch | `<type>/<short-description>` | `feature/streaming-output`, `fix/native-budget` |
 
 - **Comments:** default to none — naming and structure carry meaning. Write a

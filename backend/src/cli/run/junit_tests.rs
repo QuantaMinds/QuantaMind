@@ -11,7 +11,7 @@ fn report_for(model: &str, verdict: serde_json::Value) -> RunReport {
     let v: ModelVerdict = serde_json::from_value(verdict).expect("valid ModelVerdict");
     RunReport {
         collection_id: "easy-coding".into(),
-        backend: BackendKind::Ollama,
+        backend: BackendKind::LlamaCpp,
         model: model.into(),
         profile_id: "general-agent".into(),
         verdicts: vec![v],
@@ -33,7 +33,7 @@ fn ready_run_is_green_even_when_a_tier_is_short_of_perfect() {
     // Ready at pass^k 0.80 (4/5 tasks) — the panel must be GREEN (mirror the exit code),
     // not show a red tier just because one task didn't pass.
     let xml = to_junit(&report(serde_json::json!({
-        "model":"qwen2.5:3b","backend":"ollama",
+        "model":"qwen2.5:3b","backend":"llama_cpp",
         "verdict":{"status":"ready","blocking":[],"conditions":[],"path":"prompt_based"},
         "pass_k":0.8,"passes":4,"total_runs":5,
         "by_tier":[{"tier":"easy","tasks_passed":4,"tasks_total":5,"failures":failures(("empty_output_calls",1))}]
@@ -48,7 +48,7 @@ fn ready_run_is_green_even_when_a_tier_is_short_of_perfect() {
 #[test]
 fn notready_run_emits_escaped_failures_with_reasons() {
     let xml = to_junit(&report(serde_json::json!({
-        "model":"weak","backend":"ollama",
+        "model":"weak","backend":"llama_cpp",
         "verdict":{"status":"not_ready","blocking":["pass^k 0.00 < 0.60 required"],"conditions":[],"path":"prompt_based"},
         "pass_k":0.0,"passes":0,"total_runs":5,
         "by_tier":[{"tier":"easy","tasks_passed":0,"tasks_total":5,"failures":failures(("empty_output_calls",3))}]
@@ -72,7 +72,7 @@ fn report_and_render(model: &str) -> String {
     to_junit(&report_for(
         model,
         serde_json::json!({
-            "model":model,"backend":"ollama",
+            "model":model,"backend":"llama_cpp",
             "verdict":{"status":"ready","blocking":[],"conditions":[],"path":"prompt_based"}
         }),
     ))

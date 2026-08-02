@@ -28,7 +28,7 @@ beforeEach(() => {
 describe("KvCeilingBars", () => {
   it("renders three precision rows with monotonic widths and captions", () => {
     mockCeilings({ f16: 14_848, q8: 29_696, q4: 59_648 });
-    render(<KvCeilingBars modelName="m" backend="ollama" modelBytes={9e9} totalBytes={16e9} />);
+    render(<KvCeilingBars modelName="m" backend="llama_cpp" modelBytes={9e9} totalBytes={16e9} />);
     // Each precision labelled and captioned with its ceiling.
     expect(screen.getByTestId("kv-ceiling-f16")).toHaveTextContent("14,848 ctx");
     expect(screen.getByTestId("kv-ceiling-q8")).toHaveTextContent("29,696 ctx");
@@ -41,7 +41,7 @@ describe("KvCeilingBars", () => {
 
   it("carries the Q4 dual caveat (quality AND speed) and the never-auto-launch note", () => {
     mockCeilings({ f16: 10_000, q8: 20_000, q4: 40_000 });
-    render(<KvCeilingBars modelName="m" backend="ollama" modelBytes={9e9} totalBytes={16e9} />);
+    render(<KvCeilingBars modelName="m" backend="llama_cpp" modelBytes={9e9} totalBytes={16e9} />);
     const el = screen.getByTestId("kv-ceilings");
     expect(el).toHaveTextContent("slower at long context");
     expect(el).toHaveTextContent("never auto-launches a q4_0 cache");
@@ -50,7 +50,7 @@ describe("KvCeilingBars", () => {
   it("clamps a ceiling above the model's declared max and says memory isn't the limit", () => {
     // q4 = 300k but the model only supports 262,144 → capped, tagged.
     mockCeilings({ f16: 100_000, q8: 200_000, q4: 300_000 }, 262_144);
-    render(<KvCeilingBars modelName="m" backend="ollama" modelBytes={9e9} totalBytes={16e9} />);
+    render(<KvCeilingBars modelName="m" backend="llama_cpp" modelBytes={9e9} totalBytes={16e9} />);
     // The clamp label must say WHY it stopped (the model's own limit), so a big machine
     // ceiling is never misread as "this is just the model's context spec".
     expect(screen.getByTestId("kv-ceiling-q4")).toHaveTextContent("262,144 ctx (model's own max — memory could hold more)");
@@ -58,48 +58,47 @@ describe("KvCeilingBars", () => {
 
   it("shows a per-precision 'Not available' when one ceiling is unmeasurable", () => {
     mockCeilings({ f16: 14_848, q8: 29_696, q4: null });
-    render(<KvCeilingBars modelName="m" backend="ollama" modelBytes={9e9} totalBytes={16e9} />);
+    render(<KvCeilingBars modelName="m" backend="llama_cpp" modelBytes={9e9} totalBytes={16e9} />);
     expect(screen.getByTestId("kv-ceiling-q4")).toHaveTextContent("Not available");
   });
 
   it("shows a whole-panel 'Not available' when dims/ceilings can't be measured (e.g. backend unreachable)", () => {
     mockCeilings(null);
-    render(<KvCeilingBars modelName="m" backend="ollama" modelBytes={null} totalBytes={16e9} />);
+    render(<KvCeilingBars modelName="m" backend="llama_cpp" modelBytes={null} totalBytes={16e9} />);
     expect(screen.getByTestId("kv-ceilings")).toHaveTextContent("Not available");
   });
 
-  it("the whole-panel 'Not available' reason is backend-aware (llama.cpp never says 'Ollama')", () => {
+  it("the whole-panel 'Not available' reason is backend-aware", () => {
     // dims present but no ceilings (model not loaded → no size): llama.cpp should say to LOAD it.
     vi.mocked(useKvCeilings).mockReturnValue({ dims: dims(131_072), ceilings: null });
     const { rerender } = render(<KvCeilingBars modelName="m" backend="llama_cpp" modelBytes={null} totalBytes={16e9} />);
-    let na = screen.getByTestId("kv-ceilings-na").textContent!;
+    const na = screen.getByTestId("kv-ceilings-na").textContent!;
     expect(na).toMatch(/llama\.cpp/i);
-    expect(na).not.toMatch(/Ollama/i);
-    // Ollama keeps its own message.
-    mockCeilings(null);
-    rerender(<KvCeilingBars modelName="m" backend="ollama" modelBytes={null} totalBytes={16e9} />);
-    expect(screen.getByTestId("kv-ceilings-na").textContent).toMatch(/Ollama/i);
+    // A remote backend has no local GGUF to read dims from — a different, honest reason.
+    vi.mocked(useKvCeilings).mockReturnValue({ dims: null, ceilings: null });
+    rerender(<KvCeilingBars modelName="m" backend="vllm" modelBytes={null} totalBytes={16e9} />);
+    expect(screen.getByTestId("kv-ceilings-na").textContent).toMatch(/not measurable for this backend/i);
   });
 
   it("marks the meters '~ estimated' when the model didn't report its KV head count (conservative, not silently wrong)", () => {
     mockCeilings({ f16: 14_848, q8: 29_696, q4: 59_648 }, 262_144, true);
-    render(<KvCeilingBars modelName="m" backend="ollama" modelBytes={9e9} totalBytes={16e9} />);
+    render(<KvCeilingBars modelName="m" backend="llama_cpp" modelBytes={9e9} totalBytes={16e9} />);
     expect(screen.getByTestId("kv-ceilings")).toHaveTextContent("~ estimated");
   });
 
   it("places the cliff marker from the cliff store", () => {
     useCliffStore.setState({ results: { finance: { m: 20_000 } } });
     mockCeilings({ f16: 14_848, q8: 29_696, q4: 59_648 });
-    render(<KvCeilingBars modelName="m" backend="ollama" modelBytes={9e9} totalBytes={16e9} />);
+    render(<KvCeilingBars modelName="m" backend="llama_cpp" modelBytes={9e9} totalBytes={16e9} />);
     // The cliff title appears somewhere in the bars (marker rendered inline).
     expect(document.querySelector('[title*="cliff edge ≈20000"]')).not.toBeNull();
   });
 
   it("labels unified vs discrete memory in the caption", () => {
     mockCeilings({ f16: 10_000, q8: 20_000, q4: 40_000 });
-    const { rerender } = render(<KvCeilingBars modelName="m" backend="ollama" modelBytes={9e9} totalBytes={16e9} unified />);
+    const { rerender } = render(<KvCeilingBars modelName="m" backend="llama_cpp" modelBytes={9e9} totalBytes={16e9} unified />);
     expect(screen.getByTestId("kv-ceilings")).toHaveTextContent("unified memory");
-    rerender(<KvCeilingBars modelName="m" backend="ollama" modelBytes={9e9} totalBytes={16e9} unified={false} />);
+    rerender(<KvCeilingBars modelName="m" backend="llama_cpp" modelBytes={9e9} totalBytes={16e9} unified={false} />);
     expect(screen.getByTestId("kv-ceilings")).toHaveTextContent("VRAM");
   });
 
@@ -107,7 +106,7 @@ describe("KvCeilingBars", () => {
     // The capability question the ceilings can't answer: even with a ceiling number,
     // weights over the limit mean the model doesn't stay on the GPU.
     mockCeilings({ f16: 2_048, q8: 2_048, q4: 2_048, fit: "spills_to_cpu" });
-    render(<KvCeilingBars modelName="m" backend="ollama" modelBytes={25e9} totalBytes={32e9} unified workingSetBytes={24e9} />);
+    render(<KvCeilingBars modelName="m" backend="llama_cpp" modelBytes={25e9} totalBytes={32e9} unified workingSetBytes={24e9} />);
     const chip = screen.getByTestId("kv-fit-verdict");
     expect(chip).toHaveTextContent("spills to CPU/swap");
     expect(chip).toHaveAttribute("data-fit", "spills_to_cpu");
@@ -116,10 +115,10 @@ describe("KvCeilingBars", () => {
 
   it("shows the green 'fits' and amber 'tight' verdicts", () => {
     mockCeilings({ f16: 100_000, q8: 200_000, q4: 400_000, fit: "fits" });
-    const { rerender } = render(<KvCeilingBars modelName="m" backend="ollama" modelBytes={5e9} totalBytes={16e9} unified workingSetBytes={12e9} />);
+    const { rerender } = render(<KvCeilingBars modelName="m" backend="llama_cpp" modelBytes={5e9} totalBytes={16e9} unified workingSetBytes={12e9} />);
     expect(screen.getByTestId("kv-fit-verdict")).toHaveTextContent("Weights fit on the GPU");
     mockCeilings({ f16: 10_000, q8: 20_000, q4: 40_000, fit: "tight" });
-    rerender(<KvCeilingBars modelName="m" backend="ollama" modelBytes={11e9} totalBytes={16e9} unified workingSetBytes={12e9} />);
+    rerender(<KvCeilingBars modelName="m" backend="llama_cpp" modelBytes={11e9} totalBytes={16e9} unified workingSetBytes={12e9} />);
     const chip = screen.getByTestId("kv-fit-verdict");
     expect(chip).toHaveTextContent("Tight");
     expect(chip.className).toContain("text-amber-700");
@@ -127,22 +126,22 @@ describe("KvCeilingBars", () => {
 
   it("renders NO fit chip when the GPU limit is unmeasured (unknown / absent) — never guessed", () => {
     mockCeilings({ f16: 14_848, q8: 29_696, q4: 59_648, fit: "unknown" });
-    const { rerender } = render(<KvCeilingBars modelName="m" backend="ollama" modelBytes={9e9} totalBytes={16e9} />);
+    const { rerender } = render(<KvCeilingBars modelName="m" backend="llama_cpp" modelBytes={9e9} totalBytes={16e9} />);
     expect(screen.queryByTestId("kv-fit-verdict")).toBeNull();
     // Absent fit (older payload / discrete GPU) also shows no chip.
     mockCeilings({ f16: 14_848, q8: 29_696, q4: 59_648 });
-    rerender(<KvCeilingBars modelName="m" backend="ollama" modelBytes={9e9} totalBytes={16e9} />);
+    rerender(<KvCeilingBars modelName="m" backend="llama_cpp" modelBytes={9e9} totalBytes={16e9} />);
     expect(screen.queryByTestId("kv-fit-verdict")).toBeNull();
   });
 
   it("shows the GPU-addressable line only on unified memory with a measured working set", () => {
     mockCeilings({ f16: 100_000, q8: 200_000, q4: 400_000, fit: "fits" });
-    const { rerender } = render(<KvCeilingBars modelName="m" backend="ollama" modelBytes={5e9} totalBytes={16e9} unified workingSetBytes={12e9} />);
+    const { rerender } = render(<KvCeilingBars modelName="m" backend="llama_cpp" modelBytes={5e9} totalBytes={16e9} unified workingSetBytes={12e9} />);
     const line = screen.getByTestId("kv-gpu-addressable");
     // Frames the smaller usable slice against the full pool: "~<usable> of <total> usable by the GPU".
     expect(line.textContent).toMatch(/~[\d.]+\s?GB of [\d.]+\s?GB usable by the GPU \(macOS Metal limit\)/);
     // Discrete GPU (no working set) → no such line; VRAM already IS the budget.
-    rerender(<KvCeilingBars modelName="m" backend="ollama" modelBytes={5e9} totalBytes={16e9} unified={false} />);
+    rerender(<KvCeilingBars modelName="m" backend="llama_cpp" modelBytes={5e9} totalBytes={16e9} unified={false} />);
     expect(screen.queryByTestId("kv-gpu-addressable")).toBeNull();
   });
 });

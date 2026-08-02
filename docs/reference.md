@@ -126,23 +126,23 @@ scoring (BLEU etc.) — quality is human-judged in `verdicts`. No document-level
 The top header carries three app-wide choices, surfaced on every view so it's
 always clear what you're running and how:
 
-- **Backend** (`backendStore`) — Ollama / llama.cpp / MLX. The model list is
+- **Backend** (`backendStore`) — llama.cpp / vLLM / SGLang. The model list is
   filtered to the selected backend; switching backend trims a now-incompatible
   model selection (a model is bound to its backend's weight format).
 - **Model** (`selectedModelStore`) — the global selection (an array).
-  **Ollama is multi-select** (1 → a single run in the Workspace; 2+ → a
+  **llama.cpp is multi-select** (1 → a single run in the Workspace; 2+ → a
   sequential/parallel compare shown in the Workspace, results on Analysis);
-  **llama.cpp/MLX are single-select**. Every page reads this — there is no
+  **llama.cpp are single-select**. Every page reads this — there is no
   per-page model picker. Analysis is results-only; Tests has its own *target*
   multi-select but it is filtered to the selected backend; the Audit
   Context Stress Test runs one global model (a dropdown picks which when 2+
-  Ollama models are selected).
+  llama.cpp models are selected).
 
 The llama.cpp path posts to the templated `/v1/chat/completions` (the server is
 launched with `--jinja`, so it applies the model's embedded chat template — this
 is what makes the model stop instead of looping). If that route 404s (an older
 build, or another OpenAI-style server answering on the same port — e.g.
-`mlx_lm.server`, whose default port is also 8080), it falls back to the legacy
+`vllm_lm.server`, whose default port is also 8080), it falls back to the legacy
 `/completion`; if neither route exists, the error points at the likely port
 collision. See [llama.cpp won't stop / loops](#llama-loops).
 - **Inference params** (`paramsStore`) — temperature, top_p, top_k, max_tokens,
@@ -150,11 +150,11 @@ collision. See [llama.cpp won't stop / loops](#llama-loops).
   Analysis compare, Eval batch, and the Context Stress Test all read
   `globalParams`. A field left unset is omitted so the backend default applies;
   ranges are validated at the Rust boundary (`commands/prompt/prompt_options.rs`).
-  With **2+ Ollama models**, a "use the same parameters for all" toggle switches
+  With **2+ llama.cpp models**, a "use the same parameters for all" toggle switches
   to per-model overrides (`perModelParams`).
 - **Keep model loaded** (`paramsStore.keepLoaded`, default off) — off unloads the
-  model after each run (Ollama `keep_alive=0`); on keeps it resident
-  (`keep_alive=-1`). Ollama-only; llama.cpp/MLX keep their model while the sidecar
+  model after each run (llama.cpp `keep_alive=0`); on keeps it resident
+  (`keep_alive=-1`). llama.cpp-only; llama.cpp keep their model while the sidecar
   runs.
 
 Prompt files (`*.quantamind.yaml`) no longer store params. An older file that
@@ -197,27 +197,27 @@ attestation (`gh attestation verify <file> --owner QuantaMinds`) proving it was 
 repository's release workflow — that's the integrity check Apple's stamp would otherwise give
 you.
 
-### Ollama not running {#ollama-not-running}
+### llama.cpp not running {#llama_cpp-not-running}
 
-QuantaMind talks to a local Ollama server at `localhost:11434`. If it isn't
-running you'll see "Ollama isn't running".
+QuantaMind talks to a local llama.cpp server at `localhost:8081`. If it isn't
+running you'll see "llama.cpp isn't running".
 
-- Click **Start Ollama** in the model picker's empty state — the button now
+- Click **Start llama.cpp** in the model picker's empty state — the button now
   works on **macOS, Windows, and Linux** (Phase 2). QuantaMind resolves
-  `ollama` on PATH (`which` on macOS/Linux, `where.exe` on Windows) plus
+  `llama_cpp` on PATH (`which` on macOS/Linux, `where.exe` on Windows) plus
   well-known install prefixes: `/opt/homebrew/bin` and `/usr/local/bin` on
-  macOS; `%LOCALAPPDATA%\Programs\Ollama\ollama.exe` and
-  `C:\Program Files\Ollama\ollama.exe` on Windows; `/usr/local/bin` and
+  macOS; `%LOCALAPPDATA%\Programs\llama.cpp\llama_cpp.exe` and
+  `C:\Program Files\llama.cpp\llama_cpp.exe` on Windows; `/usr/local/bin` and
   `/usr/bin` on Linux.
 - If it isn't installed, install per-OS:
-  - **macOS:** `brew install ollama`
-  - **Windows:** `winget install Ollama.Ollama`
-  - **Linux:** `curl -fsSL https://ollama.com/install.sh | sh`
-- Or run `ollama serve` in a terminal.
-- Confirm it's up: `curl http://localhost:11434/api/tags` should return JSON.
+  - **macOS:** `brew install llama_cpp`
+  - **Windows:** `winget install llama.cpp.llama.cpp`
+  - **Linux:** `curl -fsSL https://github.com/ggml-org/llama.cppinstall.sh | sh`
+- Or run `llama-server -m MODEL.gguf --port 8081 --jinja` in a terminal.
+- Confirm it's up: `curl http://localhost:8081the weights folder` should return JSON.
 - On Windows the child is spawned with `CREATE_NO_WINDOW` (no console flash)
   and its own process group (R1), so QuantaMind's Stop control cleanly kills
-  Ollama's whole tree without touching QuantaMind itself.
+  llama.cpp's whole tree without touching QuantaMind itself.
 
 ### llama-server dies partway through a long Context Stress Test {#llama-cache-oom}
 
@@ -234,7 +234,7 @@ fails loudly and never fabricates a result from a dead server.
 ### llama.cpp won't stop / repeats forever {#llama-loops}
 
 If a llama.cpp run repeats the prompt or rambles until it hits the token limit
-(while the *same* GGUF answers correctly under Ollama), the chat template wasn't
+(while the *same* GGUF answers correctly under llama.cpp), the chat template wasn't
 applied. QuantaMind launches `llama-server` with `--jinja` and drives the
 templated `/v1/chat/completions` precisely to prevent this. If you still see it:
 
@@ -258,7 +258,7 @@ templated `/v1/chat/completions` precisely to prevent this. If you still see it:
 
 A llama.cpp run (or the Context Stress Test) can fail with *"The prompt (N
 tokens) is larger than the M-token context window this model was loaded with."*
-Unlike Ollama, **llama.cpp fixes its context window at launch** (the `-c` flag) —
+Unlike llama.cpp, **llama.cpp fixes its context window at launch** (the `-c` flag) —
 there's no per-request resize. QuantaMind launches `llama-server` with `-c` sized
 from the **Context window** param (`num_ctx`); when that param is empty it uses
 the GGUF's context capped at 8K (so a small machine never allocates a giant KV
@@ -322,7 +322,7 @@ Agent Report alike: an inconclusive result is a caveat, never a red verdict — 
 `Max Tokens + ~2K headroom` (the tool schemas, the injected task, and the reply all sit on
 top of the padding), so **Max Tokens is capped at the model's context window *minus* that
 headroom** — the deepest depth that can actually be *measured*. Asking for the full window
-is not a near miss, it is unmeasurable: **Ollama silently clamps** `num_ctx` down to the
+is not a near miss, it is unmeasurable: **llama.cpp silently clamps** `num_ctx` down to the
 trained window and truncates the prompt (deleting the injected task, so the model fails a
 question it never saw) while `prompt_eval_count` **saturates** at the window — reading the
 same no matter how much padding is sent. That combination produced a *fabricated* cliff at
@@ -338,12 +338,12 @@ sweeps near-identical prompts, so it hits that cache constantly; the depth is th
 context the model *read*, cached prefix included — the same occupancy the agentic runner
 uses. Counting only the recomputed part collapsed the charted depth toward zero **and**
 exploded the learned byte→token rate, sizing the next rung past the window — which
-llama.cpp rejects outright, aborting the whole probe. Ollama sends no `cache_n`, so there
+llama.cpp rejects outright, aborting the whole probe. llama.cpp sends no `cache_n`, so there
 this is a no-op.
 
-**Ollama / MLX won't-fit pre-flight.** Ollama (and MLX) size `num_ctx` per request, so
+**llama.cpp / vLLM won't-fit pre-flight.** llama.cpp (and vLLM) size `num_ctx` per request, so
 a too-deep Context Stress Test would silently spill to CPU or OOM mid-ladder rather than
-fail at launch. For **Ollama** the probe estimates the deepest rung's footprint (exact
+fail at launch. For **llama.cpp** the probe estimates the deepest rung's footprint (exact
 weights + real KV cache at that depth) against the device memory cap and refuses up front
 with a "reduce Max Tokens to about N" message when it won't fit; the panel also shows an
 advisory banner *before* you click Execute. This is separate from (and additive to) both
@@ -353,15 +353,15 @@ first. The three fail differently, so they're guarded separately.
 
 **Context Stress Test — tool-calling method.** The panel has a **Native FC / Prompt-based**
 toggle (default Native FC), so the cliff is measured on the same path you'll deploy on.
-Native drives the backend's structured `tool_calls` (Ollama `/api/chat` tools, llama.cpp
+Native drives the backend's structured `tool_calls` (llama.cpp `/v1/chat/completions` tools, llama.cpp
 `/v1/chat/completions` with `--jinja`); prompt-based uses the JSON-in-text proxy. A model
-whose template lacks tool support (or MLX, which has no native tool API) is refused with
+whose template lacks tool support (or vLLM, which has no native tool API) is refused with
 "switch to Prompt-based". A native cliff is saved under its own key so it never overwrites
 the prompt-based cliff the readiness verdict reads.
 
 ### Backend server down — batch pre-flight {#batch-preflight}
 
-Every backend's server health is polled into the header dots every 5s — Ollama, MLX,
+Every backend's server health is polled into the header dots every 5s — llama.cpp, vLLM,
 and (new) **llama.cpp** (`check_llama_health`); a dot that was green goes grey within
 ~5s of the server dying, so the indicator never lies. An Eval **batch run pre-flights
 every backend it targets** before starting: if any selected backend's server isn't
@@ -371,18 +371,18 @@ named server from the header, then re-run.
 
 ### Model not installed {#model-not-found}
 
-"That model isn't installed" means Ollama doesn't have the model you asked to
+"That model isn't installed" means llama.cpp doesn't have the model you asked to
 run.
 
-- Open the **Models** tab and pull it (Ollama library, HuggingFace, or a local
+- Open the **Models** tab and pull it (Hugging Face, HuggingFace, or a local
   GGUF).
 - Names are exact, including the tag: `llama3.2:1b`, not `llama3.2`.
 
 ### Duplicate models in the picker {#duplicate-models}
 
-If the same model was imported into Ollama under more than one tag (e.g. a local
-GGUF added as both `mymodel_q3_k_l:latest` and `mymodel:q3_k_l`), Ollama's
-`/api/tags` lists each tag separately. They point to the same blob and share one
+If the same model was imported into llama.cpp under more than one tag (e.g. a local
+GGUF added as both `mymodel_q3_k_l:latest` and `mymodel:q3_k_l`), llama.cpp's
+a registry that lists each tag separately. They point to the same blob and share one
 `digest`, so the **model picker collapses them to a single entry** (first tag
 wins). The **Models → Storage** view still lists every tag so you can delete the
 redundant one. Different quantizations (`Q3_K_L` vs `Q2_K`) have different
@@ -407,49 +407,49 @@ on first use.
 - If it persists, the model may be too large for this machine; see
   [out of memory](#out-of-memory).
 
-### MLX not detected {#mlx-not-detected}
+### vLLM not detected {#vllm-not-detected}
 
-The **MLX** backend appears in the workspace rail only on Apple Silicon. Install
-mlx-lm once into a virtual env (`python3 -m venv ~/mlx-env`,
-`source ~/mlx-env/bin/activate`, `pip install -U mlx-lm`) — the in-app backend
-setup guide shows these three copy-able commands. MLX models then work like every
+The **vLLM** backend appears in the workspace rail only on Apple Silicon. Install
+vllm-lm once into a virtual env (`python3 -m venv ~/vllm-env`,
+`source ~/vllm-env/bin/activate`, `pip install -U vllm-lm`) — the in-app backend
+setup guide shows these three copy-able commands. vLLM models then work like every
 other backend: **download → select → Start → run/eval/quant.**
 
-**Download:** in **Models → HuggingFace**, flip the **GGUF / MLX** toggle to MLX
+**Download:** in **Models → HuggingFace**, flip the **GGUF / vLLM** toggle to vLLM
 and search. Each toggle filters search to that library tag — GGUF to `gguf`-tagged
 repos (so only repos with downloadable `.gguf` files appear; speech/audio GGUFs
-are dropped since they can't run as an LLM), MLX to `mlx`-tagged
-repos, mostly `mlx-community`. Open a repo and click **Download for MLX** — the
-full snapshot (config + safetensors + tokenizer) lands in `~/.quantamind/mlx/`
-(override with `QUANTAMIND_MLX_DIR`). The **detail view follows the repo's tags,
-not the toggle**, so an `mlx`-tagged repo opens the MLX download even when found
+are dropped since they can't run as an LLM), vLLM to `vllm`-tagged
+repos, mostly `vllm-community`. Open a repo and click **Download for vLLM** — the
+full snapshot (config + safetensors + tokenizer) lands in `~/.quantamind/vllm/`
+(override with `QUANTAMIND_vLLM_DIR`). The **detail view follows the repo's tags,
+not the toggle**, so an `vllm`-tagged repo opens the vLLM download even when found
 under GGUF search.
 
 **Select + run:** the downloaded model appears in the Workspace dropdown
 (labelled by its HF repo) as soon as it's downloaded — no running server needed.
-Pick it, press **Start MLX** (the header launches `mlx_lm.server --model <local
+Pick it, press **Start vLLM** (the header launches `vllm_lm.server --model <local
 dir>`; "Starting…" while it loads), and once green run prompts / eval / quant
 like any backend. One model loads at a time; pick another and Start to switch.
 
-**Guardrail — text-generation only.** `mlx_lm.server` serves text-generation
+**Guardrail — text-generation only.** `vllm_lm.server` serves text-generation
 LLMs; a text-to-speech / embedding / vision repo would download gigabytes and
-then never answer a chat request. So **Download for MLX** checks the repo's task
+then never answer a chat request. So **Download for vLLM** checks the repo's task
 and, if it isn't `text-generation`, shows a blocking dialog ("This model won't
-run on MLX") with a *Pick another* / *Download anyway* choice.
+run on vLLM") with a *Pick another* / *Download anyway* choice.
 
-- **"mlx_lm.server not found"** — QuantaMind searches `PATH` and common venvs
-  (`~/mlx-env/bin`, `~/.venv/bin`, Homebrew, conda). If yours is elsewhere, set
-  `QUANTAMIND_MLX_SERVER` to its full path and restart.
+- **"vllm_lm.server not found"** — QuantaMind searches `PATH` and common venvs
+  (`~/vllm-env/bin`, `~/.venv/bin`, Homebrew, conda). If yours is elsewhere, set
+  `QUANTAMIND_vLLM_SERVER` to its full path and restart.
 - **"Port 8082 in use" / "no free port"** — it auto-picks a free port in
   8082–8092; only if all are taken does it fail. Free one and retry.
 - **It exited** — the error shows the server's stderr tail (e.g. a missing
   Python dep). Fix it in your venv and Start again.
 - **Model not in the dropdown?** The picker lists what's been downloaded into
-  the MLX folder; download it from the HuggingFace tab first. (A model loaded by
-  a manually-run `mlx_lm.server` won't appear — discovery is disk-based now.)
-- **Reproducibility note:** mlx_lm.server has no seed parameter, so MLX runs are
-  not seed-reproducible the way Ollama and llama.cpp runs are — a fixed seed in
-  the params is ignored for MLX.
+  the vLLM folder; download it from the HuggingFace tab first. (A model loaded by
+  a manually-run `vllm_lm.server` won't appear — discovery is disk-based now.)
+- **Reproducibility note:** vllm_lm.server has no seed parameter, so vLLM runs are
+  not seed-reproducible the way llama.cpp runs are — a fixed seed in
+  the params is ignored for vLLM.
 
 ### Invalid or truncated GGUF {#invalid-gguf}
 
@@ -518,7 +518,7 @@ an agent — entirely offline and deterministic. Read the scores with these cave
 
 - **Prompt-based, not native function-calling.** The tool schemas are injected
   into the system prompt and the JSON call is parsed from the completion text.
-  This is backend-agnostic (identical on Ollama / llama.cpp / MLX) and mirrors
+  This is backend-agnostic (identical on llama.cpp / vLLM / SGLang) and mirrors
   how many local-agent builders work — but the numbers are **not comparable to
   BFCL / native-FC leaderboards** (which use a `tools` field + native
   `tool_calls`). Treat them as a within-app, like-for-like comparison.
@@ -556,7 +556,7 @@ an agent — entirely offline and deterministic. Read the scores with these cave
   hallucination — see the failure taxonomy.
 - **Single-turn, greedy (temp 0), ~13-task fixture.** No multi-turn / agent
   loops; greedy decoding makes scores reproducible and comparable across quants
-  (and sidesteps MLX's missing seed). The fixture is small and curated —
+  (and sidesteps vLLM's missing seed). The fixture is small and curated —
   **indicative, not leaderboard-grade.**
 - **The four metrics are independent.** `parse_rate` (did it emit a parseable
   call when one was needed) is separate from tool/args accuracy, so "100% tool ·
@@ -580,7 +580,7 @@ Error), with a click-through Trace Debugger. See [the workspace](#eval-runner).
 - **Prompt-based sandbox, same as the tool-call eval.** The `DeterministicSandbox`
   holds the initial prompt, the tool schemas (injected into the system prompt via
   the shared `build_system_for`), the mock tool results, and an `EndStateRule`.
-  No native function-calling — identical across Ollama / llama.cpp / MLX.
+  No native function-calling — identical across llama.cpp / vLLM / SGLang.
 - **Deterministic environments (`ResponderKind`) + visual replay.** A task's tool
   responses come from one of: `StaticMocks` (authored map), `WorldState` (entity
   ground-truth the model discovers), or — Phase 1 — `FileSystem` (a simulated file
@@ -616,7 +616,7 @@ Error), with a click-through Trace Debugger. See [the workspace](#eval-runner).
   plain-text refusal with **no** tool call (so a robust planner that declines an
   unsafe/unnecessary action isn't mis-scored as lazy); acting anyway fails.
 - **Pass^k consistency.** The loop runs `k` times (default 5) with absolute
-  isolation between runs. A per-run **backend** error (e.g. Ollama timed out or
+  isolation between runs. A per-run **backend** error (e.g. llama.cpp timed out or
   crashed on one attempt) does **not** abort the batch: that attempt is skipped and
   the remaining runs still execute, then the report folds the runs that completed —
   an infra fault is not a model task-failure, so a skipped run never reaches
@@ -687,9 +687,9 @@ Error), with a click-through Trace Debugger. See [the workspace](#eval-runner).
   nothing): the failure verdict names the real cause — a template/dialect artifact,
   **not** a model-capability failure. Crucially the harness does **not** salvage
   these forms. The bar is **production parity**: a call is recovered only when a real
-  client (Ollama's native tools parser) would also recover it — the existing
-  `Harmony` normalizer keeps salvaging the clean `call:NAME{…}` form Ollama recovers,
-  but the broken `<|"|>`-wrapped and paren forms Ollama drops are labeled, not
+  client (llama.cpp's native tools parser) would also recover it — the existing
+  `Harmony` normalizer keeps salvaging the clean `call:NAME{…}` form llama.cpp recovers,
+  but the broken `<|"|>`-wrapped and paren forms llama.cpp drops are labeled, not
   reconstructed. Salvaging what production can't would make the bench *more lenient
   than reality*, inverting the founding principle into "pass in the bench → fail in
   production". The detector keys on an attempted-call **structure** (`call:IDENT`
@@ -1017,12 +1017,12 @@ every rule.
 
 ## Model inspector & template guard {#model-inspector}
 
-The **Tests** tab inspects the selected installed model via Ollama's `/api/show`:
+The **Tests** tab inspects the selected installed model via the GGUF header:
 
 - **Chat template** — the model's Go chat template, shown verbatim as inert text
   (never executed/injected). Use it to debug *why* prompts misbehave: a template
   with no system/assistant roles can't honour a system prompt.
-- **Capabilities** — the features Ollama reports (`completion`, `tools`, `insert`,
+- **Capabilities** — the features llama.cpp reports (`completion`, `tools`, `insert`,
   `vision`, …). `tools` is the strongest "instruct/agent-ready" signal.
 - **Base-model advisory** — a soft flag (with its reasoning) when the metadata
   looks like a base/text-completion model: no chat-role markers in the template
@@ -1030,8 +1030,8 @@ The **Tests** tab inspects the selected installed model via Ollama's `/api/show`
   *why* ("no 'tools' capability; no chat-role markers"), so you can judge. A base
   model will ignore system prompts and tool-call unreliably.
 
-**Ollama-only.** The template/capabilities come from `/api/show`; on llama.cpp /
-MLX the panel shows "Not available — Ollama only" rather than guessing.
+**llama.cpp-only.** The template/capabilities come from the GGUF header; on llama.cpp /
+vLLM the panel shows "Not available — llama.cpp only" rather than guessing.
 
 ## VRAM & context fit {#vram-fit}
 
@@ -1065,18 +1065,18 @@ verdict** states whether the WEIGHTS fit under that limit at all — `Fits` / `T
 limit) / `SpillsToCpu` (weights alone exceed it → CPU/swap, very slow) / `Unknown` (limit unmeasured).
 This is the question a large ceiling can't answer: a 100K ceiling is meaningless if the model doesn't
 even load on the GPU. **Capacity ≠ capability** — the meter measures memory only, never speed or
-quality at that context. Per backend: Ollama
-`OLLAMA_KV_CACHE_TYPE` + `OLLAMA_FLASH_ATTENTION=1` (server-global, silently falls back to f16 on
+quality at that context. Per backend: llama.cpp
+`LLAMA_KV_CACHE_TYPE` + `LLAMA_FLASH_ATTENTION=1` (server-global, silently falls back to f16 on
 unsupported architectures); llama.cpp `-ctk/-ctv` (QuantaMind auto-picks `q8_0` under memory
-pressure, **never `q4_0`**); MLX's server exposes no KV-quant flag; vLLM/SGLang take
+pressure, **never `q4_0`**); vLLM's server exposes no KV-quant flag; vLLM/SGLang take
 `kv_cache_dtype=fp8` at launch. The readiness verdict grades the fit at the precision your launch
 would actually use, and never presents a `q4_0` cache as auto-selectable.
 
-- **Dims come from Ollama `/api/show`, or the GGUF header on llama.cpp.** For a llama.cpp
+- **Dims come from llama.cpp the GGUF header, or the GGUF header on llama.cpp.** For a llama.cpp
   model the KV-cache dimensions (`block_count`/`head_count`/`head_count_kv`/`embedding_length`)
   are read straight from the installed GGUF (the llama-server API exposes only `n_ctx`, not the
   transformer dims), and the running model is folded into the loaded-models list from
-  `LlamaServerState`, so the ceiling + VRAM meters render for llama.cpp too. MLX still falls back
+  `LlamaServerState`, so the ceiling + VRAM meters render for llama.cpp too. vLLM still falls back
   to a file-size × 1.3 heuristic, **flagged approximate** (`~`).
 - **Speed is memory-bandwidth-bound, not FLOPS-bound.** Token throughput tracks GB/s, so the tab
   shows the chip's nominal bandwidth (curated table) or "Not available" — never a guessed number.
@@ -1092,10 +1092,10 @@ would actually use, and never presents a `q4_0` cache as auto-selectable.
 
 ## Silent CPU fallback {#cpu-fallback}
 
-When a model doesn't fully fit the accelerator, Ollama quietly offloads layers to system RAM and
+When a model doesn't fully fit the accelerator, llama.cpp quietly offloads layers to system RAM and
 keeps running — far slower, and it silently ruins any speed/eval timing. The Tests tab flags this for
-the selected model from `/api/ps` (`size_vram` vs `size`): "⚠ ~X% of this model is on CPU". Shown
-only when an accelerator is present and weights are actually spilled — **Ollama-only**, nothing
+the selected model from the server's status endpoint (`size_vram` vs `size`): "⚠ ~X% of this model is on CPU". Shown
+only when an accelerator is present and weights are actually spilled — **llama.cpp-only**, nothing
 fabricated on other backends or when the model isn't loaded.
 
 ## Context budget {#context-budget}
@@ -1199,12 +1199,12 @@ the Phase-9 levers inline, so the chosen tier and decoy budget genuinely shape t
   before parsing AND before the transcript append (the scratchpad's inner JSON can't be mis-parsed as a
   call, and it never bloats the prefix-KV context). The flag persists per-model (`model_settings.yaml`,
   alongside temperature) and flows to the backend on each `ModelTarget`. Native-FC and the readiness probe
-  keep the legacy 256 cap. When **off**, the harness actively sends `think:false` on both Ollama wires
-  (`/api/generate` in `BackendTurn` and the native `/api/chat` in `NativeToolTurn`) — merely omitting the
+  keep the legacy 256 cap. When **off**, the harness actively sends `think:false` on both llama.cpp wires
+  (`/v1/chat/completions` in `BackendTurn` and the native `/v1/chat/completions` in `NativeToolTurn`) — merely omitting the
   field let a thinking-BY-DEFAULT model (qwen3.x) reason anyway into the invisible `thinking` channel,
   burning the entire non-thinking token budget and scoring **Truncated with empty raw output** (observed
-  live: qwen3.6:35b on `md_co_trace_root_cause`). `think:false` is accepted by every Ollama version (only
-  `think:true` is capability-checked, so no `/api/show` probe is needed); MLX/vLLM/SGLang already get the
+  live: qwen3.6:35b on `md_co_trace_root_cause`). `think:false` is accepted by every llama.cpp version (only
+  `think:true` is capability-checked, so no the GGUF header probe is needed); vLLM/SGLang already get the
   same suppression via `chat_template_kwargs.enable_thinking:false`, and llama.cpp needs no flag (its
   reasoning arrives in `reasoning_content` and is re-wrapped by the wire layer). **Why it exists:** at 256 tokens a reasoning model is cut off mid-thought and
   scored Malformed/Hallucinated, so a terse small model can out-score a far larger reasoner for a purely
@@ -1299,7 +1299,7 @@ Bowyer et al., ICML 2025). A margin-sized drop the sample can't resolve is the e
 
 **Deliberation Headroom (budget consumption is a first-class measurement).** Every cell records
 its total decoded tokens, its measured thinking tokens (llama.cpp `/tokenize` over the reasoning
-channel; Ollama has no tokenize endpoint — shown "Not available", never estimated), and whether
+channel; llama.cpp has no tokenize endpoint — shown "Not available", never estimated), and whether
 generation stopped AT the output cap (`finish == "length"` / `done_reason: "length"` — gated on
 the length signal, never on empty content, because a cap hit mid-reasoning legitimately produces
 empty content with real reasoning behind it). Two flags derive from it: **amber** on a passing
@@ -1391,20 +1391,20 @@ window. No server running (or the probe unreachable) → the panel says so befor
 while the probe is still in flight it says nothing, so a loading gap never flashes as a false
 "no server" error.
 
-**Ollama: native FC is gated on the model's `tools` capability.** Ollama grants `tools` only
+**llama.cpp: native FC is gated on the model's `tools` capability.** llama.cpp grants `tools` only
 when the model's chat template references `.Tools` (an imported GGUF with a plain template never
 gets it), and rejects native tool requests otherwise. The Method toggle reads the same
-`/api/show` capabilities the panel already fetches: no `tools` → Native FC disables with a hint
-naming the cause and both levers (probe Prompt-based, or re-create the Ollama model with a
+the GGUF header capabilities the panel already fetches: no `tools` → Native FC disables with a hint
+naming the cause and both levers (probe Prompt-based, or re-create the llama.cpp model with a
 tool-capable TEMPLATE), and the probe runs prompt-based — shown active, never a silent switch.
 Previously the panel defaulted to Native FC and every run refused post-click, which read as
-"Ollama doesn't work with the stress test" (the CLI worked — `qm cliff` defaults to
-prompt-based). Capabilities unknown (probe failed / older Ollama) → fail open; the backend's
+"llama.cpp doesn't work with the stress test" (the CLI worked — `qm cliff` defaults to
+prompt-based). Capabilities unknown (probe failed / older llama.cpp) → fail open; the backend's
 own native gate still refuses honestly.
 
 The probe owns its own **Active Collection** picker (independent of the EvalManager editor), so it
 always has a real dataset to run. The **Max Tokens** control sets the deepest rung and is capped at the
-model's reported **context window** when known (Ollama `/api/show` dims), falling back to a fixed
+model's reported **context window** when known (llama.cpp the GGUF header dims), falling back to a fixed
 ceiling otherwise; the backend forces `num_ctx` above the deepest rung so the padding isn't truncated.
 A **Padding** picker chooses the preset. Decoding is **always greedy (temp 0)** — a cliff is a
 *diagnostic* and must reproduce for a given (collection, model), so the engine pins it; there is no
@@ -1494,21 +1494,21 @@ context limit into the verdict: the Agent Report **displays** the Context Limit,
 editable in the profile modal). The gate is off by default, so an un-probed model is never silently
 failed for context.
 
-## Comparing across models/quants needs Ollama {#multi-model-ollama-only}
+## Comparing across models/quants needs llama.cpp {#multi-model-llama_cpp-only}
 
 Anything that runs *several models* in one go — the **Quant** tab's quality and
 tool-call comparison columns, and "Compare speed in Bench" — only works on
-**Ollama**. Ollama serves any installed model by name, so QuantaMind can switch
+**llama.cpp**. llama.cpp serves any installed model by name, so QuantaMind can switch
 between quants on a single running server.
 
-`llama.cpp` (`llama-server`) and **MLX** (`mlx_lm.server`) are **single-model
+`llama.cpp` (`llama-server`) and **vLLM** (`vllm_lm.server`) are **single-model
 servers**: each loads one model at launch and serves whatever it has loaded,
 ignoring the requested name. So on those backends:
 
 - The Quant comparison buttons are **disabled** with a note — size/fit and the
   recommendation still work (they're computed from the file, not the server).
 - The Eval / tool-call panels show a note: the run targets **whichever model the
-  server has loaded**, so load the exact model you mean to test (or use Ollama to
+  server has loaded**, so load the exact model you mean to test (or use llama.cpp to
   compare across models).
 
 This is a property of those servers, not a QuantaMind limitation; auto-restarting
@@ -1606,14 +1606,14 @@ Long/nested profile ids are safe: the file is keyed by a 40-char slug plus an
 **VRAM fit (Hardware Telemetry).** The Host Hardware Profile panel shows the detected
 architecture (Apple unified memory / NVIDIA discrete / CPU) and an allocation-cap
 dropdown defaulting to your VRAM (unified RAM on Apple), overridable in-session
-(never persisted). For each **Ollama** model the verdict measures the footprint —
+(never persisted). For each **llama.cpp** model the verdict measures the footprint —
 exact on-disk weights + the real f16 KV cache (the canonical `vram_math` formula) at
 the run's `num_ctx` (falling back to a capped **8 k** dev window — `DEFAULT_FALLBACK_CTX`,
 bounded by the model max — never the model's full 262 k context, which would balloon the
 cache past any real workload; the line shows the assumed context as `@ 8k ctx`) — against the cap: `fits` when total ≤ cap, a soft **high VRAM
 pressure** condition at ≥85% of the cap, **won't fit** otherwise (which, under
 `require_full_vram`, blocks). The per-model line reads `VRAM: 6.0 GB (5.0 model +
-1.0 cache) < 24 GB cap · fits`. Single-model backends (llama.cpp / MLX) where precise
+1.0 cache) < 24 GB cap · fits`. Single-model backends (llama.cpp) where precise
 dims aren't available show **N/A (single-model backend)** — never an approximated fit;
 under `require_full_vram` that N/A is a **Conditional caveat** ("set a memory cap to
 certify"), not a red block — unmeasured ≠ failure (and unified-memory Macs have no
@@ -1621,8 +1621,8 @@ discrete VRAM to measure). Lower the cap and
 a fitting model flips to NotReady deterministically — model the exact hardware you're
 buying for.
 
-**Metadata resilience.** Some newer Ollama archs (e.g. `qwen35`) omit
-`attention.head_count_kv` from `/api/show`. Rather than mark such a model "VRAM fit not
+**Metadata resilience.** Some newer llama.cpp archs (e.g. `qwen35`) omit
+`attention.head_count_kv` from the GGUF header. Rather than mark such a model "VRAM fit not
 measured" (which would wrongly block it under `require_full_vram`), the dims parser
 defaults a missing KV head count to `head_count` (MHA, the GGUF convention) and labels
 the result a **conservative estimate** — for a GQA model this overestimates the KV
@@ -1638,9 +1638,9 @@ machine — under memory pressure the planner drops to a **q8_0** cache (≈half
 memory), and the verdict carries an explicit advisory ("fits with Q8 KV cache — ≈half
 cache memory, minor quality cost"). The `MemoryProfile` is self-describing (it records
 `kv_precision`), so a q8-graded fit is never silently compared against an f16 one — the
-per-model line labels the precision. Ollama and MLX stay f16 (Ollama's `OLLAMA_KV_CACHE_TYPE`
+per-model line labels the precision. llama.cpp and vLLM stay f16 (llama.cpp's `LLAMA_KV_CACHE_TYPE`
 is a server-global env var that silently falls back to f16 per-architecture — unverifiable
-from here; MLX's server has no KV-quant flag). A missing/corrupt GGUF ⇒ unmeasured (soft
+from here; vLLM's server has no KV-quant flag). A missing/corrupt GGUF ⇒ unmeasured (soft
 Conditional), never a guessed fit.
 
 ### Right-sizing {#right-sizing}
@@ -1669,15 +1669,15 @@ tasks through the model's real `tool_calls` API — the path a production agent 
 uses.
 
 - **Measuring native.** Tick **Measure native tool-calling** on the Eval run. The native
-  pass **follows the running server**: an **Ollama** model that reports the `tools`
-  capability (`/api/show`) runs via `/api/chat`; a **llama.cpp** model (launched with
+  pass **follows the running server**: an **llama.cpp** model that reports the `tools`
+  capability (the GGUF header) runs via `/v1/chat/completions`; a **llama.cpp** model (launched with
   `--jinja`) runs via the OpenAI `/v1/chat/completions` `tools` API. Either way QuantaMind
   parses the real `tool_calls` and shows a **Native FC pass^k** column in the Matrix (behind
   a toggle). Only the call *extraction* differs — the deterministic sandbox, scoring, and
   failure taxonomy are identical (and tool-call args are canonicalized the same whether the
   backend returns a JSON string or an object), so the two columns are comparable. An
   empty/abstaining `tool_calls` is scored as a correct no-call; parallel `tool_calls` are
-  processed one-per-step (the sandbox is sequential). **MLX** has no native tool API, so it
+  processed one-per-step (the sandbox is sequential). **vLLM** has no native tool API, so it
   shows **N/A**, never a guessed score — hovering an N/A native cell explains why ("backend
   has no native tool API, or the model has no tools capability"), so following the *enable
   native* nudge never dead-ends at a silent N/A. (The **RUN BATCH** button likewise explains
@@ -1807,7 +1807,7 @@ for {profile} — closest: {model} ({reason})"** — never a fabricated Ready. (
 
 ## Resumable evaluation & VRAM isolation {#resumable-queue}
 
-A multi-model sweep can run for hours; a sleep, an Ollama crash, or a force-quit must
+A multi-model sweep can run for hours; a sleep, a server crash, or a force-quit must
 not vaporize it, and two models must never stack in VRAM and OOM-lock the machine.
 Phase 7.5 makes a batch **crash-resumable** and inserts a **hardware-enforced VRAM
 gate**.
@@ -1820,11 +1820,11 @@ pass resumes too. The order is idempotent — *run → stream → append the out
 crash before the append just re-runs that one unit. A truncated final line (a hard crash
 mid-write) is **healed**: the loader discards the unparseable tail rather than panic.
 
-**VRAM isolation (assert-and-fail).** Between models, QuantaMind sends Ollama
-`keep_alive: 0` to the previous model and **polls `/api/ps` until its `size_vram` is 0**
+**VRAM isolation (assert-and-fail).** Between models, QuantaMind sends llama.cpp
+`keep_alive: 0` to the previous model and **polls the server's status endpoint until its `size_vram` is 0**
 before loading the next. If the VRAM doesn't release within 30 s the run **halts** (the job
 log stays intact for a later resume) — it never loads onto dirty VRAM, which is the exact
-OOM it prevents. (Multi-model batches are Ollama-only; llama.cpp/MLX single-model servers
+OOM it prevents. (Multi-model batches are llama.cpp-only; llama.cpp single-model servers
 already reap deterministically via `kill` + `wait`.)
 
 **Recovery.** On the Tests tab, if an interrupted run is found you're prompted to **Resume**

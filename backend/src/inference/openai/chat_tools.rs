@@ -3,7 +3,7 @@ use crate::inference::backend::remote_guard::credential_allowed;
 use crate::inference::generate::generate_options::GenerateOptions;
 use crate::inference::generate::generate_stats::GenerateStats;
 use crate::inference::http::http::{body_or_note, streaming_client};
-use crate::inference::ollama::ollama_chat::{normalize_args, ChatResult, NativeToolCall};
+use crate::inference::chat::native_call::{normalize_args, ChatResult, NativeToolCall};
 use crate::inference::openai::chat_chunk::Usage;
 use crate::inference::openai::chat_stats::from_usage;
 use serde::{Deserialize, Serialize};
@@ -13,7 +13,7 @@ use serde_json::Value;
 /// endpoint with a `tools` array (non-streaming — tool responses are small). Used
 /// by the remote vLLM/SGLang backends; when `api_key` is `Some`, an
 /// `Authorization: Bearer` header is attached. Returns the SAME `ChatResult` as
-/// Ollama/llama.cpp so the eval runner canonicalizes tool calls identically across
+/// llama.cpp so the eval runner canonicalizes tool calls identically across
 /// backends. (llama.cpp keeps its own client because it reads a llama-specific
 /// `timings` extension; these servers report only `usage`.)
 #[derive(Serialize)]

@@ -16,14 +16,14 @@ describe("useKvCeilings", () => {
   it("returns ceilings when the IPC chain succeeds", async () => {
     vi.mocked(inspectModel).mockResolvedValue({ dims } as never);
     vi.mocked(contextCeilings).mockResolvedValue({ f16: 14_848, q8: 29_696, q4: 59_648 });
-    const { result } = renderHook(() => useKvCeilings("m", "ollama", 9e9, 16e9));
+    const { result } = renderHook(() => useKvCeilings("m", "llama_cpp", 9e9, 16e9));
     await waitFor(() => expect(result.current.ceilings).not.toBeNull());
     expect(result.current.ceilings).toEqual({ f16: 14_848, q8: 29_696, q4: 59_648 });
   });
 
   it("degrades to null (not zeros, not stale) when inspectModel rejects — backend unreachable", async () => {
     vi.mocked(inspectModel).mockRejectedValue(new Error("connection refused"));
-    const { result } = renderHook(() => useKvCeilings("m", "ollama", 9e9, 16e9));
+    const { result } = renderHook(() => useKvCeilings("m", "llama_cpp", 9e9, 16e9));
     await waitFor(() => expect(inspectModel).toHaveBeenCalled());
     expect(result.current.dims).toBeNull();
     expect(result.current.ceilings).toBeNull();
@@ -32,14 +32,14 @@ describe("useKvCeilings", () => {
   it("degrades to null when the ceilings IPC itself rejects", async () => {
     vi.mocked(inspectModel).mockResolvedValue({ dims } as never);
     vi.mocked(contextCeilings).mockRejectedValue(new Error("ipc error"));
-    const { result } = renderHook(() => useKvCeilings("m", "ollama", 9e9, 16e9));
+    const { result } = renderHook(() => useKvCeilings("m", "llama_cpp", 9e9, 16e9));
     await waitFor(() => expect(contextCeilings).toHaveBeenCalled());
     expect(result.current.ceilings).toBeNull();
   });
 
   it("does not call the ceilings IPC without weights or total memory", async () => {
     vi.mocked(inspectModel).mockResolvedValue({ dims } as never);
-    renderHook(() => useKvCeilings("m", "ollama", null, 16e9));
+    renderHook(() => useKvCeilings("m", "llama_cpp", null, 16e9));
     await waitFor(() => expect(inspectModel).toHaveBeenCalled());
     expect(contextCeilings).not.toHaveBeenCalled();
   });
@@ -47,7 +47,7 @@ describe("useKvCeilings", () => {
   it("forwards the measured working set to the ceilings IPC so the budget matches the GPU limit", async () => {
     vi.mocked(inspectModel).mockResolvedValue({ dims } as never);
     vi.mocked(contextCeilings).mockResolvedValue({ f16: 14_848, q8: 29_696, q4: 59_648, fit: "fits" });
-    renderHook(() => useKvCeilings("m", "ollama", 9e9, 16e9, 12e9));
+    renderHook(() => useKvCeilings("m", "llama_cpp", 9e9, 16e9, 12e9));
     await waitFor(() => expect(contextCeilings).toHaveBeenCalled());
     expect(contextCeilings).toHaveBeenCalledWith(dims, 9e9, 16e9, 12e9);
   });

@@ -12,7 +12,7 @@ use crate::inference::eval::batch::{AggAgentic, BatchColumn};
 fn col(passes: u32, total: u32, loops: u32, hall: u32, steps: Option<f64>) -> BatchColumn {
     BatchColumn {
         model: "m".into(),
-        backend: BackendKind::Ollama,
+        backend: BackendKind::LlamaCpp,
         toolcall: None,
         agentic: Some(AggAgentic {
             tasks_passed: passes,
@@ -77,7 +77,7 @@ fn deferred_metrics_are_not_measured_never_fabricated() {
 fn no_agentic_column_yields_unmeasured_pass_k_core_gate() {
     let c = BatchColumn {
         model: "m".into(),
-        backend: BackendKind::Ollama,
+        backend: BackendKind::LlamaCpp,
         toolcall: None,
         agentic: None,
         agentic_native_fc: None,
@@ -205,14 +205,14 @@ fn ranking_puts_a_ready_model_first_regardless_of_column_order() {
     let general = builtins().into_iter().find(|p| p.id == "general-agent").unwrap();
     let report = BatchReport {
         collection_id: "c".into(),
-        num_ctx: None, ollama_version: None, collection_hash: None,
+        num_ctx: None, collection_hash: None,
         think_preset: None,
         params: None,
         columns: vec![
             // NotReady first (no agentic → the core pass^k gate blocks)…
             BatchColumn {
                 model: "bad".into(),
-                backend: BackendKind::Ollama,
+                backend: BackendKind::LlamaCpp,
                 toolcall: None,
                 agentic: None,
                 agentic_native_fc: None,
@@ -261,7 +261,7 @@ fn pass_k_of_is_native_first_then_prompt_then_none() {
     assert_eq!(pass_k_of(&col(4, 10, 0, 0, Some(2.0))), Some(0.4));
 
     // No agentic data → None (renders N/A, never fabricated).
-    let bare = BatchColumn { model: "m".into(), backend: BackendKind::Ollama, toolcall: None, agentic: None, agentic_native_fc: None, error: None, is_thinking: false, cpu_offloaded: false, ctx_ceiling: None, ..Default::default() };
+    let bare = BatchColumn { model: "m".into(), backend: BackendKind::LlamaCpp, toolcall: None, agentic: None, agentic_native_fc: None, error: None, is_thinking: false, cpu_offloaded: false, ctx_ceiling: None, ..Default::default() };
     assert_eq!(pass_k_of(&bare), None);
 }
 
@@ -302,14 +302,14 @@ fn assess_report_grades_clean_models_and_short_circuits_errors() {
     let general = builtins().into_iter().find(|p| p.id == "general-agent").unwrap();
     let report = BatchReport {
         collection_id: "c".into(),
-        num_ctx: None, ollama_version: None, collection_hash: None,
+        num_ctx: None, collection_hash: None,
         think_preset: None,
         params: None,
         columns: vec![
             col(5, 5, 0, 0, Some(2.0)), // clean → Ready
             BatchColumn {
                 model: "boom".into(),
-                backend: BackendKind::Ollama,
+                backend: BackendKind::LlamaCpp,
                 toolcall: None,
                 agentic: None,
                 agentic_native_fc: None,
@@ -351,7 +351,7 @@ fn model_verdict_carries_by_tier_and_failures_from_the_native_first_source() {
     native.failures = FailureTracker { forbidden_calls: 3, ..Default::default() };
     c.agentic_native_fc = Some(native);
 
-    let report = BatchReport { collection_id: "c".into(), num_ctx: None, ollama_version: None, collection_hash: None, think_preset: None, params: None, columns: vec![c] };
+    let report = BatchReport { collection_id: "c".into(), num_ctx: None, collection_hash: None, think_preset: None, params: None, columns: vec![c] };
     let v = &assess_report(&report, &general)[0];
     assert_eq!(v.by_tier.len(), 1);
     assert_eq!(v.by_tier[0].tier, Tier::Hard); // native, NOT the prompt's Easy
@@ -387,7 +387,7 @@ fn verdicts_for_column_errored_column_is_one_not_ready_row() {
     let general = builtins().into_iter().find(|p| p.id == "general-agent").unwrap();
     let c = BatchColumn {
         model: "boom".into(),
-        backend: BackendKind::Ollama,
+        backend: BackendKind::LlamaCpp,
         toolcall: None,
         agentic: None,
         agentic_native_fc: None,
@@ -425,14 +425,14 @@ fn merged_by_tier_for_path_never_crosses_paths() {
     // (no native pass). Merging the NATIVE ladder must NOT pull the sibling's prompt Hard
     // tier in — an honest gap, never the other path's data.
     let primary = vec![ts(Tier::Easy, 1, 1)];
-    let prompt_only_sibling = report_with("qwen", BackendKind::Ollama, vec![ts(Tier::Hard, 1, 1)]);
-    let native = merged_by_tier_for_path("qwen", BackendKind::Ollama, AgentPath::NativeFc, &primary, &[&prompt_only_sibling]);
+    let prompt_only_sibling = report_with("qwen", BackendKind::LlamaCpp, vec![ts(Tier::Hard, 1, 1)]);
+    let native = merged_by_tier_for_path("qwen", BackendKind::LlamaCpp, AgentPath::NativeFc, &primary, &[&prompt_only_sibling]);
     assert_eq!(native.len(), 1);
     assert_eq!(native[0].tier, Tier::Easy); // sibling's prompt Hard is NOT crossed in
 
     // Sanity: the SAME merge on the PROMPT path DOES pick up the sibling's Hard tier.
     let prompt =
-        merged_by_tier_for_path("qwen", BackendKind::Ollama, AgentPath::PromptBased, &primary, &[&prompt_only_sibling]);
+        merged_by_tier_for_path("qwen", BackendKind::LlamaCpp, AgentPath::PromptBased, &primary, &[&prompt_only_sibling]);
     assert_eq!(prompt.len(), 2);
 }
 
@@ -446,7 +446,7 @@ fn report_with(model: &str, backend: BackendKind, tiers: Vec<crate::inference::e
     a.by_tier = tiers;
     BatchReport {
         collection_id: "x".into(),
-        num_ctx: None, ollama_version: None, collection_hash: None,
+        num_ctx: None, collection_hash: None,
         think_preset: None,
         params: None,
         columns: vec![BatchColumn {
@@ -468,7 +468,7 @@ fn report_with(model: &str, backend: BackendKind, tiers: Vec<crate::inference::e
 fn resolve_quant_prefers_registry_then_falls_back_to_the_model_name() {
     // Registry knows it → use that verbatim.
     assert_eq!(resolve_quant(Some("Q5_K_M".into()), "qwen2.5:7b"), Some("Q5_K_M".to_string()));
-    // Registry blank (llama.cpp / MLX / Ollama offline) but the name encodes the quant →
+    // Registry blank (llama.cpp / registry offline) but the name encodes the quant →
     // parsed, so the publish row isn't dropped.
     assert_eq!(resolve_quant(None, "qwen2.5-7b-instruct-Q4_K_M.gguf"), Some("Q4_K_M".to_string()));
     // Neither source knows it → None (never fabricated).
@@ -497,8 +497,8 @@ fn merge_by_tier_unions_distinct_tiers_first_wins_and_sorts() {
 fn merged_by_tier_for_accumulates_the_same_model_across_siblings() {
     use crate::inference::eval::agentic::spec::Tier;
     let primary = vec![ts(Tier::Easy, 4, 5)]; // selected collection: easy
-    let medium = report_with("qwen", BackendKind::Ollama, vec![ts(Tier::Medium, 3, 5)]);
-    let out = merged_by_tier_for("qwen", BackendKind::Ollama, &primary, &[&medium]);
+    let medium = report_with("qwen", BackendKind::LlamaCpp, vec![ts(Tier::Medium, 3, 5)]);
+    let out = merged_by_tier_for("qwen", BackendKind::LlamaCpp, &primary, &[&medium]);
     assert_eq!(out.iter().map(|t| t.tier).collect::<Vec<_>>(), vec![Tier::Easy, Tier::Medium]);
 }
 
@@ -508,9 +508,9 @@ fn merged_by_tier_for_never_pulls_a_different_models_or_backends_tiers() {
     // The (model, backend) match key prevents a cross-model/backend "Frankenstein ladder":
     // a sibling for a DIFFERENT model — or the same name on a DIFFERENT backend — is ignored.
     let primary = vec![ts(Tier::Easy, 4, 5)];
-    let other_model = report_with("llama", BackendKind::Ollama, vec![ts(Tier::Medium, 3, 5)]);
-    let other_backend = report_with("qwen", BackendKind::LlamaCpp, vec![ts(Tier::Hard, 1, 4)]);
-    let out = merged_by_tier_for("qwen", BackendKind::Ollama, &primary, &[&other_model, &other_backend]);
+    let other_model = report_with("llama", BackendKind::LlamaCpp, vec![ts(Tier::Medium, 3, 5)]);
+    let other_backend = report_with("qwen", BackendKind::VLlm, vec![ts(Tier::Hard, 1, 4)]);
+    let out = merged_by_tier_for("qwen", BackendKind::LlamaCpp, &primary, &[&other_model, &other_backend]);
     assert_eq!(out.iter().map(|t| t.tier).collect::<Vec<_>>(), vec![Tier::Easy]); // easy only
 }
 
@@ -528,7 +528,7 @@ fn model_verdict_by_tier_falls_back_to_prompt_when_native_absent() {
         failures: FailureTracker { unknown_tool_calls: 4, ..Default::default() },
     }];
     c.agentic.as_mut().unwrap().failures = FailureTracker { unknown_tool_calls: 4, ..Default::default() };
-    let report = BatchReport { collection_id: "c".into(), num_ctx: None, ollama_version: None, collection_hash: None, think_preset: None, params: None, columns: vec![c] };
+    let report = BatchReport { collection_id: "c".into(), num_ctx: None, collection_hash: None, think_preset: None, params: None, columns: vec![c] };
     let v = &assess_report(&report, &general)[0];
     assert_eq!(v.by_tier.len(), 1);
     assert_eq!(v.by_tier[0].tier, Tier::Medium);

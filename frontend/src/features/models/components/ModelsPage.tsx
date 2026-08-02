@@ -1,13 +1,11 @@
 import { useModelStore, type TabId } from "../state/modelStore";
 import { useNavStore } from "../../../shared/state/navStore";
 import { useHotkey } from "../../../shared/ui/useHotkey";
-import { OllamaLibraryTab } from "./tabs/OllamaLibraryTab";
 import { HuggingFaceTab } from "./tabs/HuggingFaceTab";
 import { LocalFileTab } from "./tabs/LocalFileTab";
 
 type Tab = { id: TabId; label: string };
 const TABS: Tab[] = [
-  { id: "ollama", label: "Ollama Library" },
   { id: "huggingface", label: "Hugging Face" },
   { id: "local", label: "Local File" },
 ];
@@ -19,10 +17,9 @@ export function ModelsPage() {
   const activeTab = useModelStore((s) => s.activeTab);
   const setActiveTab = useModelStore((s) => s.setActiveTab);
   const onModels = useNavStore((s) => s.topView) === "models";
-  // Cmd+1/2/3 switch sub-tabs, only while the Models top tab is active.
+  // Cmd+1/2 switch sub-tabs, only while the Models top tab is active.
   useHotkey("mod+1", () => setActiveTab(TABS[0].id), onModels);
   useHotkey("mod+2", () => setActiveTab(TABS[1].id), onModels);
-  useHotkey("mod+3", () => setActiveTab(TABS[2].id), onModels);
 
   return (
     <section data-testid="page-models" className="flex flex-col gap-3 h-full">
@@ -43,7 +40,6 @@ export function ModelsPage() {
         ))}
       </nav>
       <main className="flex-1 overflow-auto">
-        {activeTab === "ollama" && <OllamaLibraryTab />}
         {activeTab === "huggingface" && <HuggingFaceTab />}
         {activeTab === "local" && <LocalFileTab />}
       </main>

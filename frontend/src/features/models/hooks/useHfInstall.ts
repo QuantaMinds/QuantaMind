@@ -8,7 +8,6 @@ import { friendlyInstallError } from "../../../shared/install_error";
 import { useModelStore } from "../state/modelStore";
 import { useInstalledModelsStore } from "../state/installedModelsStore";
 import { startDownloadEventBus } from "../state/downloadEventBus";
-import { useBackendStore } from "../../../shared/state/backendStore";
 
 export type HfStatus = "idle" | "downloading" | "installing" | "success" | "error";
 
@@ -59,13 +58,12 @@ export function useHfInstall() {
     setActiveHfName(name);
     upsertDownload({ id: name, source: "huggingface", name, status: "downloading", percent: 0 });
     try {
-      // Download for the active backend: Ollama imports it; llama.cpp just keeps the GGUF.
-      const backend = useBackendStore.getState().selectedBackend;
-      await installHfGguf(repo, filename, name, backend);
+      // The download lands in the shared weights folder — that IS the install.
+      await installHfGguf(repo, filename, name);
       upsertDownload({ id: name, source: "huggingface", name, status: "success", percent: 100 });
       // Don't rely solely on the Tauri `models-changed` broadcast — refresh
       // the installed-models store ourselves so consumers see the new model
-      // even if the event is dropped (listener race or /api/tags lag).
+      // even if the event is dropped (listener-registration race).
       void useInstalledModelsStore.getState().refresh();
     } catch (e) {
       const msg = friendlyInstallError(e);

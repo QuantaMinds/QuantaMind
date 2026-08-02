@@ -75,7 +75,7 @@ the `.partial` kept — never a short file promoted to "installed."
 
 ```
 cd backend && cargo test --lib -- \
-  secrets remote_guard fs_guard redact publish::row hf_download pkce mlx_locate at_rest audit
+  secrets remote_guard fs_guard redact publish::row hf_download pkce vllm_locate at_rest audit
 ```
 All green. Key ones and what they prove:
 

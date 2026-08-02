@@ -16,7 +16,7 @@ All on-disk stores for QuantaMind. Source: `backend/src/persistence/`. Every fil
 
 ### What is stored where
 
-All paths are under the OS app-config dir (`app.path().app_config_dir()`) unless noted. The shared GGUF/MLX weights live under `~/.quantamind/` instead.
+All paths are under the OS app-config dir (`app.path().app_config_dir()`) unless noted. The shared GGUF/vLLM weights live under `~/.quantamind/` instead.
 
 | Store | On-disk location | Format | Owning feature |
 | --- | --- | --- | --- |
@@ -309,7 +309,7 @@ pub fn list(dir: &Path) -> AppResult<Vec<ReadinessProfile>> {
 **Responsibility:** the most-recent batch report per collection (last-write-wins). **Why:** Rust is the source of truth for the verdict — the GUI command and a future CLI read the same bytes. **What:** `MAX_BYTES = 1 MB`; `save(dir, &BatchReport)` (keyed by `report.collection_id` via `safe_filename`), `load(dir, collection_id) -> Option<BatchReport>` (missing → empty state). **How/Where used:** `commands/eval/batch_cmd.rs` & `readiness_cmd.rs` → `batch_reports/`.
 
 ### File: `readiness/cliff.rs`
-**Responsibility:** per-model Context Stress Test status for a collection. **What:** `MAX_BYTES = 256 KB`. Stores `{model: CliffStatus}` where `CliffStatus = NotProbed | NoCliff{tested} | Collapsed{depth} | …`. **Model keys are stored verbatim** (Ollama names carry colons); only the *filename* is sanitized. `load` reads `HashMap<String, Value>` first so `status_from_value` can **migrate a legacy bare number** into `Collapsed{depth}` (the only thing the old format recorded), otherwise deserializing the tagged enum. `save` is **atomic** (load → merge one model → temp-write → rename, last-write-wins per model). **How/Where used:** `commands/eval/readiness_cmd.rs` → `cliff/`.
+**Responsibility:** per-model Context Stress Test status for a collection. **What:** `MAX_BYTES = 256 KB`. Stores `{model: CliffStatus}` where `CliffStatus = NotProbed | NoCliff{tested} | Collapsed{depth} | …`. **Model keys are stored verbatim** (llama.cpp names carry colons); only the *filename* is sanitized. `load` reads `HashMap<String, Value>` first so `status_from_value` can **migrate a legacy bare number** into `Collapsed{depth}` (the only thing the old format recorded), otherwise deserializing the tagged enum. `save` is **atomic** (load → merge one model → temp-write → rename, last-write-wins per model). **How/Where used:** `commands/eval/readiness_cmd.rs` → `cliff/`.
 
 ```rust
 fn status_from_value(v: &Value) -> Option<CliffStatus> {

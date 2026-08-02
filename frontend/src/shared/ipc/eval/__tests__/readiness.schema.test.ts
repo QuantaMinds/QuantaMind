@@ -10,7 +10,7 @@ describe("Phase 9B readiness schema", () => {
   it("parses a full 9B ModelVerdict with by_tier + the 7-field failure tracker", () => {
     const raw = {
       model: "gemma-4-12b",
-      backend: "ollama",
+      backend: "llama_cpp",
       verdict: {
         status: "conditional",
         blocking: [],
@@ -59,7 +59,7 @@ describe("Phase 9B readiness schema", () => {
   it("parses a legacy verdict (no by_tier / no failures) and defaults them", () => {
     const legacy = {
       model: "old",
-      backend: "ollama",
+      backend: "llama_cpp",
       verdict: { status: "ready", blocking: [], conditions: [], path: "prompt_based" },
     };
     const v = ModelVerdictSchema.parse(legacy);

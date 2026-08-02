@@ -14,16 +14,16 @@ Install in seconds, then **connect and get a verdict the way `gh auth login` / `
 work**: one diagnose command, one zero-config init. No Rust, no build — every failure prints the
 exact fix command, so you're never stuck googling.
 
-**0 · Prerequisite: a running inference server with ≥1 model.** Fastest path is Ollama:
+**0 · Prerequisite: a running inference server with ≥1 model.** Fastest path is llama.cpp:
 
 ```bash
-# macOS: brew install ollama · Linux: curl -fsSL https://ollama.com/install.sh | sh
-# Windows: winget install Ollama.Ollama (runs as a service after install)
-ollama serve &
-ollama pull qwen2.5:3b        # ~2 GB — a good first model to gate
+# macOS: brew install llama_cpp · Linux: curl -fsSL https://github.com/ggml-org/llama.cppinstall.sh | sh
+# Windows: winget install llama.cpp.llama.cpp (runs as a service after install)
+llama-server -m MODEL.gguf --port 8081 --jinja &
+llama-server -m qwen2.5:3b        # ~2 GB — a good first model to gate
 ```
 
-Already running llama.cpp / MLX / vLLM / SGLang instead? Skip this — `qm doctor` finds whatever is up.
+Already running llama.cpp / vLLM / SGLang instead? Skip this — `qm doctor` finds whatever is up.
 
 **1 · Install the binary** (prebuilt — macOS arm64/x64, Linux x64/arm64, Windows x64)
 
@@ -78,12 +78,12 @@ above if you want proof it came from this repo's release workflow.)
 
 **Docker image** — `ghcr.io/quantaminds/qm` (multi-arch, distroless, built from the
 attestation-verified release binaries) for CI/CD pipelines and ephemeral runners. One thing to
-know: inside a container, `localhost` is the container — to reach an Ollama running on the host,
+know: inside a container, `localhost` is the container — to reach a llama-server running on the host,
 map the host gateway and pass `--base`:
 
 ```bash
 docker run --rm --add-host=host.docker.internal:host-gateway \
-  ghcr.io/quantaminds/qm doctor --backend ollama --base http://host.docker.internal:11434
+  ghcr.io/quantaminds/qm doctor --backend llama_cpp --base http://host.docker.internal:8081
 ```
 
 **Uninstall:** `rm ~/.local/bin/qm` (plus the `~/.local/bin/env` line the installer added to your
@@ -104,24 +104,24 @@ cargo build --release --bin qm --no-default-features   # lean build — no Tauri
 
 ```console
 $ qm doctor
-ollama     http://localhost:11434       ✓ ready  v0.24.0  models: 9
+llama_cpp     http://localhost:8081       ✓ ready  v0.24.0  models: 9
 llama_cpp  http://localhost:8081        ✗ unreachable
 ...
-Next: qm run --backend ollama --model qwen2.5:3b
+Next: qm run --backend llama_cpp --model qwen2.5:3b
 ```
 
-`doctor` probes all five backends and holds them to **runnable** (reachable + ≥1 model +
+`doctor` probes all three backends and holds them to **runnable** (reachable + ≥1 model +
 credential OK), not merely reachable. Anything wrong → a `[QM-…]` line on stderr with the exact fix
-(`ollama serve`, `ollama pull …`, `check QM_API_KEY`), shown, never run.
+(`llama-server -m MODEL.gguf --port 8081 --jinja`, `llama-server -m …`, `check QM_API_KEY`), shown, never run.
 
 **3 · First verdict — zero config**
 
 ```console
 $ qm init
-wrote qm.json (backend=ollama, model=qwen2.5:3b)
+wrote qm.json (backend=llama_cpp, model=qwen2.5:3b)
 · [1/5] es_co_run_failing_test (prompt)
 ...
-VERDICT: Ready   (ollama · qwen2.5:3b · easy-coding)
+VERDICT: Ready   (llama_cpp · qwen2.5:3b · easy-coding)
 ```
 
 `init` auto-detects the first runnable backend, writes a non-secret `./qm.json`, and runs the suite.
@@ -166,13 +166,11 @@ engine verbatim with the desktop app — the CLI and the GUI can never disagree 
 
 ## Engines & ports
 
-`qm` covers all five backends QuantaMind supports — three local, two remote:
+`qm` covers all three backends QuantaMind supports — one local, two remote:
 
 | Backend | `--backend` | Kind | Port `doctor` probes | Notes |
 |---|---|---|---|---|
-| Ollama    | `ollama`    | local  | `11434` | Native `/api/version` + `/api/tags` + `/api/show` (tool-calling capability). |
 | llama.cpp | `llama_cpp` | local  | `8081` then `8080` | QuantaMind's sidecar runs on **8081**; `8080` is the community `llama-server` default. OpenAI-compatible `/v1/models`. |
-| MLX       | `mlx`       | local  | `8082` then `8080` | Apple-Silicon `mlx_lm.server`. OpenAI-compatible. |
 | vLLM      | `vllm`      | remote | `8000` | OpenAI-compatible. Credential-classified (`/v1/models`). |
 | SGLang    | `sglang`    | remote | `30000` | OpenAI-compatible. Credential-classified. |
 
@@ -214,14 +212,14 @@ no prompts. Ordered cheapest-first per backend — **reachable? → models? → 
 tool-calling? → version** — and every failure carries the exact fix (shown, never run).
 
 ```
-qm doctor [--backend <ollama|llama_cpp|mlx|vllm|sglang>] [--base <url>] [--model <name>] [--json]
+qm doctor [--backend <llama_cpp|llama_cpp|vllm|vllm|sglang>] [--base <url>] [--model <name>] [--json]
 ```
 
 | Flag | Meaning | Default / env |
 |---|---|---|
 | `--backend <kind>` | Check one backend. Omit to **scan all five**. | scan all |
 | `--base <url>` | Endpoint for the targeted backend (with `--backend`). | env `QM_BASE` |
-| `--model <name>` | Model to check native tool-calling against (Ollama). | env `QM_MODEL` |
+| `--model <name>` | Model to check native tool-calling against (llama.cpp). | env `QM_MODEL` |
 | `--json` | Emit the machine-readable report on stdout (fixes still to stderr). | off |
 
 **Runnable, not just reachable.** A backend counts as ready only when it is reachable **and** has ≥1
@@ -236,38 +234,38 @@ least one backend is runnable, else `3`, so `qm doctor && qm run` short-circuits
 | Server down / wrong port | `[QM-BACKEND-UNREACHABLE] … — start it: <command>` |
 | Server up, key rejected (401/403) | `[QM-UNAUTHORIZED] <host> rejected the API key — check QM_API_KEY` |
 | Key set but URL is plain http | `[QM-INSECURE-KEY] <host> — the key was withheld. Use https or drop the key.` |
-| Reachable, no models | `[QM-NO-MODELS] <backend> is up but has no models — pull/serve one: ollama pull qwen2.5` |
+| Reachable, no models | `[QM-NO-MODELS] <backend> is up but has no models — pull/serve one: llama-server -m qwen2.5` |
 
 **Exit:** `0` at least one runnable backend · `3` none runnable / unreachable · `2` bad args.
 
-### Example — healthy scan (Ollama up, others off)
+### Example — healthy scan (llama.cpp up, others off)
 ```
 $ qm doctor
-ollama     http://localhost:11434       ✓ ready  v0.24.0  models: 9
+llama_cpp     http://localhost:8081       ✓ ready  v0.24.0  models: 9
 llama_cpp  http://localhost:8081        ✗ unreachable
-mlx        http://localhost:8082        ✗ unreachable
+vllm        http://localhost:8082        ✗ unreachable
 vllm       http://localhost:8000        ✗ unreachable  credential: Unreachable
 sglang     http://localhost:30000       ✗ unreachable  credential: Unreachable
 
-Next: qm run --backend ollama --model qwen2.5:3b
+Next: qm run --backend llama_cpp --model qwen2.5:3b
 $ echo $?
 0
 ```
 stderr is quiet when something is runnable (no fix-line spam for backends that are simply off). Point
 at a specific backend to focus, and machine-read with `--json`:
 ```
-$ qm doctor --backend ollama --model qwen2.5:3b --json | jq '.backends[0].native_fc'
+$ qm doctor --backend llama_cpp --model qwen2.5:3b --json | jq '.backends[0].native_fc'
 "supported"
 ```
 
 ### Example — the first-run trap (reachable, zero models)
 ```
-$ qm doctor --backend ollama          # ollama running, nothing pulled
-ollama     http://localhost:11434       ! reachable  v0.24.0  models: 0
+$ qm doctor --backend llama_cpp          # llama_cpp running, nothing pulled
+llama_cpp     http://localhost:8081       ! reachable  v0.24.0  models: 0
 
 No runnable backend — fix the findings above, then re-run `qm doctor`.
 # stderr:
-[QM-NO-MODELS] ollama is up but has no models — pull/serve one: ollama pull qwen2.5
+[QM-NO-MODELS] llama_cpp is up but has no models — pull/serve one: llama-server -m qwen2.5
 $ echo $?
 3
 ```
@@ -287,17 +285,17 @@ qm run [--backend <kind>] [--model <name>] [--collection easy-coding] [--profile
 
 | Flag | Meaning | Default |
 |---|---|---|
-| `--backend <kind>` | ollama / llama_cpp / mlx / vllm / sglang. | qm.json, then interactive/ollama |
+| `--backend <kind>` | llama_cpp / llama_cpp / vllm / vllm / sglang. | qm.json, then interactive/llama_cpp |
 | `--model <name>` | Model to run. Env `QM_MODEL`. | qm.json, else interactive pick |
 | `--base <url>` | Endpoint override (remote backends). Env `QM_BASE`. | qm.json / default port |
 | `--collection <id>` | Built-in collection id. | `easy-coding` |
 | `--profile <id>` | Readiness profile: `general-agent` / `rag-assistant` / `coding-agent`. | `general-agent` |
 | `--mode <path>` | Calling path: `prompt_based`, `native` (function-calling), or `both`. `both` yields a verdict row per path. | `prompt_based` |
 | `--tier <t>` | Difficulty-tier override — scales the per-turn token budget and the default `k` (Easy 5 … Extreme 24). | the collection's own tier |
-| `--thinking <t>` | Reasoning-scratchpad budget: `lean` (off) / `standard` / `deep`. `standard`/`deep` are checked to actually take effect (Ollama: model capability via `/api/show`; llama.cpp/MLX/remote: a live probe for `reasoning_content`) — if reasoning won't happen, the run stops with a clear fix instead of silently behaving like `lean`. | `lean` |
+| `--thinking <t>` | Reasoning-scratchpad budget: `lean` (off) / `standard` / `deep`. `standard`/`deep` are checked to actually take effect (llama.cpp: model capability via the GGUF header; llama.cpp/remote: a live probe for `reasoning_content`) — if reasoning won't happen, the run stops with a clear fix instead of silently behaving like `lean`. | `lean` |
 | `--k <n>` | Override the **strict pass^k** run count (all `k` runs must pass). Higher = stricter. | the tier's default |
 | `--fail-on <policy>` | Which verdict fails the *process*: `conditional` (Conditional→10), `notready` (Conditional tolerated→0), `never` (advisory→0). | `conditional` |
-| `--costs` | Also report **per-task run costs** — the CLI twin of the app's Latency → Test-run view. Per (task, pass): prefill/decode wall-clock, output + thinking tokens (`(no split)` on Ollama, a tokenized split on llama.cpp), measured cache hits (llama.cpp only — Ollama reports none, shown `n/a`), peak context, **`kv@peak`** (that task's own KV size at f16 — dims-gated, `n/a` never a guess), task wall clock, and max step-end RSS of the server process. Plus the run's memory facts: model-in-memory (with its provenance), KV cache at the run's peak at f16/q8_0/q4_0, and the tag's claimed quantization. Rides `--json` as a `costs` object — `null` always means *not measured*, never zero. Samples host RSS once per turn. | off |
+| `--costs` | Also report **per-task run costs** — the CLI twin of the app's Latency → Test-run view. Per (task, pass): prefill/decode wall-clock, output + thinking tokens (`(no split)` on llama.cpp, a tokenized split on llama.cpp), measured cache hits (llama.cpp only — llama.cpp reports none, shown `n/a`), peak context, **`kv@peak`** (that task's own KV size at f16 — dims-gated, `n/a` never a guess), task wall clock, and max step-end RSS of the server process. Plus the run's memory facts: model-in-memory (with its provenance), KV cache at the run's peak at f16/q8_0/q4_0, and the tag's claimed quantization. Rides `--json` as a `costs` object — `null` always means *not measured*, never zero. Samples host RSS once per turn. | off |
 | `--json` | Emit the report as JSON on stdout (progress/notes to stderr). | off |
 
 **Exit:** the verdict — `0` Ready · `10` Conditional · `20` NotReady — subject to `--fail-on`. An
@@ -307,7 +305,7 @@ qm run [--backend <kind>] [--model <name>] [--collection easy-coding] [--profile
 distinction is the point); `2` is a bad arg, or a capability mismatch: `[QM-NATIVE-UNSUPPORTED]`
 (`--mode native` on a model with no function-calling) or `[QM-THINKING-UNSUPPORTED]`
 (`--thinking standard/deep` where reasoning won't actually happen — caught before the run on **every**
-backend: Ollama would 400 every request; llama.cpp/MLX would silently ignore it and behave like
+backend: llama.cpp would 400 every request; llama.cpp would silently ignore it and behave like
 `lean`. The message names the per-engine fix, e.g. relaunch llama-server with `--jinja
 --reasoning-format deepseek`).
 
@@ -318,10 +316,10 @@ input).
 
 ### Example — a real run
 ```
-$ qm run --backend ollama --model qwen2.5:3b
+$ qm run --backend llama_cpp --model qwen2.5:3b
 · [1/5] es_co_run_failing_test
   … (progress on stderr)
-VERDICT: Ready   (ollama · qwen2.5:3b · easy-coding)
+VERDICT: Ready   (llama_cpp · qwen2.5:3b · easy-coding)
   [PromptBased] Ready  pass^k=0.80  runs=4/5  avg steps=2.6
 
 profile: general-agent
@@ -329,8 +327,8 @@ $ echo $?   # 0
 ```
 A model that can't drive an agent fails honestly, naming the blocker — never a false pass:
 ```
-$ qm run --backend ollama --model llama-3.2-1b-instruct:iq3_m
-VERDICT: Not Ready   (ollama · llama-3.2-1b-instruct:iq3_m · easy-coding)
+$ qm run --backend llama_cpp --model llama-3.2-1b-instruct:iq3_m
+VERDICT: Not Ready   (llama_cpp · llama-3.2-1b-instruct:iq3_m · easy-coding)
   [PromptBased] Not Ready  pass^k=0.00  runs=0/5  avg steps=4.4
     ✗ pass^k 0.00 < 0.60 required
 $ echo $?   # 20   (with --fail-on never → 0 + a [QM-NOTE], findings still shown)
@@ -348,7 +346,7 @@ qm init [--json]
 
 `qm.json` is a plain, non-secret record (a remote key stays in env/keychain, never the file):
 ```json
-{ "backend": "ollama", "model": "qwen2.5:3b", "collection": "easy-coding", "profile": "general-agent" }
+{ "backend": "llama_cpp", "model": "qwen2.5:3b", "collection": "easy-coding", "profile": "general-agent" }
 ```
 
 **Exit:** follows the verdict (`0/10/20`), or `3` with `[QM-NO-RUNNABLE]` when nothing is runnable
@@ -356,11 +354,11 @@ qm init [--json]
 
 ```
 $ qm init
-wrote qm.json (backend=ollama, model=qwen2.5:3b)     # stderr
-VERDICT: Ready   (ollama · qwen2.5:3b · easy-coding)
+wrote qm.json (backend=llama_cpp, model=qwen2.5:3b)     # stderr
+VERDICT: Ready   (llama_cpp · qwen2.5:3b · easy-coding)
   [PromptBased] Ready  pass^k=0.80  runs=20/25  avg steps=2.6
 $ qm run          # no flags — reads qm.json
-VERDICT: Ready   (ollama · qwen2.5:3b · easy-coding) …
+VERDICT: Ready   (llama_cpp · qwen2.5:3b · easy-coding) …
 ```
 
 ## `test` — run YOUR collection (per-mode scoreboard)
@@ -388,10 +386,10 @@ Flags mirror [`run`](#run--the-readiness-verdict) (`--tier`/`--thinking`/`--k`/`
 
 ### Example
 ```
-$ qm test --collection ./my_suite.json --backend ollama --model qwen2.5:3b --k 1
+$ qm test --collection ./my_suite.json --backend llama_cpp --model qwen2.5:3b --k 1
 · [1/2] es_co_run_failing_test (native)
   … (progress on stderr)
-VERDICT: Not Ready   (ollama · qwen2.5:3b · my_suite.json)
+VERDICT: Not Ready   (llama_cpp · qwen2.5:3b · my_suite.json)
 
 mode          pass^k  tasks   steps  effort   top-error
 NativeFc      0.00    0/2     2.0    —        reported_in_prose_calls=2
@@ -449,11 +447,11 @@ active on the page — so the CLI verdict always matches the page, even for an e
 ### Example — one run, two bars
 ```
 $ qm report --report run.json --profile general-agent    # min_pass_k 0.6
-VERDICT: Ready   (ollama · qwen2.5:3b · easy-coding)
+VERDICT: Ready   (llama_cpp · qwen2.5:3b · easy-coding)
   [PromptBased] Ready  pass^k=0.80  runs=4/5  avg steps=2.6
 
 $ qm report --report run.json --profile strict.json       # min_pass_k 0.9
-VERDICT: Not Ready   (ollama · qwen2.5:3b · easy-coding)
+VERDICT: Not Ready   (llama_cpp · qwen2.5:3b · easy-coding)
   [PromptBased] Not Ready  pass^k=0.80  runs=4/5  avg steps=2.6
     ✗ pass^k 0.80 < 0.90 required
 $ echo $?   # 20
@@ -596,7 +594,7 @@ stream to **stdout**; `[QM-*]` diagnostics + a `[QM-DONE] N tokens` summary go t
 model-not-served · `2` bad args/params.
 
 ```
-echo "Summarize this in one line: …" | qm prompt --backend ollama --model qwen2.5:7b --temperature 0.7
+echo "Summarize this in one line: …" | qm prompt --backend llama_cpp --model qwen2.5:7b --temperature 0.7
 qm prompt --model qwen2.5:7b --system "You are terse." --user "Name three primary colors."
 ```
 

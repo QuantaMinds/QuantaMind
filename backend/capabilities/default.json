@@ -9,8 +9,6 @@
     {
       "identifier": "shell:allow-open",
       "allow": [
-        { "url": "https://ollama.com/download" },
-        { "url": "https://ollama.com/library" },
         { "url": "https://huggingface.co/**" },
         { "url": "https://quantamind.co/**" },
         { "url": "https://discord.com/invite/qN5uTn9KKA" },

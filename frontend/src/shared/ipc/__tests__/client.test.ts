@@ -5,32 +5,31 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 import { invoke } from "@tauri-apps/api/core";
-import { listModels, checkOllamaHealth, checkMlxHealth } from "../core/client";
+import { checkLlamaHealth, checkVllmHealth, checkSglangHealth } from "../core/client";
 
 describe("ipc client", () => {
   beforeEach(() => {
     vi.mocked(invoke).mockReset();
   });
 
-  it("listModels invokes the list_models command and returns its result", async () => {
-    vi.mocked(invoke).mockResolvedValue(["llama3.2:1b", "mistral:7b"]);
-    const result = await listModels();
-    expect(invoke).toHaveBeenCalledWith("list_models");
-    expect(invoke).toHaveBeenCalledTimes(1);
-    expect(result).toEqual(["llama3.2:1b", "mistral:7b"]);
+  it("checkLlamaHealth invokes check_llama_health and returns HealthStatus", async () => {
+    vi.mocked(invoke).mockResolvedValue({ available: true, version: null });
+    const result = await checkLlamaHealth();
+    expect(invoke).toHaveBeenCalledWith("check_llama_health");
+    expect(result).toEqual({ available: true, version: null });
   });
 
-  it("checkOllamaHealth invokes check_ollama_health and returns HealthStatus", async () => {
-    vi.mocked(invoke).mockResolvedValue({ available: true, version: "0.1.32" });
-    const result = await checkOllamaHealth();
-    expect(invoke).toHaveBeenCalledWith("check_ollama_health");
-    expect(result).toEqual({ available: true, version: "0.1.32" });
-  });
-
-  it("checkMlxHealth invokes check_mlx_health and returns HealthStatus", async () => {
+  it("checkVllmHealth invokes check_vllm_health and returns HealthStatus", async () => {
     vi.mocked(invoke).mockResolvedValue({ available: false, version: null });
-    const result = await checkMlxHealth();
-    expect(invoke).toHaveBeenCalledWith("check_mlx_health");
+    const result = await checkVllmHealth();
+    expect(invoke).toHaveBeenCalledWith("check_vllm_health");
     expect(result).toEqual({ available: false, version: null });
+  });
+
+  it("checkSglangHealth invokes check_sglang_health and returns HealthStatus", async () => {
+    vi.mocked(invoke).mockResolvedValue({ available: true, version: null });
+    const result = await checkSglangHealth();
+    expect(invoke).toHaveBeenCalledWith("check_sglang_health");
+    expect(result).toEqual({ available: true, version: null });
   });
 });

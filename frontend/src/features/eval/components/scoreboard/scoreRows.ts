@@ -35,7 +35,7 @@ export interface ScoreRow {
   label: string;
   quant: string;
   passK: string;
-  /// Phase 7.2 native function-calling Pass^k (Ollama `/api/chat` tool_calls),
+  /// Phase 7.2 native function-calling Pass^k (OpenAI `tool_calls` wire),
   /// "N/A" when native wasn't measured for this model. Shown behind a toggle.
   passKNative: string;
   avgSteps: string;

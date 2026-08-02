@@ -48,14 +48,16 @@ describe("useBatchRun pre-flight health check", () => {
   });
 
   it("checks EVERY unique backend in a mixed run and aborts on the down one", async () => {
-    // Ollama up, llama.cpp down → must still abort (not just check targets[0]).
+    // vLLM configured + reachable, llama.cpp down → must still abort on the
+    // SECOND backend (not just check targets[0]).
+    vi.mocked(credentialFor).mockResolvedValue({ status: "ok" } as RemoteAuthReport);
     vi.mocked(healthFor).mockImplementation((b) =>
-      Promise.resolve({ available: b === "ollama", version: null }),
+      Promise.resolve({ available: b === "vllm", version: null }),
     );
     const { result } = renderHook(() => useBatchRun());
     const targets: ModelTarget[] = [
-      { model: "a", backend: "ollama" },
-      { model: "b", backend: "ollama" },
+      { model: "a", backend: "vllm" },
+      { model: "b", backend: "vllm" },
       { model: "c", backend: "llama_cpp" },
     ];
 
@@ -69,7 +71,7 @@ describe("useBatchRun pre-flight health check", () => {
   it("proceeds to runBatchEval when every backend is reachable", async () => {
     vi.mocked(healthFor).mockResolvedValue({ available: true, version: null });
     const { result } = renderHook(() => useBatchRun());
-    const targets: ModelTarget[] = [{ model: "a", backend: "ollama" }];
+    const targets: ModelTarget[] = [{ model: "a", backend: "llama_cpp" }];
 
     await act(async () => { await result.current.run("c", targets, tasks, 1, 8, false); });
 

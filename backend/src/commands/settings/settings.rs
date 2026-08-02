@@ -1,4 +1,4 @@
-use crate::commands::storage::storage_disk::{compute_disk_usage, models_dir};
+use crate::commands::storage::storage_disk::compute_disk_usage;
 use crate::errors::AppError;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -8,11 +8,6 @@ use std::path::{Path, PathBuf};
 // install several.
 const MIN_FREE_BYTES: u64 = 50 * 1024 * 1024 * 1024;
 
-#[derive(Serialize, Clone)]
-pub struct StoragePathInfo {
-    pub current_path: String,
-    pub from_env: bool,
-}
 
 #[derive(Serialize, Clone)]
 pub struct PathValidation {
@@ -22,13 +17,6 @@ pub struct PathValidation {
     pub free_bytes: u64,
     pub total_bytes: u64,
     pub sufficient: bool,
-}
-
-#[tauri::command]
-pub fn get_storage_path() -> StoragePathInfo {
-    let from_env = std::env::var("OLLAMA_MODELS").is_ok();
-    let path = models_dir();
-    StoragePathInfo { current_path: path.to_string_lossy().into_owned(), from_env }
 }
 
 /// Test that the directory supports both write AND rename, since the

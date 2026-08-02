@@ -16,7 +16,7 @@ MCP servers routinely violate their own spec, so the wire is the source of truth
 
 Every step follows the mandatory loop (`CLAUDE.md` rules 1, 2, 6): spec in this
 doc → minimum code → test passes → inspect output → **live-run against the real
-filesystem MCP server** (and, from Phase 5, a real Ollama model) → update docs →
+filesystem MCP server** (and, from Phase 5, a real llama.cpp model) → update docs →
 commit. A green test never substitutes for inspecting real output.
 
 ## Phases
@@ -28,7 +28,7 @@ commit. A green test never substitutes for inspecting real output.
 | 2 — stdio transport + minimal client | [phase-2-transport.md](phase-2-transport.md) | ✅ done |
 | 3 — Lifecycle hardening | [phase-3-lifecycle.md](phase-3-lifecycle.md) | ✅ done |
 | 4 — Registry, secrets, security gate | [phase-4-registry-security.md](phase-4-registry-security.md) | ✅ done |
-| 5 — Bridge MCP tools → local model | [phase-5-model-bridge.md](phase-5-model-bridge.md) | ✅ done (Ollama + llama.cpp live) |
+| 5 — Bridge MCP tools → local model | [phase-5-model-bridge.md](phase-5-model-bridge.md) | ✅ done (llama.cpp + llama.cpp live) |
 | 6 — Schema oracle (Track A) | [phase-6-schema-oracle.md](phase-6-schema-oracle.md) | ✅ done |
 | 7 — Error + attribution oracle (Track A) | [phase-7-attribution.md](phase-7-attribution.md) | ✅ done — **Track A complete** |
 | 8 — World-manager (Track B) | [phase-8-world-manager.md](phase-8-world-manager.md) | ✅ done |

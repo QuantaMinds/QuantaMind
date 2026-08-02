@@ -8,13 +8,12 @@ fn report(collection_id: &str, passes: u32) -> BatchReport {
     BatchReport {
         collection_id: collection_id.into(),
         num_ctx: Some(8192),
-        ollama_version: None,
         collection_hash: None,
         think_preset: None,
         params: None,
         columns: vec![BatchColumn {
             model: "qwen".into(),
-            backend: BackendKind::Ollama,
+            backend: BackendKind::LlamaCpp,
             toolcall: None,
             agentic: Some(AggAgentic {
                 tasks_passed: passes,
@@ -73,7 +72,7 @@ fn pre_7_2_column_without_native_fc_loads_as_none() {
     // key; #[serde(default)] must fill it with None rather than fail the load.
     let dir = tempdir().unwrap();
     let json = r#"{"collection_id":"old","num_ctx":4096,"columns":[
-        {"model":"m","backend":"ollama","toolcall":null,"agentic":null,"error":null}
+        {"model":"m","backend":"llama_cpp","toolcall":null,"agentic":null,"error":null}
     ]}"#;
     std::fs::create_dir_all(dir.path()).unwrap();
     std::fs::write(report_path(dir.path(), "old"), json).unwrap();

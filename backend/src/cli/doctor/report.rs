@@ -15,8 +15,8 @@ use serde::{Deserialize, Serialize};
 pub const EXIT_OK: i32 = 0;
 pub const EXIT_NO_RUNNABLE: i32 = 3;
 
-/// Native tool-calling probe outcome. Only Ollama exposes a capability endpoint
-/// (`/api/show`); every other backend has none yet, so we say `NotProbed` rather
+/// Native tool-calling probe outcome. Only the server exposes a capability endpoint
+/// (the model-registry API); every other backend has none yet, so we say `NotProbed` rather
 /// than fabricate a result (rule 7 — missing ≠ false).
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]

@@ -1,4 +1,4 @@
-use crate::commands::storage::storage_disk::{gguf_dir_resolved, mlx_dir_resolved};
+use crate::commands::storage::storage_disk::gguf_dir_resolved;
 use crate::errors::{AppError, AppResult};
 use crate::inference::backend::remote_config;
 use crate::inference::backend::remote_guard::credential_allowed;
@@ -115,12 +115,6 @@ impl UserSettingsState {
         self.ensure_loaded(app)?;
         let folder = self.inner.lock_recover().models_folder.clone();
         Ok(gguf_dir_resolved(folder.as_deref()))
-    }
-
-    /// The resolved MLX weights folder (env → `~/.quantamind/mlx`). Independent
-    /// of the GGUF folder so safetensors snapshots don't co-mingle with GGUFs.
-    pub fn mlx_weights_dir(&self) -> PathBuf {
-        mlx_dir_resolved(None)
     }
 }
 

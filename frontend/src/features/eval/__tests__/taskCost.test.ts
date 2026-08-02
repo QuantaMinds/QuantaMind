@@ -27,7 +27,7 @@ describe("taskCost", () => {
     expect(cost.peakContextTokens).toBe(107);
   });
 
-  it("an Ollama run (no cache_n) yields null cache totals — Not available, not zero", () => {
+  it("a run with no cache_n yields null cache totals — Not available, not zero", () => {
     const cost = taskCost([{ ...base, prefill_ms: 50, eval_ms: 700, output_tokens: 20, prefill_tokens: 34 }]);
     expect(cost.cacheHitTokensTotal).toBeNull();
     expect(cost.kvTokensMeasured).toBe(false); // → the KV tier label must say "estimated"
@@ -35,7 +35,7 @@ describe("taskCost", () => {
   });
 
   it("thinking split is measured only when a step's flag says so — equality proves nothing", () => {
-    // Ollama thinking model: combined count (reasoning == output), flag absent → NOT measured.
+    // A thinking model with a combined count (reasoning == output), flag absent → NOT measured.
     const combined = taskCost([{ ...base, output_tokens: 300, reasoning_tokens: 300 }]);
     expect(combined.thinkingSplitMeasured).toBe(false);
     // llama.cpp tokenized split — including the truncated-mid-think edge where the measured

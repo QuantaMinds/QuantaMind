@@ -1,7 +1,5 @@
 pub mod backend;
 pub mod chat;
-pub mod compare;
-pub mod create;
 pub mod eval;
 pub mod generate;
 pub mod gguf;
@@ -9,8 +7,6 @@ pub mod hf;
 pub mod http;
 pub mod llama;
 pub mod mcp;
-pub mod mlx;
-pub mod ollama;
 pub mod openai;
 pub mod params;
 pub mod pull;

@@ -27,7 +27,7 @@ const formatMetrics = (m: NonNullable<CompareRow["metrics"]>): string => {
   const tps = m.tokens_per_sec != null ? `${m.tokens_per_sec.toFixed(1)} tok/s` : null;
   const tokens = `${m.token_count} tokens`;
   // Purely additive: the prefix-cache segment appends ONLY for a llama.cpp run that
-  // reported cache reuse (`available`). For Ollama/MLX it's absent, so the string is
+  // reported cache reuse (`available`). For a remote backend it's absent, so the string is
   // byte-identical to before — never a false "0 reused" on a backend without the feature.
   const cr = cacheReuse(m.stats?.cache_n, m.stats?.prompt_eval_count);
   const cache = cr.available ? `cache ${cr.cached}/${cr.cached + cr.recomputed} reused` : null;

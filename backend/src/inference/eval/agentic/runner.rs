@@ -2,7 +2,7 @@ use crate::errors::{AppError, AppResult};
 use crate::inference::eval::agentic::context::{tool_result_line, Conversation};
 use crate::inference::eval::agentic::env_view::{env_view, mcp_fsview, EnvView};
 use crate::inference::eval::mcp::world::McpWorld;
-use crate::inference::ollama::ollama_chat::NativeToolCall;
+use crate::inference::chat::native_call::NativeToolCall;
 use crate::inference::eval::agentic::scoring::endstate;
 use crate::inference::eval::agentic::model_turn::{ModelTurn, Progress};
 use crate::inference::eval::agentic::scoring::report::{AgenticReport, FailureKind, RunOutcome, SafetyAttribution};
@@ -50,7 +50,7 @@ const TRUNCATION_RETRY_LIMIT: u32 = 2;
 
 /// `num_ctx` sizing for the agentic loop. The transcript re-sent every step grows by
 /// ~one assistant turn + tool result per step; left at the model default (~4096) a
-/// multi-step transcript overflows, triggering Ollama context-shift that BOTH busts
+/// multi-step transcript overflows, triggering the server context-shift that BOTH busts
 /// the automatic prefix-KV cache (full re-prefill every turn — the stall) AND silently
 /// drops the earliest turns (the model loses the start of its own run). Size from the
 /// step cap so the window covers the worst-case transcript, clamped to a memory-safe
@@ -206,7 +206,7 @@ impl Default for AgenticConfig {
 /// token counter over the shared (immutable) sandbox — absolute isolation, no
 /// state bleed between iterations.
 ///
-/// A per-run backend error (e.g. Ollama timed out or crashed on one of the k
+/// A per-run backend error (e.g. the server timed out or crashed on one of the k
 /// attempts) does NOT abort the batch: that run is skipped and the remaining
 /// attempts still execute, then the report folds the runs that completed. An infra
 /// fault is not a model task-failure, so a skipped run never reaches the
@@ -526,7 +526,7 @@ impl NativeChannel {
 /// (`prompt_eval_count + cache_n` — true prompt size, since llama.cpp serves a reused
 /// prefix from cache and reports only the recomputed part; see the truncation-retry
 /// guard). The standing guard sits at the FRONT of the prompt, so once the transcript
-/// SATURATES the window (`occupancy >= num_ctx`), Ollama's front-first context-shift
+/// SATURATES the window (`occupancy >= num_ctx`), the server's front-first context-shift
 /// evicts the guard before the failing turn — a CONFIG verdict. Honest priors (G3):
 /// config is claimed ONLY on proven saturation; below saturation the whole transcript
 /// (guard included) fit, so the model chose the forbidden action → model verdict; and
@@ -650,7 +650,7 @@ async fn run_steps<M: ModelTurn>(
                     ..Default::default()
                 }),
                 keep_alive: None,
-                think: None, // BackendTurn::run overrides this from `is_thinking` for Ollama
+                think: None, // BackendTurn::run overrides this from `is_thinking` for the server
             };
             // Run the turn racing the token-progress stall watchdog (see `run_with_stall_watchdog`):
             // fires only when the turn stops making forward progress (no first token within
@@ -745,7 +745,7 @@ async fn run_steps<M: ModelTurn>(
         // How much this turn spent thinking. Best source first: the MEASURED channel split
         // (llama.cpp — reasoning text tokenized with the model's own tokenizer; catches a
         // reasoning model even when the thinking flag wasn't set). Fallback: the backend's
-        // combined generated count for a flagged thinking model (Ollama reports no split;
+        // combined generated count for a flagged thinking model (some servers report no split;
         // its output is dominated by the scratchpad, and the UI labels it "(no split)").
         // `None` for a terse model — never a fabricated 0.
         let thinking_split_measured = stats.thinking_tokens.is_some();

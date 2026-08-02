@@ -34,8 +34,9 @@ export const READINESS_HELP: Record<string, { title: string; body: ReactNode }> 
           backend.
         </span>
         <span>
-          • <b>Native FC</b> — the model’s dedicated tool API (Ollama <code>/api/chat</code> <code>tool_calls</code>). Ollama
-          + tool-capable models only; llama.cpp / MLX show N/A.
+          • <b>Native FC</b> — the model’s dedicated tool API (the OpenAI <code>/v1/chat/completions</code>
+          <code>tool_calls</code> wire). Needs a tool-capable model; one whose template carries no tool grammar
+          simply returns no calls.
         </span>
         <span>
           This toggle shows/hides natively-measured rows. When measured natively, the verdict uses the <b>native</b> Pass^k —

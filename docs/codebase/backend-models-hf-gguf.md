@@ -2,7 +2,7 @@
 
 Subsystem doc for the model **installer + inspector**: how QuantaMind adds local
 LLMs from three sources, parses GGUF binary headers, resumes/verifies downloads,
-writes an Ollama "Modelfile" (chat template + params), and estimates VRAM/KV-cache
+and estimates VRAM/KV-cache
 — file-by-file, scope-only.
 
 Cross-links:
@@ -16,125 +16,82 @@ Cross-links:
 ## Overview
 
 **Why.** Local-LLM users should never touch a terminal. The Models tab is one
-modal with three tabs — **Ollama library pull**, **Hugging Face GGUF download**,
-and **local `.gguf` file** — that all converge on the same registered-in-Ollama
-end state, with one progress bar and typed failure popups. No `ollama pull`, no
-`huggingface-cli`, no hand-written Modelfile.
+surface with two tabs — **Hugging Face GGUF download** and **local `.gguf` file**
+— that both converge on the same end state: the weights sitting in the shared
+folder where `llama-server` loads them, with one progress bar and typed failure
+popups. No `huggingface-cli`, no manual file shuffling.
 
-**What.** Three install pipelines + a read-only inspector:
+**What.** Two install pipelines + a read-only inspector:
 
-1. **Ollama library pull** — stream `POST /api/pull`, classify NDJSON status
-   lines into phases, verify the manifest landed.
-2. **Hugging Face GGUF** — search HF, browse repo files, download one `.gguf`
-   with `.partial` resume, then import it into Ollama (create-from-blob).
-3. **Local file** — copy the picked `.gguf` into the shared weights dir, inspect
-   it, import into Ollama.
-4. **Inspect** — read a GGUF binary header (arch/quant/ctx/params) *without*
-   Ollama; read Ollama `/api/show` for template/capabilities/KV dims; compute the
-   f16 KV-cache size from those dims.
+1. **Hugging Face GGUF** — search HF, browse repo files, download one `.gguf`
+   with `.partial` resume into the shared weights folder.
+2. **Local file** — copy the picked `.gguf` into the shared weights dir after
+   inspecting it.
+3. **Inspect** — read a GGUF binary header (arch/quant/ctx/params) straight off
+   disk for the KV dims, and compute the f16 KV-cache size from them.
 
 **How (IPC command → handler file).**
 
 | Command | File | Source / Purpose |
 |---|---|---|
-| `pull_model` / `cancel_pull` | `commands/models/models_pull.rs` | Ollama library pull (background task, cancel token) |
-| `list_models` | `commands/models/models.rs` | `/api/tags` model names |
-| `inspect_model` | `commands/models/model_inspect.rs` | `/api/show` template + caps + KV dims |
-| `estimate_kv_cache_bytes` | `commands/models/model_inspect.rs` | KV-cache bytes from dims |
-| `hf_search` | `commands/hf/hf_browse.rs` | HF repo search (gguf/mlx tag) |
+| `inspect_model` | `commands/models/model_inspect.rs` | GGUF-header KV dims |
+| `estimate_kv_cache_bytes` / `context_ceilings` | `commands/models/model_inspect.rs` | KV-cache bytes / ceilings from dims |
+| `hf_search` | `commands/hf/hf_browse.rs` | HF repo search (gguf tag) |
 | `hf_repo_files` / `hf_repo_all_files` | `commands/hf/hf_browse.rs` | repo `.gguf` list / full snapshot list |
 | `hf_model_card` | `commands/hf/hf_card.rs` | structured model card |
-| `install_hf_gguf` / `cancel_hf_install` | `commands/hf/hf_install.rs` | download HF GGUF → import |
+| `install_hf_gguf` / `cancel_hf_install` | `commands/hf/hf_install.rs` | download an HF GGUF into the weights folder |
 | `inspect_gguf` | `commands/gguf/gguf_cmd.rs` | parse a `.gguf` header from disk |
-| `install_local_gguf` | `commands/gguf/gguf_cmd.rs` | copy local file → import |
+| `install_local_gguf` | `commands/gguf/gguf_cmd.rs` | copy a local file into the weights folder |
 
-Emitted Tauri events: `pull-progress`, `hf-progress`, `local-install-progress`,
-`models-changed`.
+Emitted Tauri events: `hf-progress`, `models-changed`.
 
 ---
 
-## `commands/models/` — Ollama pull + inspector commands
-
-### File: `commands/models/models.rs`
-- **Responsibility:** List installed Ollama models.
-- **Why:** The Models tab and selectors need the live `/api/tags` list, with a
-  short timeout so a hung Ollama doesn't freeze the UI.
-- **What:** `list_models()` (IPC), `fetch_models(endpoint)`,
-  `fetch_models_with_timeout(endpoint, timeout)`; private `TagsResponse`,
-  `ModelEntry`, `map_request_err`. Names are sorted + deduped.
-- **How/Where used:** `DEFAULT_TIMEOUT = 5s`; timeouts map to `AppError::Timeout`,
-  other failures to `AppError::Inference`.
+## `commands/models/` — the model inspector
 
 ### File: `commands/models/model_inspect.rs`
 - **Responsibility:** Model metadata for the inspector + the KV-cache predictor.
-- **Why:** Template/capabilities/dims live only in Ollama's `/api/show`; for
-  non-Ollama backends the command must say "Not available" rather than fabricate.
+- **Why:** The chat template and capability list came from a model-registry API that
+  no longer backs any supported backend, so `inspect_model` reports "Not available
+  for this backend" rather than fabricate one. The KV dims ARE still measurable —
+  they come straight from the installed GGUF header — so the context-ceiling meters
+  keep showing real numbers.
 - **What:** `ModelDims`, `ModelInspect`, `inspect_model()` (IPC),
-  `estimate_kv_cache_bytes()` (IPC), `fetch_dims(model)` (reused by the readiness
-  VRAM-fit check), `classify_base()`, `dims_from_model_info()`.
-- **How/Where used:** `dims_from_model_info` reads keys namespaced by
-  `general.architecture` (e.g. `llama.block_count`). `head_count_kv` is the *only*
-  tolerated absence — missing/null defaults to `head_count` (MHA) and flags
-  `kv_estimated` so the derived figure is labelled a conservative overestimate,
-  never silently wrong. The other four keys are required → `None`.
+  `estimate_kv_cache_bytes()` / `context_ceilings()` (IPC), `fetch_dims(model)`
+  (reused by the readiness VRAM-fit check and the Context Stress Test's pre-flight
+  gates), `classify_base()`, `gguf_dims()` / `dims_from_gguf_meta()`.
+- **How/Where used:** `dims_from_gguf_meta` maps the GGUF header fields.
+  `head_count_kv` is the *only* tolerated absence — missing defaults to `head_count`
+  (MHA per GGUF convention) and flags `kv_estimated` so the derived figure is
+  labelled a conservative overestimate, never silently wrong. `block_count`,
+  `head_count` and `embedding_length` are required → `None` when any is missing,
+  so the meters say "Not available" instead of guessing.
 
 ```rust
-fn dims_from_model_info(info: &Map<String, Value>) -> Option<ModelDims> {
-    let arch = info.get("general.architecture")?.as_str()?;
-    let g = |s: &str| info.get(&format!("{arch}.{s}")).and_then(|v| v.as_u64());
-    let head_count = g("attention.head_count")?;
-    let kv = g("attention.head_count_kv");
+fn gguf_dims(model: &str) -> Option<ModelDims> {
+    let path = storage_disk::find_installed_gguf(model)?;
+    dims_from_gguf_meta(&inspect_gguf(&path).ok()?)
+}
+
+fn dims_from_gguf_meta(m: &GgufMetadata) -> Option<ModelDims> {
+    let head_count = m.head_count?;
     Some(ModelDims {
-        layers: g("block_count")?,
+        layers: m.block_count?,
         head_count,
-        head_count_kv: kv.unwrap_or(head_count),   // MHA default
-        kv_estimated: kv.is_none(),
-        embedding_length: g("embedding_length")?,
-        context_length: g("context_length")?,
+        head_count_kv: m.head_count_kv.unwrap_or(head_count),   // MHA default
+        kv_estimated: m.head_count_kv.is_none(),
+        embedding_length: m.embedding_length?,
+        context_length: m.context_length.unwrap_or(0),
     })
 }
 ```
 
-`classify_base` is advisory: a `tools` capability or chat-role markers
-(`assistant`, `<|im_start`, `[inst]`, `<start_of_turn>`, …) ⇒ instruct; otherwise
-"likely base" with a stated reason ("empty chat template" / "no chat-role markers";
-"no 'tools' capability"). The UI states *why*, never an absolute claim.
-
-### File: `commands/models/models_pull.rs`
-- **Responsibility:** The Ollama-library pull command + cancellation registry.
-- **Why:** Pulls are long-running and cancellable; the UI fires-and-forgets and
-  listens for `pull-progress`. The pull must be panic-safe and verified.
-- **What:** `PullState { active: Mutex<HashMap<pull_id, CancellationToken>> }`,
-  `pull_model()` (IPC, returns a `pull_id` immediately), `cancel_pull()` (IPC).
-- **How/Where used:** Spawns a tokio task that calls `inference::pull::pull`,
-  emits each `PullProgress` as a `PullProgressEvent`. On success it does **not**
-  trust Ollama — it calls `verify_model_registered` before broadcasting
-  `models-changed`, because Ollama 0.24+ reports success before `/api/tags`
-  reflects the manifest. The task is wrapped in `catch_unwind` so a panic becomes
-  a `Failed` event, and the token is always removed from `active` on exit.
-
-```rust
-match AssertUnwindSafe(task).catch_unwind().await {
-    Ok(Ok(())) => match verify_model_registered(DEFAULT_OLLAMA, &name_outer).await {
-        Ok(()) => log_emit(&emit_app, EVENT_MODELS_CHANGED, ()),
-        Err(e) => emit_failed(&emit_app, &pid, &name_outer, e.friendly()),
-    },
-    Ok(Err(e)) => emit_failed(&emit_app, &pid, &name_outer, e.friendly()),
-    Err(panic)  => emit_failed(&emit_app, &pid, &name_outer,
-                               format!("internal error: {}", panic_message(panic))),
-}
-```
-
-### File: `commands/models/pull_events.rs`
-- **Responsibility:** The wire shape + helpers for `pull-progress`.
-- **What:** `EVENT_PULL_PROGRESS = "pull-progress"`,
-  `PullProgressEvent { pull_id, name, progress: PullProgress }`,
-  `panic_message(payload)` (downcasts `&str`/`String`), `emit_failed(...)` (emits a
-  terminal `PullProgress::Failed`).
-- **How/Where used:** Consumed only by `models_pull.rs`.
+`classify_base` is advisory: chat-role markers (`assistant`, `<|im_start`,
+`[inst]`, `<start_of_turn>`, …) ⇒ instruct; otherwise "likely base" with a stated
+reason. The UI states *why*, never an absolute claim.
 
 ### File: `commands/models/mod.rs`
-- Module wiring: `model_inspect`, `models`, `models_pull`, `pull_events`.
+- Module wiring: `model_inspect`.
 
 ---
 
@@ -159,19 +116,19 @@ match AssertUnwindSafe(task).catch_unwind().await {
 - **Why:** One HF install at a time; a cancel **or a failed download** must clean
   up both the final file and the `.partial` and free the single-install slot, so
   nothing broken lingers and the next attempt isn't blocked; the GGUF is kept for
-  llama.cpp even if Ollama import is skipped.
+  llama.cpp even if llama.cpp import is skipped.
 - **What:** `HfInstallState { current: Mutex<Option<CancellationToken>> }` (slot
-  shared with the MLX path via `.current()`), `install_hf_gguf()` (IPC),
+  shared with the vLLM path via `.current()`), `install_hf_gguf()` (IPC),
   `cancel_hf_install()` (IPC), `install_hf_gguf_inner(...)`,
-  `ollama_import_required(backend)`, `cleanup_incomplete_download(dest)`.
+  `llama_cpp_import_required(backend)`, `cleanup_incomplete_download(dest)`.
 - **How/Where used:** `weights_dir` from user settings → `gguf_dest(dir, name)` is
   the destination. `download_gguf` streams the file emitting `HfPhase::Downloading`.
   On cancel **or download error**, `cleanup_incomplete_download` removes both `dest`
   and `partial_path(dest)` and the install slot is cleared (a download that errored
   leaves no resumable state — only an app-kill mid-stream leaves a `.partial` to
-  resume). After a successful download, if Ollama is reachable it imports via
+  resume). After a successful download, if llama.cpp is reachable it imports via
   `install_local_gguf_inner` (emitting `Hashing`/`Uploading`/`Installing`); if not
-  reachable and the backend *requires* Ollama, it errors. On the import path the
+  reachable and the backend *requires* llama.cpp, it errors. On the import path the
   `.partial` marker is removed and the (complete) `dest` is kept for llama.cpp.
 
 ```rust
@@ -184,9 +141,9 @@ if token.is_cancelled() {
 }
 dl?;
 let result = if is_reachable(PROBE_TIMEOUT_MS).await {
-    install_local_gguf_inner(DEFAULT_OLLAMA, &dest.to_string_lossy(), name, on_install).await
-} else if ollama_import_required(backend) {
-    Err(AppError::Inference("Ollama is not running — start it to add this model.".into()))
+    install_local_gguf_inner(LLAMA_SERVER, &dest.to_string_lossy(), name, on_install).await
+} else if llama_cpp_import_required(backend) {
+    Err(AppError::Inference("the weights folder isn't writable — check the path in Settings.".into()))
 } else { Ok(()) };
 ```
 
@@ -207,7 +164,7 @@ let result = if is_reachable(PROBE_TIMEOUT_MS).await {
 
 ### File: `commands/gguf/gguf_cmd.rs`
 - **Responsibility:** Inspect a `.gguf` and import a local/already-downloaded GGUF
-  into Ollama (write the Modelfile via create-from-blob).
+  into llama.cpp (write the chat-template config via create-from-blob).
 - **Why:** Local files and HF downloads both end here; importing must pick the
   right chat template and verify the manifest landed. Files are copied into the
   shared weights dir so llama.cpp can use them too.
@@ -216,10 +173,10 @@ let result = if is_reachable(PROBE_TIMEOUT_MS).await {
   target), `inspect_gguf(path)` (IPC), `install_local_gguf_inner(endpoint, path,
   name, on_progress)`, `install_local_gguf()` (IPC).
 - **How/Where used:** `install_local_gguf_inner` validates name + `.gguf` ext,
-  fails fast if Ollama is down (before hashing a multi-GB file), inspects the
+  fails fast if llama.cpp is down (before hashing a multi-GB file), inspects the
   header for the architecture, picks the template via
   `detect_template(name, Some(&meta.architecture))`, builds a `CreateSpec`, calls
-  `ollama_create`, then `verify_model_registered`. `install_hf_install` reuses
+  `llama_cpp_create`, then `verify_model_registered`. `install_hf_install` reuses
   `install_local_gguf_inner`.
 
 ```rust
@@ -230,24 +187,12 @@ let spec = CreateSpec {
     chat_template: detect_template(name, Some(&meta.architecture)),
     parameters: CreateParameters::default(),
 };
-ollama_create(endpoint, name, &spec, on_progress).await?;
+llama_cpp_create(endpoint, name, &spec, on_progress).await?;
 verify_model_registered(endpoint, name).await
 ```
 
-### File: `commands/gguf/verify_install.rs`
-- **Responsibility:** Confirm a freshly-created model actually appears in
-  `/api/tags` before declaring success.
-- **Why:** Ollama 0.24+ streams `{"status":"success"}` from `/api/create` 50–800ms
-  *before* the manifest is visible; a one-shot check races and falsely reports a
-  rollback.
-- **What:** `verify_model_registered(endpoint, name)`,
-  `verify_with_delays(endpoint, name, delays)` (`DELAYS_MS = [50,100,200,400,800,
-  1500]` backoff), `has_model`, `tag_matches(tag, name)` (also matches the implicit
-  `:latest`). Exhausting the backoff yields a precise `AppError::Inference`
-  pointing at the Ollama server log.
-
 ### File: `commands/gguf/mod.rs`
-- Module wiring: `gguf_cmd`, `verify_install`.
+- Module wiring: `gguf_cmd`.
 
 ---
 
@@ -257,7 +202,7 @@ verify_model_registered(endpoint, name).await
 - **Responsibility:** Search HF and list a repo's downloadable files.
 - **Why:** Surface only repos with files the chosen backend can actually run; drop
   speech/audio GGUFs that can't run as an LLM.
-- **What:** `RepoKind { Gguf, Mlx }` (+ `.tag()` / `.matches()`),
+- **What:** `RepoKind { Gguf }` (+ `.tag()` / `.matches()`),
   `is_non_text_gguf(hit)`, `HfSearchHit`, `HfRepoFile`, `search_models()`,
   `fetch_tree()`, `repo_gguf_files()`, `repo_all_files()` (snapshot, minus
   `is_snapshot_junk`: `.gitattributes`, `*.md`, `license*`).
@@ -346,14 +291,14 @@ pub fn decide(local: Option<u64>, total: u64) -> ResumeStrategy {
 ```
 
 ### File: `inference/hf/hf_snapshot.rs`
-- **Responsibility:** Download every file of a repo (MLX snapshot) into a dir,
+- **Responsibility:** Download every file of a repo (vLLM snapshot) into a dir,
   preserving nested paths, with an aggregate progress bar.
 - **What:** `SnapshotProgress { bytes_completed, bytes_total, speed_bps,
   files_done, files_total }`, `download_snapshot(...)`.
 - **How/Where used:** Sequential, per-file `.partial` resume via `download_file`;
   a finished file short-circuits, a cancel leaves partials for retry. `bytes_*`
   sum across all files so the UI shows a single running total. (Snapshot is the
-  MLX-backend path; GGUF installs use the single-file `download_gguf`.)
+  vLLM-backend path; GGUF installs use the single-file `download_gguf`.)
 
 ### File: `inference/hf/mod.rs`
 - Module wiring: `hf_browse`, `hf_card`, `hf_download`, `hf_request`, `hf_resume`,
@@ -407,7 +352,7 @@ fn take(&mut self, n: usize) -> Result<&'a [u8], AppError> {
 - **Responsibility:** Top-level inspector: read the header from disk → typed
   `GgufMetadata`.
 - **Why:** Show architecture/quant/context/params *before* importing, and feed the
-  architecture into template detection — all without Ollama.
+  architecture into template detection — all without llama.cpp.
 - **What:** `GgufMetadata { architecture, parameter_count, context_length,
   quantization, family }`, `inspect_gguf_bytes(bytes)`, `inspect_gguf(path)`,
   `as_string`/`as_u64` coercers. Starts at `HEADER_READ_BYTES = 8 MiB` (uses
@@ -457,111 +402,6 @@ let quantization = kv.get("general.file_type").and_then(/* U32 */).and_then(file
 
 ---
 
-## `inference/pull/` — Ollama library pull engine
-
-### File: `inference/pull/pull.rs`
-- **Responsibility:** Stream `POST /api/pull` and drive a progress callback.
-- **Why:** A pull is an NDJSON stream; lines must be parsed incrementally, the
-  terminal `success` recognized even when Ollama 0.24+ omits the trailing newline,
-  and cancellation honored mid-stream.
-- **What:** `pull_model(endpoint, name, on_progress, cancel)`,
-  `handle_line(line, speed, on_progress) -> bool` (true at `"success"`). Uses
-  `ndjson::{next_line, tail}` for framing; `connect_timeout = 60s`; `SpeedTracker`
-  over a 5s window. An `error` field in any chunk → `AppError::Inference`.
-
-```rust
-tokio::select! {
-    _ = cancel.cancelled() => return Ok(()),
-    piece = bytes.next() => {
-        let Some(piece) = piece else { break };
-        buf.extend_from_slice(&piece?);
-        while let Some(line) = next_line(&mut buf) {
-            if handle_line(&line, &mut speed, &mut on_progress)? { return Ok(()); }
-            if cancel.is_cancelled() { return Ok(()); }
-        }
-    }
-}
-// parse un-flushed final `success` line on stream close:
-if let Some(rest) = tail(&buf) { if handle_line(rest, ...)? { return Ok(()); } }
-```
-
-### File: `inference/pull/pull_progress.rs`
-- **Responsibility:** The pull wire chunk + classification into typed phases.
-- **What:** `PullProgress` (tagged enum, below), `PullRequest { name, stream }`,
-  `PullChunk { status, error, digest, total, completed }`,
-  `classify(chunk, speed_bps)`. A chunk with `digest+total+completed` ⇒
-  `Downloading`; otherwise status string → manifest/verify/write/success;
-  unrecognized → `None` (dropped with an eprintln).
-
-### File: `inference/pull/pull_name.rs`
-- **Responsibility:** Validate a model name (shared across all three pipelines).
-- **What:** `validate_name(name)` — rejects empty/whitespace and any of
-  `/ \ \0 " ' space tab newline`. Accepts `llama3.2:1b`,
-  `qwen2.5-coder:7b-instruct-q4_K_M`.
-
-### File: `inference/pull/pull_speed.rs`
-- **Responsibility:** Moving-average download rate over a rolling window.
-- **What:** `SpeedTracker { samples: VecDeque<(Instant, u64)>, window }`,
-  `add(now, completed)` (evicts samples older than `window`), `bps(now)` (delta
-  bytes / elapsed over the window; 0 with <2 samples). Reused by both the pull
-  stream and the HF downloader.
-
-### File: `inference/pull/mod.rs`
-- Module wiring: `pull`, `pull_name`, `pull_progress`, `pull_speed`.
-
----
-
-## `inference/create/` — Ollama "Modelfile" (create-from-blob)
-
-Importing a GGUF means a `POST /api/create` with the file referenced by sha256
-blob + an inline template/params object — the modern, Modelfile-free equivalent
-of `FROM ./x.gguf` + `TEMPLATE` + `PARAMETER`.
-
-### File: `inference/create/create_spec.rs`
-- **Responsibility:** The typed inputs/outputs of a create.
-- **What:** `CreateSpec { gguf_path, chat_template: Option<ChatTemplate>,
-  parameters: CreateParameters }`, `CreateParameters { temperature, top_p, top_k,
-  repeat_penalty, stop }` (all optional / default), `CreatePhase` (tagged enum:
-  `Hashing{..}`, `Uploading{..}`, `Creating`).
-- **How/Where used:** Built in `gguf_cmd.rs` with `detect_template(name, arch)`.
-
-### File: `inference/create/create_body.rs`
-- **Responsibility:** Serialize a `CreateSpec` into the `/api/create` JSON body.
-- **Why:** This is where the chat template + stop tokens become the model's baked-in
-  Modelfile, so a base GGUF chats correctly after import.
-- **What:** `build_create_body(spec, model_name, digest)`,
-  `parameters_to_json(params)`. Body = `{ model, files: { "<filename>":
-  "sha256:<digest>" }, template?, parameters? }`. When a template is present its
-  `stop_tokens` are merged ahead of any user stops.
-
-```rust
-body.insert("files".into(), json!({ &filename: format!("sha256:{digest}") }));
-if let Some(t) = &spec.chat_template {
-    body.insert("template".into(), json!(t.template_string));
-    let mut stops: Vec<String> = t.stop_tokens.iter().map(|s| s.to_string()).collect();
-    stops.extend(spec.parameters.stop.iter().cloned());
-    if !stops.is_empty() { params.insert("stop".into(), json!(stops)); }
-}
-```
-
-### File: `inference/create/consume_create.rs`
-- **Responsibility:** Consume the `/api/create` NDJSON response.
-- **What:** `consume_ndjson(resp)`, `consume_stream(stream)`, `handle_chunk(line,
-  last_status)`; private `CreateChunk { status, error }`. Returns `Ok(())` only on
-  a `"success"` chunk (incl. the newline-less remainder via `tail`); an `error`
-  chunk → `AppError::Inference`; stream end without success → error quoting the
-  last status seen.
-
-### File: `inference/create/mod.rs`
-- Module wiring: `consume_create`, `create_body`, `create_spec`.
-
-> The actual `POST /api/create` (hash → blob-exists → upload → create → consume)
-> lives in `inference/ollama/ollama_create.rs` — out of scope here; see
-> `backend-inference-backends.md`. It calls `sha256_file`, `blob_exists`,
-> `upload_blob`, `build_create_body`, `consume_ndjson`, emitting `CreatePhase`s.
-
----
-
 ## `inference/vram_math.rs`
 
 - **Responsibility:** The single canonical f16 KV-cache size formula.
@@ -582,7 +422,7 @@ pub fn calculate_kv_cache_bytes(layers, head_count, head_count_kv,
 }
 ```
 
-Dims feeding this come from `inspect_model` (Ollama `/api/show`). When
+Dims feeding this come from `inspect_model` (llama.cpp the GGUF header). When
 `kv_estimated` is set (no `head_count_kv` in metadata, defaulted to MHA), the
 figure is a labelled conservative overestimate for GQA models.
 
@@ -592,11 +432,11 @@ figure is a labelled conservative overestimate for GQA models.
 
 | Pipeline | Event | Phase variants (in order) | Carries |
 |---|---|---|---|
-| Ollama pull | `pull-progress` | `pulling_manifest` → `downloading` → `verifying` → `writing` → `success` / `failed` | `digest,total,completed,speed_bps`; `message` on fail |
+| llama.cpp pull | `pull-progress` | `pulling_manifest` → `downloading` → `verifying` → `writing` → `success` / `failed` | `digest,total,completed,speed_bps`; `message` on fail |
 | HF GGUF install | `hf-progress` | `downloading` → `hashing` → `uploading` → `installing` | `bytes_completed,bytes_total,speed_bps` |
 | Local GGUF install | `local-install-progress` | `hashing` → `uploading` → `creating` | `bytes_completed,bytes_total` |
-| MLX snapshot | (snapshot progress) | per-file aggregate | `bytes_*,speed_bps,files_done,files_total` |
-| Any success | `models-changed` | — | `()` (UI refreshes `/api/tags`) |
+| vLLM snapshot | (snapshot progress) | per-file aggregate | `bytes_*,speed_bps,files_done,files_total` |
+| Any success | `models-changed` | — | `()` (UI refreshes the weights folder) |
 
 `HfPhase::from_create` maps `CreatePhase::{Hashing,Uploading,Creating}` →
 `HfPhase::{Hashing,Uploading,Installing}`, so the HF import reuses the local-create
@@ -621,19 +461,7 @@ phases under one bar.
    completion. Cancel leaves the `.partial` (resumable) and removes `dest`.
 5. **Verify (file).** Implicit in the byte-exact `Content-Length` check + over-read
    guard; the rename only happens once bytes == total.
-6. **Inspect + template.** If Ollama is reachable: `install_local_gguf_inner`
-   inspects the GGUF header (`inspect_gguf` → architecture), picks
-   `detect_template(name, arch)`, builds a `CreateSpec`.
-7. **Register.** `ollama_create` hashes the GGUF → sha256 blob, uploads it if new
-   (`hf-progress: hashing/uploading`), then `POST /api/create` with
-   `build_create_body` (`files`+`template`+`parameters`) → `consume_ndjson` waits
-   for `success` (`installing`).
-8. **Verify (manifest).** `verify_model_registered` polls `/api/tags` with backoff
-   until `name` (or `name:latest`) appears — defeats the Ollama 0.24+ success/tags
-   race.
-9. **Broadcast.** Emit `models-changed`; the UI re-runs `list_models`. The `.gguf`
-   stays in the weights dir so llama.cpp can also load it.
-
-If Ollama is **not** running: the GGUF is downloaded and kept; import is skipped
-(success on non-Ollama backends) or errors with a "start Ollama" message on the
-Ollama backend — a strong guardrail with a clear user-facing fix.
+6. **Broadcast.** Emit `models-changed`; the UI re-runs its installed-models
+   refresh. The `.gguf` sitting in the shared weights dir IS the installed state —
+   `llama-server` loads it straight from there, so there is no separate register
+   step to fail.

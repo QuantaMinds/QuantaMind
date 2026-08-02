@@ -22,8 +22,8 @@ beforeEach(() => {
   });
   __resetDownloadEventBusForTests();
   useModelStore.setState({
-    downloads: {}, pullNames: {}, activeHfName: null,
-    activeTab: "ollama", pendingLocalPath: null,
+    downloads: {}, activeHfName: null,
+    activeTab: "huggingface", pendingLocalPath: null,
   });
 });
 
@@ -38,38 +38,13 @@ describe("downloadEventBus", () => {
     });
   });
 
-  it("Pull progress finds the model name via pullNames map (survives component unmounts)", async () => {
-    await startDownloadEventBus();
-    useModelStore.getState().recordPullName("pid-1", "phi3.5:latest");
-    fire("pull-progress", {
-      pull_id: "pid-1",
-      name: "phi3.5:latest",
-      progress: { phase: "downloading", digest: "sha", total: 1000, completed: 750, speed_bps: 100 },
-    });
-    expect(useModelStore.getState().downloads["phi3.5:latest"]).toMatchObject({
-      source: "ollama", status: "downloading", percent: 75, pullId: "pid-1",
-    });
-  });
-
-  it("Pull-progress with an unknown pullId still routes via the payload name (race-safe)", async () => {
-    await startDownloadEventBus();
-    fire("pull-progress", {
-      pull_id: "unknown", name: "ghost",
-      progress: { phase: "failed", message: "Ollama is not running. Start Ollama and try again." },
-    });
-    expect(useModelStore.getState().downloads["ghost"]).toMatchObject({
-      source: "ollama", status: "error",
-      error: "Ollama is not running. Start Ollama and try again.",
-    });
-  });
-
   it("startDownloadEventBus is idempotent — second call returns the same promise without re-attaching", async () => {
     const first = startDownloadEventBus();
     const second = startDownloadEventBus();
     expect(first).toBe(second);
     await first;
-    // listen is called exactly 3 times (HF, pull, local), not 6.
-    expect(vi.mocked(listen)).toHaveBeenCalledTimes(3);
+    // listen is called exactly once (HF), not twice.
+    expect(vi.mocked(listen)).toHaveBeenCalledTimes(1);
   });
 
   it("startDownloadEventBus retries after a transient listen() rejection", async () => {
@@ -84,16 +59,8 @@ describe("downloadEventBus", () => {
       return Promise.resolve(() => { delete handlers[event]; });
     });
     await startDownloadEventBus();
-    expect(handlers["pull-progress"]).toBeDefined();
+    expect(handlers["hf-progress"]).toBeDefined();
     consoleSpy.mockRestore();
   });
 
-  it("Pull-progress success phase flips status to success at 100%", async () => {
-    await startDownloadEventBus();
-    useModelStore.getState().recordPullName("pid-9", "qwen2.5:7b");
-    fire("pull-progress", { pull_id: "pid-9", name: "qwen2.5:7b", progress: { phase: "success" } });
-    expect(useModelStore.getState().downloads["qwen2.5:7b"]).toMatchObject({
-      status: "success", percent: 100,
-    });
-  });
 });

@@ -1,13 +1,10 @@
 import { useEffect, useState } from "react";
-import { removeModel } from "../../../../shared/ipc/models/storage";
 import { deleteLlamaModel } from "../../../../shared/ipc/models/llama_start";
-import { deleteMlxModel } from "../../../../shared/ipc/models/mlx";
 import { formatBytes } from "../../../../shared/format/bytes";
 import { formatIpcError } from "../../../../shared/ipc/core/error";
 import { useInstalledModelsStore } from "../../state/installedModelsStore";
 import { groupInstalled } from "../../state/installedGroups";
 import { ConfirmRemove } from "../ConfirmRemove";
-import { AddToOllamaButton } from "./AddToOllamaButton";
 
 const badge = "text-[10px] px-1 py-0.5 rounded";
 
@@ -26,13 +23,11 @@ export function DownloadsInstalled() {
   const groups = groupInstalled(list);
   const target = groups.find((g) => g.name === pending);
 
-  const onDelete = async (alsoLlama: boolean) => {
-    if (!target) return;
+  const onDelete = async () => {
+    if (!target?.llamaPath) return;
     setError(null);
     try {
-      if (target.ollamaName) await removeModel(target.ollamaName);
-      if (target.llamaPath && alsoLlama) await deleteLlamaModel(target.llamaPath);
-      if (target.mlxPath) await deleteMlxModel(target.mlxPath);
+      await deleteLlamaModel(target.llamaPath);
       await refresh();
       setPending(null);
     } catch (e) {
@@ -44,7 +39,7 @@ export function DownloadsInstalled() {
   if (groups.length === 0) {
     return (
       <div className="text-xs text-gray-500" data-testid="downloads-empty-installed">
-        No installed models yet. Browse the Ollama Library, Hugging Face, or Local File tabs.
+        No installed models yet. Browse the Hugging Face or Local File tabs.
       </div>
     );
   }
@@ -59,20 +54,23 @@ export function DownloadsInstalled() {
             <div className="min-w-0">
               <div className="text-sm truncate flex items-center gap-1">
                 {g.displayName ?? g.name}
-                {g.ollamaName && <span className={`${badge} bg-blue-50 text-blue-700`}>Ollama</span>}
-                {g.llamaPath && <span className={`${badge} bg-amber-50 text-amber-700`}>llama.cpp</span>}
-                {g.mlxPath && <span className={`${badge} bg-purple-50 text-purple-700`}>MLX</span>}
+                {g.llamaPath
+                  ? <span className={`${badge} bg-amber-50 text-amber-700`}>llama.cpp</span>
+                  : <span className={`${badge} bg-slate-100 text-slate-600`}>remote</span>}
               </div>
               <div className="text-[11px] text-gray-500">
                 {g.family} · {g.parameterSize} · {g.quantization} · {formatBytes(g.sizeBytes)}
               </div>
             </div>
             <div className="flex items-center gap-1 shrink-0">
-              {g.llamaPath && !g.ollamaName && <AddToOllamaButton path={g.llamaPath} name={g.name} />}
-              <button type="button" onClick={() => setPending(g.name)}
-                className="text-xs border rounded px-2 py-1" aria-label={`Delete ${g.displayName ?? g.name}`}>
-                Delete
-              </button>
+              {/* Only a locally-installed GGUF is ours to delete; a model served by a
+                  remote vLLM/SGLang box lives on that machine. */}
+              {g.llamaPath && (
+                <button type="button" onClick={() => setPending(g.name)}
+                  className="text-xs border rounded px-2 py-1" aria-label={`Delete ${g.displayName ?? g.name}`}>
+                  Delete
+                </button>
+              )}
             </div>
           </li>
         ))}
@@ -81,9 +79,7 @@ export function DownloadsInstalled() {
         <ConfirmRemove
           name={target.displayName ?? target.name}
           sizeBytes={target.sizeBytes}
-          inOllama={!!target.ollamaName}
-          inLlama={!!target.llamaPath}
-          onConfirm={(alsoLlama) => void onDelete(alsoLlama)}
+          onConfirm={() => void onDelete()}
           onCancel={() => setPending(null)}
         />
       )}

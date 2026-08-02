@@ -11,7 +11,7 @@ pub struct RemoteEndpoint {
 }
 
 /// Process-globals holding the resolved remote endpoints. Mirrors
-/// `mlx/server/mlx_endpoint.rs`: `inference/` can't read Tauri state, so the
+/// `inference/` can't read Tauri state, so the
 /// command layer pushes settings here (on load and on every save) and the
 /// dispatch path reads them via `endpoint::resolve`.
 static VLLM: Mutex<RemoteEndpoint> = Mutex::new(RemoteEndpoint { url: None, api_key: None });

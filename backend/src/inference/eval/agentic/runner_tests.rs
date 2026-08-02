@@ -58,7 +58,7 @@ impl ModelTurn for StatsScriptedModel {
 
 /// A backend that errors on specific call indices (0-based) and otherwise returns
 /// `END_CALL` → an immediate success. With single-turn runs, the call index equals
-/// the run index, so this simulates Ollama failing on a specific Pass^k attempt.
+/// the run index, so this simulates the server failing on a specific Pass^k attempt.
 struct FlakyModel {
     err_on: Vec<usize>,
     next: AtomicUsize,
@@ -74,7 +74,7 @@ impl ModelTurn for FlakyModel {
     async fn run(&self, _spec: &GenerateSpec, _progress: &Progress) -> AppResult<(String, GenerateStats)> {
         let i = self.next.fetch_add(1, Ordering::SeqCst);
         if self.err_on.contains(&i) {
-            return Err(crate::errors::AppError::Inference("ollama timed out".into()));
+            return Err(crate::errors::AppError::Inference("the server timed out".into()));
         }
         Ok((END_CALL.to_string(), GenerateStats { eval_count: Some(10), ..Default::default() }))
     }
@@ -845,7 +845,7 @@ async fn lazy_agent_claiming_done_is_a_failure_not_a_pass() {
 }
 
 #[tokio::test]
-#[ignore = "hits a live Ollama on :11434 with a mis-built gemma-4-12b-it-qat (nondeterministic dialect)"]
+#[ignore = "hits a live a local server with a mis-built gemma-4-12b-it-qat (nondeterministic dialect)"]
 async fn live_gemma_verdict_matches_its_actual_output() {
     // End-to-end against the REAL model. gemma-qat is a broken artifact whose output VARIES
     // run-to-run: a clean call (pass), foreign `call:NAME(...)` token soup (→ ForeignDialect),
@@ -871,7 +871,7 @@ async fn live_gemma_verdict_matches_its_actual_output() {
         }]),
     );
     let model = crate::inference::eval::agentic::model_turn::BackendTurn {
-        backend: BackendKind::Ollama,
+        backend: BackendKind::LlamaCpp,
         endpoint: "http://localhost:11434".into(),
         model: "gemma-4-12b-it-qat:q4_0".into(),
         cancel: CancellationToken::new(),
@@ -938,7 +938,7 @@ async fn live_gemma_prompt_path_lint_task_raw_output() {
         ]),
     );
     let model = crate::inference::eval::agentic::model_turn::BackendTurn {
-        backend: BackendKind::Ollama,
+        backend: BackendKind::LlamaCpp,
         endpoint: "http://localhost:11434".into(),
         model: "gemma-4-12b-it-qat:q4_0".into(),
         cancel: CancellationToken::new(),
@@ -979,7 +979,7 @@ async fn live_gap_a_prime_gemma4_native_calls_reply_with_the_mandate() {
         .unwrap();
     let (sandbox, cfg) = sandbox_for(&task).unwrap();
     let model = NativeToolTurn {
-        backend: crate::inference::backend::backend_kind::BackendKind::Ollama,
+        backend: crate::inference::backend::backend_kind::BackendKind::LlamaCpp,
         endpoint: "http://localhost:11434".into(),
         model: "gemma-4-12b-it-qat:q4_0".into(),
         tools: task.tools.clone(),
@@ -1021,7 +1021,7 @@ async fn live_filesystem_env_passes_on_the_native_path() {
         .unwrap();
     let (sandbox, cfg) = sandbox_for(&task).unwrap();
     let model = NativeToolTurn {
-        backend: crate::inference::backend::backend_kind::BackendKind::Ollama,
+        backend: crate::inference::backend::backend_kind::BackendKind::LlamaCpp,
         endpoint: "http://localhost:11434".into(),
         model: "qwen3.5:9b".into(),
         tools: task.tools.clone(),
@@ -1140,7 +1140,7 @@ async fn live_trace_root_cause_grounds_the_natural_route() {
     let tier = task.agentic.as_ref().map(|s| s.tier).unwrap_or_default();
     let (sandbox, cfg) = sandbox_for(&task).unwrap();
     let model = NativeToolTurn {
-        backend: crate::inference::backend::backend_kind::BackendKind::Ollama,
+        backend: crate::inference::backend::backend_kind::BackendKind::LlamaCpp,
         endpoint: "http://localhost:11434".into(),
         model: std::env::var("QM_LIVE_MODEL").unwrap_or_else(|_| "qwen2.5-coder-14b-instruct-q8_0:latest".into()),
         tools: task.tools.clone(),
@@ -1193,7 +1193,7 @@ async fn live_returns_task_grounds_policy_and_ewaste_data() {
     let tier = task.agentic.as_ref().map(|s| s.tier).unwrap_or_default();
     let (sandbox, cfg) = sandbox_for(&task).unwrap();
     let model = NativeToolTurn {
-        backend: crate::inference::backend::backend_kind::BackendKind::Ollama,
+        backend: crate::inference::backend::backend_kind::BackendKind::LlamaCpp,
         endpoint: "http://localhost:11434".into(),
         model: std::env::var("QM_LIVE_MODEL").unwrap_or_else(|_| "qwen2.5-coder-14b-instruct-q8_0:latest".into()),
         tools: task.tools.clone(),
@@ -1254,7 +1254,7 @@ async fn live_native_path_runs_across_medium_hard_extreme_tiers() {
         let tier = task.agentic.as_ref().map(|s| s.tier).unwrap_or_default();
         let (sandbox, cfg) = sandbox_for(&task).unwrap();
         let model = NativeToolTurn {
-        backend: crate::inference::backend::backend_kind::BackendKind::Ollama,
+        backend: crate::inference::backend::backend_kind::BackendKind::LlamaCpp,
             endpoint: "http://localhost:11434".into(),
             model: "qwen3.5:9b".into(),
             tools: task.tools.clone(),
@@ -1282,7 +1282,7 @@ async fn live_native_path_runs_across_medium_hard_extreme_tiers() {
 async fn live_web_corpus_passes_on_the_native_path() {
     // The corpus env on the NATIVE path: a native-capable model `search`es and reports the fact
     // from the top snippet → reaches the end state, and the streamed EnvView carries the ranked
-    // results (the watchable replay). Confirm `ollama show qwen3.5:9b` lists `tools` first — if
+    // results (the watchable replay). Confirm `the model registry qwen3.5:9b` lists `tools` first — if
     // not, swap in a confirmed-native model so this exercises native FC, not the prompt fallback.
     use crate::inference::eval::agentic::build::sandbox_for;
     use crate::inference::eval::agentic::difficulty::passk::max_tokens_for;
@@ -1299,7 +1299,7 @@ async fn live_web_corpus_passes_on_the_native_path() {
     let tier = task.agentic.as_ref().map(|s| s.tier).unwrap_or_default();
     let (sandbox, cfg) = sandbox_for(&task).unwrap();
     let model = NativeToolTurn {
-        backend: crate::inference::backend::backend_kind::BackendKind::Ollama,
+        backend: crate::inference::backend::backend_kind::BackendKind::LlamaCpp,
         endpoint: "http://localhost:11434".into(),
         model: "qwen3.5:9b".into(),
         tools: task.tools.clone(),
@@ -1343,7 +1343,7 @@ async fn live_web_corpus_runs_on_the_prompt_path() {
         .unwrap();
     let (sandbox, cfg) = sandbox_for(&task).unwrap();
     let model = BackendTurn {
-        backend: BackendKind::Ollama,
+        backend: BackendKind::LlamaCpp,
         endpoint: "http://localhost:11434".into(),
         model: "qwen3.5:9b".into(),
         cancel: CancellationToken::new(),
@@ -1392,7 +1392,7 @@ async fn live_web_corpus_abstains_when_doc_absent_native() {
     let tier = task.agentic.as_ref().map(|s| s.tier).unwrap_or_default();
     let (sandbox, cfg) = sandbox_for(&task).unwrap();
     let model = NativeToolTurn {
-        backend: crate::inference::backend::backend_kind::BackendKind::Ollama,
+        backend: crate::inference::backend::backend_kind::BackendKind::LlamaCpp,
         endpoint: "http://localhost:11434".into(),
         model: "qwen3.5:9b".into(),
         tools: task.tools.clone(),
@@ -1414,10 +1414,10 @@ async fn live_web_corpus_abstains_when_doc_absent_native() {
 }
 
 #[tokio::test]
-#[ignore = "hits a live Ollama on :11434 driving gemma-4-12b-it-qat through the NATIVE /api/chat tools path"]
+#[ignore = "hits a live a local server driving gemma-4-12b-it-qat through the NATIVE /api/chat tools path"]
 async fn live_gemma_native_path_gives_an_honest_verdict_not_silent_empty() {
     // The native-path wiring fix end-to-end: NativeToolTurn now surfaces the assistant
-    // `content` when Ollama parses zero tool_calls, so a mis-built model's output is given a
+    // `content` when the server parses zero tool_calls, so a mis-built model's output is given a
     // real verdict instead of collapsing to a silent empty → Hallucinated. Drives the REAL
     // /api/chat tools path. gemma-qat is nondeterministic, so we assert the INVARIANT: the run
     // gets a definite verdict, and any foreign-dialect soup in the terminal turn is flagged
@@ -1449,7 +1449,7 @@ async fn live_gemma_native_path_gives_an_honest_verdict_not_silent_empty() {
         }]),
     );
     let model = crate::inference::eval::agentic::model_turn::NativeToolTurn {
-        backend: crate::inference::backend::backend_kind::BackendKind::Ollama,
+        backend: crate::inference::backend::backend_kind::BackendKind::LlamaCpp,
         endpoint: "http://localhost:11434".into(),
         model: "gemma-4-12b-it-qat:q4_0".into(),
         tools,
@@ -1526,7 +1526,7 @@ async fn live_filesystem_env_returns_real_content_end_to_end() {
         .unwrap();
     let (sandbox, cfg) = sandbox_for(&task).unwrap();
     let model = crate::inference::eval::agentic::model_turn::BackendTurn {
-        backend: BackendKind::Ollama,
+        backend: BackendKind::LlamaCpp,
         endpoint: "http://localhost:11434".into(),
         model: "qwen2.5-coder-7b-instruct:q4_k_m".into(),
         cancel: CancellationToken::new(),
@@ -1763,7 +1763,7 @@ async fn expect_abstaining_text_passes_on_decline_fails_on_action() {
 
 #[tokio::test]
 async fn a_per_run_backend_error_does_not_abort_the_remaining_runs() {
-    // Ollama errors on attempts 1 and 3 of a k=5 batch. The OLD behaviour bailed on
+    // the server errors on attempts 1 and 3 of a k=5 batch. The OLD behaviour bailed on
     // attempt 1 (the `?`), losing attempts 2–4. Now the failing attempts are skipped
     // and runs 0, 2, 4 still complete → the report folds the 3 that ran (an infra
     // fault never reaches the denominator: total_runs is 3, not 5).
@@ -2716,7 +2716,7 @@ async fn live_web_ui_passes_on_the_native_path() {
     let tier = task.agentic.as_ref().map(|s| s.tier).unwrap_or_default();
     let (sandbox, cfg) = sandbox_for(&task).unwrap();
     let model = NativeToolTurn {
-        backend: crate::inference::backend::backend_kind::BackendKind::Ollama,
+        backend: crate::inference::backend::backend_kind::BackendKind::LlamaCpp,
         endpoint: "http://localhost:11434".into(),
         model: "qwen3.5:9b".into(),
         tools: task.tools.clone(),
@@ -2759,7 +2759,7 @@ async fn live_web_ui_runs_on_the_prompt_path() {
         .unwrap();
     let (sandbox, cfg) = sandbox_for(&task).unwrap();
     let model = BackendTurn {
-        backend: BackendKind::Ollama,
+        backend: BackendKind::LlamaCpp,
         endpoint: "http://localhost:11434".into(),
         model: "qwen3.5:9b".into(),
         cancel: CancellationToken::new(),
@@ -2799,7 +2799,7 @@ async fn live_web_ui_enable_setting_native() {
     let tier = task.agentic.as_ref().map(|s| s.tier).unwrap_or_default();
     let (sandbox, cfg) = sandbox_for(&task).unwrap();
     let model = NativeToolTurn {
-        backend: crate::inference::backend::backend_kind::BackendKind::Ollama,
+        backend: crate::inference::backend::backend_kind::BackendKind::LlamaCpp,
         endpoint: "http://localhost:11434".into(),
         model: "qwen3.5:9b".into(),
         tools: task.tools.clone(),
@@ -2830,7 +2830,7 @@ async fn live_web_ui_enable_setting_prompt() {
     let task = load_v2_collection(v2_json("easy-webui-tasks").unwrap()).unwrap().into_iter().find(|t| t.id == "es_wu_enable_setting").unwrap();
     let (sandbox, cfg) = sandbox_for(&task).unwrap();
     let model = BackendTurn {
-        backend: BackendKind::Ollama,
+        backend: BackendKind::LlamaCpp,
         endpoint: "http://localhost:11434".into(),
         model: "qwen3.5:9b".into(),
         cancel: CancellationToken::new(),
@@ -2879,7 +2879,7 @@ async fn live_edited_world_state_reaches_the_model() {
     let tier = task.agentic.as_ref().map(|s| s.tier).unwrap_or_default();
     let (sandbox, cfg) = sandbox_for(&task).unwrap();
     let model = NativeToolTurn {
-        backend: crate::inference::backend::backend_kind::BackendKind::Ollama,
+        backend: crate::inference::backend::backend_kind::BackendKind::LlamaCpp,
         endpoint: "http://localhost:11434".into(),
         model: "qwen3.5:9b".into(),
         tools: task.tools.clone(),

@@ -27,7 +27,7 @@ pub struct Delta {
     pub content: Option<String>,
     /// A reasoning model's thinking stream, delivered in a separate field (NOT `content`). The field
     /// name differs by server: mlx_lm.server (≥0.31) uses `reasoning`; vLLM/SGLang reasoning parsers
-    /// use `reasoning_content` — accept both via alias. (Ollama uses `thinking` on its native `/api`
+    /// use `reasoning_content` — accept both via alias. (the server uses `thinking` on its native `/api`
     /// path, handled separately.) When a `has_thinking` model reasons, this carries the scratchpad
     /// and `content` holds only the answer. Captured and re-wrapped as inline `<think>…</think>` so
     /// `strip_think` + D9 accounting handle every backend identically.

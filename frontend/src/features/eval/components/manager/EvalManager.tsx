@@ -18,7 +18,6 @@ import {
   type ToolTask,
   type CollectionValidation,
 } from "../../../../shared/ipc/eval/registry";
-import { ollamaModelPlacement } from "../../../../shared/ipc/models/ollama_start";
 import { THINK_PRESET_TOKENS, type ThinkPreset } from "../../../../shared/ipc/eval/batch";
 import type { Tier } from "../../../../shared/ipc/eval/readiness";
 import type { HardwareTier } from "../../../../shared/ipc/compare/hardware";
@@ -87,7 +86,7 @@ export function EvalManager({
   const showToast = useToast();
   const list = useInstalledModelsStore((s) => s.list);
   // The eval runs ONE model from the GLOBAL selection (single source of truth) — the
-  // header's multi (Ollama) / single (llama.cpp/MLX) picker. No per-page model list.
+  // header's model picker. No per-page model list.
   const selectedModels = useSelectedModelStore((s) => s.selectedModels);
   const cliParams = useParamsStore((s) => s.globalParams); // for the equivalent-CLI-command preview
   const running = useBatchStore((s) => s.running);
@@ -118,11 +117,10 @@ export function EvalManager({
   // Offline oracle validation of the selected collection ("does my answer key work?").
   const [validating, setValidating] = useState(false);
   const [validation, setValidation] = useState<CollectionValidation | null>(null);
-  // "Running on CPU (slower)" notice — set while an Ollama run is offloaded to system RAM.
-  const [cpuNotice, setCpuNotice] = useState<string | null>(null);
+  
   // Calling method(s) to measure — pick either or both (at least one). Tool-Calling (native)
   // is the DEFAULT; Prompt-based (JSON-in-text proxy) is opt-in. Native follows the running
-  // backend (Ollama /api/chat, llama.cpp /v1/chat/completions with --jinja); N/A for MLX /
+  // backend (llama.cpp /v1/chat/completions with --jinja); N/A for
   // no-`tools` models.
   const [nativeFc, setNativeFc] = useState(true); // Tool-Calling (native)
   const [promptBased, setPromptBased] = useState(false); // Prompt-based proxy
@@ -130,7 +128,7 @@ export function EvalManager({
   // reproducible. Drives the reasoning scratchpad budget; verdicts are labeled with it.
   const [thinkPreset, setThinkPreset] = useState<ThinkPreset>("standard");
   // The running backend drives which native tool API is used; the UI says so for
-  // llama.cpp (jinja templating) while leaving the Ollama view unchanged.
+  // llama.cpp (jinja templating).
   const selectedBackend = useBackendStore((s) => s.selectedBackend);
 
   const handleCsvImport = async (name: string, csvTasks: ToolTask[]) => {
@@ -174,32 +172,6 @@ export function EvalManager({
   useEffect(() => {
     setValidation(null);
   }, [selected]);
-
-  // While an Ollama run is active, poll where the model landed (VRAM vs CPU). Ollama loads the
-  // model on the first request, so we poll (not one-shot) to catch a CPU spill once it's
-  // resident — then show "running on CPU (slower)". Cleared when the run ends or the backend
-  // isn't Ollama (llama.cpp/MLX report no placement).
-  useEffect(() => {
-    if (!running || selectedBackend !== "ollama" || !model) {
-      setCpuNotice(null);
-      return;
-    }
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const placement = await ollamaModelPlacement(model);
-        if (!cancelled) setCpuNotice(placement?.on_cpu ? (placement.note ?? "Running on CPU (slower).") : null);
-      } catch {
-        /* best-effort — a probe failure just leaves the notice as-is */
-      }
-    };
-    void poll();
-    const id = setInterval(() => void poll(), 5000);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [running, selectedBackend, model]);
 
   const handleDataSourceChange = async (source: "custom" | "builtin" | "mcp") => {
     setError(null);
@@ -316,7 +288,7 @@ export function EvalManager({
       await stop();
       return;
     }
-    // Resolve the header model within the selected set, tolerating an Ollama `:latest` tag
+    // Resolve the header model within the selected set, tolerating a `:latest` tag
     // mismatch ("phi3.5" vs a "phi3.5:latest" entry, or vice versa) the same way the
     // loaded-model lookup does. An exact `===` would let a stale/mismatched selection (e.g.
     // just after switching backend) SILENTLY no-op the Run Batch button — a dead click with
@@ -621,7 +593,7 @@ export function EvalManager({
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }} data-testid="eval-calling-method">
             <span style={controlLabelStyle}>Calling method:</span>
             <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 12, color: "#334155", fontFamily: "Inter, sans-serif" }}
-              title="Run the model through its backend's NATIVE tool_calls API — Ollama /api/chat or llama.cpp /v1/chat/completions (with --jinja). N/A for MLX / no-`tools` models.">
+              title="Run the model through its backend's NATIVE tool_calls API — the OpenAI /v1/chat/completions tool wire (llama.cpp needs --jinja). N/A for models whose template carries no tool grammar.">
               <input type="checkbox" checked={nativeFc} onChange={(e) => setNativeFc(e.target.checked)} data-testid="eval-method-native" />
               Tool-Calling (native) <span style={{ color: "#94a3b8" }}>· default</span>
             </label>
@@ -977,7 +949,7 @@ export function EvalManager({
             <CliCommandPreview
               testId="eval-cli-preview"
               cmd={buildRunCommand({
-                backend: selectedModels.find((m) => m.name === model)?.backend ?? selectedModels[0]?.backend ?? "ollama",
+                backend: selectedModels.find((m) => m.name === model)?.backend ?? selectedModels[0]?.backend ?? "llama_cpp",
                 model: model || null,
                 collection: selected,
                 isCustom: !isPreset(selected),
@@ -1002,15 +974,6 @@ export function EvalManager({
               </div>
             )
           )}
-          {running && cpuNotice && (
-            <div
-              style={{ fontSize: 11, color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 6, padding: "6px 10px", fontFamily: "Inter, sans-serif" }}
-              data-testid="eval-cpu-notice"
-            >
-              🖥️ {cpuNotice}
-            </div>
-          )}
-
           <button
             type="button"
             onClick={handleExport}

@@ -75,7 +75,7 @@ impl BatchSink for DiagSink {
 }
 
 fn target(model: &str) -> ModelTarget {
-    ModelTarget { model: model.into(), backend: BackendKind::Ollama, is_thinking: false }
+    ModelTarget { model: model.into(), backend: BackendKind::LlamaCpp, is_thinking: false }
 }
 
 fn tool(name: &str) -> ToolSchema {
@@ -243,7 +243,7 @@ async fn native_errored_tasks_are_counted_and_labeled_not_silently_dropped() {
         CancellationToken::new(),
         |_model, task| {
             let err = match task.id.as_str() {
-                "a_infra" => Some("chat HTTP 500: ollama out of memory".to_string()),
+                "a_infra" => Some("chat HTTP 500: server out of memory".to_string()),
                 "a_schema" => Some("chat HTTP 400: tools not supported".to_string()),
                 _ => None,
             };
@@ -271,8 +271,8 @@ fn native_error_classification_keeps_host_and_schema_labels_distinct() {
     // A 4xx is the native path rejecting the tool schema (a real "can't run native");
     // everything else is infra/host and must NEVER read as model incapability.
     assert_eq!(classify_native_error("chat HTTP 400: tools not supported"), NativeErrorClass::SchemaRejected);
-    assert_eq!(classify_native_error("chat HTTP 500: ollama out of memory"), NativeErrorClass::InfraHost);
-    assert_eq!(classify_native_error("connect to Ollama: connection refused"), NativeErrorClass::InfraHost);
+    assert_eq!(classify_native_error("chat HTTP 500: server out of memory"), NativeErrorClass::InfraHost);
+    assert_eq!(classify_native_error("connect to the server: connection refused"), NativeErrorClass::InfraHost);
     // The two never silently collapse — mixing distinct classes yields Mixed, not a merge.
     assert_eq!(merge_error_class(NativeErrorClass::InfraHost, NativeErrorClass::SchemaRejected), NativeErrorClass::Mixed);
     assert_eq!(merge_error_class(NativeErrorClass::None, NativeErrorClass::SchemaRejected), NativeErrorClass::SchemaRejected);
@@ -360,7 +360,7 @@ fn fold_report_rebuilds_a_partial_from_completed_prompt_and_native_units() {
 
 #[tokio::test]
 async fn vram_gate_error_halts_the_run_with_records_already_appended() {
-    let targets = vec![target("m1"), target("m2")]; // both Ollama → a model switch
+    let targets = vec![target("m1"), target("m2")]; // both the server → a model switch
     let tasks = vec![agentic_task("a1", 1)];
     let sink = Arc::new(CountingSink::default());
     let recorded: Arc<StdMutex<Vec<String>>> = Arc::new(StdMutex::new(Vec::new()));
@@ -779,144 +779,14 @@ async fn warms_up_each_model_once_before_its_first_scored_task() {
         assert!(warm < first_run, "{m}: warm_up must precede the first scored run");
     }
 }
-
-#[test]
-fn ollama_version_makes_a_native_garble_diagnosable_on_the_report() {
-    // Closes the Gap-C loop: a garbled native run (ForeignDialect) AND the Ollama version
-    // coexist on the report, so a native tool-calling regression on a version bump reads as
-    // "garbled at Ollama vX" — diagnosable, never a silent zero. Survives the serde round-trip
-    // the saved/published report uses.
-    use crate::inference::eval::agentic::scoring::report::{FailureTracker, TopError};
-    let garbled = AggAgentic {
-        tasks_passed: 0,
-        tasks_total: 1,
-        passes: 0,
-        total_runs: 1,
-        avg_steps: None,
-        avg_output_tokens_success: None,
-        schema_resilience: None,
-        top_error: TopError::ForeignDialect,
-        failures: FailureTracker { foreign_dialect_calls: 1, ..Default::default() },
-        by_tier: vec![],
-        tasks_errored: 0,
-        native_error_class: Default::default(),
-        boundary: None,
-        tokens_per_completed: None,
-            diagnostic: None,
-            native_structured_calls: None,
-            native_salvaged_calls: None,
-    };
-    let report = BatchReport {
-        collection_id: "c".into(),
-        num_ctx: None,
-        ollama_version: Some("0.11.10".into()),
-        collection_hash: None,
-        think_preset: None,
-        params: None,
-        columns: vec![BatchColumn {
-            model: "qwen3".into(),
-            backend: BackendKind::Ollama,
-            toolcall: None,
-            agentic: None,
-            agentic_native_fc: Some(garbled),
-            error: None,
-            is_thinking: false,
-            cpu_offloaded: false,
-            ctx_ceiling: None,
-            ..Default::default()
-        }],
-    };
-    let round: BatchReport = serde_json::from_str(&serde_json::to_string(&report).unwrap()).unwrap();
-    // Both signals present together → the regression is diagnosable.
-    assert_eq!(round.ollama_version.as_deref(), Some("0.11.10"));
-    let native = round.columns[0].agentic_native_fc.as_ref().unwrap();
-    assert_eq!(native.top_error, TopError::ForeignDialect);
-    assert_eq!(native.failures.foreign_dialect_calls, 1);
-}
-
-#[tokio::test]
-#[ignore = "DIAG: replicate the app's native pass for gemma4 — probe + run_native_fc_pass + streaming"]
-async fn live_diag_app_native_pass_for_gemma4() {
-    use crate::inference::eval::agentic::model_turn::NativeToolTurn;
-    use crate::inference::eval::agentic::sandbox::EndStateRule as ESR;
-    use crate::inference::eval::agentic::v2::collection::load_v2_collection;
-    use crate::inference::eval::agentic::v2::scenarios::v2_json;
-    use crate::inference::eval::toolcall::prompt::TerminalGuidance;
-    use crate::inference::ollama::ollama_show::probe_supports_tools;
-
-    const GEMMA: &str = "gemma-4-12b-it-qat:q4_0";
-    let endpoint = "http://localhost:11434";
-
-    // 1) Probe — exactly what batch_cmd does to build the `supported` set.
-    let supports = probe_supports_tools(endpoint, GEMMA).await;
-    eprintln!("STEP probe_supports_tools({GEMMA}) = {supports}");
-    let supported: std::collections::HashSet<String> =
-        if supports { [GEMMA.to_string()].into_iter().collect() } else { Default::default() };
-
-    // One fast reporter-tool task.
-    let tasks: Vec<ToolTask> = load_v2_collection(v2_json("easy-coding").unwrap())
-        .unwrap()
-        .into_iter()
-        .filter(|t| t.id == "es_co_run_failing_test")
-        .collect();
-
-    // A report with a gemma4 Ollama column (as the prompt pass would leave it).
-    let mut report = BatchReport {
-        collection_id: "easy-coding".into(),
-        num_ctx: None,
-        ollama_version: None,
-        collection_hash: None,
-        think_preset: None,
-        params: None,
-        columns: vec![BatchColumn {
-            model: GEMMA.into(),
-            backend: BackendKind::Ollama,
-            toolcall: None,
-            agentic: None,
-            agentic_native_fc: None,
-            error: None,
-            is_thinking: false,
-            cpu_offloaded: false,
-            ctx_ceiling: None,
-            ..Default::default()
-        }],
-    };
-    let sink = Arc::new(CountingSink::default());
-    run_native_fc_pass(
-        &mut report,
-        &tasks,
-        &supported,
-        CancellationToken::new(),
-        |model, task| {
-            let terminal = match task.agentic.as_ref().map(|s| &s.end_state) {
-                Some(ESR::RequireAll(_)) | Some(ESR::RequireSequence(_)) => TerminalGuidance::MustUseTools,
-                _ => TerminalGuidance::PlainTextOk,
-            };
-            NativeToolTurn { backend: BackendKind::Ollama, endpoint: endpoint.to_string(), model: model.to_string(), tools: task.tools.clone(), options: None, terminal, max_tokens: 256, is_thinking: false }
-        },
-        &[],
-        &|_| {},
-        &NoVramGate,
-        sink.clone(),
-        1,
-    )
-    .await
-    .unwrap();
-
-    let col = &report.columns[0];
-    eprintln!("STEP agentic_native_fc = {:?}", col.agentic_native_fc);
-    eprintln!("STEP native_turns streamed = {}", *sink.native_turns.lock().unwrap());
-    eprintln!("(N/A in the matrix means agentic_native_fc is None or total_runs==0 → all errored)");
-}
-
-// ── Category K: LIVE boundary run against a real Ollama model (rule 6) ────────────
-// Ignored by default (needs Ollama on :11434 + the model pulled). Run with:
+// ── Category K: LIVE boundary run against a real model (rule 6) ────────────
+// Ignored by default (needs a local server + the model pulled). Run with:
 //   cargo test --lib category_k_live_boundary_run -- --ignored --nocapture
 // Set QM_LIVE_MODEL / QM_LIVE_COLLECTION to try another model / domain. Prints the
 // real BoundaryReport so resistance / over-refusal / attribution / gate can be
 // inspected against the trace.
 #[tokio::test]
-#[ignore = "live: requires a running Ollama server and a pulled model"]
+#[ignore = "live: requires a running local server and a pulled model"]
 async fn category_k_live_boundary_run() {
     use crate::inference::eval::agentic::v2::collection::load_v2_collection;
     use crate::inference::eval::agentic::v2::scenarios::v2_json;
@@ -925,10 +795,10 @@ async fn category_k_live_boundary_run() {
     let collection = std::env::var("QM_LIVE_COLLECTION").unwrap_or_else(|_| "boundary-coding".into());
     let tasks = load_v2_collection(v2_json(&collection).unwrap()).unwrap();
 
-    let targets = vec![ModelTarget { model: model.clone(), backend: BackendKind::Ollama, is_thinking: false }];
+    let targets = vec![ModelTarget { model: model.clone(), backend: BackendKind::LlamaCpp, is_thinking: false }];
     let sink = Arc::new(CountingSink::default());
     let make = move |t: &ModelTarget| BackendTurn {
-        backend: BackendKind::Ollama,
+        backend: BackendKind::LlamaCpp,
         endpoint: "http://localhost:11434".into(),
         model: t.model.clone(),
         cancel: CancellationToken::new(),
@@ -975,7 +845,7 @@ async fn category_k_live_boundary_run() {
 // content, is the end-to-end proof the config verdict tracks real window pressure.
 //   cargo test --lib category_k_live_guard_truncation_proof -- --ignored --nocapture
 #[tokio::test]
-#[ignore = "live: requires a running Ollama server and a pulled model"]
+#[ignore = "live: requires a running local server and a pulled model"]
 async fn category_k_live_guard_truncation_proof() {
     use crate::inference::eval::agentic::v2::collection::load_v2_collection;
     use crate::inference::eval::agentic::v2::scenarios::v2_json;
@@ -997,7 +867,7 @@ async fn category_k_live_guard_truncation_proof() {
         let sink = Arc::new(DiagSink::default());
         let ceil = ceiling;
         let make = move |t: &ModelTarget| BackendTurn {
-            backend: BackendKind::Ollama,
+            backend: BackendKind::LlamaCpp,
             endpoint: "http://localhost:11434".into(),
             model: t.model.clone(),
             cancel: CancellationToken::new(),
@@ -1009,7 +879,7 @@ async fn category_k_live_guard_truncation_proof() {
             ctx_ceiling: ceil,
             stop_cache: Default::default(),
         };
-        let targets = vec![ModelTarget { model: model.into(), backend: BackendKind::Ollama, is_thinking: false }];
+        let targets = vec![ModelTarget { model: model.into(), backend: BackendKind::LlamaCpp, is_thinking: false }];
         let report = run_batch("boundary-context-squeeze", &targets, tasks, CancellationToken::new(), sink.clone(), make).await.unwrap();
         let a = report.columns[0].agentic.as_ref().and_then(|g| g.boundary.as_ref()).map(|b| b.attribution).unwrap_or_default();
         println!("  [ceiling={ceiling}] steps for {model}:");
@@ -1034,21 +904,21 @@ async fn category_k_live_guard_truncation_proof() {
 
 // ── Feature A + B: LIVE payload-noise extraction + Tokens/Task (rule 6) ───────────
 //   cargo test --lib noisy_extraction_live -- --ignored --nocapture
-// Runs the noisy-extraction collection against a real Ollama model. Confirms the getter
+// Runs the noisy-extraction collection against a real model. Confirms the getter
 // returns the messy envelope (`data`/`_meta`/pagination) the model must dig the field out
 // of, and prints Effort vs Tokens/Task (T*) so the amortized cost is visible on a real run.
 #[tokio::test]
-#[ignore = "live: requires a running Ollama server and a pulled model"]
+#[ignore = "live: requires a running local server and a pulled model"]
 async fn noisy_extraction_live() {
     use crate::inference::eval::agentic::v2::collection::load_v2_collection;
     use crate::inference::eval::agentic::v2::scenarios::v2_json;
 
     let model = std::env::var("QM_LIVE_MODEL").unwrap_or_else(|_| "qwen2.5-coder-7b-instruct:q4_k_m".into());
     let tasks = load_v2_collection(v2_json("noisy-extraction").unwrap()).unwrap();
-    let targets = vec![ModelTarget { model: model.clone(), backend: BackendKind::Ollama, is_thinking: false }];
+    let targets = vec![ModelTarget { model: model.clone(), backend: BackendKind::LlamaCpp, is_thinking: false }];
     let sink = Arc::new(DiagSink::default());
     let make = move |t: &ModelTarget| BackendTurn {
-        backend: BackendKind::Ollama,
+        backend: BackendKind::LlamaCpp,
         endpoint: "http://localhost:11434".into(),
         model: t.model.clone(),
         cancel: CancellationToken::new(),
@@ -1127,7 +997,7 @@ impl BatchSink for SchemaWatchSink {
 }
 
 #[tokio::test]
-#[ignore = "live: requires a running Ollama server with the model pulled"]
+#[ignore = "live: requires a running local server with the model pulled"]
 async fn schema_resil_live_none_iff_zero_schema_errors() {
     use crate::inference::eval::agentic::v2::collection::load_v2_collection;
     use crate::inference::eval::agentic::v2::scenarios::v2_json;
@@ -1140,13 +1010,13 @@ async fn schema_resil_live_none_iff_zero_schema_errors() {
     let tasks = load_v2_collection(v2_json(&collection).unwrap()).unwrap();
     let endpoint = "http://127.0.0.1:11434".to_string();
 
-    let targets = vec![ModelTarget { model: model.clone(), backend: BackendKind::Ollama, is_thinking: false }];
+    let targets = vec![ModelTarget { model: model.clone(), backend: BackendKind::LlamaCpp, is_thinking: false }];
     let sink = Arc::new(SchemaWatchSink::default());
 
     // Prompt pass (populates `.agentic`, method "Prompt-based").
     let ep = endpoint.clone();
     let make = move |t: &ModelTarget| BackendTurn {
-        backend: BackendKind::Ollama,
+        backend: BackendKind::LlamaCpp,
         endpoint: ep.clone(),
         model: t.model.clone(),
         cancel: CancellationToken::new(),
@@ -1166,7 +1036,7 @@ async fn schema_resil_live_none_iff_zero_schema_errors() {
     let supported: std::collections::HashSet<String> = [model.clone()].into_iter().collect();
     let ep2 = endpoint.clone();
     let make_native = move |m: &str, task: &ToolTask| NativeToolTurn {
-        backend: BackendKind::Ollama,
+        backend: BackendKind::LlamaCpp,
         endpoint: ep2.clone(),
         model: m.to_string(),
         tools: task.tools.clone(),
@@ -1233,12 +1103,12 @@ fn wall_ms_is_stamped_by_the_builder_never_fabricated() {
 
 // Run: QM_LIVE_MODEL=qwen2.5:3b cargo test --lib turn_costs_live -- --ignored --nocapture
 // Rule-6 live check for the Inspector Test-run link: drives ONE agentic task (k=1) against a
-// real Ollama and inspects the ACTUAL per-turn cost fields the runner now keeps — the exact
+// real the server and inspects the ACTUAL per-turn cost fields the runner now keeps — the exact
 // acceptance criteria from the plan: eval_ms/total_ms/output_tokens Some on every real turn,
-// cache_n None on Ollama (issue #8008 — must render "Not available"), wall_ms stamped on the
-// per-task report, and backend_rss(Ollama) measurable while the server runs.
+// cache_n None on some backends (issue #8008 — must render "Not available"), wall_ms stamped on the
+// per-task report, and backend_rss measurable while the server runs.
 #[tokio::test]
-#[ignore = "live: requires a running Ollama server and a pulled model"]
+#[ignore = "live: requires a running local server and a pulled model"]
 async fn turn_costs_live() {
     use crate::inference::eval::agentic::v2::collection::load_v2_collection;
     use crate::inference::eval::agentic::v2::scenarios::v2_json;
@@ -1267,10 +1137,10 @@ async fn turn_costs_live() {
         a.k = Some(1);
         a.max_steps = Some(4);
     }
-    let targets = vec![ModelTarget { model: model.clone(), backend: BackendKind::Ollama, is_thinking: false }];
+    let targets = vec![ModelTarget { model: model.clone(), backend: BackendKind::LlamaCpp, is_thinking: false }];
     let sink = Arc::new(CostSink::default());
     let make = move |t: &ModelTarget| BackendTurn {
-        backend: BackendKind::Ollama,
+        backend: BackendKind::LlamaCpp,
         endpoint: "http://localhost:11434".into(),
         model: t.model.clone(),
         cancel: CancellationToken::new(),
@@ -1295,15 +1165,15 @@ async fn turn_costs_live() {
         );
     }
     // Every REAL model turn (one with a prefill) must now carry the decode/total/output
-    // fields the runner used to discard — and cache_n must stay None on Ollama (honesty:
+    // fields the runner used to discard — and cache_n must stay None on some backends (honesty:
     // the UI renders "Not available", never a fabricated number).
     let real: Vec<_> = steps.iter().filter(|s| s.prefill_tokens.is_some()).collect();
     assert!(!real.is_empty(), "at least one turn must carry server stats");
     for s in &real {
-        assert!(s.eval_ms.is_some(), "Ollama reports eval_duration — must not be dropped");
-        assert!(s.total_ms.is_some(), "Ollama reports total_duration — must not be dropped");
+        assert!(s.eval_ms.is_some(), "some servers report eval_duration — must not be dropped");
+        assert!(s.total_ms.is_some(), "some servers report total_duration — must not be dropped");
         assert!(s.output_tokens.is_some(), "eval_count must be carried for every model");
-        assert!(s.cache_n.is_none(), "Ollama reports no cache count (ollama#8008) — never fabricate one");
+        assert!(s.cache_n.is_none(), "some servers report no cache count (the server#8008) — never fabricate one");
     }
     // The per-task report carries the measured whole-batch wall clock.
     let outcomes = sink.outcomes.lock().unwrap().clone();
@@ -1315,16 +1185,16 @@ async fn turn_costs_live() {
     assert!(wall.is_some_and(|w| w > 0), "wall_ms must be stamped on the task report");
     // The sink-side RSS probe is measurable while the server runs (the Tauri sink stamps
     // this per step; here we prove the probe itself against the live process).
-    let rss = crate::commands::system::process_memory::backend_rss(BackendKind::Ollama);
-    println!("  ollama RSS now: {rss:?}");
-    assert!(rss.is_some_and(|b| b > 0), "a running Ollama must yield a positive RSS sample");
+    let rss = crate::commands::system::process_memory::backend_rss(BackendKind::LlamaCpp);
+    println!("  the server RSS now: {rss:?}");
+    assert!(rss.is_some_and(|b| b > 0), "a running the server must yield a positive RSS sample");
 }
 
 // Run: cargo test --lib turn_costs_live_llama -- --ignored --nocapture
 // The llama.cpp arm of the rule-6 live check: same one-task run against llama-server
 // (:8081, --jinja). The cache-truth acceptance criterion INVERTS here: llama.cpp's
 // `timings` reports `cache_n` on every turn, so real turns must carry Some — the same
-// UI that says "Not available" on Ollama shows measured cache hits here.
+// UI that says "Not available" on some backends shows measured cache hits here.
 #[tokio::test]
 #[ignore = "live: requires llama-server on :8081 (--jinja) with a model loaded"]
 async fn turn_costs_live_llama() {
@@ -1401,7 +1271,7 @@ async fn turn_costs_live_llama() {
 // STRICTLY below `output_tokens` on a completed turn (the answer tail + channel markers
 // account for the gap — reconciled live at ~3 tokens/turn). This is the no-fake-metrics
 // acceptance: the split comes from /tokenize over the reasoning channel, never from
-// chunk counting (chunks ≠ tokens, proven on Ollama: 228 chunks vs eval_count 300).
+// chunk counting (chunks ≠ tokens, proven on some backends: 228 chunks vs eval_count 300).
 #[tokio::test]
 #[ignore = "live: requires llama-server on :8081 (--jinja) with a reasoning model loaded"]
 async fn turn_costs_live_llama_thinking() {

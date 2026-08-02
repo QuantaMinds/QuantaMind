@@ -103,7 +103,7 @@ export function useStreamingRun() {
         if (trimmed) args.system = trimmed;
         if (hasParam(params)) args.params = params;
         args.backend = useBackendStore.getState().selectedBackend;
-        // Keep loaded → Ollama keep_alive=-1 (resident). Off → omit it so Ollama's
+        // Keep loaded → keep_alive=-1 (resident). Off → omit it so the server's
         // default idle-unload applies: the model lingers (and stays inspectable in
         // the Inspector) for a few minutes, then frees memory. Sending 0 would
         // unload instantly and leave nothing for the Inspector to read.

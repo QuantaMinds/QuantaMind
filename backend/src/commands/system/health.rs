@@ -2,9 +2,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
-#[cfg(feature = "gui")]
-const DEFAULT_OLLAMA: &str = "http://localhost:11434";
-// 2500ms gives room for Ollama to respond while it's busy loading a
+// 2500ms gives room for the server to respond while it's busy loading a
 // large model (which routinely pushes the response past 800ms). A
 // genuinely down server still fails fast via "Connection refused", so
 // the larger budget only kicks in on real load events, not for outage
@@ -38,10 +36,4 @@ pub async fn probe_health(endpoint: &str) -> HealthStatus {
         Ok(v) => HealthStatus { available: true, version: Some(v.version) },
         Err(_) => HealthStatus { available: true, version: None },
     }
-}
-
-#[cfg(feature = "gui")]
-#[tauri::command]
-pub async fn check_ollama_health() -> HealthStatus {
-    probe_health(DEFAULT_OLLAMA).await
 }
