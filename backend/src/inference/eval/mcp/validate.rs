@@ -57,6 +57,25 @@ pub fn static_world_findings(spec: &McpSpec) -> Vec<String> {
                     out.push(format!("seed path '{}' must be relative with no '..' (it would escape the sandbox)", redact_path(rel)));
                 }
             }
+            // Oracle paths need the SAME guard, and did not have it. `FsOracle::grade`
+            // does a raw `root.join(p)`, and `Path::join` with an ABSOLUTE path discards
+            // the root entirely — so `assert_present: ["/etc/passwd"]` passed on every
+            // Unix machine no matter what the agent did. That is a vacuous assertion
+            // that silently reads the host filesystem instead of the sandbox; `..`
+            // traversal escapes the same way.
+            let oracle_paths = oracle
+                .assert_present
+                .iter()
+                .chain(oracle.assert_absent.iter())
+                .chain(oracle.assert_content.iter().map(|(p, _)| p));
+            for p in oracle_paths {
+                if crate::inference::eval::mcp::world::is_unsafe_seed_path(p) {
+                    out.push(format!(
+                        "oracle path '{}' must be relative with no '..' (it would escape the sandbox and grade the host filesystem)",
+                        redact_path(p)
+                    ));
+                }
+            }
         }
         McpSpec::Db { seed: _, oracle } => {
             // An empty setup_sql is deliberately NOT a finding: "model creates the
@@ -64,9 +83,72 @@ pub fn static_world_findings(spec: &McpSpec) -> Vec<String> {
             if oracle.assert_contains.is_empty() && oracle.assert_eq.is_empty() {
                 out.push("vacuous oracle: no assertions at all — every run would pass regardless of what the model does".into());
             }
+            for (q, _) in oracle.assert_eq.iter().chain(oracle.assert_contains.iter()) {
+                if !is_read_only_query(q) {
+                    out.push(format!(
+                        "oracle query must be a read: '{}' — a mutating oracle CREATES the state it claims to check, so it can never fail",
+                        redact_path(q)
+                    ));
+                }
+            }
         }
     }
     out
+}
+
+/// True when a query only *reads*. Deliberately conservative: strips leading
+/// whitespace and `--`/`/* */` comments, then requires the first keyword to be
+/// `SELECT` or `WITH` (a CTE that ends in a SELECT is a legitimate read).
+///
+/// Anything else is rejected because a mutating "oracle" is self-fulfilling —
+/// grading would produce the very state it claims to be checking, so the task
+/// could never fail. That is the same class of defect as the vacuous oracle
+/// above, which is why this is an Error and not a warning.
+fn is_read_only_query(q: &str) -> bool {
+    let mut s = q.trim_start();
+    // Strip any run of leading comments.
+    loop {
+        if let Some(rest) = s.strip_prefix("--") {
+            s = rest.split_once('\n').map(|(_, r)| r).unwrap_or("").trim_start();
+        } else if let Some(rest) = s.strip_prefix("/*") {
+            s = rest.split_once("*/").map(|(_, r)| r).unwrap_or("").trim_start();
+        } else {
+            break;
+        }
+    }
+    let head: String = s.chars().take_while(|c| c.is_ascii_alphabetic()).collect();
+    head.eq_ignore_ascii_case("select") || head.eq_ignore_ascii_case("with")
+}
+
+/// The machine deps an **oracle** needs — `sqlite3` for Db worlds, and nothing
+/// else. Split out from [`world_deps_missing`] because that one demands `npx`
+/// unconditionally (every MCP world spawns a Node server), which would force a
+/// Node install on callers that only seed and grade a world without ever
+/// spawning one. Returns the user-facing fix, or `None` when the machine is ready.
+pub fn oracle_deps_missing(specs: &[&McpSpec]) -> Option<String> {
+    if !specs.iter().any(|s| matches!(s, McpSpec::Db { .. })) {
+        return None;
+    }
+    if have_bin("sqlite3") {
+        return None;
+    }
+    Some(
+        "missing: sqlite3 (macOS: preinstalled/brew install sqlite · Linux: apt install sqlite3 · Windows: sqlite.org/download)"
+            .into(),
+    )
+}
+
+/// Probe for an executable. Via `Host::command` per the repo's
+/// disallowed-`Command::new` lint (applies CREATE_NO_WINDOW so a probe never
+/// flashes a console on Windows).
+fn have_bin(bin: &str) -> bool {
+    use crate::os::{EngineHost, Host};
+    Host::command(bin)
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok()
 }
 
 /// Spawn the real world and run the do-nothing check. A spawn failure is reported
@@ -92,22 +174,11 @@ pub fn world_deps_missing(specs: &[&McpSpec]) -> Option<String> {
     if specs.is_empty() {
         return None;
     }
-    use crate::os::{EngineHost, Host};
-    let have = |bin: &str| {
-        // Via `Host::command` per the repo's disallowed-`Command::new` lint
-        // (applies CREATE_NO_WINDOW so a probe never flashes a console on Windows).
-        Host::command(bin)
-            .arg("--version")
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .is_ok()
-    };
     let mut missing = Vec::new();
-    if !have("npx") {
+    if !have_bin("npx") {
         missing.push("npx (install Node.js — https://nodejs.org)");
     }
-    if specs.iter().any(|s| matches!(s, McpSpec::Db { .. })) && !have("sqlite3") {
+    if specs.iter().any(|s| matches!(s, McpSpec::Db { .. })) && !have_bin("sqlite3") {
         missing.push("sqlite3 (macOS: preinstalled/brew install sqlite · Linux: apt install sqlite3 · Windows: sqlite.org/download)");
     }
     if missing.is_empty() {

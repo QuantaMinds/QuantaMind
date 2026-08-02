@@ -549,8 +549,20 @@ What it proves, per task:
   to ship "Verified" after unsolvable tasks poisoned results. A task a do-nothing agent passes proves
   nothing.
 - **world checks (MCP tasks)** — static: vacuous oracle (asserts nothing), contradictory oracle
-  (present ∩ absent), escaping/absolute seed paths; **live** (default, needs `npx`): spawn the REAL
-  world, then grade the oracle against the untouched seed — it must fail, or the world is vacuous.
+  (present ∩ absent), escaping/absolute **seed** paths, escaping/absolute **oracle** paths, and
+  mutating oracle queries; **live** (default, needs `npx`): spawn the REAL world, then grade the
+  oracle against the untouched seed — it must fail, or the world is vacuous.
+
+  The last two are subtle and both make a task **silently unfailable**:
+
+  - An oracle path like `/etc/passwd` or `../../etc/passwd` escapes the sandbox — `FsOracle::grade`
+    joins onto the world root, and joining an *absolute* path discards that root entirely, so the
+    assertion grades the **host filesystem** and passes on every machine regardless of what the
+    agent did. Seed paths were already guarded; oracle paths were not.
+  - An oracle query that isn't a read (`INSERT`, `UPDATE`, `DELETE`, `DROP`, `PRAGMA`) is
+    **self-fulfilling**: grading creates the very state it claims to check, so the task can never
+    fail. `SELECT` and `WITH` (a CTE ending in a SELECT) are accepted, after leading whitespace and
+    `--` / `/* */` comments are stripped.
 
 **Exit:** `0` valid · `10` warnings only · `20` invalid (fix the ✗ findings) · `11` worlds couldn't be
 live-checked (npx/sqlite3 missing — install hint printed) · `2` bad file.
