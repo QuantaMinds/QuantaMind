@@ -34,17 +34,17 @@ export const REFERENCE_SECTIONS: ReferenceSection[] = [
     blocks: [
       {
         id: "first-run",
-        heading: "First run — getting Ollama up",
-        what: "On a fresh machine the model dropdown is replaced by an “Ollama is not running” card. On macOS this card offers Start Ollama and Install Ollama buttons; on Windows and Linux it offers Check again and Install Ollama instead.",
-        why: "QuantaMind doesn’t ship its own model runtime — it drives Ollama, a local server, so your models and weights stay on your machine and nothing is sent to the cloud. Auto-launching that server is currently only implemented on macOS.",
-        how: "On macOS, “Start Ollama” launches the server in the background (it keeps running after you quit QuantaMind). On Windows/Linux, start Ollama yourself (the Ollama app, or `ollama serve` in a terminal) and click Check again. “Install Ollama” opens ollama.com/download on any OS. Once it’s up, the Models tab lets you pull a model — try llama3.2:1b (~700 MB) for a quick first run.",
+        heading: "First run — starting the server",
+        what: "On a fresh machine the run surface is replaced by a setup guide with a card per engine: llama.cpp (local, bundled) and the remote vLLM server.",
+        why: "QuantaMind doesn’t ship its own model runtime — it drives llama-server, so your models and weights stay on your machine and nothing is sent to the cloud. The remote backends are the deliberate opt-in exception for GPU-class hardware.",
+        how: "QuantaMind bundles llama-server, so press ▶ in the header and it starts for you (with --jinja and the right port). Then install a model from Models → Hugging Face — try a small 1B GGUF (~700 MB) for a quick first run. The page switches to the prompt editor the moment a server is up.",
       },
       {
         id: "model-select",
         heading: "Model picker + temperature + stop",
         what: "The bar at the top: a model dropdown, a gear (⚙) on its left, and a square stop icon on its right.",
         why: "Everything the app does runs against the globally-selected model, so this selection is the one knob the whole app reads — there’s no per-page model choice to keep in sync.",
-        how: "The gear opens a temperature popover (0.0–2.0, persisted per model). The stop icon kills the Ollama server — the health dot in the status bar flips to red immediately. For Ollama you can multi-select 2+ models, which turns the run into a Compare (see Analysis).",
+        how: "The gear opens a temperature popover (0.0–2.0, persisted per model). The stop icon stops the local server — the health dot in the status bar flips to red immediately.",
       },
       {
         id: "prompts",
@@ -82,7 +82,7 @@ export const REFERENCE_SECTIONS: ReferenceSection[] = [
         heading: "Compare columns",
         what: "One column per selected model, each streaming its own raw output independently.",
         why: "The only honest way to choose between models for a prompt is to see them answer the same prompt under the same settings, at the same time.",
-        how: "Select 2+ models in the Workspace picker (Ollama), run, and each model gets a column that streams as its tokens arrive. Columns are independent — one being slow doesn’t hold up the others.",
+        how: "Run a model and its answer streams into a column as tokens arrive, with the per-run metrics beneath it.",
       },
       {
         id: "strategies",
@@ -184,28 +184,21 @@ export const REFERENCE_SECTIONS: ReferenceSection[] = [
   {
     id: "models",
     title: "Models",
-    blurb: "Install models three ways — this is where weights come from.",
+    blurb: "Install models two ways — this is where weights come from.",
     blocks: [
-      {
-        id: "ollama-library",
-        heading: "Ollama Library tab",
-        what: "Search any tag from ollama.com/library and install it with a streaming progress bar.",
-        why: "The fastest path to a working model — the curated registry most local-agent builders already use.",
-        how: "Type a tag (the description links to the library), click Install, and the pull streams progress into the Downloads tab.",
-      },
       {
         id: "huggingface",
         heading: "Hugging Face tab",
         what: "Search a GGUF repo, pick a specific quantization from the file list, and install.",
-        why: "Hugging Face has a far wider selection (and more quant choices) than the Ollama library — useful when you want a specific quant of a specific model.",
-        how: "QuantaMind downloads the chosen GGUF, generates the right Modelfile (chat template + params), and registers it with Ollama so it shows up like any other model.",
+        why: "Hugging Face is where the GGUF quants live — search by model, then choose the exact quant that fits your machine.",
+        how: "QuantaMind downloads the chosen GGUF into the shared weights folder, where llama-server loads it directly. Progress streams into the Downloads tab.",
       },
       {
         id: "local-file",
         heading: "Local File import",
-        what: "Point at a .gguf already on disk; QuantaMind registers it with Ollama — no re-download.",
+        what: "Point at a .gguf already on disk; QuantaMind places it in the weights folder — no re-download.",
         why: "If you’ve already downloaded weights (or built your own), re-fetching them would be wasteful and slow.",
-        how: "QuantaMind parses the GGUF v3 header to read the model’s real dimensions, generates a matching Modelfile, and creates the Ollama entry in place.",
+        how: "QuantaMind parses the GGUF v3 header to read the model’s real dimensions, then copies the file into the shared weights folder (skipping the copy if it’s already there).",
         source: "backend GGUF v3 header parser (Models → local import)",
       },
     ],
@@ -472,7 +465,7 @@ export const REFERENCE_SECTIONS: ReferenceSection[] = [
         heading: "VRAM fit (memory profile)",
         what: "Per model: exact weights + KV cache at the run’s context length, vs the cap, with a pressure flag and the KV-cache precision it was graded at.",
         why: "Partial offload is the silent killer of local-agent latency; the readiness verdict needs a truthful fit test, not a guess.",
-        how: "Weights are the exact on-disk bytes (never estimated); the KV cache uses the canonical formula from the model’s real dims at the run’s context length. Fits = total ≤ cap; pressure = fits but ≥ 85% of the cap (a soft Conditional note). A llama.cpp model is graded at the KV precision its launch would actually use here — under memory pressure a q8_0 cache (≈half the cache memory), and the verdict then carries an explicit advisory (“fits with Q8 KV cache”). Ollama/MLX stay f16 (their cache type isn’t verifiable from here). Any missing input ⇒ “not measured” (never a guessed fit).",
+        how: "Weights are the exact on-disk bytes (never estimated); the KV cache uses the canonical formula from the model’s real dims at the run’s context length. Fits = total ≤ cap; pressure = fits but ≥ 85% of the cap (a soft Conditional note). A llama.cpp model is graded at the KV precision its launch would actually use here — under memory pressure a q8_0 cache (≈half the cache memory), and the verdict then carries an explicit advisory (“fits with Q8 KV cache”). A remote backend stays f16 (its cache type isn’t verifiable from here). Any missing input ⇒ “not measured” (never a guessed fit).",
         formula: "total = weights_bytes + kv_cache_bytes(precision)\nfits = total ≤ cap · pressure = total ≥ 0.85 × cap",
         source: "backend/src/inference/eval/readiness/vram_fit.rs (estimate)",
       },
@@ -489,7 +482,7 @@ export const REFERENCE_SECTIONS: ReferenceSection[] = [
         heading: "Native function-calling path",
         what: "A label (and optional column) showing whether readiness was judged via the model’s native tool_calls API or the prompt-based proxy.",
         why: "Native function-calling and prompt-based tool-calling are different reliability stories; the verdict is honest about which one it measured.",
-        how: "If native FC was tested (Ollama /api/chat tools), the path is Native-FC and its Pass^k is preferred; otherwise Prompt-Based. A profile can require native FC as a hard gate.",
+        how: "If native FC was tested (the OpenAI tool_calls wire), the path is Native-FC and its Pass^k is preferred; otherwise Prompt-Based. A profile can require native FC as a hard gate.",
         source: "backend/src/inference/eval/readiness/verdict.rs · types.rs",
       },
       {
@@ -537,16 +530,16 @@ export const REFERENCE_SECTIONS: ReferenceSection[] = [
         what: "The quickstart: build the binary, let doctor find a runnable backend, and get a real Ready/Conditional/NotReady verdict — no flags to memorize (interactive pickers cover model/collection/thinking in a terminal).",
         why: "The fastest path from a fresh checkout to a verdict; every later command builds on the same three ideas — a backend, a model, a collection.",
         how: "Syntax notation (man-page style): UPPERCASE words are placeholders you replace; [square brackets] mark optional arguments; a|b are alternatives. Copy-paste examples below are bracket-free and runnable as-is. `qm COMMAND --help` prints any command's full flag reference.",
-        formula: "# 1) build once (a second binary on this same crate)\ncargo build --bin qm\n\n# 2) find a runnable backend (Ollama/llama.cpp/MLX/vLLM/SGLang)\ntarget/debug/qm doctor\n\n# 3) zero-config first verdict (writes ./qm.json; later runs need no flags)\ntarget/debug/qm init\n\n# environment variables (never pass secrets as arguments):\n#   QM_BASE     endpoint URL, e.g. https://vllm.internal:8000\n#   QM_MODEL    model name\n#   QM_API_KEY  bearer key for vLLM/SGLang (env or OS keychain only)",
+        formula: "# 1) build once (a second binary on this same crate)\ncargo build --bin qm\n\n# 2) find a runnable backend (llama.cpp/vLLM)\ntarget/debug/qm doctor\n\n# 3) zero-config first verdict (writes ./qm.json; later runs need no flags)\ntarget/debug/qm init\n\n# environment variables (never pass secrets as arguments):\n#   QM_BASE     endpoint URL, e.g. https://vllm.internal:8000\n#   QM_MODEL    model name\n#   QM_API_KEY  bearer key for vLLM (env or OS keychain only)",
         source: "backend/src/bin/qm/main.rs · docs/cli/README.md",
       },
       {
         id: "cli-doctor",
         heading: "Setup ⇄ qm doctor — is anything runnable?",
-        what: "The first-run health check (the same probe behind the 'Ollama is not running' card): probes all five backends (Ollama :11434, llama.cpp :8081/:8080, MLX :8082, vLLM :8000, SGLang :30000) for reachability, served models, credentials, native tool-calling, and version.",
+        what: "The first-run health check (the same probe behind the setup guide): probes both backends (llama.cpp :8081/:8080, vLLM :8000) for reachability, served models, credentials, native tool-calling, and version.",
         why: "The first-run wall is step 1 — a backend that's up but has zero models pulled looks green everywhere else. Doctor's bar is RUNNABLE (reachable + has a model + credential OK), not merely reachable, so `qm doctor && qm run` gates correctly in scripts.",
-        how: "Every failure prints the exact fix command, never runs it: a down server → '[QM-BACKEND-UNREACHABLE] … start it: ollama serve'; a reachable-but-empty server → '[QM-NO-MODELS] … ollama pull MODEL'; a rejected key → '[QM-UNAUTHORIZED] check QM_API_KEY'; a key over plain http is WITHHELD ('[QM-INSECURE-KEY]'). `--json` puts the machine-readable report alone on stdout (fix lines go to stderr, so piping to jq never breaks).",
-        formula: "SYNOPSIS\n  qm doctor [--backend BACKEND] [--base URL] [--model MODEL] [--json]\n\nPLACEHOLDERS\n  BACKEND  one of: ollama | llama_cpp | mlx | vllm | sglang (omit = scan all five)\n  URL      endpoint override for the targeted backend (env QM_BASE)\n  MODEL    also probe native tool-calling for this model (env QM_MODEL)\n\nEXIT STATUS\n  0  at least one backend is RUNNABLE     3  nothing runnable\n  2  bad arguments\n\nEXAMPLES\n  qm doctor\n  qm doctor --backend ollama --model qwen2.5:3b\n  qm doctor --json | jq '.backends[0]'",
+        how: "Every failure prints the exact fix command, never runs it: a down server → '[QM-BACKEND-UNREACHABLE] … start it: llama-server -m MODEL.gguf --port 8081 --jinja'; a reachable-but-empty server → '[QM-NO-MODELS] … start the server with a model loaded'; a rejected key → '[QM-UNAUTHORIZED] check QM_API_KEY'; a key over plain http is WITHHELD ('[QM-INSECURE-KEY]'). `--json` puts the machine-readable report alone on stdout (fix lines go to stderr, so piping to jq never breaks).",
+        formula: "SYNOPSIS\n  qm doctor [--backend BACKEND] [--base URL] [--model MODEL] [--json]\n\nPLACEHOLDERS\n  BACKEND  one of: llama_cpp | vllm (omit = scan both)\n  URL      endpoint override for the targeted backend (env QM_BASE)\n  MODEL    also probe native tool-calling for this model (env QM_MODEL)\n\nEXIT STATUS\n  0  at least one backend is RUNNABLE     3  nothing runnable\n  2  bad arguments\n\nEXAMPLES\n  qm doctor\n  qm doctor --backend llama_cpp --model qwen2.5:3b\n  qm doctor --json | jq '.backends[0]'",
         source: "backend/src/cli/doctor/",
       },
       {
@@ -581,9 +574,9 @@ export const REFERENCE_SECTIONS: ReferenceSection[] = [
           "                              --repeat-penalty · --seed · --num-ctx\n" +
           "\n" +
           "EXAMPLES (copy-paste, then swap MODEL)\n" +
-          "  qm run  --backend ollama --model MODEL --collection easy-coding --k 5 --max-steps 8\n" +
-          "  qm test --backend ollama --model MODEL --collection ./my_suite.json --mode both --k 3\n" +
-          "  qm test --backend ollama --model MODEL --collection ./worlds.json   # MCP world",
+          "  qm run  --backend llama_cpp --model MODEL --collection easy-coding --k 5 --max-steps 8\n" +
+          "  qm test --backend llama_cpp --model MODEL --collection ./my_suite.json --mode both --k 3\n" +
+          "  qm test --backend llama_cpp --model MODEL --collection ./worlds.json   # MCP world",
         source: "frontend/src/shared/cli/qmCommand.ts (buildRunCommand) · backend/src/cli/run/",
       },
       {
@@ -592,7 +585,7 @@ export const REFERENCE_SECTIONS: ReferenceSection[] = [
         what: "Runs a BUILT-IN collection (the same 27 this app ships: easy/medium/hard/extreme tiers + boundary/noisy sets) through the same agentic engine, and prints the Ready/Conditional/NotReady verdict with its exact ✗ blocking / ! condition reasons.",
         why: "This is the Tests page's Run Batch as an exit code: `--fail-on` decides which verdicts fail a pipeline, so a team can gate a deploy on model readiness.",
         how: "`--mode both` runs the native function-calling pass AND the prompt-based pass (one verdict row each). `--thinking standard|deep` is guarded per model+server — a model/server that can't actually reason exits 2 with '[QM-THINKING-UNSUPPORTED]' and the per-engine fix, instead of silently behaving like lean. A run that ERRORS (backend fault mid-run) exits 11 (inconclusive — retry), never a fake NotReady. In a terminal, omitted --collection/--model/--backend/--thinking open numbered pickers (collections listed with tier + domain); over SSH/CI there is never a prompt.",
-        formula: "SYNOPSIS\n  qm run [--backend BACKEND] [--model MODEL] [--collection COLLECTION]\n         [--mode prompt_based|native|both] [--tier easy|medium|hard|extreme]\n         [--thinking lean|standard|deep] [--k N] [--max-steps N] [--decoy N]\n         [--profile PROFILE] [PARAMS] [--fail-on conditional|notready|never]\n         [--junit PATH] [--save-report PATH] [--json]\n\nPLACEHOLDERS\n  BACKEND     ollama | llama_cpp | mlx | vllm | sglang (default: qm.json, then ollama)\n  MODEL       served model name (env QM_MODEL; default: qm.json, else terminal picker)\n  COLLECTION  built-in id (e.g. easy-coding, medium-coding) or a .json file path\n  N           strict pass^k count (--k) · step cap (--max-steps) · decoy count (--decoy)\n  PROFILE     general-agent | rag-assistant | coding-agent, or a ReadinessProfile .json\n  PARAMS      --temperature/--top-p/--top-k/--num-predict/--repeat-penalty/--seed/--num-ctx\n              (eval is greedy temp-0 by default; pass these to sample, like the GUI)\n\nEXIT STATUS\n  0 Ready · 10 Conditional · 11 Inconclusive (retry) · 20 NotReady\n  2 bad args or capability mismatch · 3 unreachable / model not served\n\nEXAMPLES\n  qm run --backend ollama --model qwen2.5:3b\n  qm run --collection medium-coding --thinking standard --k 1 --max-steps 8\n  qm run --model qwen2.5:3b --temperature 0.7 --decoy 2 --save-report run.json",
+        formula: "SYNOPSIS\n  qm run [--backend BACKEND] [--model MODEL] [--collection COLLECTION]\n         [--mode prompt_based|native|both] [--tier easy|medium|hard|extreme]\n         [--thinking lean|standard|deep] [--k N] [--max-steps N] [--decoy N]\n         [--profile PROFILE] [PARAMS] [--fail-on conditional|notready|never]\n         [--junit PATH] [--save-report PATH] [--json]\n\nPLACEHOLDERS\n  BACKEND     llama_cpp | vllm (default: qm.json, then llama_cpp)\n  MODEL       served model name (env QM_MODEL; default: qm.json, else terminal picker)\n  COLLECTION  built-in id (e.g. easy-coding, medium-coding) or a .json file path\n  N           strict pass^k count (--k) · step cap (--max-steps) · decoy count (--decoy)\n  PROFILE     general-agent | rag-assistant | coding-agent, or a ReadinessProfile .json\n  PARAMS      --temperature/--top-p/--top-k/--num-predict/--repeat-penalty/--seed/--num-ctx\n              (eval is greedy temp-0 by default; pass these to sample, like the GUI)\n\nEXIT STATUS\n  0 Ready · 10 Conditional · 11 Inconclusive (retry) · 20 NotReady\n  2 bad args or capability mismatch · 3 unreachable / model not served\n\nEXAMPLES\n  qm run --backend llama_cpp --model qwen2.5:3b\n  qm run --collection medium-coding --thinking standard --k 1 --max-steps 8\n  qm run --model qwen2.5:3b --temperature 0.7 --decoy 2 --save-report run.json",
         source: "backend/src/cli/run/",
       },
       {
@@ -601,7 +594,7 @@ export const REFERENCE_SECTIONS: ReferenceSection[] = [
         what: "Same engine as `run`, but for a collection FILE you authored (the schema the Tests page edits: a v2 collection object or a raw ToolTask array, JSON, 1 MB cap) — defaulting to `--mode both` and printing a native-vs-prompt scoreboard (pass^k · tasks · steps · effort · top-error per mode).",
         why: "The scoreboard makes the native-vs-prompt split visible — e.g. a model whose native pass reports-in-prose (0/2) while its prompt pass aces (2/2) — the exact difference a bare verdict hides.",
         how: "The collection path is shown by basename only (never your full filesystem path). A bad/missing/malformed file exits 2 with '[QM-BAD-COLLECTION]' naming the parse error. All `run` flags apply.",
-        formula: "SYNOPSIS\n  qm test --collection FILE [--backend BACKEND] [--model MODEL]\n          [--mode prompt_based|native|both] [--tier TIER] [--thinking TIER]\n          [--k N] [--fail-on POLICY] [--junit PATH] [--save-report PATH] [--json]\n\nPLACEHOLDERS\n  FILE  a .json collection: a v2 object { name, domain, tier, tasks: [...] }\n        or a raw ToolTask array — the same schema the Tests page authors\n\nEXAMPLES\n  qm test --collection ./my_suite.json --backend ollama --model qwen2.5:3b\n  qm test --collection ./my_suite.json --mode both --k 1 --json",
+        formula: "SYNOPSIS\n  qm test --collection FILE [--backend BACKEND] [--model MODEL]\n          [--mode prompt_based|native|both] [--tier TIER] [--thinking TIER]\n          [--k N] [--fail-on POLICY] [--junit PATH] [--save-report PATH] [--json]\n\nPLACEHOLDERS\n  FILE  a .json collection: a v2 object { name, domain, tier, tasks: [...] }\n        or a raw ToolTask array — the same schema the Tests page authors\n\nEXAMPLES\n  qm test --collection ./my_suite.json --backend llama_cpp --model qwen2.5:3b\n  qm test --collection ./my_suite.json --mode both --k 1 --json",
         source: "backend/src/cli/run/ (render_scoreboard)",
       },
       {
@@ -610,7 +603,7 @@ export const REFERENCE_SECTIONS: ReferenceSection[] = [
         what: "The Audit tab's context-cliff probe, headless: ramps prompt depth toward `--max-tokens` across `--steps` rungs, sweeps the needle across positions, and classifies where tool-calling collapses.",
         why: "A model's usable context for tool use is part of its readiness; the CLI makes the probe scriptable and repeatable (greedy temp-0 decoding, so the same model + collection reproduces the same verdict).",
         how: "Prints one line per rung — '~N tok · accuracy X% (passed/trials)', the sample tally shown only when measured — then a STATUS line. A rung that would exceed the context window is dropped, never scored; a sample too small to tell a cliff from noise is INCONCLUSIVE (exit 11), never a guessed verdict; a baseline already failing is 'broken' (a tool-call failure, not a context limit).",
-        formula: "SYNOPSIS\n  qm cliff [--backend BACKEND] [--model MODEL] [--collection COLLECTION]\n           [--max-tokens N] [--steps K] [--mode prompt_based|native]\n           [--thinking lean|standard|deep]\n           [--source corporate_policy|system_logs|financial_ledger] [PARAMS] [--json]\n\nPLACEHOLDERS\n  N       deepest rung's target prompt tokens (default 4096)\n  K       ladder rungs including the unpadded baseline (default 4, min 2)\n  --mode  probe the native tool-calling path (default prompt_based)\n  --thinking  reasoning scratchpad preset (default lean = off); scales with each\n          rung's depth through the run tiers' budget table\n  PARAMS  the 7 sampling flags (see run). Greedy temp-0 by default so the probe\n          reproduces; pass --temperature (etc.) to sample.\n\nEXIT STATUS\n  0 no cliff · 10 collapsed (20pp drop AND its Wilson/Newcombe interval\n    excludes zero; one-task-driven collapses are labeled low confidence)\n  11 inconclusive (sample can't resolve the margin) · 12 budget-limited (every\n    failure died at the output cap - raise the budget and re-run) · 20 broken baseline\n\nEXAMPLES\n  qm cliff --backend ollama --model qwen2.5-coder-7b-instruct:q4_k_m\n  qm cliff --model qwen3.5:9b --max-tokens 3000 --steps 3 --mode native --json",
+        formula: "SYNOPSIS\n  qm cliff [--backend BACKEND] [--model MODEL] [--collection COLLECTION]\n           [--max-tokens N] [--steps K] [--mode prompt_based|native]\n           [--thinking lean|standard|deep]\n           [--source corporate_policy|system_logs|financial_ledger] [PARAMS] [--json]\n\nPLACEHOLDERS\n  N       deepest rung's target prompt tokens (default 4096)\n  K       ladder rungs including the unpadded baseline (default 4, min 2)\n  --mode  probe the native tool-calling path (default prompt_based)\n  --thinking  reasoning scratchpad preset (default lean = off); scales with each\n          rung's depth through the run tiers' budget table\n  PARAMS  the 7 sampling flags (see run). Greedy temp-0 by default so the probe\n          reproduces; pass --temperature (etc.) to sample.\n\nEXIT STATUS\n  0 no cliff · 10 collapsed (20pp drop AND its Wilson/Newcombe interval\n    excludes zero; one-task-driven collapses are labeled low confidence)\n  11 inconclusive (sample can't resolve the margin) · 12 budget-limited (every\n    failure died at the output cap - raise the budget and re-run) · 20 broken baseline\n\nEXAMPLES\n  qm cliff --backend llama_cpp --model qwen2.5-coder-7b-instruct:q4_k_m\n  qm cliff --model qwen3.5:9b --max-tokens 3000 --steps 3 --mode native --json",
         source: "backend/src/inference/eval/cliff/engine.rs · backend/src/cli/cliff.rs",
       },
       {
@@ -645,7 +638,7 @@ export const REFERENCE_SECTIONS: ReferenceSection[] = [
         heading: "CI/CD — gate a pipeline on model readiness",
         what: "Two ways to wire the verdict into CI: plain shell (the exit-code contract works in any runner) or the bundled GitHub Action `.github/actions/qm-eval`, which builds qm, runs the suite, writes a JUnit report for the test panel, and uploads the JSON report as an artifact.",
         why: "A model regression should fail a build the same way a unit test does. `--fail-on` is the team policy knob: strict gates block on Conditional; soft gates surface findings without blocking; exit 11 means retry (infra), never 'the model is bad'.",
-        how: "Secrets discipline: the endpoint is an input, but the API key is passed ONLY as the QM_API_KEY environment variable from a secret (action inputs are logged). GitHub-hosted runners can't host a local model, so CI targets a remote vLLM/SGLang endpoint; self-hosted runners can use Ollama/llama.cpp. Full recipes incl. vault/OIDC injection: docs/ci/README.md.",
+        how: "Secrets discipline: the endpoint is an input, but the API key is passed ONLY as the QM_API_KEY environment variable from a secret (action inputs are logged). GitHub-hosted runners can't host a local model, so CI targets a remote vLLM endpoint; self-hosted runners can use llama.cpp. Full recipes incl. vault/OIDC injection: docs/ci/README.md.",
         formula: "# any CI (plain shell) — doctor gates, run verdicts:\nqm doctor --backend vllm --base \"$QM_BASE\" || exit 3\nqm run --backend vllm --model \"$QM_MODEL\" --fail-on notready --junit qm-junit.xml\n\n# GitHub Actions (the bundled composite action):\n- uses: actions/checkout@v4\n- uses: ./.github/actions/qm-eval\n  with:\n    backend: vllm\n    base-url: ${{ secrets.VLLM_URL }}\n    model: qwen3-32b\n    collection: easy-coding\n    fail-on: notready        # team policy\n    ci-profile: fast         # k=1 PR gate; \"full\" for the nightly\n  env:\n    QM_API_KEY: ${{ secrets.QM_API_KEY }}   # env from a secret — never an input",
         source: ".github/actions/qm-eval/action.yml · docs/ci/README.md",
       },

@@ -4,7 +4,7 @@
 
 **The pre-deployment gate for local AI agents.**
 
-Benchmark any **Ollama**, **llama.cpp**, or **MLX** model for *agentic readiness* on your own hardware — and get a **Ready / Conditional / Not Ready** verdict before you wire it into an agent. Runs fully local by default (nothing leaves the machine); optionally point it at a **remote vLLM or SGLang** GPU server when you need to bench a model bigger than your box.
+Benchmark any **llama.cpp**, **llama.cpp**, or **vLLM** model for *agentic readiness* on your own hardware — and get a **Ready / Conditional / Not Ready** verdict before you wire it into an agent. Runs fully local by default (nothing leaves the machine); optionally point it at a **remote vLLM** GPU server when you need to bench a model bigger than your box.
 
 <sub>Local-first · No telemetry · No account · pass^k scoring · hardware-aware · one ~30 MB binary</sub>
 
@@ -52,11 +52,11 @@ Prebuilt for macOS (Apple Silicon + Intel), Linux (x64 + arm64, plus a fully sta
 
 ### Your first verdict
 
-QuantaMind drives a model you already run locally — so you need a backend up (the default is [Ollama](https://ollama.com/)):
+QuantaMind drives a model you already run locally — so you need a backend up (the default is [llama.cpp](https://github.com/ggml-org/llama.cpp)):
 
 ```bash
 # 1. Start a backend and pull a small model to gate
-ollama pull llama3.2:1b
+llama-server -m llama3.2:1b
 
 # 2. Probe your backends — every failure prints its exact fix
 qm doctor
@@ -103,8 +103,7 @@ QuantaMind is a workbench, not a chat app — each surface answers one question 
 | 🧪 **Tests** | Score models on tiered agentic scenarios (Easy→Extreme) with pass^k reliability, failure-mode classification, and a visual trace debugger. Includes a **Safety & Boundaries (Category K)** axis: prompt-injection resistance + an over-refusal control, a compliance gate, and model-vs-config attribution of a safety failure. Also reports **Tokens/Task** (amortized cost incl. failed-run waste) and supports **payload-noise** scenarios that test field extraction from messy real-world tool JSON. |
 | 📋 **Agent Report** | Per-model **Ready / Conditional / Not Ready** verdict, tier-progression matrix, failure taxonomy, and an opt-in community leaderboard. |
 | ⌨️ **Workspace** | Monaco prompt editor with token-by-token streaming, per-run metrics (TTFT, tok/s), and YAML save/load. |
-| 🎙️ **Speech-to-Text** | Fully local transcription via whisper.cpp, with an optional voice → assistant pipeline. |
-| 📦 **Models** | Install from Ollama Library, Hugging Face, or a local `.gguf`; disk-safe, resumable, with a storage manager. |
+| 📦 **Models** | Install from llama.cpp Library, Hugging Face, or a local `.gguf`; disk-safe, resumable, with a storage manager. |
 | 📊 **Analysis & Latency** | Multi-model compare and quantization diffing, with throughput/TTFT charts and Markdown/JSON export. |
 | 📖 **Docs** | Built-in, task-oriented user guides (getting started, choosing a backend, running tests, troubleshooting) with ⌘K full-text search. |
 
@@ -128,9 +127,7 @@ QuantaMind is a workbench, not a chat app — each surface answers one question 
 
 **Workspace** — live model picker, explicit run states with clean cancellation (no fake "done"), byte-identical YAML round-trip, persistent backend-health status bar.
 
-**Speech-to-Text** — whisper.cpp as its own engine axis; curated catalog, atomic installs, all audio decoding in Rust, loopback-only by construction.
-
-**Models** — one modal, three sources (Ollama Library / Hugging Face / local `.gguf`); disk pre-check, cancellable resumable downloads, pure-Rust GGUF parsing.
+**Models** — one modal, three sources (llama.cpp Library / Hugging Face / local `.gguf`); disk pre-check, cancellable resumable downloads, pure-Rust GGUF parsing.
 
 **Analysis & Latency**
 - Multi-model compare with a hardware feasibility verdict (`ok`/`risky`/`wont_fit`) at click time, and the full per-token latency breakdown under each answer.
@@ -179,7 +176,7 @@ QuantaMind is an open-source workbench — Tauri 2.x + Rust + React 19 + TypeScr
 
 - **[Building from source](./CONTRIBUTING.md#project-setup)** — Rust/Node/pnpm toolchains for macOS, Linux, and Windows (incl. the Windows dev-shell setup), plus the dev/test loop. ~5 minutes on macOS.
 - **[Contribution guidelines](./CONTRIBUTING.md)** — ground rules, branching, the PR checklist.
-- **[`ARCHITECTURE.md`](./ARCHITECTURE.md)** — the five-minute map: React frontend ↔ JSON-over-IPC ↔ Rust backend ↔ HTTP to Ollama / llama.cpp / MLX (local) or vLLM / SGLang (remote GPU).
+- **[`ARCHITECTURE.md`](./ARCHITECTURE.md)** — the five-minute map: React frontend ↔ JSON-over-IPC ↔ Rust backend ↔ HTTP to llama.cpp / vLLM (local) or vLLM (remote GPU).
 - **[`docs/codebase/`](./docs/codebase/README.md)** — deep, file-by-file reference for every backend module and frontend page.
 - **[`docs/architecture.md`](./docs/architecture.md)** — modules, IPC, layering law, robustness rules, folder taxonomy.
 - **[`docs/process.md`](./docs/process.md)** — tech stack, setup, conventions, the step-by-step workflow, roadmap.
@@ -194,9 +191,8 @@ QuantaMind is an open-source workbench — Tauri 2.x + Rust + React 19 + TypeScr
 > QuantaMind is local-first by design.
 
 - **No telemetry, no account** — no analytics SDK, no crash reporting, no tracking. Runs offline once a model is installed.
-- **Network calls limited to** local model servers (`localhost:11434` Ollama, `127.0.0.1:8093` whisper.cpp, dynamic llama/MLX ports) and `huggingface.co` (only when you actively browse/install). The one exception is **opt-in**: if you configure a remote vLLM/SGLang server in Settings, prompts you run on that backend are sent to the URL you entered (empty by default).
-- **Speech-to-text is offline-only** — a loopback-only probe; a down local server fails loud rather than silently falling back.
-- **No silent shell edits** — changing `OLLAMA_MODELS` *generates* the export command; it never edits your shell profile.
+- **Network calls limited to** local model servers (`localhost:8081` llama.cpp, dynamic llama/vLLM ports) and `huggingface.co` (only when you actively browse/install). The one exception is **opt-in**: if you configure a remote vLLM server in Settings, prompts you run on that backend are sent to the URL you entered (empty by default).
+- **No silent shell edits** — changing `QUANTAMIND_GGUF_DIR` *generates* the export command; it never edits your shell profile.
 - **Tauri sandboxing** — the webview can only call IPC commands explicitly registered in `backend/capabilities/`.
 - **Schema validation at every IPC boundary** — Zod on TS, serde + `validator` on Rust; malformed payloads rejected with typed errors.
 
@@ -232,30 +228,23 @@ No. QuantaMind consumes pre-trained models; training is out of scope.
 </details>
 
 <details>
-<summary><b>Why Ollama and not llama.cpp directly?</b></summary>
+<summary><b>Why llama.cpp and not llama.cpp directly?</b></summary>
 
-Ollama gives a clean HTTP API, a stable storage convention, and handles GPU plumbing. It's no longer the only backend, though — llama.cpp (`llama-server`) and MLX (`mlx_lm`, Apple Silicon) run locally, and vLLM / SGLang connect to a remote OpenAI-compatible GPU server (URL + optional API key set in Settings) — all behind one `InferenceBackend` trait.
-
-</details>
-
-<details>
-<summary><b>Does my audio leave the machine?</b></summary>
-
-No. Speech-to-text runs entirely on local whisper.cpp (`127.0.0.1:8093`). Audio is decoded and resampled in Rust and sent only to the local server; a loopback-only probe means it never reaches the cloud.
+llama.cpp gives a clean HTTP API, a stable storage convention, and handles GPU plumbing. It's no longer the only backend, though — llama.cpp (`llama-server`) and vLLM (`vllm_lm`, Apple Silicon) run locally, and vLLM connect to a remote OpenAI-compatible GPU server (URL + optional API key set in Settings) — all behind one `InferenceBackend` trait.
 
 </details>
 
 <details>
 <summary><b>Can I run without an internet connection?</b></summary>
 
-Yes, once you've installed at least one model. Workspace, Voice, and Analysis are fully offline. Only the Hugging Face tab — and downloading new models — needs connectivity.
+Yes, once you've installed at least one model. Workspace, Tests, and Analysis are fully offline. Only the Hugging Face tab — and downloading new models — needs connectivity.
 
 </details>
 
 <details>
 <summary><b>Does it send any usage data?</b></summary>
 
-None. The only outbound HTTP is to your local Ollama and (when you ask) to Hugging Face.
+None. The only outbound HTTP is to your local llama.cpp and (when you ask) to Hugging Face.
 
 </details>
 
@@ -265,7 +254,7 @@ None. The only outbound HTTP is to your local Ollama and (when you ask) to Huggi
 
 Apache 2.0 — see [`LICENSE`](./LICENSE).
 
-Built on [Tauri](https://tauri.app/), [Ollama](https://ollama.com/), [llama.cpp](https://github.com/ggerganov/llama.cpp), [whisper.cpp](https://github.com/ggerganov/whisper.cpp), [Hugging Face](https://huggingface.co/), [Monaco Editor](https://microsoft.github.io/monaco-editor/), and the [React](https://react.dev/) / [Vite](https://vitejs.dev/) / [Tailwind](https://tailwindcss.com/) / [Zustand](https://github.com/pmndrs/zustand) stack — plus the open-weights model communities (Meta, Mistral, Qwen, Microsoft, Google, DeepSeek, and many others).
+Built on [Tauri](https://tauri.app/), [llama.cpp](https://github.com/ggml-org/llama.cpp), [llama.cpp](https://github.com/ggerganov/llama.cpp), [Hugging Face](https://huggingface.co/), [Monaco Editor](https://microsoft.github.io/monaco-editor/), and the [React](https://react.dev/) / [Vite](https://vitejs.dev/) / [Tailwind](https://tailwindcss.com/) / [Zustand](https://github.com/pmndrs/zustand) stack — plus the open-weights model communities (Meta, Mistral, Qwen, Microsoft, Google, DeepSeek, and many others).
 
 <div align="center">
 <br/>

@@ -2,13 +2,13 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { useSelectedModelStore, type SelectedModel } from "../selectedModelStore";
 import { useBackendStore } from "../backendStore";
 
-const ollamaA: SelectedModel = { name: "llama3.2:1b", backend: "ollama", size_bytes: 100 };
-const ollamaB: SelectedModel = { name: "mistral:7b", backend: "ollama", size_bytes: 300 };
+const remoteA: SelectedModel = { name: "llama3.2:1b", backend: "vllm", size_bytes: 100 };
+const remoteB: SelectedModel = { name: "mistral:7b", backend: "vllm", size_bytes: 300 };
 const llamaModel: SelectedModel = { name: "qwen.gguf", backend: "llama_cpp", size_bytes: 200, path: "/w/qwen.gguf" };
 
 beforeEach(() => {
   useSelectedModelStore.setState({ selectedModels: [] });
-  useBackendStore.setState({ selectedBackend: "ollama" });
+  useBackendStore.setState({ selectedBackend: "llama_cpp" });
 });
 
 describe("selectedModelStore", () => {
@@ -18,15 +18,15 @@ describe("selectedModelStore", () => {
     expect(useSelectedModelStore.getState().selectedModels).toEqual([llamaModel]);
   });
 
-  it("holds multiple models (Ollama compare)", () => {
-    useSelectedModelStore.getState().setSelectedModels([ollamaA, ollamaB]);
+  it("holds multiple models", () => {
+    useSelectedModelStore.getState().setSelectedModels([remoteA, remoteB]);
     expect(useSelectedModelStore.getState().selectedModels).toHaveLength(2);
   });
 });
 
 describe("backend switch trims the global selection", () => {
   it("drops models whose backend no longer matches", () => {
-    useSelectedModelStore.getState().setSelectedModels([ollamaA, ollamaB]);
+    useSelectedModelStore.getState().setSelectedModels([remoteA, remoteB]);
     useBackendStore.getState().setSelectedBackend("llama_cpp");
     expect(useSelectedModelStore.getState().selectedModels).toEqual([]);
   });
@@ -38,7 +38,7 @@ describe("backend switch trims the global selection", () => {
   });
 
   it("leaves an empty selection untouched", () => {
-    useBackendStore.getState().setSelectedBackend("mlx");
+    useBackendStore.getState().setSelectedBackend("vllm");
     expect(useSelectedModelStore.getState().selectedModels).toEqual([]);
   });
 });

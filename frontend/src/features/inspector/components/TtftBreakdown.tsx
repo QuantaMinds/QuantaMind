@@ -130,7 +130,7 @@ export function TtftBreakdown({
           · {promptTokens} prompt tokens{prefillTps ? ` · ${prefillTps}` : ""}
         </div>
       )}
-      {/* llama.cpp-only prefix-cache reuse. `available` is false for Ollama/MLX
+      {/* llama.cpp-only prefix-cache reuse. `available` is false for a remote backend
           (cache_n null) → absent; a cold llama run (cache_n 0) honestly shows
           "0 reused / N recomputed" — a measured zero, not absence-of-feature. */}
       {(() => {

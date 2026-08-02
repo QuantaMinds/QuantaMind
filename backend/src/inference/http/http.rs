@@ -21,7 +21,7 @@ pub fn probe_client() -> AppResult<Client> {
 }
 
 /// HTTP client for long-lived streaming requests (HF download, blob
-/// upload, Ollama NDJSON pull/create/generate). Bounded only by
+/// upload, the server NDJSON pull/create/generate). Bounded only by
 /// connect timeout — body has no deadline so a slow connection can
 /// finish a multi-GB transfer. Stalls are surfaced via progress
 /// events + Cancel.

@@ -8,7 +8,7 @@ import { DownloadsPage } from "../DownloadsPage";
 import { useModelStore } from "../../state/modelStore";
 
 beforeEach(() => {
-  useModelStore.setState({ downloads: {}, pullNames: {}, activeHfName: null });
+  useModelStore.setState({ downloads: {}, activeHfName: null });
 });
 
 describe("DownloadsPage", () => {

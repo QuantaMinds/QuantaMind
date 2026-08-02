@@ -19,7 +19,7 @@ pub fn calculate_kv_cache_bytes(
     2 * layers * head_count_kv * head_dim * 2 * context_length
 }
 
-/// KV-cache storage precision. The wire names match the llama.cpp/Ollama cache
+/// KV-cache storage precision. The wire names match the llama.cpp/the server cache
 /// types (`f16`, `q8_0`, `q4_0`) — the three with clean element-size semantics
 /// (2 / ~1 / ~0.5 bytes per value); other llama.cpp types (q5_x, iq4_nl) exist
 /// but are not modeled. This is an element-size model: real quantized caches

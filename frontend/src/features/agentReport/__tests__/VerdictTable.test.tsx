@@ -8,7 +8,7 @@ const GIB = 1024 ** 3;
 const VERDICTS: ModelVerdict[] = [
   {
     model: "qwen2.5-coder",
-    backend: "ollama",
+    backend: "llama_cpp",
     verdict: { status: "ready", blocking: [], conditions: [], path: "prompt_based" },
     memory: {
       weights_bytes: 5 * GIB,
@@ -22,7 +22,7 @@ const VERDICTS: ModelVerdict[] = [
   },
   {
     model: "phi3.5",
-    backend: "ollama",
+    backend: "llama_cpp",
     verdict: {
       status: "not_ready",
       blocking: ["pass^k 0.40 < 0.80 required", "loops on 2 runs"],
@@ -32,7 +32,7 @@ const VERDICTS: ModelVerdict[] = [
   },
   {
     model: "mistral-nemo",
-    backend: "llama_cpp",
+    backend: "vllm",
     verdict: {
       status: "conditional",
       blocking: [],
@@ -118,7 +118,7 @@ describe("VerdictTable", () => {
   it("shows a thinking segment for a reasoning verdict and nothing for a terse one", () => {
     const thinking: ModelVerdict = {
       model: "qwen3-thinking",
-      backend: "ollama",
+      backend: "llama_cpp",
       verdict: { status: "ready", blocking: [], conditions: [], path: "native_fc" },
       pass_k: 0.9,
       is_thinking: true,
@@ -143,14 +143,14 @@ describe("VerdictTable", () => {
     const verdicts: ModelVerdict[] = [
       {
         model: "phi3.5",
-        backend: "ollama",
+        backend: "llama_cpp",
         verdict: {
           status: "not_ready",
           blocking: [
             "false 'done' on 2 runs",
             "native tool-calling required but not supported/measured on this backend",
             "partial offload → severe slowdown",
-            "run error: ollama timed out",
+            "run error: the server timed out",
           ],
           conditions: [],
           path: "prompt_based",
@@ -164,7 +164,7 @@ describe("VerdictTable", () => {
     expect(row).not.toHaveTextContent("System");
     // The Details line still surfaces the exact backend reasons (with their counts/messages).
     expect(row).toHaveTextContent("False 'done' on 2 runs");
-    expect(row).toHaveTextContent("Run error: ollama timed out");
+    expect(row).toHaveTextContent("Run error: the server timed out");
   });
 
   it("renders conditions as amber notes and a clean Ready row as 'meets all criteria'", () => {
@@ -173,14 +173,14 @@ describe("VerdictTable", () => {
     expect(screen.getByTestId("readiness-row-qwen2.5-coder")).toHaveTextContent("Meets all criteria");
   });
 
-  it("renders the memory footprint for a measured model and N/A for a single-model backend", () => {
+  it("renders the memory footprint for a measured model and N/A for a remote backend", () => {
     render(<VerdictTable verdicts={VERDICTS} />);
-    // Ollama with a measured profile → weights + cache vs cap, "fits".
+    // llama.cpp with a measured profile → weights + cache vs cap, "fits".
     expect(screen.getByTestId("readiness-row-qwen2.5-coder")).toHaveTextContent(
       "VRAM: 6.0 GB (5.0 model + 1.0 cache @ 8k ctx) < 24.0 GB cap · fits",
     );
-    // llama.cpp (no memory profile) → honest N/A, never a guessed fit.
-    expect(screen.getByTestId("readiness-row-mistral-nemo")).toHaveTextContent("VRAM fit: N/A (single-model backend)");
+    // A remote backend runs on another machine → honest N/A, never a guessed fit.
+    expect(screen.getByTestId("readiness-row-mistral-nemo")).toHaveTextContent("VRAM fit: N/A (remote backend)");
     // A measured-but-exact profile shows no estimate caveat.
     expect(screen.queryByTestId("vram-estimated")).not.toBeInTheDocument();
   });
@@ -189,7 +189,7 @@ describe("VerdictTable", () => {
     const est: ModelVerdict[] = [
       {
         model: "qwen3.5",
-        backend: "ollama",
+        backend: "llama_cpp",
         verdict: { status: "ready", blocking: [], conditions: [], path: "native_fc" },
         memory: { weights_bytes: 5 * GIB, kv_cache_bytes: 2 * GIB, total_bytes: 7 * GIB, cap_bytes: 24 * GIB, context_length: 8192, fits: true, pressure: false, estimated: true },
       },
@@ -204,7 +204,7 @@ describe("VerdictTable", () => {
     const real: ModelVerdict[] = [
       {
         model: "llama3.2:3b",
-        backend: "ollama",
+        backend: "llama_cpp",
         verdict: { status: "ready", blocking: [], conditions: [], path: "native_fc" },
         pass_k: 1.0,
         avg_steps: 1.0,
@@ -215,7 +215,7 @@ describe("VerdictTable", () => {
       },
       {
         model: "phi3.5",
-        backend: "ollama",
+        backend: "llama_cpp",
         verdict: { status: "not_ready", blocking: ["pass^k 0.40 < 0.80 required"], conditions: [], path: "prompt_based" },
         pass_k: 0.4, // steps/effort undefined → N/A
       },
@@ -260,7 +260,7 @@ describe("VerdictTable", () => {
     const broke: ModelVerdict[] = [
       {
         model: "broke:9b",
-        backend: "ollama",
+        backend: "llama_cpp",
         verdict: { status: "not_ready", blocking: [], conditions: [], path: "native_fc" },
         pass_k: 1.0,
         cliff: { status: "Broken", tested: 388 },
@@ -276,7 +276,7 @@ describe("VerdictTable", () => {
     const held: ModelVerdict[] = [
       {
         model: "qwen3.5:9b",
-        backend: "ollama",
+        backend: "llama_cpp",
         verdict: { status: "ready", blocking: [], conditions: [], path: "native_fc" },
         pass_k: 1.0,
         cliff: { status: "NoCliff", tested: 4000 },
@@ -291,7 +291,7 @@ describe("VerdictTable", () => {
   it("never guesses a quant — an unknown name renders a dash, not a family default", () => {
     render(
       <VerdictTable
-        verdicts={[{ model: "qwen2.5-coder", backend: "ollama", verdict: { status: "ready", blocking: [], conditions: [], path: "prompt_based" } }]}
+        verdicts={[{ model: "qwen2.5-coder", backend: "llama_cpp", verdict: { status: "ready", blocking: [], conditions: [], path: "prompt_based" } }]}
       />,
     );
     // The old code fabricated "q5_k_m" for any qwen; an unknown quant is now an honest "—".
@@ -304,7 +304,7 @@ describe("VerdictTable", () => {
         verdicts={[
           {
             model: "big-model",
-            backend: "ollama",
+            backend: "llama_cpp",
             verdict: {
               status: "not_ready",
               blocking: ["cleared Medium; this profile requires Extreme"],
@@ -330,13 +330,13 @@ describe("VerdictTable", () => {
     const dual: ModelVerdict[] = [
       {
         model: "qwen2.5-coder",
-        backend: "ollama",
+        backend: "llama_cpp",
         verdict: { status: "ready", blocking: [], conditions: [], path: "native_fc" },
         pass_k: 0.82,
       },
       {
         model: "qwen2.5-coder",
-        backend: "ollama",
+        backend: "llama_cpp",
         verdict: { status: "ready", blocking: [], conditions: [], path: "prompt_based" },
         pass_k: 0.74,
       },

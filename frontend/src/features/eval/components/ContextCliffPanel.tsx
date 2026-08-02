@@ -28,7 +28,7 @@ interface ProbeModel {
   name: string;
   backend: BackendKind;
   /// GGUF path for llama.cpp models (carried through from `SelectedModel`); the probe
-  /// sends it so the backend can match the running llama-server. Absent for Ollama/MLX.
+  /// sends it so the backend can match the running llama-server. Absent for a remote backend.
   path?: string;
 }
 
@@ -53,14 +53,14 @@ export function ContextCliffPanel() {
   // diagnostic must reproduce — so the backend pins it; there is no local toggle.
   const [preset, setPreset] = useState<CliffPreset>("corporate_policy");
   // Which tool-calling path the probe runs — the USER picks it on this page (default native, like
-  // the batch). MLX has no native tool API, so native falls back to prompt-based there.
+  // the batch).
   const [method, setMethod] = useState<AgentPath>("native_fc");
   // Thinking budget (mirrors the Tests page presets): shown only for a thinking model.
   // The scratchpad scales with each rung's DEPTH (≤4k Easy band … >16k Extreme band),
   // so a deeper context grants more reasoning room — never a free-form slider.
   const [thinkPreset, setThinkPreset] = useState<ThinkPreset>("standard");
   // The probe runs ONE of the global header models + global params. With 2+
-  // selected (Ollama), a small dropdown picks which one; default the first. A
+  // selected, a small dropdown picks which one; default the first. A
   // pre-fill request from the Matrix can OVERRIDE that with any batch-target model.
   const selectedModels = useSelectedModelStore((s) => s.selectedModels);
   const globalParams = useParamsStore((s) => s.globalParams);
@@ -157,13 +157,13 @@ export function ContextCliffPanel() {
   }, [active, presets, registryTasks]);
 
   // Cap the padding ladder at the model's real context window when known
-  // (Ollama /api/show dims); fall back to a fixed ceiling otherwise. The cap is the
+  // (from the GGUF header); fall back to a fixed ceiling otherwise. The cap is the
   // window MINUS the backend's headroom (`usableCliffTokens`): the backend runs at
   // `maxTokens + cliffHeadroom(...)`, so offering the full window would make the deepest
-  // rung overflow it — Ollama silently clamps and truncates (deleting the needle) while
+  // rung overflow it — a server that silently clamps would truncate (deleting the needle) while
   // `prompt_eval_count` saturates at the window, so the rung fails and reports a
   // fabricated cliff depth. The ladder must stay inside what the model can actually hold.
-  const { dims, kvBytes, capabilities } = useVramFit(selected?.name, selected?.backend, maxTokens);
+  const { dims, kvBytes } = useVramFit(selected?.name, selected?.backend, maxTokens);
   // llama.cpp pins its context at LAUNCH: the deepest measurable rung is bounded by the
   // RUNNING server's window, not the model's (much larger) GGUF maximum — the old slider
   // offered depths the server could never hold, and the user only found out from the
@@ -250,12 +250,12 @@ export function ContextCliffPanel() {
   // show a wild first guess. It's an estimate, labelled "~", never presented as exact.
   const etaS = frac > 0.03 && frac < 1 && elapsedS > 3 ? (elapsedS * (1 - frac)) / frac : null;
 
-  // Pre-flight memory advisory. Ollama sizes num_ctx per request; the backend hard-stops a
+  // Pre-flight memory advisory. The backend hard-stops a
   // won't-fit run, this warns BEFORE the click so the user can dial Max Tokens down first.
   // Device cap = unified → system RAM, discrete → VRAM. Estimate = model weights (from a
-  // loaded Ollama model) + KV cache at the requested depth. Renders nothing unless it can be
-  // MEASURED (cap + KV both present) — never a guessed alarm. Ollama only (where weights are
-  // readable); llama.cpp/MLX have their own guards.
+  // loaded model) + KV cache at the requested depth. Renders nothing unless it can be
+  // MEASURED (cap + KV both present) — never a guessed alarm. Local backends only (where weights are
+  // readable); llama.cpp have their own guards.
   const { snapshot } = useHardwareSnapshot();
   const [loaded, setLoaded] = useState<LoadedModel[]>([]);
   useEffect(() => {
@@ -276,20 +276,16 @@ export function ContextCliffPanel() {
   const fitWarning: string | null =
     // Threshold = the backend's PRESSURE_FRACTION planning constant (shared via
     // shared/memory/pressure.ts), gated on real measurements (deviceCap + footprint).
-    selected?.backend === "ollama" && deviceCap != null && footprint != null && footprint > deviceCap * PRESSURE_FRACTION
+    selected?.backend === "llama_cpp" && deviceCap != null && footprint != null && footprint > deviceCap * PRESSURE_FRACTION
       ? footprint > deviceCap
         ? `This machine (${formatBytes(deviceCap)}) likely can't hold ~${neededCtxK}k tokens for ${selected.name} — needs ≈${formatBytes(footprint)}. Reduce Max Tokens (or use a smaller model/quant) before running.`
         : `High memory pressure: ~${neededCtxK}k tokens for ${selected.name} needs ≈${formatBytes(footprint)} of ${formatBytes(deviceCap)} — close to the limit, so the run may spill to CPU (slow).`
       : null;
 
-  // MLX has no native tool-calling API, so native isn't offered there. On Ollama, native
-  // works only when the model's template references `.Tools` — /api/show then reports the
-  // `tools` capability. An imported GGUF with a plain template never gets it, and every
-  // native run 400s: surface that ceiling HERE, before the click, not as a post-run error
-  // (the same discoverability rule as the llama.cpp window cap above). Capabilities still
-  // loading / unreported ⇒ fail OPEN — the backend's own gate refuses honestly if needed.
-  const ollamaNoTools = selected?.backend === "ollama" && capabilities != null && !capabilities.includes("tools");
-  const nativeAvailable = selected?.backend !== "mlx" && !ollamaNoTools;
+  // Every supported backend serves the OpenAI tool wire, so native is always offered.
+  // A model whose template carries no tool grammar simply returns no `tool_calls`, which
+  // the harness labels honestly rather than being pre-judged here.
+  const nativeAvailable = true;
   const effectiveMethod: AgentPath = nativeAvailable ? method : "prompt_based";
 
   const handleRun = () => {
@@ -388,7 +384,7 @@ export function ContextCliffPanel() {
         <CliCommandPreview
           testId="cliff-cli-preview"
           cmd={buildCliffCommand({
-            backend: selected?.backend ?? "ollama",
+            backend: selected?.backend ?? "llama_cpp",
             model: selected?.name ?? null,
             collection: active,
             maxTokens,
@@ -745,9 +741,7 @@ export function ContextCliffPanel() {
                 data-testid={`cliff-method-${isNative ? "native" : "prompt"}`}
                 title={
                   disabled
-                    ? ollamaNoTools
-                      ? "This Ollama model reports no tool capability (its template lacks .Tools) — native calls are rejected. Probe Prompt-based, or re-create the model with a tool-capable TEMPLATE."
-                      : "MLX has no native tool-calling API — use Prompt-based"
+                    ? "Not available for this backend — use Prompt-based"
                     : isNative
                       ? "Probe native function-calling (structured tool_calls)"
                       : "Probe the prompt-based JSON-in-text tool proxy"
@@ -769,13 +763,6 @@ export function ContextCliffPanel() {
             );
           })}
         </div>
-        {!nativeAvailable && (
-          <span data-testid="cliff-native-unavailable" style={{ fontSize: 11, color: "#94a3b8", fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif" }}>
-            {ollamaNoTools
-              ? "This Ollama model has no native tool support (template lacks .Tools) — probing prompt-based"
-              : "MLX: prompt-based only"}
-          </span>
-        )}
       </div>
 
       {/* ── Thinking budget (thinking models only) — mirrors the Tests page presets; the
@@ -960,7 +947,7 @@ export function ContextCliffPanel() {
 
       {/* ── Progress + Execute / Stop ── */}
       <div style={{ padding: "14px 20px" }}>
-        {/* Pre-flight memory advisory (Ollama) — warns before the click; the backend still
+        {/* Pre-flight memory advisory — warns before the click; the backend still
             hard-stops a run that truly won't fit. Advisory only, so it never disables Execute. */}
         {fitWarning && !running && (
           <div

@@ -12,12 +12,8 @@ use crate::inference::generate::generate_stats::GenerateStats;
 use crate::inference::backend::remote_config;
 use crate::inference::llama::llama_backend::LlamaCppBackend;
 use crate::inference::llama::llama_chat;
-use crate::inference::mlx::mlx_backend::MlxBackend;
-use crate::inference::ollama::ollama_backend::OllamaBackend;
-use crate::inference::ollama::ollama_chat::{self, NativeToolCall};
-use crate::inference::ollama::ollama_show::show_model;
+use crate::inference::chat::native_call::NativeToolCall;
 use crate::inference::openai::chat_tools;
-use crate::inference::sglang::sglang_backend::SgLangBackend;
 use crate::inference::vllm::vllm_backend::VLlmBackend;
 use serde_json::{json, Value};
 use tokio::sync::OnceCell;
@@ -25,23 +21,13 @@ use tokio_util::sync::CancellationToken;
 
 /// Resolve the stop tokens for a model so generation actually halts. The end-of-turn
 /// markers of harmony (`<|return|>`/`<|call|>`) and gemma (`<end_of_turn>`) aren't a plain
-/// EOS, so without them the model emits the markers as literal text and runs to the token
-/// cap (the infinite-generation bug). The architecture comes from Ollama `/api/show`
-/// `model_info["general.architecture"]` — a METADATA-only call that does NOT load/offload
-/// weights, so it adds no model-switch latency — then the chat-template table maps it to its
-/// stops. Any failure (non-Ollama backend, Ollama down, unknown family) degrades to `[]`
-/// (the prior no-stop behavior), never an error. Called once per turn and memoized.
-async fn resolve_model_stops(endpoint: &str, backend: BackendKind, model: &str) -> Vec<String> {
-    // Scoped to Ollama (the failing path); llama.cpp/MLX resolve stops on their own wire
-    // structs as a follow-up.
-    if backend != BackendKind::Ollama {
-        return Vec::new();
-    }
-    let arch = show_model(endpoint, model)
-        .await
-        .ok()
-        .and_then(|r| r.model_info.get("general.architecture").and_then(|v| v.as_str()).map(str::to_string));
-    detect_template(model, arch.as_deref())
+/// This model's stop tokens, from the bundled chat-template table keyed on the
+/// model name. Without them the harmony/gemma families emit their turn markers as
+/// text and run to the token cap instead of stopping. Pure and offline — no probe,
+/// no network call, so it costs nothing per run. An unknown family degrades to `[]`
+/// (no `stop` key ⇒ the prior behavior), never a guessed token.
+fn resolve_model_stops(model: &str) -> Vec<String> {
+    detect_template(model, None)
         .map(|t| t.stop_tokens.iter().map(|s| (*s).to_string()).collect())
         .unwrap_or_default()
 }
@@ -108,7 +94,7 @@ pub trait ModelTurn {
     }
 
     /// Is a single turn intrinsically SLOW for this model on this machine — a reasoning model
-    /// (long `<think>` generation) OR a model Ollama had to spill onto the CPU (partial/full
+    /// (long `<think>` generation) OR a model the server had to spill onto the CPU (partial/full
     /// offload)? The runner multiplies the per-step wall-clock cap for a slow turn so a
     /// genuinely-progressing generation isn't killed as a false `TurnTimeout`. Default `false`:
     /// scripted test models and the native-FC path keep the terse-model timeout.
@@ -163,7 +149,7 @@ pub struct BackendTurn {
     /// Global inference params (from the header) applied to every eval turn.
     /// `None` runs at backend defaults.
     pub options: Option<GenerateOptions>,
-    /// Ollama keep_alive (from the header's "keep model loaded" toggle).
+    /// the server keep_alive (from the header's "keep model loaded" toggle).
     pub keep_alive: Option<i32>,
     /// This model is a reasoning model (the sidebar "thinking" checkbox). Drives the
     /// raised token budget + `<think>` stripping in the runner.
@@ -172,10 +158,10 @@ pub struct BackendTurn {
     /// budget when `is_thinking`. Precomputed at construction (`difficulty::passk::max_tokens_for`),
     /// where the tier is known, so the runner doesn't need the tier threaded in.
     pub max_tokens: u32,
-    /// Ollama had to spill this model's weights onto the CPU (it didn't fully fit in VRAM),
+    /// the server had to spill this model's weights onto the CPU (it didn't fully fit in VRAM),
     /// probed from `/api/ps` at construction. CPU inference is several times slower, so — like
     /// `is_thinking` — it makes a turn `slow_inference`, and the runner grants a larger per-step
-    /// timeout. `false` for a fully-resident model / llama.cpp / MLX / tests.
+    /// timeout. `false` for a fully-resident model / llama.cpp / tests.
     pub cpu_offloaded: bool,
     /// The hardware-adaptive `num_ctx` ceiling (from `hwclass::agentic_ctx_ceiling(total_ram)`),
     /// precomputed at construction where the hardware snapshot is in scope. The runner reads it
@@ -183,9 +169,7 @@ pub struct BackendTurn {
     /// non-eval sites.
     pub ctx_ceiling: u32,
     /// Per-turn-instance memo of the resolved stop tokens (see `resolve_model_stops`).
-    /// Resolved lazily on the first `run` and reused for every subsequent turn of this
-    /// model, so the agentic loop pays at most one `/api/show` per run. A `BackendTurn` is
-    /// built fresh per eval run, so a mid-session re-import can't leave a stale mapping.
+    /// Resolved on the first `run` and reused for every subsequent turn of this model.
     /// Defaulted at every construction site — not a user-supplied value.
     #[doc(hidden)]
     pub stop_cache: OnceCell<Vec<String>>,
@@ -227,14 +211,14 @@ impl ModelTurn for BackendTurn {
         let mut out = String::new();
         // Pulse once per streamed token, inside the single funnel every backend already routes
         // tokens through, so the runner's stall watchdog sees forward progress uniformly across
-        // Ollama/llama.cpp/MLX/vLLM/SGLang.
+        // llama.cpp / vLLM/vLLM.
         let push = |t: &str| {
             out.push_str(t);
             progress.pulse();
         };
         let cancel = self.cancel.clone();
         // The agentic loop builds its spec without a model name (it only knows the
-        // `ModelTurn` seam). Inject our own so Ollama — which sends `spec.model` in
+        // `ModelTurn` seam). Inject our own so the server — which sends `spec.model` in
         // the request — targets the right model instead of an empty name. Merge the
         // global eval params with the harness spec FIELD-WISE (see `merge_eval_options`):
         // the loop's structural caps (`num_predict`, `num_ctx`) must win, or a header that
@@ -245,10 +229,7 @@ impl ModelTurn for BackendTurn {
         // upstream set `stop`. This is what halts harmony/gemma models — without it they
         // emit their turn markers as text and run to the token cap. Empty for unknown
         // families ⇒ no `stop` key ⇒ identical to the prior behavior.
-        let stops = self
-            .stop_cache
-            .get_or_init(|| resolve_model_stops(&self.endpoint, self.backend, &self.model))
-            .await;
+        let stops = self.stop_cache.get_or_init(|| async { resolve_model_stops(&self.model) }).await;
         let mut options = merge_eval_options(self.options.as_ref(), spec.options.as_ref());
         if !stops.is_empty() {
             let opts = options.get_or_insert_with(GenerateOptions::default);
@@ -265,20 +246,17 @@ impl ModelTurn for BackendTurn {
             // actively DISABLES thinking on a thinking-BY-DEFAULT model (qwen3*) — merely omitting
             // the field let such a model burn the whole non-thinking `num_predict` inside a hidden
             // think block (→ Truncated, empty raw output) while the runner denied it the thinking
-            // budget and timeout. `think:false` is accepted by every Ollama since the field existed
+            // budget and timeout. `think:false` is accepted by every the server since the field existed
             // (the capability check fires only on `true`; older servers ignore unknown fields), so
             // no capability probe is needed. Same rule the OpenAI-path `enable_thinking` already
-            // applies ("sent explicitly, both true and false"); non-Ollama backends treat
+            // applies ("sent explicitly, both true and false"); other backends treat
             // `Some(false)` exactly like `None` (see `GenerateSpec::think`).
             think: Some(self.is_thinking),
             ..spec.clone()
         };
         let stats = match self.backend {
-            BackendKind::Ollama => OllamaBackend::new(self.endpoint.clone()).generate(&spec, cancel, push).await?,
             BackendKind::LlamaCpp => LlamaCppBackend::new(self.endpoint.clone()).generate(&spec, cancel, push).await?,
-            BackendKind::Mlx => MlxBackend::new(self.endpoint.clone(), self.model.clone()).generate(&spec, cancel, push).await?,
             BackendKind::VLlm => VLlmBackend::new(self.endpoint.clone(), remote_config::vllm().api_key, self.model.clone()).generate(&spec, cancel, push).await?,
-            BackendKind::SgLang => SgLangBackend::new(self.endpoint.clone(), remote_config::sglang().api_key, self.model.clone()).generate(&spec, cancel, push).await?,
         };
         Ok((out, stats))
     }
@@ -316,11 +294,8 @@ impl ModelTurn for BackendTurn {
         let cancel = self.cancel.clone();
         let sink = |_: &str| {};
         match self.backend {
-            BackendKind::Ollama => OllamaBackend::new(self.endpoint.clone()).generate(&spec, cancel, sink).await?,
             BackendKind::LlamaCpp => LlamaCppBackend::new(self.endpoint.clone()).generate(&spec, cancel, sink).await?,
-            BackendKind::Mlx => MlxBackend::new(self.endpoint.clone(), self.model.clone()).generate(&spec, cancel, sink).await?,
             BackendKind::VLlm => VLlmBackend::new(self.endpoint.clone(), remote_config::vllm().api_key, self.model.clone()).generate(&spec, cancel, sink).await?,
-            BackendKind::SgLang => SgLangBackend::new(self.endpoint.clone(), remote_config::sglang().api_key, self.model.clone()).generate(&spec, cancel, sink).await?,
         };
         Ok(())
     }
@@ -342,10 +317,10 @@ fn native_system(tools: &[ToolSchema], terminal: TerminalGuidance) -> String {
 /// AND across backends. Built per task (it carries that task's tool schemas +
 /// the act/abstain terminal guidance).
 ///
-/// The backend is the only dispatch point: Ollama → `/api/chat`, llama.cpp →
-/// OpenAI `/v1/chat/completions` (needs `--jinja`), vLLM/SGLang → the shared
+/// The backend is the only dispatch point: the server → `/api/chat`, llama.cpp →
+/// OpenAI `/v1/chat/completions` (needs `--jinja`), vLLM → the shared
 /// OpenAI `chat_tools::chat_with_tools` (remote, bearer-auth). A new server plugs
-/// in by adding one match arm in `run` + its `chat_with_tools`. MLX has no native
+/// in by adding one match arm in `run` + its `chat_with_tools`. the remote server has no native
 /// tool API and is gated out upstream (`probe_native_tools`).
 pub struct NativeToolTurn {
     pub backend: BackendKind,
@@ -365,7 +340,7 @@ pub struct NativeToolTurn {
     pub is_thinking: bool,
 }
 
-/// Shape the tool schemas into Ollama's `tools` array (OpenAI-style function specs).
+/// Shape the tool schemas into the server's `tools` array (OpenAI-style function specs).
 fn build_tools_value(tools: &[ToolSchema]) -> Value {
     Value::Array(
         tools
@@ -389,16 +364,6 @@ fn synthesize_calls(calls: &[NativeToolCall]) -> String {
     serde_json::to_string(&Value::Array(arr)).unwrap_or_default()
 }
 
-/// The native `/api/chat` `think` value — suppression-only tri-state. A non-thinking turn sends
-/// `Some(false)` to actively disable a thinking-BY-DEFAULT model's scratchpad (omitted, qwen3*
-/// burns the whole turn budget inside hidden `message.thinking` and yields zero `tool_calls`).
-/// A thinking turn OMITS the field rather than sending `true`: reasoning models think by default
-/// anyway, the native wire doesn't consume `message.thinking`, and `think:true` 400s on a model
-/// without the capability — so `true` buys nothing here and only adds a failure mode. (The
-/// prompt path differs: it needs `Some(true)` to split the channel for scratchpad capture.)
-fn native_think(is_thinking: bool) -> Option<bool> {
-    (!is_thinking).then_some(false)
-}
 
 /// The text the runner sees from a native turn. With real `tool_calls`, the canonical JSON
 /// (so scoring is byte-identical to the prompt path). With NONE, the raw assistant `content`
@@ -429,22 +394,11 @@ impl ModelTurn for NativeToolTurn {
         // The ONLY backend dispatch: each native server has its own tool wire, but all return
         // the shared `ChatResult` so canonicalization below stays identical across backends.
         let result = match self.backend {
-            BackendKind::Ollama => {
-                ollama_chat::chat_with_tools(&self.endpoint, &self.model, &system, &spec.prompt, &tools, options, native_think(self.is_thinking)).await?
-            }
             BackendKind::LlamaCpp => {
                 llama_chat::chat_with_tools(&self.endpoint, &self.model, &system, &spec.prompt, &tools, options).await?
             }
-            BackendKind::Mlx => {
-                return Err(crate::errors::AppError::Inference(
-                    "MLX has no native tool-calling API; it must run the prompt path".into(),
-                ))
-            }
             BackendKind::VLlm => {
                 chat_tools::chat_with_tools(&self.endpoint, remote_config::vllm().api_key.as_deref(), &self.model, &system, &spec.prompt, &tools, options).await?
-            }
-            BackendKind::SgLang => {
-                chat_tools::chat_with_tools(&self.endpoint, remote_config::sglang().api_key.as_deref(), &self.model, &system, &spec.prompt, &tools, options).await?
             }
         };
         // When the native parser returned tool calls, hand the runner the canonical
@@ -484,7 +438,7 @@ impl ModelTurn for NativeToolTurn {
 
 #[cfg(test)]
 mod tests {
-    use super::{merge_eval_options, native_system, native_think, native_turn_text, synthesize_calls, BackendTurn, ModelTurn, NativeToolCall, NativeToolTurn, Progress};
+    use super::{merge_eval_options, native_system, native_turn_text, synthesize_calls, BackendTurn, ModelTurn, NativeToolCall, NativeToolTurn, Progress};
     use crate::inference::backend::backend_kind::BackendKind;
     use crate::inference::eval::toolcall::parse::{extract_calls, extract_calls_dialect, looks_like_broken_json, looks_like_foreign_dialect, ToolCallDialect};
     use crate::inference::eval::toolcall::prompt::TerminalGuidance;
@@ -501,7 +455,7 @@ mod tests {
 
     fn backend_turn(endpoint: String, is_thinking: bool) -> BackendTurn {
         BackendTurn {
-            backend: BackendKind::Ollama,
+            backend: BackendKind::LlamaCpp,
             endpoint,
             model: "m".into(),
             cancel: CancellationToken::new(),
@@ -514,83 +468,6 @@ mod tests {
             stop_cache: Default::default(),
         }
     }
-
-    #[test]
-    fn native_think_suppresses_only_a_non_thinking_turn() {
-        // Non-thinking → `think:false` (disable a thinking-by-default model's hidden scratchpad);
-        // thinking → omitted (reasoning is default-on, and `true` 400s without the capability).
-        assert_eq!(native_think(false), Some(false));
-        assert_eq!(native_think(true), None);
-    }
-
-    /// The hidden-scratchpad burn fix, asserted on the REAL request body: a non-thinking prompt
-    /// turn must SEND `think:false`, not omit the field — omitted, a thinking-by-default model
-    /// (qwen3*) reasons anyway, burns the whole non-thinking `num_predict` inside the invisible
-    /// `thinking` channel, and the turn scores Truncated with empty raw output.
-    #[tokio::test]
-    async fn a_non_thinking_backend_turn_sends_think_false_on_the_generate_wire() {
-        let mut s = mockito::Server::new_async().await;
-        let m = s
-            .mock("POST", "/api/generate")
-            .match_body(Matcher::PartialJson(json!({ "think": false })))
-            .with_status(200)
-            .with_body("{\"response\":\"ok\",\"done\":true,\"done_reason\":\"stop\"}\n")
-            .create_async()
-            .await;
-        let turn = backend_turn(s.url(), false);
-        let (out, stats) = turn.run(&GenerateSpec { prompt: "p".into(), ..Default::default() }, &Progress::new()).await.unwrap();
-        assert_eq!(out, "ok");
-        assert_eq!(stats.finish_reason.as_deref(), Some("stop"));
-        m.assert_async().await; // the body really carried think:false
-    }
-
-    /// The capture path is unchanged: a thinking prompt turn still sends `think:true` so Ollama
-    /// splits the scratchpad into the `thinking` channel for the harness.
-    #[tokio::test]
-    async fn a_thinking_backend_turn_still_sends_think_true() {
-        let mut s = mockito::Server::new_async().await;
-        let m = s
-            .mock("POST", "/api/generate")
-            .match_body(Matcher::PartialJson(json!({ "think": true })))
-            .with_status(200)
-            .with_body("{\"response\":\"ok\",\"thinking\":\"hm\",\"done\":true,\"done_reason\":\"stop\"}\n")
-            .create_async()
-            .await;
-        let turn = backend_turn(s.url(), true);
-        let (out, _) = turn.run(&GenerateSpec { prompt: "p".into(), ..Default::default() }, &Progress::new()).await.unwrap();
-        assert_eq!(out, "<think>hm</think>ok");
-        m.assert_async().await;
-    }
-
-    /// Same fix on the NATIVE wire: `/api/chat` must carry `think:false` for a non-thinking turn
-    /// — omitted, qwen3* thinks by default into `message.thinking` and returns zero `tool_calls`
-    /// at the cap (verified live before the fix).
-    #[tokio::test]
-    async fn a_non_thinking_native_turn_sends_think_false_on_the_chat_wire() {
-        let mut s = mockito::Server::new_async().await;
-        let m = s
-            .mock("POST", "/api/chat")
-            .match_body(Matcher::PartialJson(json!({ "think": false })))
-            .with_status(200)
-            .with_body(r#"{"message":{"content":"","tool_calls":[{"function":{"name":"reply","arguments":{"text":"ok"}}}]},"done_reason":"stop"}"#)
-            .create_async()
-            .await;
-        let turn = NativeToolTurn {
-            backend: BackendKind::Ollama,
-            endpoint: s.url(),
-            model: "m".into(),
-            tools: vec![tool("reply", json!({ "text": { "type": "string" } }))],
-            options: None,
-            terminal: TerminalGuidance::PlainTextOk,
-            max_tokens: 256,
-            is_thinking: false,
-        };
-        let (out, _) = turn.run(&GenerateSpec { prompt: "p".into(), ..Default::default() }, &Progress::new()).await.unwrap();
-        let calls = extract_calls(&out).unwrap();
-        assert_eq!(calls[0].name, "reply");
-        m.assert_async().await; // the body really carried think:false
-    }
-
     #[test]
     fn native_system_mandates_the_reporter_tool_on_an_act_task() {
         // The Gap A' fix: an ACT task with a `reply` tool must tell the native model to CALL
@@ -668,7 +545,7 @@ mod tests {
     /// both wires, the same turn finishes inside a 64-token budget. Run:
     ///   cargo test --lib live_think_false -- --ignored --nocapture
     #[tokio::test]
-    #[ignore = "hits a live Ollama on :11434 with qwen3.6:35b installed"]
+    #[ignore = "hits a live a local server with qwen3.6:35b installed"]
     async fn live_think_false_stops_the_hidden_scratchpad_burn_on_a_default_thinker() {
         let ep = "http://localhost:11434";
         let model = "qwen3.6:35b";
@@ -676,7 +553,7 @@ mod tests {
 
         // Prompt path (JSON dialect): 64 tokens is only survivable with thinking truly OFF.
         let turn = BackendTurn {
-            backend: BackendKind::Ollama, endpoint: ep.into(), model: model.into(),
+            backend: BackendKind::LlamaCpp, endpoint: ep.into(), model: model.into(),
             cancel: CancellationToken::new(), options: None, keep_alive: Some(300),
             is_thinking: false, max_tokens: 64, cpu_offloaded: false,
             ctx_ceiling: crate::inference::eval::agentic::runner::NUM_CTX_CEILING,
@@ -691,7 +568,7 @@ mod tests {
 
         // Native path: same model + budget must yield a real structured tool call.
         let native = NativeToolTurn {
-            backend: BackendKind::Ollama, endpoint: ep.into(), model: model.into(),
+            backend: BackendKind::LlamaCpp, endpoint: ep.into(), model: model.into(),
             tools: vec![tool("reply", json!({ "text": { "type": "string" } }))],
             options: None, terminal: TerminalGuidance::MustUseTools, max_tokens: 64, is_thinking: false,
         };
@@ -714,22 +591,21 @@ mod tests {
         assert!(out.contains("<think>"), "is_thinking:true must still capture the scratchpad");
     }
 
-    #[tokio::test]
-    #[ignore = "hits a live Ollama on :11434 with gpt-oss / gemma4 installed"]
-    async fn live_resolve_stops_maps_installed_models_to_their_real_stop_tokens() {
-        use super::{resolve_model_stops, BackendKind};
-        let ep = "http://localhost:11434";
-        // End-to-end: /api/show arch → chat-template stops, for the models that loop.
+    #[test]
+    fn resolve_stops_maps_the_looping_families_to_their_real_stop_tokens() {
+        use super::resolve_model_stops;
+        // These are the families that otherwise emit turn markers as text and burn
+        // to the token cap. Name-keyed, so it needs no server and no probe.
         assert_eq!(
-            resolve_model_stops(ep, BackendKind::Ollama, "gpt-oss-20b_q8_0:latest").await,
+            resolve_model_stops("gpt-oss-20b_q8_0:latest"),
             vec!["<|return|>".to_string(), "<|call|>".to_string()],
         );
         assert_eq!(
-            resolve_model_stops(ep, BackendKind::Ollama, "gemma-4-12b-it-qat_q4_0:latest").await,
+            resolve_model_stops("gemma-4-12b-it-qat_q4_0:latest"),
             vec!["<end_of_turn>".to_string()],
         );
-        // Non-Ollama backends short-circuit to no stops without any network call.
-        assert!(resolve_model_stops(ep, BackendKind::Mlx, "anything").await.is_empty());
+        // An unknown family degrades to no stops rather than a guessed token.
+        assert!(resolve_model_stops("some-unknown-model").is_empty());
     }
 
     #[test]
@@ -774,10 +650,10 @@ mod tests {
 
     #[test]
     fn native_turn_with_calls_returns_canonical_json_ignoring_content() {
-        // When Ollama parsed real tool calls, the content is irrelevant — the runner scores
+        // When the server parsed real tool calls, the content is irrelevant — the runner scores
         // the canonical JSON, byte-identical to the prompt path.
         let calls = vec![NativeToolCall { name: "run_tests".into(), args: json!({ "module": "cart" }) }];
-        let text = native_turn_text(&calls, "some prose Ollama also returned".into());
+        let text = native_turn_text(&calls, "some prose the server also returned".into());
         let parsed = extract_calls(&text).unwrap();
         assert_eq!(parsed.len(), 1);
         assert_eq!(parsed[0].name, "run_tests");
@@ -785,7 +661,7 @@ mod tests {
 
     #[test]
     fn native_turn_with_no_calls_surfaces_foreign_content_so_the_runner_flags_it() {
-        // The bug: Ollama's parser found NO tool_calls in a mis-built model's channel-token
+        // The bug: the server-side parser found NO tool_calls in a mis-built model's channel-token
         // soup, but the soup is in `content`. Returning "" hid it as a silent empty →
         // Hallucinated. Surfacing `content` lets the runner name the honest ForeignDialect.
         let soup =
@@ -798,8 +674,8 @@ mod tests {
     }
 
     #[test]
-    fn native_turn_with_no_calls_and_clean_harmony_brace_matches_what_ollama_recovers() {
-        // The clean `call:NAME{…}` form Ollama's native parser DOES recover would normally
+    fn native_turn_with_no_calls_and_clean_harmony_brace_matches_what_the_parser_recovers() {
+        // The clean `call:NAME{…}` form a server-side native parser DOES recover would normally
         // arrive as a real tool_call; if it ever reaches the content branch the salvager
         // recovers it as Harmony — same call a real deployment gets (production parity).
         let text = native_turn_text(&[], "<channel|>call:run_tests{module: \"cart\"}<tool_call|>".into());
@@ -892,12 +768,12 @@ mod live_native_channel_tests {
         assert!(stats.native_tool_calls.is_some(), "{label}: a native turn must record its channel");
     }
 
-    /// Run: cargo test --lib live_native_channel_ollama -- --ignored --nocapture
+    /// Run: cargo test --lib live_native_channel_recovery -- --ignored --nocapture
     #[tokio::test]
-    #[ignore = "live: requires Ollama on :11434 with a tool-capable model"]
-    async fn live_native_channel_ollama() {
+    #[ignore = "live: requires a local server with a tool-capable model"]
+    async fn live_native_channel_recovery() {
         let model = std::env::var("QM_LIVE_MODEL").unwrap_or_else(|_| "qwen2.5-coder-7b-instruct:q4_k_m".into());
-        probe(BackendKind::Ollama, "http://127.0.0.1:11434", &model, &format!("ollama/{model}")).await;
+        probe(BackendKind::LlamaCpp, "http://127.0.0.1:11434", &model, &format!("the server/{model}")).await;
     }
 
     /// Run: cargo test --lib live_native_channel_llama -- --ignored --nocapture

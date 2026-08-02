@@ -1,5 +1,5 @@
 //! Credential-transport guard (rule 7d): a bearer key may only travel over a channel that
-//! can't be sniffed. vLLM/SGLang endpoints are user-supplied and are frequently plain
+//! can't be sniffed. vLLM endpoints are user-supplied and are frequently plain
 //! `http://<remote-gpu-ip>`, so without this a configured API key leaks in cleartext to
 //! anyone on-path. Enforced twice: as a save-time guardrail (clear popup) and as a
 //! defense-in-depth strip at each request site.

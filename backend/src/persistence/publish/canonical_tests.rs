@@ -10,7 +10,7 @@ use crate::persistence::publish::row::{PublishContext, PublishRow};
 fn verdict(model: &str, pass_k: Option<f64>, quant: Option<&str>) -> ModelVerdict {
     ModelVerdict {
         model: model.to_string(),
-        backend: BackendKind::Ollama,
+        backend: BackendKind::LlamaCpp,
         verdict: ReadinessVerdict {
             status: Readiness::Ready,
             blocking: vec!["this reason must never reach the wire".into()],

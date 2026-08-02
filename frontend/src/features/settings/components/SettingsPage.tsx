@@ -1,5 +1,6 @@
 import { HardwareSection } from "./HardwareSection";
 import { RemoteBackendsSection } from "./RemoteBackendsSection";
+import { CostBasisSection } from "./CostBasisSection";
 import { UpdateChecker } from "../../updater/components/UpdateChecker";
 
 /// Settings view. Hosts the Hardware and remote-backend sections plus the app
@@ -9,6 +10,7 @@ export function SettingsPage() {
     <div className="space-y-6" data-testid="settings">
       <HardwareSection />
       <RemoteBackendsSection />
+      <CostBasisSection />
       <UpdateChecker />
     </div>
   );

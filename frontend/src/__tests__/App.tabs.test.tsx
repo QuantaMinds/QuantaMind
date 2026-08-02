@@ -11,6 +11,7 @@ vi.mock("@monaco-editor/react", () => ({
 import { invoke } from "@tauri-apps/api/core";
 import App from "../App";
 import { useCompareStore } from "../features/compare/state/compareStore";
+import { useBackendStore } from "../shared/state/backendStore";
 import { useNavStore } from "../shared/state/navStore";
 import { useModelStore } from "../features/models/state/modelStore";
 import { useWorkspacesStore } from "../features/workspaces/state/workspaceStore";
@@ -19,20 +20,21 @@ import { seedCurrentPrompt } from "./helpers/seedWorkspace";
 beforeEach(() => {
   vi.mocked(invoke).mockReset();
   vi.mocked(invoke).mockImplementation((cmd: string) => {
-    if (cmd === "list_models") return Promise.resolve([]);
-    if (cmd === "check_ollama_health")
-      return Promise.resolve({ available: true, version: "x" });
-    if (cmd === "get_installed_models_with_stats") return Promise.resolve([]);
+    if (cmd === "check_llama_health")
+      return Promise.resolve({ available: true, version: null });
+    if (cmd === "list_llama_models" || cmd === "list_vllm_models" || cmd === "list_vllm_models")
+      return Promise.resolve([]);
     if (cmd === "get_disk_usage")
-      return Promise.resolve({ total_bytes: 1, free_bytes: 1, ollama_models_bytes: 0 });
+      return Promise.resolve({ total_bytes: 1, free_bytes: 1, models_bytes: 0 });
     if (cmd === "get_storage_path")
       return Promise.resolve({ current_path: "/tmp", from_env: false });
     if (cmd === "save_prompt") return Promise.resolve(useWorkspacesStore.getState().current);
     return Promise.reject(new Error(`unknown ${cmd}`));
   });
   useCompareStore.getState().reset();
+  useBackendStore.setState({ selectedBackend: "llama_cpp", llamaHealthy: true });
   useNavStore.setState({ topView: "workspace" });
-  useModelStore.setState({ downloads: {}, pullNames: {}, activeHfName: null, hfSearchQuery: "", hfSelectedRepo: null });
+  useModelStore.setState({ downloads: {}, activeHfName: null, hfSearchQuery: "", hfSelectedRepo: null });
   seedCurrentPrompt();
 });
 

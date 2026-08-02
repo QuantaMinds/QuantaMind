@@ -15,7 +15,7 @@ inputs:
     description: "release (prebuilt binary from the latest GitHub Release — fast, default) | source (build --no-default-features from the workspace)"
     default: 'release'
   backend:
-    description: 'ollama | llama_cpp | mlx | vllm | sglang'
+    description: 'llama_cpp | vllm'
     default: 'vllm'
   base-url:
     description: 'OpenAI-compatible endpoint (e.g. https://vllm.internal:8000). Sets QM_BASE.'

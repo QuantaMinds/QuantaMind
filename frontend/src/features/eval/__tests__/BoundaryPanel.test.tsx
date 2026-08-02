@@ -30,7 +30,7 @@ const reportWith = (b: BoundaryReport): BatchReport =>
     columns: [
       {
         model: "llama-3.2-1b",
-        backend: "ollama",
+        backend: "llama_cpp",
         toolcall: null,
         agentic: {
           tasks_passed: 0,

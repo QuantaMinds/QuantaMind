@@ -21,14 +21,18 @@ pub struct UserSettings {
     /// Override for the shared GGUF weights folder (default `~/.quantamind/gguf`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub models_folder: Option<String>,
-    /// Folder holding a user-installed `whisper-server` (STT engine), set via the
-    /// Speech-to-Text setup card's folder picker. Persisted so a custom install
-    /// is found on every launch without re-picking. Consulted first by
-    /// `whisper_dir`, ahead of PATH/Homebrew discovery.
+    /// Hourly price of the accelerator this machine runs on, for the Test-run cost
+    /// figures. **No default** — absent means every dollar figure reads "n/a (no
+    /// price basis)". A guessed price would understate a real bill, which is worse
+    /// than no price at all.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub stt_engine_dir: Option<String>,
+    pub gpu_hourly_usd: Option<f64>,
+    /// Fraction of that accelerator this app actually has (1.0 = the whole card).
+    /// Absent ⇒ 1.0.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_utilization: Option<f64>,
     /// Base URL of a remote vLLM OpenAI-compatible server (e.g.
-    /// `http://34.10.20.30:8000`). vLLM/SGLang run on a remote GPU, so — unlike the
+    /// `http://34.10.20.30:8000`). vLLM run on a remote GPU, so — unlike the
     /// localhost sidecars — their endpoint is user-configured. Empty/unset ⇒ the
     /// vLLM backend reports "not configured".
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -36,13 +40,6 @@ pub struct UserSettings {
     /// Bearer token for the vLLM server, if it was launched with `--api-key`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vllm_api_key: Option<String>,
-    /// Base URL of a remote SGLang OpenAI-compatible server (e.g.
-    /// `http://34.10.20.30:30000`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sglang_url: Option<String>,
-    /// Bearer token for the SGLang server, if it was launched with `--api-key`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sglang_api_key: Option<String>,
 }
 
 pub fn load(path: &Path) -> AppResult<UserSettings> {
@@ -65,7 +62,6 @@ pub fn save(path: &Path, s: &UserSettings) -> AppResult<()> {
     // boundary strips them before serializing — regardless of caller. See docs/security.md.
     let mut on_disk = s.clone();
     on_disk.vllm_api_key = None;
-    on_disk.sglang_api_key = None;
     let yaml = serde_yaml::to_string(&on_disk).map_err(|e| AppError::Internal(e.to_string()))?;
     std::fs::write(path, yaml).map_err(|e| AppError::Io(e.to_string()))
 }

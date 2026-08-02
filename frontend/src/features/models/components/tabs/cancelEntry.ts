@@ -1,6 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
 import { cancelHfInstall } from "../../../../shared/ipc/models/hf_install";
-import { cancelSttInstall } from "../../../../shared/ipc/stt/stt";
 import type { DownloadEntry } from "../../state/modelStore";
 
 /// Dispatch the right cancel IPC for a download entry by source.
@@ -10,10 +8,6 @@ export async function cancelEntry(entry: DownloadEntry): Promise<Error | null> {
   try {
     if (entry.source === "huggingface") {
       await cancelHfInstall();
-    } else if (entry.source === "stt") {
-      await cancelSttInstall();
-    } else if (entry.source === "ollama" && entry.pullId) {
-      await invoke("cancel_pull", { pullId: entry.pullId });
     }
     return null;
   } catch (e) {

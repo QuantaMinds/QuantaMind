@@ -39,7 +39,7 @@ beforeEach(() => {
     init: vi.fn().mockResolvedValue(undefined),
   });
   useInstalledModelsStore.setState({
-    list: [{ name: "m1", size_bytes: 1, modified_at: "", family: "", parameter_size: "", quantization: "", backend: "ollama" }],
+    list: [{ name: "m1", size_bytes: 1, modified_at: "", family: "", parameter_size: "", quantization: "", backend: "llama_cpp" }],
     status: "ready", error: null, lastRefreshedAt: 1,
   });
 });
@@ -60,7 +60,7 @@ describe("PipelinePanel", () => {
     await waitFor(() => expect(traceToolcallTask).toHaveBeenCalledOnce());
     const [model, backend, passedTask] = vi.mocked(traceToolcallTask).mock.calls[0];
     expect(model).toBe("m1");
-    expect(backend).toBe("ollama");
+    expect(backend).toBe("llama_cpp");
     expect(passedTask.id).toBe("w");
 
     await waitFor(() => expect(screen.getByTestId("pipeline-validation")).toHaveTextContent("PASSED"));

@@ -26,8 +26,8 @@ describe("remoteCredentialMessage", () => {
     expect(msg).toMatch(/https/i);
   });
 
-  it("labels SGLang and covers the rest of the space", () => {
-    expect(remoteCredentialMessage("sglang", report({ status: "unconfigured" }))).toMatch(/No SGLang endpoint/);
+  it("labels vLLM and covers the rest of the space", () => {
+    expect(remoteCredentialMessage("vllm", report({ status: "unconfigured" }))).toMatch(/No vLLM endpoint/);
     expect(remoteCredentialMessage("vllm", report({ status: "tls_error" }))).toMatch(/TLS/);
     expect(remoteCredentialMessage("vllm", report({ status: "not_found" }))).toMatch(/OpenAI-compatible/);
     expect(remoteCredentialMessage("vllm", report({ status: "server_error", http_status: 502 }))).toMatch(/HTTP 502/);

@@ -12,31 +12,22 @@ use crate::inference::backend::backend_kind::BackendKind;
 /// The wire label for a backend (matches `BackendKind`'s serde + `--backend`).
 pub fn label(kind: BackendKind) -> &'static str {
     match kind {
-        BackendKind::Ollama => "ollama",
         BackendKind::LlamaCpp => "llama_cpp",
-        BackendKind::Mlx => "mlx",
         BackendKind::VLlm => "vllm",
-        BackendKind::SgLang => "sglang",
     }
 }
 
 /// The command that starts this backend (shown, never run).
 fn start_hint(kind: BackendKind) -> &'static str {
     match kind {
-        BackendKind::Ollama => "ollama serve",
         BackendKind::LlamaCpp => "llama-server -m <model.gguf> --port 8081",
-        BackendKind::Mlx => "mlx_lm.server --model <model>",
         BackendKind::VLlm => "vllm serve <model>  (or point --base at a running server)",
-        BackendKind::SgLang => "python -m sglang.launch_server --model-path <model> --port 30000",
     }
 }
 
 /// The command that gives a reachable-but-empty backend something to run.
-fn pull_hint(kind: BackendKind) -> &'static str {
-    match kind {
-        BackendKind::Ollama => "ollama pull qwen2.5",
-        _ => "start the server with a model loaded",
-    }
+fn pull_hint(_kind: BackendKind) -> &'static str {
+    "start the server with a model loaded"
 }
 
 fn native_fc_str(fc: NativeFc) -> &'static str {

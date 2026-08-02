@@ -6,7 +6,7 @@ use crate::inference::openai::chat_stream::stream_generate;
 use tokio_util::sync::CancellationToken;
 
 /// Streams generations from a remote vLLM `/v1/chat/completions` endpoint
-/// (OpenAI-compatible SSE). Like MLX it is multi-model, so `spec.model` IS sent;
+/// (OpenAI-compatible SSE). Like the remote server it is multi-model, so `spec.model` IS sent;
 /// unlike the local sidecars it runs on a remote GPU, so it carries the
 /// user-configured `endpoint` + optional `api_key` (bearer). `spec.keep_alive`
 /// has no vLLM equivalent and is not part of the request.

@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 pub const MAX_BYTES: u64 = 256 * 1024;
 
 /// The cliff file for a collection. `safe_filename` sanitizes ONLY the file name;
-/// the model keys inside the map are stored verbatim (Ollama names carry colons).
+/// the model keys inside the map are stored verbatim (the server names carry colons).
 fn cliff_path(dir: &Path, collection_id: &str) -> PathBuf {
     dir.join(format!("{}.json", safe_filename(collection_id)))
 }

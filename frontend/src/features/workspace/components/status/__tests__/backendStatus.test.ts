@@ -2,47 +2,24 @@ import { describe, it, expect } from "vitest";
 import { backendStatus } from "../backendStatus";
 
 describe("backendStatus", () => {
-  it("names MLX (not Ollama) when MLX is the active backend", () => {
-    const s = backendStatus("mlx", null, null, true, null, null, "stub-mlx");
-    expect(s.aria).toBe("MLX health");
-    expect(s.running).toBe(true);
-    expect(s.label).toBe("MLX · running (stub-mlx)");
-  });
-
-  it("shows MLX not running when its server is down — never 'Ollama not running'", () => {
-    const s = backendStatus("mlx", null, null, false, null, null, null);
-    expect(s.aria).toBe("MLX health");
-    expect(s.running).toBe(false);
-    expect(s.label).toBe("MLX · not running");
-  });
-
   it("tracks llama.cpp run state and names the model", () => {
-    expect(backendStatus("llama_cpp", null, true, null, null, null, "phi3").label).toBe(
-      "llama.cpp · running (phi3)",
-    );
-    expect(backendStatus("llama_cpp", null, false, null, null, null, null).label).toBe(
-      "llama.cpp · not started",
-    );
+    expect(backendStatus("llama_cpp", true, null, "phi3").label).toBe("llama.cpp · running (phi3)");
+    expect(backendStatus("llama_cpp", false, null, null).label).toBe("llama.cpp · not started");
+    expect(backendStatus("llama_cpp", true, null, null).aria).toBe("llama.cpp health");
   });
 
-  it("shows the remote backends as connected / not reachable", () => {
-    const vllmUp = backendStatus("vllm", null, null, null, true, null, "qwen");
-    expect(vllmUp.aria).toBe("vLLM health");
-    expect(vllmUp.running).toBe(true);
-    expect(vllmUp.label).toBe("vLLM · connected (qwen)");
-    expect(backendStatus("vllm", null, null, null, false, null, null).label).toBe("vLLM · not reachable");
-    expect(backendStatus("sglang", null, null, null, null, true, null).label).toBe("SGLang · connected");
-    expect(backendStatus("sglang", null, null, null, null, null, null).label).toBe("SGLang · not reachable");
-  });
-
-  it("uses polled Ollama health with the version when connected", () => {
-    const up = backendStatus("ollama", { available: true, version: "0.1.32" }, null, null, null, null, null);
-    expect(up.aria).toBe("Ollama health");
+  it("shows the remote backend as connected / not reachable", () => {
+    const up = backendStatus("vllm", null, true, "qwen");
+    expect(up.aria).toBe("vLLM health");
     expect(up.running).toBe(true);
-    expect(up.label).toMatch(/connected.*0\.1\.32/);
-    expect(backendStatus("ollama", null, null, null, null, null, null).label).toBe("checking…");
-    expect(
-      backendStatus("ollama", { available: false, version: null }, null, null, null, null, null).label,
-    ).toBe("Ollama not running");
+    expect(up.label).toBe("vLLM · connected (qwen)");
+    expect(backendStatus("vllm", null, false, null).label).toBe("vLLM · not reachable");
+  });
+
+  it("never reports a backend as running on another backend's health", () => {
+    // A healthy remote must not make the local llama.cpp dot go green, or the
+    // status bar would claim a server is up that isn't.
+    expect(backendStatus("llama_cpp", null, true, null).running).toBe(false);
+    expect(backendStatus("vllm", true, null, null).running).toBe(false);
   });
 });

@@ -1,7 +1,7 @@
 /// Classify an HF GGUF filename so we can refuse to install variants
-/// Ollama can't register as standalone models. Triggered the day a user
+/// the server can't register as standalone models. Triggered the day a user
 /// installed `mmproj-gemma-4-26b-a4b-it-bf16.gguf`: download succeeded,
-/// the create stream closed without a `success` chunk, and `ollama list`
+/// the install stream closed without a `success` chunk, and the model list
 /// stayed empty. Better to never let the click happen than to detect
 /// after the fact.
 
@@ -28,7 +28,7 @@ export function classifyHfVariant(filename: string): VariantClassification {
     return {
       kind: "adapter",
       label: "LoRA / adapter",
-      reason: "Adapter / LoRA fine-tune — needs a base model to apply on top of; Ollama can't install it alone.",
+      reason: "Adapter / LoRA fine-tune — needs a base model to apply on top of; it can't be installed alone.",
     };
   }
   return { kind: "model" };

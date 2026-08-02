@@ -3,7 +3,7 @@ import { CLIFF_CTX_HEADROOM, cliffHeadroom, cliffThinkTokens, cliffTierForDepth,
 
 /// The probe runs at `maxTokens + CLIFF_CTX_HEADROOM` (readiness_cmd.rs::run_context_cliff).
 /// Offering the model's FULL window as Max Tokens therefore asked for MORE context than the
-/// model has — for every model, by exactly the headroom. Ollama answers that by silently
+/// model has — for every model, by exactly the headroom. the server answers that by silently
 /// clamping `num_ctx` to the trained window and truncating the prompt: the needle is deleted,
 /// the rung fails, and `prompt_eval_count` saturates at the window so the reported depth is
 /// fabricated. llama.cpp instead refuses with "raise the context window" — impossible, since

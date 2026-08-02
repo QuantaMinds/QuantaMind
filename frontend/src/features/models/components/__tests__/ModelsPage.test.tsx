@@ -10,9 +10,8 @@ import { useNavStore } from "../../../../shared/state/navStore";
 
 beforeEach(() => {
   useModelStore.setState({
-    activeTab: "ollama",
+    activeTab: "huggingface",
     downloads: {},
-    pullNames: {},
     activeHfName: null,
     hfSearchQuery: "",
     hfSelectedRepo: null,
@@ -21,17 +20,16 @@ beforeEach(() => {
 });
 
 describe("ModelsPage", () => {
-  it("renders three sub-tab buttons in order", () => {
+  it("renders both sub-tab buttons in order", () => {
     render(<ModelsPage />);
-    expect(screen.getByTestId("models-tab-ollama")).toHaveTextContent("Ollama Library");
     expect(screen.getByTestId("models-tab-huggingface")).toHaveTextContent("Hugging Face");
     expect(screen.getByTestId("models-tab-local")).toHaveTextContent("Local File");
   });
 
-  it("Ollama is the active sub-tab by default", () => {
+  it("Hugging Face is the active sub-tab by default", () => {
     render(<ModelsPage />);
-    expect(screen.getByTestId("models-tab-ollama")).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByTestId("models-tab-huggingface")).toHaveAttribute("aria-selected", "false");
+    expect(screen.getByTestId("models-tab-huggingface")).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("models-tab-local")).toHaveAttribute("aria-selected", "false");
   });
 
   it("clicking a sub-tab updates modelStore.activeTab and renders that tab's body", () => {
@@ -41,20 +39,18 @@ describe("ModelsPage", () => {
     expect(screen.getByTestId("tab-huggingface")).toBeInTheDocument();
   });
 
-  it("Cmd+1/2/3 switch sub-tabs when topView is 'models'", () => {
+  it("Cmd+1/2 switch sub-tabs when topView is 'models'", () => {
     render(<ModelsPage />);
     fireEvent.keyDown(document, { key: "2", metaKey: true });
-    expect(useModelStore.getState().activeTab).toBe("huggingface");
-    fireEvent.keyDown(document, { key: "3", metaKey: true });
     expect(useModelStore.getState().activeTab).toBe("local");
     fireEvent.keyDown(document, { key: "1", metaKey: true });
-    expect(useModelStore.getState().activeTab).toBe("ollama");
+    expect(useModelStore.getState().activeTab).toBe("huggingface");
   });
 
-  it("Cmd+1/2/3 are no-ops when topView is NOT 'models'", () => {
+  it("Cmd+1/2 are no-ops when topView is NOT 'models'", () => {
     useNavStore.setState({ topView: "workspace" });
     render(<ModelsPage />);
     fireEvent.keyDown(document, { key: "2", metaKey: true });
-    expect(useModelStore.getState().activeTab).toBe("ollama");
+    expect(useModelStore.getState().activeTab).toBe("huggingface");
   });
 });

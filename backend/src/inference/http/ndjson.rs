@@ -15,7 +15,7 @@ pub fn next_line(buf: &mut Vec<u8>) -> Option<Vec<u8>> {
 
 /// Return the un-terminated tail of `buf` (after stripping any trailing
 /// `\r`/`\n`) if non-empty. Use after the stream has closed to recover a
-/// final line emitted without a trailing newline — Ollama 0.24+ has been
+/// final line emitted without a trailing newline — the server 0.24+ has been
 /// observed to do this on `/api/create` and `/api/pull`, which would
 /// otherwise cause a successful install to surface as "stream ended
 /// without success".

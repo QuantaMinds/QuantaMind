@@ -28,13 +28,6 @@ describe("LlamaServerReadout", () => {
     expect(readout).toHaveAttribute("title", expect.stringContaining("one-time startup cost"));
   });
 
-  it("renders nothing for Ollama (no fabricated llama readout)", () => {
-    useBackendStore.setState({ selectedBackend: "ollama" });
-    render(<LlamaServerReadout />);
-    expect(screen.queryByTestId("llama-spawn-readout")).toBeNull();
-    expect(llamaServerInfo).not.toHaveBeenCalled();
-  });
-
   it("renders nothing when no server readout is available", async () => {
     vi.mocked(llamaServerInfo).mockResolvedValue(null);
     render(<LlamaServerReadout />);

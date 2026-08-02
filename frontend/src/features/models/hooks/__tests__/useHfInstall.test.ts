@@ -18,9 +18,9 @@ import { useBackendStore } from "../../../../shared/state/backendStore";
 
 beforeEach(() => {
   vi.mocked(installHfGguf).mockReset();
-  useBackendStore.setState({ selectedBackend: "ollama" });
+  useBackendStore.setState({ selectedBackend: "llama_cpp" });
   useModelStore.setState({
-    downloads: {}, activeHfName: null, pullNames: {}, pendingLocalPath: null,
+    downloads: {}, activeHfName: null, pendingLocalPath: null,
     activeLocalName: null, activeTab: "huggingface",
   });
 });
@@ -32,14 +32,6 @@ describe("useHfInstall", () => {
     await act(async () => { await result.current.install("repo/x", "x.gguf", "x"); });
     expect(useModelStore.getState().downloads["x"]?.status).toBe("success");
     expect(useModelStore.getState().downloads["x"]?.percent).toBe(100);
-  });
-
-  it("forwards the active backend to the install IPC", async () => {
-    vi.mocked(installHfGguf).mockResolvedValue(undefined);
-    useBackendStore.setState({ selectedBackend: "llama_cpp" });
-    const { result } = renderHook(() => useHfInstall());
-    await act(async () => { await result.current.install("repo/x", "x.gguf", "x"); });
-    expect(installHfGguf).toHaveBeenCalledWith("repo/x", "x.gguf", "x", "llama_cpp");
   });
 
   it("install() writes error entry on rejection with friendly message", async () => {

@@ -5,8 +5,8 @@ dive see [`docs/architecture.md`](docs/architecture.md); for the philosophy behi
 the shape see [`rust-engineering-architecture-guide.md`](rust-engineering-architecture-guide.md).
 
 QuantaMind is a **Tauri 2 desktop app**: a React/TypeScript frontend in a webview
-talks to a **Rust backend** over JSON IPC; the backend calls a local Ollama server
-and bundled sidecars (`llama-server`, `mlx_lm.server`, `whisper-server`) over HTTP.
+talks to a **Rust backend** over JSON IPC; the backend calls a local llama.cpp server
+and bundled sidecars (`llama-server`, `vllm_lm.server`) over HTTP.
 
 ## The shape: hexagonal, one crate
 
@@ -32,7 +32,7 @@ center; the outside world (IPC, HTTP, the filesystem) is reached only through tr
             │   │   │  Defines PORTS (traits).                  │  │ │
             │   │   └──────────────────────────────────────────┘  │ │
             │   │   DRIVEN ADAPTERS (implement the ports):        │ │
-            │   │   • inference/{ollama,llama,mlx}/*_backend.rs   │ │
+            │   │   • inference/{llama_cpp,llama,vllm}/*_backend.rs   │ │
             │   │     → the InferenceBackend trait (HTTP clients) │ │
             │   │   • persistence/  → filesystem repos            │ │
             │   │   • metrics/      → timing/throughput           │ │
@@ -72,8 +72,8 @@ filesystem code deleted. This invariant is mechanically enforced by
 
 | Port (trait, in the domain) | Driven adapters (implementations) |
 |---|---|
-| `InferenceBackend` (`inference/backend/backend.rs`) | `OllamaBackend`, `LlamaCppBackend`, `MlxBackend` — selected by the `BackendKind` enum, not `dyn`. |
-| `CompareSink` / `BatchSink` / `TranscribeSink` | `commands/` implement them as Tauri sinks that `emit` IPC events. This **inverts** the domain→IPC dependency. |
+| `InferenceBackend` (`inference/backend/backend.rs`) | `llama.cppBackend`, `LlamaCppBackend`, `VLlmBackend` — selected by the `BackendKind` enum, not `dyn`. |
+| `CompareSink` / `BatchSink` | `commands/` implement them as Tauri sinks that `emit` IPC events. This **inverts** the domain→IPC dependency. |
 
 Backends are chosen by matching a closed `BackendKind` enum, so adding one makes the
 compiler flag every seam — see

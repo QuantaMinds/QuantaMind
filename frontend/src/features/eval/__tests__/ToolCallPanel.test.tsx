@@ -33,7 +33,7 @@ beforeEach(() => {
     init: vi.fn().mockResolvedValue(undefined),
   });
   useInstalledModelsStore.setState({
-    list: [{ name: "m", size_bytes: 1, modified_at: "", family: "", parameter_size: "", quantization: "", backend: "ollama" }],
+    list: [{ name: "m", size_bytes: 1, modified_at: "", family: "", parameter_size: "", quantization: "", backend: "llama_cpp" }],
     status: "ready", error: null, lastRefreshedAt: 1,
   });
 });

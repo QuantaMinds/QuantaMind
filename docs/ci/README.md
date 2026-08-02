@@ -25,7 +25,7 @@ instead.)
     QM_API_KEY: ${{ secrets.QM_API_KEY }}   # NEVER an input — inputs are logged
 ```
 
-GitHub's hosted runners can't host a local model, so the action targets a **remote** vLLM/SGLang
+GitHub's hosted runners can't host a local model, so the action targets a **remote** vLLM
 endpoint reachable from CI. `base-url` is an input; the **API key is passed as the `QM_API_KEY` env
 from a secret**, never as an action input (inputs appear in logs). `qm` transmits a key only over
 `https`/loopback.
@@ -35,7 +35,7 @@ from a secret**, never as an action input (inputs appear in logs). `qm` transmit
 | Input | Meaning | Default |
 |---|---|---|
 | `install` | `release` (prebuilt from the latest GitHub Release) / `source` (lean build from a checkout — needs `actions/checkout` first) | `release` |
-| `backend` | `ollama` / `llama_cpp` / `mlx` / `vllm` / `sglang` | `vllm` |
+| `backend` | `llama_cpp` / `llama_cpp` / `vllm` / `vllm` | `vllm` |
 | `base-url` | endpoint URL (→ `QM_BASE`) | **required** |
 | `model` | model to evaluate | **required** |
 | `collection` | built-in collection id | `easy-coding` |
@@ -91,9 +91,9 @@ container: ghcr.io/quantaminds/qm:latest
 # or:  docker run --rm ghcr.io/quantaminds/qm run --backend vllm --base "$QM_BASE" --model qwen3-32b
 ```
 
-Reaching an Ollama on the DOCKER HOST from inside the container (`localhost` is the container):
+Reaching a llama-server on the DOCKER HOST from inside the container (`localhost` is the container):
 
 ```bash
 docker run --rm --add-host=host.docker.internal:host-gateway \
-  ghcr.io/quantaminds/qm doctor --backend ollama --base http://host.docker.internal:11434
+  ghcr.io/quantaminds/qm doctor --backend llama_cpp --base http://host.docker.internal:8081
 ```

@@ -13,11 +13,11 @@ const report = {
   avg_score: 0.5,
   columns: [
     {
-      model: "m1", backend: "ollama", error: null,
+      model: "m1", backend: "llama_cpp", error: null,
       report: { n: 1, parse_rate: 1, tool_selection_acc: 1, arg_acc: 0, abstain_acc: null, composite: 0.66,
         per_task: [{ id: "w", category: "single", verdict: { parsed: true, tool_match: true, args_match: false, abstain_correct: null } }] },
     },
-    { model: "m2", backend: "ollama", report: null, error: "server down" },
+    { model: "m2", backend: "llama_cpp", report: null, error: "server down" },
   ],
 } as never;
 

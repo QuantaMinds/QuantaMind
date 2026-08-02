@@ -30,7 +30,7 @@ This is a **full-stack desktop application** built with:
 - **Frontend**: React (web UI) + TypeScript
 - **Backend**: Rust (fast, safe, native code)
 - **Desktop Framework**: Tauri (runs on Windows, Mac, Linux)
-- **AI Backend**: Ollama (runs models locally)
+- **AI Backend**: llama.cpp (runs models locally)
 
 ---
 
@@ -59,7 +59,7 @@ This is a **full-stack desktop application** built with:
                               │ HTTP
                               ▼
                 ┌─────────────────────────────┐
-                │   Ollama (localhost:11434)  │
+                │   llama.cpp (localhost:8081)  │
                 └─────────────────────────────┘
 ```
 
@@ -69,8 +69,8 @@ This is a **full-stack desktop application** built with:
 2. **User clicks "Run"** → React calls Tauri's `invoke()` function
 3. **Tauri sends JSON message** → Rust backend receives it
 4. **Rust validates input** → Checks if it's valid
-5. **Rust talks to Ollama** → Sends HTTP request to localhost:11434
-6. **Ollama runs the model** → Returns tokens one by one
+5. **Rust talks to llama.cpp** → Sends HTTP request to localhost:8081
+6. **llama.cpp runs the model** → Returns tokens one by one
 7. **Rust streams tokens back** → Sends JSON messages to frontend
 8. **React displays tokens** → Updates the UI in real-time
 
@@ -143,14 +143,14 @@ This is a **full-stack desktop application** built with:
 
 **Key Concept**: Zod checks if data is in the right format before processing
 
-### 8. Ollama — AI Model Runner
+### 8. llama.cpp — AI Model Runner
 **What it is**: A tool that runs AI models locally
 **Why use it**:
 - Free and open-source
 - Runs models on your CPU/GPU
 - Simple HTTP API
 
-**Key Concept**: Ollama is the "brain" that actually runs the AI models
+**Key Concept**: llama.cpp is the "brain" that actually runs the AI models
 
 ---
 
@@ -232,9 +232,9 @@ QM-Dev/
 │   │   │
 │   │   ├── inference/                # AI model inference
 │   │   │   ├── mod.rs                # Module exports
-│   │   │   ├── ollama.rs             # Ollama backend
+│   │   │   ├── llama_cpp.rs             # llama.cpp backend
 │   │   │   ├── llama_cpp.rs          # Llama.cpp backend
-│   │   │   ├── mlx.rs                # MLX (Apple Silicon) backend
+│   │   │   ├── vllm.rs                # vLLM (Apple Silicon) backend
 │   │   │   └── traits.rs             # Backend trait definitions
 │   │   │
 │   │   ├── metrics/                  # Performance metrics
@@ -254,7 +254,7 @@ QM-Dev/
 │   │   └── errors.rs                 # Error handling
 │   │
 │   ├── tests/                        # Rust integration tests
-│   │   ├── ollama_stream.rs          # Test Ollama streaming
+│   │   ├── llama_cpp_stream.rs          # Test llama.cpp streaming
 │   │   ├── models_list.rs            # Test model listing
 │   │   └── prompt_stream.rs          # Test prompt streaming
 │   │
@@ -343,11 +343,11 @@ pub async fn run_prompt(
     Ok(output)
 }
 
-// 5. Inference backend talks to Ollama
+// 5. Inference backend talks to llama.cpp
 pub async fn run(model: &str, prompt: &str) -> Result<String, AppError> {
     let client = reqwest::Client::new();
     let response = client
-        .post("http://localhost:11434/api/generate")
+        .post("http://localhost:8081/api/generate")
         .json(&json!({
             "model": model,
             "prompt": prompt,
@@ -845,11 +845,11 @@ You need these installed on your computer:
    npm install -g pnpm  # Global install
    ```
 
-4. **Ollama** (AI model runner)
+4. **llama.cpp** (AI model runner)
    ```bash
-   brew install ollama  # macOS
-   ollama serve &  # Start Ollama server
-   ollama pull llama3.2:1b  # Download a model
+   brew install llama_cpp  # macOS
+   llama-server -m MODEL.gguf --port 8081 --jinja &  # Start llama.cpp server
+   llama-server -m llama3.2:1b  # Download a model
    ```
 
 ### Installation Steps
@@ -1082,12 +1082,12 @@ If a file reaches 95 lines, split it now. Splits are by concern, not arbitrary h
 2. **Frontend**: React + TypeScript (web UI)
 3. **Backend**: Rust (fast, safe, native code)
 4. **Desktop**: Tauri (runs on all platforms)
-5. **AI**: Ollama (runs models locally)
+5. **AI**: llama.cpp (runs models locally)
 
 ### Architecture
 - Frontend talks to Backend via JSON IPC
-- Backend talks to Ollama via HTTP
-- Data flows: User → React → Tauri → Rust → Ollama → Rust → Tauri → React → User
+- Backend talks to llama.cpp via HTTP
+- Data flows: User → React → Tauri → Rust → llama.cpp → Rust → Tauri → React → User
 
 ### Workflow
 1. Understand the step

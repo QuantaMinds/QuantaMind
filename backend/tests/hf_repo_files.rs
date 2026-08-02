@@ -52,11 +52,11 @@ async fn invalid_repo_rejected_before_network() {
 
 #[tokio::test]
 async fn repo_all_files_keeps_weights_and_config_drops_docs() {
-    // The MLX snapshot keeps everything mlx_lm needs and drops repo/doc junk
+    // The snapshot keeps everything the loader needs and drops repo/doc junk
     // (.gitattributes, *.md, LICENSE), including nested paths.
     let mut s = Server::new_async().await;
     let _m = s
-        .mock("GET", "/api/models/mlx-community/X-4bit/tree/main")
+        .mock("GET", "/api/models/some-org/X-4bit/tree/main")
         .match_query(Matcher::UrlEncoded("recursive".into(), "true".into()))
         .with_status(200)
         .with_body(r#"[
@@ -71,7 +71,7 @@ async fn repo_all_files_keeps_weights_and_config_drops_docs() {
         ]"#)
         .create_async()
         .await;
-    let files = repo_all_files(&s.url(), "mlx-community/X-4bit").await.expect("ok");
+    let files = repo_all_files(&s.url(), "some-org/X-4bit").await.expect("ok");
     let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
     assert_eq!(paths, vec!["config.json", "model.safetensors", "tokenizer.json", "nested/extra.json"]);
     assert_eq!(files[1].size_bytes, 4900000000, "real LFS size carried through");

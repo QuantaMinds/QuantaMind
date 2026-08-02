@@ -70,7 +70,7 @@ fn prefers_timings_over_usage_for_per_phase_stats() {
 /// split (`runner.rs:650`), whose own comment promises it exists "so it's never laundered
 /// into Malformed/Hallucinated/EmptyOutput" — which is exactly what always happened.
 ///
-/// So a model cut off by OUR output cap was recorded as HALLUCINATING. Worse, Ollama maps
+/// So a model cut off by OUR output cap was recorded as HALLUCINATING. Worse, the server maps
 /// `done_reason` → `finish_reason`, so the same model scored differently on the two backends
 /// purely because of which struct decoded the reply — a decoder finding wearing a model's
 /// face, and a cross-backend comparability break.

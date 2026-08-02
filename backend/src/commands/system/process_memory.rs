@@ -25,32 +25,30 @@ fn rss_matching(needle: &str) -> Option<u64> {
     (total > 0).then_some(total)
 }
 
-/// Total resident memory (bytes) of all running `ollama` processes (the server
-/// plus its model runner), or `None` if none are running. Sampled per run by
-/// the frontend's basic leak heuristic.
-pub fn ollama_rss() -> Option<u64> {
-    rss_matching("ollama")
+/// Total resident memory (bytes) of the running local inference server, or
+/// `None` if it isn't running. Sampled per run by the frontend's basic leak
+/// heuristic.
+pub fn local_server_rss() -> Option<u64> {
+    rss_matching("llama-server")
 }
 
 /// Process RSS of the LOCAL inference server for `kind`, or `None` when it can't be
-/// measured honestly: remote backends (vLLM/SGLang — another machine's memory) and any
+/// measured honestly: remote backends (vLLM — another machine's memory) and any
 /// local server whose process isn't found return `None`, never 0. Name-matched (the
 /// same heuristic the leak sampler uses), so an externally-started server still counts.
 pub fn backend_rss(kind: crate::inference::backend::backend_kind::BackendKind) -> Option<u64> {
     use crate::inference::backend::backend_kind::BackendKind;
     let needle = match kind {
-        BackendKind::Ollama => "ollama",
         BackendKind::LlamaCpp => "llama-server",
-        BackendKind::Mlx => "mlx_lm",
-        BackendKind::VLlm | BackendKind::SgLang => return None,
+        BackendKind::VLlm => return None,
     };
     rss_matching(needle)
 }
 
 #[cfg(feature = "gui")]
 #[tauri::command]
-pub fn get_ollama_rss() -> Option<u64> {
-    ollama_rss()
+pub fn get_local_server_rss() -> Option<u64> {
+    local_server_rss()
 }
 
 #[cfg(test)]
@@ -58,8 +56,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ollama_rss_never_panics() {
-        // Value depends on whether Ollama is running; just exercise the path.
-        let _ = ollama_rss();
+    fn local_server_rss_never_panics() {
+        // Value depends on whether the server is running; just exercise the path.
+        let _ = local_server_rss();
     }
 }

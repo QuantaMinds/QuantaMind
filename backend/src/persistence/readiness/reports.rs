@@ -1,5 +1,5 @@
 use crate::errors::{AppError, AppResult};
-use crate::inference::eval::batch::BatchReport;
+use crate::inference::eval::batch::{BatchColumn, BatchReport};
 use crate::persistence::readiness::safe_filename::safe_filename;
 use std::path::{Path, PathBuf};
 
@@ -34,7 +34,38 @@ pub fn load(dir: &Path, collection_id: &str) -> AppResult<Option<BatchReport>> {
             "batch report file is too large ({len} bytes > {MAX_BYTES} cap)"
         )));
     }
-    Ok(Some(serde_json::from_str(&std::fs::read_to_string(&path)?)?))
+    let content = std::fs::read_to_string(&path)?;
+    // Deserialize the report shell, then each COLUMN independently. A column
+    // recorded against a backend this build no longer supports would otherwise
+    // fail the whole read, blanking the Agent Report page for the collection.
+    // The dropped count rides along so the UI can name what it isn't showing —
+    // a short verdict table must never read as the complete run.
+    #[derive(serde::Deserialize)]
+    struct RawReport {
+        #[serde(flatten)]
+        rest: serde_json::Value,
+        #[serde(default)]
+        columns: Vec<serde_json::Value>,
+    }
+    let raw: RawReport = serde_json::from_str(&content)?;
+    let mut columns = Vec::with_capacity(raw.columns.len());
+    let mut dropped = 0usize;
+    for c in raw.columns {
+        match serde_json::from_value::<BatchColumn>(c) {
+            Ok(col) => columns.push(col),
+            Err(_) => dropped += 1,
+        }
+    }
+    // `rest` carries every field EXCEPT `columns` (serde(flatten) extracted it), and
+    // `columns` is required on `BatchReport` — so put the interpreted ones back
+    // before deserializing the shell.
+    let mut rest = raw.rest;
+    if let Some(obj) = rest.as_object_mut() {
+        obj.insert("columns".into(), serde_json::to_value(&columns)?);
+    }
+    let mut report: BatchReport = serde_json::from_value(rest)?;
+    report.unreadable_columns = dropped;
+    Ok(Some(report))
 }
 
 #[cfg(test)]

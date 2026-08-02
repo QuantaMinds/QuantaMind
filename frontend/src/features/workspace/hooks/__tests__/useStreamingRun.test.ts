@@ -32,7 +32,7 @@ describe("useStreamingRun", () => {
     vi.mocked(listen).mockReset();
     installListenMock();
     useWorkspaceStore.setState({ lastRunMetrics: null });
-    useBackendStore.setState({ selectedBackend: "ollama" });
+    useBackendStore.setState({ selectedBackend: "llama_cpp" });
   });
 
   it("tokens append in order, no dup, no drop; status -> done", async () => {
@@ -70,7 +70,7 @@ describe("useStreamingRun", () => {
     expect(invoke).toHaveBeenCalledWith("run_prompt", {
       model: "llama3.2:1b",
       prompt: "Why is the sky blue?",
-      backend: "ollama",
+      backend: "llama_cpp",
     });
   });
 

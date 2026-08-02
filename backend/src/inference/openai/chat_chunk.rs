@@ -1,7 +1,7 @@
 use serde::Deserialize;
 
 /// One streamed `data:` chunk from an OpenAI-compatible SSE endpoint
-/// (mlx_lm.server, vLLM, SGLang). `usage` may be absent mid-stream (and is
+/// (mlx_lm.server, vLLM). `usage` may be absent mid-stream (and is
 /// version-dependent even on the terminal chunk), so it is optional and the stats
 /// layer leaves counts `None` when it never arrives — never fabricate.
 #[derive(Deserialize)]
@@ -26,8 +26,8 @@ pub struct Delta {
     #[serde(default)]
     pub content: Option<String>,
     /// A reasoning model's thinking stream, delivered in a separate field (NOT `content`). The field
-    /// name differs by server: mlx_lm.server (≥0.31) uses `reasoning`; vLLM/SGLang reasoning parsers
-    /// use `reasoning_content` — accept both via alias. (Ollama uses `thinking` on its native `/api`
+    /// name differs by server: mlx_lm.server (≥0.31) uses `reasoning`; vLLM reasoning parsers
+    /// use `reasoning_content` — accept both via alias. (the server uses `thinking` on its native `/api`
     /// path, handled separately.) When a `has_thinking` model reasons, this carries the scratchpad
     /// and `content` holds only the answer. Captured and re-wrapped as inline `<think>…</think>` so
     /// `strip_think` + D9 accounting handle every backend identically.

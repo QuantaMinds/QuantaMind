@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { buildTtftSegments } from "../ttft";
 
 describe("buildTtftSegments", () => {
-  it("Ollama-shaped stats → load + prefill + remainder summing to TTFT", () => {
+  it("full stats → load + prefill + remainder summing to TTFT", () => {
     const r = buildTtftSegments(820, { load_ms: 540, prompt_eval_ms: 210, prompt_eval_count: 128 });
     expect(r.available).toBe(true);
     expect(r.segments.map((s) => s.key)).toEqual(["load", "prefill", "remainder"]);

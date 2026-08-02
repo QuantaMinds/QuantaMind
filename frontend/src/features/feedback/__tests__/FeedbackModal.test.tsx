@@ -49,7 +49,7 @@ describe("FeedbackModal (mailto flow)", () => {
   });
 
   it("includes diagnostics + current model in the body when checkbox is on", async () => {
-    useSelectedModelStore.setState({ selectedModels: [{ name: "mistral:7b", backend: "ollama", size_bytes: 1 }] });
+    useSelectedModelStore.setState({ selectedModels: [{ name: "mistral:7b", backend: "llama_cpp", size_bytes: 1 }] });
     renderModal();
     fireEvent.change(screen.getByTestId("feedback-message"), {
       target: { value: "ten chars min satisfied" },

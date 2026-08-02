@@ -9,7 +9,7 @@ use crate::inference::openai::chat_chunk::Usage;
 /// `finish_reason` is a REQUIRED argument, not a field this can fill: on the OpenAI wire it
 /// lives on the `choice`, not in `usage`, so only the caller has it. It used to default to
 /// `None` behind a "set by the caller" comment — and the streaming caller did while the TOOL
-/// caller (`chat_tools::parse_chat`, the vLLM/SGLang native path) silently didn't, leaving
+/// caller (`chat_tools::parse_chat`, the vLLM native path) silently didn't, leaving
 /// `stats.finish_reason` permanently `None` there. A comment cannot enforce a contract; a
 /// parameter can. Pass `None` only when the wire genuinely has no stop reason to report.
 pub fn from_usage(usage: Option<Usage>, finish_reason: Option<String>) -> GenerateStats {

@@ -3,7 +3,7 @@ import { useEvalRegistryStore, DEFAULT_PRESET } from "../../eval/state/evalRegis
 import { useBatchStore } from "../../eval/state/batchStore";
 import { useInstalledModelsStore } from "../../models/state/installedModelsStore";
 import { useBackendStore } from "../../../shared/state/backendStore";
-import { loadCollectionHistory, type RunSummary } from "../../../shared/ipc/eval/matrix";
+import { loadCollectionHistory, type LoadedHistory, type RunSummary } from "../../../shared/ipc/eval/matrix";
 import { formatIpcError } from "../../../shared/ipc/core/error";
 import type { BackendKind } from "../../../shared/ipc/models/storage";
 import { HistoryTimeline } from "../../eval/components/matrix/HistoryTimeline";
@@ -27,7 +27,7 @@ const exportBtn: React.CSSProperties = {
   fontWeight: 600,
   cursor: "pointer",
 };
-const BACKEND_LABEL: Record<BackendKind, string> = { ollama: "Ollama", llama_cpp: "llama.cpp", mlx: "MLX", vllm: "vLLM", sglang: "SGLang" };
+const BACKEND_LABEL: Record<BackendKind, string> = { llama_cpp: "llama.cpp", vllm: "vLLM" };
 const card: React.CSSProperties = {
   background: "#ffffff",
   border: "1px solid #e2e8f0",
@@ -47,6 +47,10 @@ export function AuditPage() {
   const historyModel = useSelectedModelStore((s) => s.selectedModels[0]?.name ?? null); // for the Run History CLI hint
   const [collection, setCollection] = useState(DEFAULT_PRESET);
   const [history, setHistory] = useState<RunSummary[]>([]);
+  // Rows on disk this build can't interpret (e.g. recorded on a backend that no
+  // longer exists). Shown as a note beside the graph — a short list must never
+  // read as "these are all your runs".
+  const [unreadable, setUnreadable] = useState(0);
   // A load failure is surfaced, never swallowed — an empty graph must distinguish
   // "no runs yet" from "the history failed to load" (the two used to look identical).
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -60,14 +64,16 @@ export function AuditPage() {
 
   // A load failure is shown (not swallowed into a misleading empty state); success clears it.
   const applyHistory = (cancelled: () => boolean) => ({
-    ok: (h: RunSummary[]) => {
+    ok: (h: LoadedHistory) => {
       if (cancelled()) return;
-      setHistory(h);
+      setHistory(h.entries);
+      setUnreadable(h.unreadable);
       setHistoryError(null);
     },
     fail: (e: unknown) => {
       if (cancelled()) return;
       setHistory([]);
+      setUnreadable(0);
       setHistoryError(formatIpcError(e));
     },
   });
@@ -171,6 +177,22 @@ export function AuditPage() {
         ) : (
           // Genuinely no runs (HistoryTimeline renders its own "No run history yet" empty state).
           <HistoryTimeline history={backendHistory} />
+        )}
+        {!historyError && unreadable > 0 && (
+          // Loud about what ISN'T shown: skipping these silently would make a
+          // truncated timeline read as the complete record.
+          <p
+            data-testid="audit-history-unreadable"
+            style={{
+              fontSize: 11, color: "#92400e", fontFamily: "Inter, sans-serif",
+              background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 6,
+              padding: "8px 10px", margin: "8px 0 0",
+            }}
+          >
+            {unreadable} older run{unreadable === 1 ? "" : "s"} couldn't be read and {unreadable === 1 ? "is" : "are"} not
+            shown — {unreadable === 1 ? "it was" : "they were"} recorded on a backend this version no longer supports.
+            The {unreadable === 1 ? "record is" : "records are"} still on disk, untouched.
+          </p>
         )}
       </div>
     </section>

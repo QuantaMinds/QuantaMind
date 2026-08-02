@@ -1,26 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import { hfSearch, type HfSearchHit, type RepoKind } from "../../../../shared/ipc/models/hf_browse";
+import { hfSearch, type HfSearchHit } from "../../../../shared/ipc/models/hf_browse";
 import { formatIpcError } from "../../../../shared/ipc/core/error";
 import { HuggingFaceRepoDetail } from "../HuggingFaceRepoDetail";
-import { MlxRepoDetail } from "../MlxRepoDetail";
 import { useModelStore } from "../../state/modelStore";
 
 const DEBOUNCE_MS = 300;
 type Status = "idle" | "loading" | "ready" | "error";
 
-const KINDS: { id: RepoKind; label: string }[] = [
-  { id: "gguf", label: "GGUF" },
-  { id: "mlx", label: "MLX" },
-];
-
 export function HuggingFaceTab() {
   const query = useModelStore((s) => s.hfSearchQuery);
   const setQuery = useModelStore((s) => s.setHfSearchQuery);
   const selected = useModelStore((s) => s.hfSelectedRepo);
-  const selectedTags = useModelStore((s) => s.hfSelectedTags);
   const setSelected = useModelStore((s) => s.setHfSelectedRepo);
-  const kind = useModelStore((s) => s.hfRepoKind);
-  const setKind = useModelStore((s) => s.setHfRepoKind);
   const [hits, setHits] = useState<HfSearchHit[]>([]);
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -32,7 +23,7 @@ export function HuggingFaceTab() {
     const me = ++seq.current;
     setStatus("loading"); setError(null);
     const t = setTimeout(() => {
-      hfSearch(q, 30, kind)
+      hfSearch(q, 30)
         .then((out) => {
           if (seq.current !== me) return;
           setHits(out); setStatus("ready");
@@ -43,17 +34,10 @@ export function HuggingFaceTab() {
         });
     }, DEBOUNCE_MS);
     return () => clearTimeout(t);
-  }, [query, kind]);
+  }, [query]);
 
   if (selected) {
-    // Route by the repo's own format, not the search toggle: an mlx-tagged
-    // repo opens the MLX action even when found under GGUF (unfiltered) search.
-    const isMlx = selectedTags.some((t) => t.toLowerCase() === "mlx");
-    return isMlx ? (
-      <MlxRepoDetail repo={selected} onBack={() => setSelected(null)} />
-    ) : (
-      <HuggingFaceRepoDetail repo={selected} onBack={() => setSelected(null)} />
-    );
+    return <HuggingFaceRepoDetail repo={selected} onBack={() => setSelected(null)} />;
   }
   return (
     <div data-testid="tab-huggingface" className="flex flex-col gap-3 h-full">
@@ -61,30 +45,16 @@ export function HuggingFaceTab() {
         <input
           type="search"
           aria-label="Search Hugging Face"
-          placeholder={kind === "mlx" ? "Search Hugging Face models tagged MLX…" : "Search Hugging Face models…"}
+          placeholder="Search Hugging Face models…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           className="flex-1 border rounded px-2 py-1 text-sm"
         />
-        <div className="flex rounded border overflow-hidden text-xs" role="group" aria-label="Model format">
-          {KINDS.map((k) => (
-            <button
-              key={k.id}
-              type="button"
-              onClick={() => setKind(k.id)}
-              aria-pressed={kind === k.id}
-              data-testid={`hf-kind-${k.id}`}
-              className={`px-2.5 py-1 ${kind === k.id ? "bg-blue-600 text-white" : "bg-surface hover:bg-gray-100"}`}
-            >
-              {k.label}
-            </button>
-          ))}
-        </div>
       </div>
       <div className="flex-1 overflow-auto grid grid-cols-2 gap-2" data-testid="hf-grid">
         {status === "idle" && (
           <div className="col-span-2 text-xs text-gray-500 py-6 text-center" data-testid="hf-idle">
-            Start typing to search Hugging Face{kind === "mlx" ? " for MLX models" : ""}.
+            Start typing to search Hugging Face.
           </div>
         )}
         {status === "loading" && (

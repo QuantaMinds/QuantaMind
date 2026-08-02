@@ -8,7 +8,7 @@ const W = 620, ML = 48, MR = 16, MT = 16;
 const PW = W - ML - MR; // 556 → left edge = ML (48), right edge = ML+PW (604), center = 326
 
 const run = (model: string, composite: number | null, extra: Partial<RunSummary> = {}): RunSummary => ({
-  ts: "2026-06-01T00:00:00Z", model, backend: "ollama",
+  ts: "2026-06-01T00:00:00Z", model, backend: "llama_cpp",
   parse_rate: null, tool_selection_acc: null, arg_acc: null, abstain_acc: null,
   composite, n: 5, ...extra,
 });
@@ -17,8 +17,8 @@ const coords = (line: Element, axis: 0 | 1) =>
   line.getAttribute("points")!.trim().split(/\s+/).map((pt) => Number(pt.split(",")[axis]));
 
 const hist = [
-  { ts: "t1", model: "m1", backend: "ollama", parse_rate: 1, tool_selection_acc: 1, arg_acc: 1, abstain_acc: null, composite: 0.8, n: 3 },
-  { ts: "t2", model: "m1", backend: "ollama", parse_rate: 1, tool_selection_acc: 1, arg_acc: 1, abstain_acc: null, composite: 0.6, n: 3 },
+  { ts: "t1", model: "m1", backend: "llama_cpp", parse_rate: 1, tool_selection_acc: 1, arg_acc: 1, abstain_acc: null, composite: 0.8, n: 3 },
+  { ts: "t2", model: "m1", backend: "llama_cpp", parse_rate: 1, tool_selection_acc: 1, arg_acc: 1, abstain_acc: null, composite: 0.6, n: 3 },
 ] as never;
 
 describe("HistoryTimeline", () => {

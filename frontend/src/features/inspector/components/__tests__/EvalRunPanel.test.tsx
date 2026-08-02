@@ -57,7 +57,7 @@ describe("EvalRunPanel", () => {
     expect(screen.getByTestId("info-task-metrics-t1")).toBeInTheDocument();
   });
 
-  it("an Ollama run shows Not available for cache — never a fabricated 0", () => {
+  it("a run on a backend without cache reporting shows Not available — never a fabricated 0", () => {
     useBatchStore.setState({
       collectionId: "mcp:byo",
       tasksByModel: { m: ["t1"] },

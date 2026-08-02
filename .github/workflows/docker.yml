@@ -80,16 +80,17 @@ jobs:
             ghcr.io/quantaminds/qm:latest
 
   # Prove the image + the DOCUMENTED host-networking command against a real
-  # Ollama listening on the runner's host port — the exact setup a user has.
+  # llama-server listening on the runner's host port — the exact setup a user has.
   smoke:
     needs: build-push
     runs-on: ubuntu-22.04
     steps:
-      - name: Start host Ollama (container publishing :11434 on the host)
+      - name: Start host llama-server (container publishing :8081 on the host)
         run: |
-          docker run -d --name ollama -p 11434:11434 ollama/ollama
-          for i in $(seq 1 30); do
-            curl -fsS localhost:11434/api/version && break || sleep 2
+          docker run -d --name llama -p 8081:8081 ghcr.io/ggml-org/llama.cpp:server \
+            -hf ggml-org/models:tinyllamas/stories15M-q4_0.gguf --host 0.0.0.0 --port 8081
+          for i in $(seq 1 60); do
+            curl -fsS localhost:8081/health && break || sleep 2
           done
 
       - name: Pull image and run the documented commands
@@ -97,11 +98,11 @@ jobs:
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           IMG="ghcr.io/quantaminds/qm:${{ needs.build-push.outputs.version }}"
           docker run --rm "$IMG" --version
-          # The doc's networking one-liner. Exit is nonzero by contract (Ollama
-          # has 0 models pulled), so gate on the rendered report instead: the
-          # ollama line must NOT read unreachable.
+          # The doc's networking one-liner. Exit may be nonzero by contract, so
+          # gate on the rendered report instead: the llama_cpp line must NOT
+          # read unreachable.
           docker run --rm --add-host=host.docker.internal:host-gateway "$IMG" \
-            doctor --backend ollama --base http://host.docker.internal:11434 \
+            doctor --backend llama_cpp --base http://host.docker.internal:8081 \
             > doctor.out 2>&1 || true
           cat doctor.out
-          grep -E '^ollama' doctor.out | grep -v unreachable
+          grep -E '^llama_cpp' doctor.out | grep -v unreachable

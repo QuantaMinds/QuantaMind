@@ -12,11 +12,11 @@
 //!   QM_BACKEND=llama QM_MODEL=qwen3.5-9b_q8_0 \
 //!     cargo test --test agentic_truncation_sweep -- --ignored --nocapture
 //!
-//!   # Ollama
-//!   QM_BACKEND=ollama QM_MODEL=llama3.2:3b \
+//!   # the server
+//!   QM_BACKEND=the server QM_MODEL=llama3.2:3b \
 //!     cargo test --test agentic_truncation_sweep -- --ignored --nocapture
 //!
-//! Env knobs: QM_BACKEND=ollama|llama, QM_MODEL=<name>, QM_ENDPOINT=<url>
+//! Env knobs: QM_BACKEND=the server|llama, QM_MODEL=<name>, QM_ENDPOINT=<url>
 //! (defaults to the backend's standard port), QM_IS_THINKING=1 to raise the
 //! per-turn budget by the reasoning scratchpad.
 
@@ -38,8 +38,8 @@ use tokio_util::sync::CancellationToken;
 
 fn backend() -> BackendKind {
     match std::env::var("QM_BACKEND").unwrap_or_else(|_| "llama".into()).to_lowercase().as_str() {
-        "ollama" => BackendKind::Ollama,
-        "mlx" => BackendKind::Mlx,
+        "the server" => BackendKind::LlamaCpp,
+        "remote" => BackendKind::VLlm,
         _ => BackendKind::LlamaCpp,
     }
 }

@@ -28,13 +28,12 @@ export const EVAL_RUN_HELP: Record<string, { title: string; body: ReactNode }> =
     body: (
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         <span>
-          <b>Model in memory</b> — Ollama: resident size from /api/ps (weights + the context buffer it reserves at
-          load, so it reads above the weight file). llama.cpp: the GGUF's size at launch (it reports no resident
-          split).
+          <b>Model in memory</b> — llama.cpp: the GGUF's size at launch (it reports no resident split). A remote
+          server runs on another machine, so its memory isn't measurable from here.
         </span>
         <span>
           <b>KV cache at this run's peak</b> — the headline: what THIS run's deepest context cost, tokens × the
-          canonical bytes-per-token formula. On llama.cpp the token count is measured (cache_n + prompt_n); elsewhere
+          canonical bytes-per-token formula. On llama.cpp the token count is measured (cache_n + prompt_n); on a remote backend
           it's an estimate — the label always says which, and at which cache precision (f16 unless the launch says
           q8_0).
         </span>
@@ -65,12 +64,12 @@ export const EVAL_RUN_HELP: Record<string, { title: string; body: ReactNode }> =
         </span>
         <span>
           <b>Output tokens</b> — tokens generated, all runs. <b>Thinking tokens</b> — on llama.cpp, the reasoning
-          channel tokenized with the model's own tokenizer (a measured split); on Ollama the backend reports ONE
+          channel tokenized with the model's own tokenizer (a measured split); on some backends the server reports ONE
           combined count, shown with <b>"(no split)"</b>.
         </span>
         <span>
           <b>Cache hits</b> — prompt tokens served from the server's prefix cache instead of recomputed. Measured on
-          llama.cpp (why later steps are fast); Ollama reports no such count → "Not available".
+          llama.cpp (why later steps are fast); a backend without one reports → "Not available".
         </span>
         <span>
           <b>Peak context</b> — the fullest a single run's window got (reused prefix + recomputed prompt + generated).

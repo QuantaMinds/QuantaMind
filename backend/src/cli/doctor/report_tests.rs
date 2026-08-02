@@ -28,13 +28,13 @@ fn remote(kind: BackendKind, status: RemoteAuthStatus, models: &[&str]) -> Backe
 
 #[test]
 fn local_reachable_with_a_model_is_runnable() {
-    assert!(local(BackendKind::Ollama, &["qwen2.5:3b"]).runnable());
+    assert!(local(BackendKind::LlamaCpp, &["qwen2.5:3b"]).runnable());
 }
 
 #[test]
 fn reachable_but_zero_models_is_not_runnable() {
     // The first-run trap: up, green-looking, but nothing to run.
-    let b = local(BackendKind::Ollama, &[]);
+    let b = local(BackendKind::LlamaCpp, &[]);
     assert!(b.reachable);
     assert!(!b.runnable());
 }
@@ -51,17 +51,17 @@ fn remote_needs_both_a_model_and_an_ok_credential() {
 
 #[test]
 fn exit_code_is_zero_iff_something_is_runnable() {
-    let ready = DoctorReport { backends: vec![local(BackendKind::Ollama, &["m"]), local(BackendKind::Mlx, &[])] };
+    let ready = DoctorReport { backends: vec![local(BackendKind::LlamaCpp, &["m"]), local(BackendKind::VLlm, &[])] };
     assert_eq!(ready.exit_code(), EXIT_OK);
 
     // Nothing runnable — including scan-mode with everything down — must be 3, not 0.
-    let empty = DoctorReport { backends: vec![local(BackendKind::Ollama, &[]), remote(BackendKind::VLlm, RemoteAuthStatus::Unreachable, &[])] };
+    let empty = DoctorReport { backends: vec![local(BackendKind::LlamaCpp, &[]), remote(BackendKind::VLlm, RemoteAuthStatus::Unreachable, &[])] };
     assert_eq!(empty.exit_code(), EXIT_NO_RUNNABLE);
 }
 
 #[test]
 fn report_round_trips_through_json() {
-    let r = DoctorReport { backends: vec![local(BackendKind::Ollama, &["qwen2.5:3b"]), remote(BackendKind::VLlm, RemoteAuthStatus::Unauthorized, &[])] };
+    let r = DoctorReport { backends: vec![local(BackendKind::LlamaCpp, &["qwen2.5:3b"]), remote(BackendKind::VLlm, RemoteAuthStatus::Unauthorized, &[])] };
     let json = serde_json::to_string(&r).unwrap();
     let back: DoctorReport = serde_json::from_str(&json).unwrap();
     assert_eq!(r, back);

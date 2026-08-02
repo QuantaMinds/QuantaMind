@@ -1,5 +1,6 @@
 import { cellKey, useBatchStore } from "../../../eval/state/batchStore";
 import { taskCost, type TaskCost } from "../../../eval/state/taskCost";
+import { RunCostPanel } from "./RunCostPanel";
 import { useInstalledModelsStore } from "../../../models/state/installedModelsStore";
 import type { TaskOutcome, TrajectoryStep } from "../../../../shared/ipc/eval/batch";
 import { InfoButton } from "../../../../shared/ui/InfoButton";
@@ -116,6 +117,7 @@ export function EvalRunPanel() {
                 {wallTotal != null && <span className="text-slate-600"><span className="text-slate-400">WALL:</span> {fmtMs(wallTotal)}</span>}
               </div>
             </div>
+            {report?.costs && <RunCostPanel costs={report.costs} />}
             <MemoryEstimatePanel
               model={model}
               backend={backend}

@@ -8,7 +8,7 @@
 
 use quantamind_lib::inference::backend::backend_kind::BackendKind;
 use quantamind_lib::inference::mcp::bridge::{execute_call, single_turn};
-use quantamind_lib::inference::ollama::ollama_chat::NativeToolCall;
+use quantamind_lib::inference::chat::native_call::NativeToolCall;
 use quantamind_lib::mcp::client::McpClient;
 use quantamind_lib::mcp::wire::ContentBlock;
 use quantamind_lib::persistence::mcp::servers::McpServerConfig;
@@ -134,10 +134,10 @@ async fn bridge_executes_a_stubbed_call_against_the_real_server() {
 
 /// Phase 5: a REAL model drives a REAL tool. Gated on env so the default
 /// `--ignored` run doesn't require a model:
-///   MCP_MODEL=qwen2.5:1.5b [MCP_BACKEND=ollama|llama] [MCP_ENDPOINT=...] \
+///   MCP_MODEL=qwen2.5:1.5b [MCP_BACKEND=llama_cpp|vllm] [MCP_ENDPOINT=...] \
 ///     cargo test --test mcp_live -- --ignored bridge_single_turn --nocapture
 #[tokio::test]
-#[ignore = "requires a running Ollama/llama-server model"]
+#[ignore = "requires a running llama-server model"]
 async fn bridge_single_turn_reads_a_file_via_a_real_model() {
     let Ok(model) = std::env::var("MCP_MODEL") else {
         eprintln!("SKIP: set MCP_MODEL to run the real-model bridge test");
@@ -145,7 +145,7 @@ async fn bridge_single_turn_reads_a_file_via_a_real_model() {
     };
     let backend = match std::env::var("MCP_BACKEND").as_deref() {
         Ok("llama") => BackendKind::LlamaCpp,
-        _ => BackendKind::Ollama,
+        _ => BackendKind::LlamaCpp,
     };
     let endpoint = std::env::var("MCP_ENDPOINT")
         .unwrap_or_else(|_| "http://localhost:11434".to_string());
@@ -401,10 +401,10 @@ async fn db_world_scores_insert_and_catches_fake_done() {
 }
 
 /// Phase 12 Run pipeline: the REAL multi-turn BackendDriver + score, end to end.
-/// A real Ollama model, driven multi-turn, must create result.txt in a fresh
+/// A real the server model, driven multi-turn, must create result.txt in a fresh
 /// controlled world; graded pass^k on the world end-state. Env-gated.
 #[tokio::test]
-#[ignore = "requires a running Ollama model (set MCP_MODEL)"]
+#[ignore = "requires a running the server model (set MCP_MODEL)"]
 async fn run_pipeline_real_model_scores_a_world_task() {
     use quantamind_lib::inference::backend::backend_kind::BackendKind;
     use quantamind_lib::inference::eval::mcp::oracle_fs::FsOracle;
@@ -431,7 +431,7 @@ async fn run_pipeline_real_model_scores_a_world_task() {
     let score = score_fs_task(
         &task,
         |root, tools| BackendDriver {
-            backend: BackendKind::Ollama,
+            backend: BackendKind::LlamaCpp,
             endpoint: endpoint.clone(),
             model: model.clone(),
             system: "You are a tool-using assistant. Use the tools to accomplish the task.".into(),
@@ -451,12 +451,12 @@ async fn run_pipeline_real_model_scores_a_world_task() {
 }
 
 /// Stages 1+2 END-TO-END: an MCP task converted to a ToolTask, run through the
-/// REAL agentic runner (run_agentic) with a real Ollama model, graded on the real
+/// REAL agentic runner (run_agentic) with a real the server model, graded on the real
 /// world's end-state — producing a genuine AgenticReport (the same shape every
 /// eval page consumes). The model discovers its sandbox dir via
 /// list_allowed_directories, then writes the file. Gated on MCP_MODEL.
 #[tokio::test]
-#[ignore = "requires a running Ollama model (set MCP_MODEL)"]
+#[ignore = "requires a running the server model (set MCP_MODEL)"]
 async fn unified_runner_scores_an_mcp_world_task_end_to_end() {
     use quantamind_lib::commands::mcp::run_cmd::{McpTaskSpec, OracleSpec, WorldSpec};
     use quantamind_lib::commands::mcp::task_cmd::to_tooltask;
@@ -488,7 +488,7 @@ async fn unified_runner_scores_an_mcp_world_task_end_to_end() {
     config.max_steps = 6;
 
     let turn = NativeToolTurn {
-        backend: BackendKind::Ollama,
+        backend: BackendKind::LlamaCpp,
         endpoint,
         model: model.clone(),
         tools: task.tools.clone(),

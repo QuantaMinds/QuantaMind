@@ -1,4 +1,4 @@
-// The backend runs no `unsafe` of its own — all native work (HTTP, audio, process
+// The backend runs no `unsafe` of its own — all native work (HTTP, process
 // control) goes through safe crates. Deny it so a future `unsafe` block is a
 // conscious, reviewed exception, not an accident (guide Part 7).
 #![deny(unsafe_code)]
@@ -41,17 +41,10 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(commands::prompt::prompt::RunState::default())
-        .manage(commands::models::models_pull::PullState::default())
         .manage(commands::hf::hf_install::HfInstallState::default())
-        .manage(commands::compare::compare::CompareRunState::default())
         .manage(commands::settings::model_settings::ModelSettingsState::default())
-        .manage(commands::ollama::ollama_start::OllamaStartState::default())
         .manage(commands::llama::llama_server_types::LlamaServerState::default())
-        .manage(commands::mlx::mlx_server_types::MlxServerState::default())
-        .manage(commands::stt::stt_server_types::SttServerState::default())
         .manage(mcp::registry::McpServerState::default())
-        .manage(commands::stt::stt_download::SttInstallState::default())
-        .manage(commands::audio::capture::CaptureState::default())
         .manage(commands::workspace::workspaces::WorkspaceState::default())
         .manage(commands::settings::user_settings::UserSettingsState::default())
         .manage(commands::eval::batch_cmd::BatchRunState::default())
@@ -68,23 +61,18 @@ pub fn run() {
             // Reap our servers on SIGINT/SIGTERM too — ExitRequested only fires on
             // a graceful quit (Cmd+Q), not when a signal kills the process.
             commands::app_lifecycle::install_signal_reaper(app.handle().clone());
-            // Sweep any half-installed STT artifacts left by a prior crash, so a
-            // model reads installed only when its real files are present (R3).
-            let _ = commands::stt::stt_disk::reconcile_stt_dir(&commands::stt::stt_disk::stt_dir());
             // Phase 4: on Windows only, warn if legacy `~/.quantamind/*` folders
             // exist alongside the new `%LOCALAPPDATA%\QuantaMind` default. Never
             // auto-move — user weights are irreplaceable.
             commands::storage::storage_disk::warn_on_legacy_windows_paths();
-            // Clear leftover recording scratch from a prior session.
-            commands::stt::transcribe::clear_scratch(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| {
             // macOS: closing the window does NOT quit a Tauri app — it lingers in the
-            // dock, so `RunEvent::ExitRequested` never fires and the Ollama WE spawned
+            // dock, so `RunEvent::ExitRequested` never fires and the sidecar we spawned
             // keeps running. Reap our sidecars and quit so "close the app" actually frees
-            // them. `reap_managed` is idempotent and PID-scoped (a pre-existing user
-            // Ollama daemon is never touched); Cmd+Q and SIGINT/SIGTERM still reap too.
+            // them. `reap_managed` is idempotent and PID-scoped (a server the user
+            // launched is never touched); Cmd+Q and SIGINT/SIGTERM still reap too.
             if let tauri::WindowEvent::CloseRequested { .. } = event {
                 let app = tauri::Manager::app_handle(window);
                 commands::app_lifecycle::reap_managed(app);
@@ -93,11 +81,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::gguf::gguf_cmd::inspect_gguf,
+            commands::system::process_memory::get_local_server_rss,
             commands::system::hardware::get_hardware_snapshot,
             commands::system::loaded_models::get_loaded_models,
-            commands::system::process_memory::get_ollama_rss,
-            commands::compare::compare::run_compare,
-            commands::compare::compare::stop_compare,
             commands::compare::compare_export::save_compare_report,
             commands::publish::export_cmd::save_readiness_image,
             #[cfg(not(feature = "enterprise"))]
@@ -113,69 +99,23 @@ pub fn run() {
             commands::hf::hf_card::hf_model_card,
             commands::hf::hf_install::install_hf_gguf,
             commands::hf::hf_install::cancel_hf_install,
-            commands::system::health::check_ollama_health,
-            commands::mlx::health_mlx::check_mlx_health,
             commands::llama::llama_runtime::check_llama_health,
             commands::remote::remote_health::check_vllm_health,
-            commands::remote::remote_health::check_sglang_health,
             commands::remote::remote_health::check_vllm_credential,
-            commands::remote::remote_health::check_sglang_credential,
             commands::remote::remote_models::list_vllm_models,
-            commands::remote::remote_models::list_sglang_models,
-            commands::mlx::mlx_models::list_mlx_models,
-            commands::mlx::mlx_models::delete_mlx_model,
-            commands::mlx::mlx_install::install_mlx_model,
-            commands::mlx::mlx_start::start_mlx_server,
-            commands::mlx::mlx_start::stop_mlx_server,
-            commands::mlx::mlx_start::mlx_server_status,
             commands::settings::model_settings::get_model_settings,
             commands::settings::model_settings::set_model_temperature,
             commands::settings::model_settings::set_model_thinking,
-            commands::models::models::list_models,
             commands::models::model_inspect::inspect_model,
             commands::models::model_inspect::estimate_kv_cache_bytes,
             commands::models::model_inspect::context_ceilings,
-            commands::models::models_pull::pull_model,
-            commands::models::models_pull::cancel_pull,
-            commands::ollama::ollama_start::start_ollama,
-            commands::ollama::ollama_start::stop_ollama,
-            commands::ollama::ollama_start::ollama_auto_start_supported,
-            commands::ollama::ollama_placement_cmd::ollama_model_placement,
             commands::llama::llama_start::start_llama_server,
             commands::llama::llama_start::stop_llama_server,
             commands::llama::llama_start::llama_server_info,
             commands::llama::llama_start::llama_running_window,
             commands::llama::llama_models::list_llama_models,
             commands::llama::llama_models::delete_llama_model,
-            commands::stt::stt_start::start_whisper_server,
-            commands::stt::stt_start::stop_whisper_server,
-            commands::stt::stt_start::check_whisper_env,
-            commands::stt::stt_health::check_whisper_health,
-            commands::stt::stt_download::download_stt_model,
-            commands::stt::stt_download::cancel_stt_install,
-            commands::stt::stt_download::list_stt_catalog,
-            commands::stt::stt_models::list_installed_stt_models,
-            commands::stt::stt_models::delete_stt_model,
-            commands::stt::transcribe::transcribe_audio,
-            commands::stt::transcribe::load_transcript,
-            commands::stt::eval::eval_cmd::run_stt_eval,
-            commands::stt::eval::eval_cmd::list_transcripts,
-            commands::stt::eval::eval_cmd::list_stt_evals,
-            commands::stt::eval::eval_cmd::load_stt_eval,
-            commands::stt::eval::eval_cmd::save_stt_eval,
-            commands::stt::eval::eval_cmd::delete_stt_eval,
-            commands::stt::eval::eval_cmd::load_stt_report,
-            commands::stt::eval::readiness_cmd::assess_stt_readiness,
-            commands::stt::eval::readiness_cmd::list_stt_readiness_profiles,
-            commands::stt::eval::readiness_cmd::save_stt_readiness_profile,
-            commands::stt::eval::readiness_cmd::delete_stt_readiness_profile,
-            commands::audio::capture::start_recording,
-            commands::audio::capture::stop_recording,
-            commands::audio::capture::recording_level,
-            commands::settings::settings::get_storage_path,
             commands::settings::settings::validate_storage_path,
-            commands::storage::storage::get_installed_models_with_stats,
-            commands::storage::storage::remove_model,
             commands::storage::storage_cache::clear_app_cache,
             commands::storage::storage_usage::get_disk_usage,
             commands::prompt::prompt::run_prompt,

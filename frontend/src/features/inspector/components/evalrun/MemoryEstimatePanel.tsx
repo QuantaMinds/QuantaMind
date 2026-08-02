@@ -86,7 +86,7 @@ export function MemoryEstimatePanel({
   const kvBytes = kvAll == null ? null : kvType === "q8_0" ? kvAll.q8 : kvAll.f16;
 
   const weightsVram = column?.weights_vram_bytes ?? null;
-  // The model figure, from whichever measurement this backend HAS: Ollama's resident
+  // The model figure, from whichever measurement this backend HAS: the resident
   // size_vram, else the llama.cpp launch's on-disk GGUF size (no resident split exists
   // there) — the provenance label names which one is showing.
   const modelBytes = weightsVram ?? weightsTotal;

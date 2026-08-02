@@ -33,10 +33,10 @@ required-features = ["gui"]
 tauri-build = { version = "2", features = [], optional = true }
 
 [features]
-# The desktop app (Tauri + webview + audio capture). ON by default so
+# The desktop app (Tauri + webview). ON by default so
 # `pnpm tauri dev` / `cargo build` behave exactly as before. The headless `qm`
 # CLI is built with `--no-default-features`, which drops the entire GUI
-# dependency tree (webkit/GTK/ALSA on Linux) — the seam release binaries ship
+# dependency tree (webkit/GTK on Linux) — the seam release binaries ship
 # through. GUI-only modules are gated with `#[cfg(feature = "gui")]`.
 default = ["gui"]
 gui = [
@@ -46,13 +46,7 @@ gui = [
   "dep:tauri-plugin-shell",
   "dep:tauri-plugin-updater",
   "dep:tauri-build",
-  # Audio capture/decode + GPU probe — used only by GUI-gated modules; keeping
-  # them out of the lean build removes the Linux ALSA build-time dependency.
-  "dep:cpal",
-  "dep:hound",
-  "dep:rubato",
-  "dep:symphonia",
-  "dep:webrtc-vad",
+  # GPU probe — used only by GUI-gated modules.
   "dep:metal",
 ]
 # Enterprise/air-gapped build: compile OUT the entire publish/auth surface
@@ -88,13 +82,6 @@ bytes = "1"
 keyring = { version = "3", features = ["apple-native", "windows-native"] }
 # PKCE S256 challenge encoding (publish auth; out of enterprise builds).
 base64 = "0.22"
-hound = { version = "3", optional = true }
-rubato = { version = "0.16", optional = true }
-symphonia = { version = "0.5", default-features = false, features = ["mp3", "pcm", "wav"], optional = true }
-cpal = { version = "0.15", optional = true }
-# Independent, deterministic (non-ML) voice-activity detection for the STT
-# silence-hallucination metric — never the model under test (anti-circularity).
-webrtc-vad = { version = "0.4", optional = true }
 # Per-user data / config directory resolution (platform::user_dirs) — resolves
 # to %LOCALAPPDATA%\QuantaMind on Windows, ~/.quantamind on Unix.
 dirs = "6"

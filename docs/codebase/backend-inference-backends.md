@@ -3,7 +3,7 @@
 The Rust subsystem that turns *"generate text from model M"* into a streamed
 token feed, regardless of which of three local engines actually runs the
 weights. This document covers the `InferenceBackend` trait, its three
-implementations (Ollama, llama.cpp, MLX), the shared HTTP/NDJSON/SSE plumbing,
+implementations (llama.cpp, vLLM), the shared HTTP/NDJSON/SSE plumbing,
 the wire/stats codecs, and the per-engine server-process lifecycle.
 
 > Cross-links:
@@ -12,7 +12,6 @@ the wire/stats codecs, and the per-engine server-process lifecycle.
 > - The single-prompt Tauri command that drives a generation is in
 >   **`backend-prompt-workspace-system.md`** (`run_prompt`).
 > - The compare grid that fans this out across models is in
->   **`backend-compare.md`**.
 
 ---
 
@@ -20,20 +19,18 @@ the wire/stats codecs, and the per-engine server-process lifecycle.
 
 ### Why an abstraction over three engines
 
-QuantaMind runs models locally through three different servers, each bound to a
-different weight format:
+QuantaMind runs models through three servers — one local, two remote:
 
 | Engine | Weights | Process |
 |---|---|---|
-| **Ollama** | Ollama registry blobs (GGUF-derived) | user's `ollama serve` daemon (port 11434) |
 | **llama.cpp** | a single `.gguf` file | bundled `llama-server` sidecar (port 8081) |
-| **MLX** | a `safetensors` model dir | `mlx_lm.server` (Apple-Silicon only, dynamic port 8082+) |
+| **vLLM** | whatever the remote box serves | user-run, user-configured endpoint |
+| **vLLM** | whatever the remote box serves | user-run, user-configured endpoint |
 
-Each speaks a *different wire protocol* (Ollama NDJSON, llama.cpp `/completion`
-SSE-ish, MLX OpenAI-compatible SSE), reports *different stats* (Ollama gives
-load + per-phase timings in ns; llama.cpp gives prompt/predict ms; MLX gives
-token counts only), and has a *different process lifecycle* (Ollama is the
-user's daemon; the other two are app-spawned children). The rest of the app —
+All three speak the OpenAI wire, but they report *different stats* (llama.cpp gives
+prompt/predict ms plus a prompt-cache count; the remote servers give token counts
+only), and have a *different process lifecycle* (llama.cpp is an app-spawned child;
+the remote servers are never spawned or reaped by us). The rest of the app —
 the single-prompt command, the compare grid, the eval engine — must not care
 about any of that. So everything funnels through one trait.
 
@@ -48,10 +45,10 @@ implementation with a `match backend { … }`.
 
 **Backend selection is absolute, never a health fallback.** A model carries its
 `BackendKind` (from `ModelInfo.backend`), decided by its *weight format* at
-discovery time — a `.gguf` is `LlamaCpp`, a safetensors dir is `Mlx`, an Ollama
-registry entry is `Ollama`. The dispatch (`run_prompt_inner`) matches on that
+discovery time — a `.gguf` is `LlamaCpp`; a remote-served id is `VLlm`/`VLlm`
+registry entry is `llama.cpp`. The dispatch (`run_prompt_inner`) matches on that
 field and *only* that field. It never tries another engine because one looks
-healthier; an MLX model is never served by llama-server even if llama's
+healthier; an vLLM model is never served by llama-server even if llama's
 `/health` happens to answer. (Robustness fallbacks exist *within* one backend —
 e.g. llama's `/completion` → `/v1/chat/completions` — but never *across* the
 `BackendKind` boundary.)
@@ -62,14 +59,14 @@ e.g. llama's `/completion` → `/v1/chat/completions` — but never *across* the
 UI (React)
   └─ invoke("run_prompt", { backend, model, prompt, options, … })
        └─ commands/prompt/prompt.rs            // thin Tauri command
-            • pick endpoint:  Mlx → mlx_endpoint() (dynamic port)
+            • pick endpoint:  VLlm → remote_config::vllm() (user-configured)
                               else → endpoint::default_for(backend)
             • wrap emit in make_token_handler (counts tokens, cancels on emit-fail)
             └─ run_prompt_inner(backend, endpoint, …)   // prompt_run.rs
                  match backend {
-                   Ollama   => OllamaBackend::new(ep).generate(&spec, …)
+                   llama.cpp   => llama.cppBackend::new(ep).generate(&spec, …)
                    LlamaCpp => LlamaCppBackend::new(ep).generate(&spec, …)
-                   Mlx      => MlxBackend::new(ep, model).generate(&spec, …)
+                   VLlm     => VLlmBackend::new(ep, key, model).generate(&spec, …)
                  }
                    └─ <Engine>Backend::generate          // *_backend.rs (trait impl)
                         └─ stream_generate(endpoint, …)   // *.rs (HTTP + wire codec)
@@ -85,12 +82,12 @@ The dispatch site (`prompt_run.rs`, trimmed):
 
 ```rust
 match backend {
-    BackendKind::Ollama =>
-        OllamaBackend::new(endpoint.to_string()).generate(&spec, cancel, on_token).await,
+    BackendKind::llama.cpp =>
+        llama.cppBackend::new(endpoint.to_string()).generate(&spec, cancel, on_token).await,
     BackendKind::LlamaCpp =>
         LlamaCppBackend::new(endpoint.to_string()).generate(&spec, cancel, on_token).await,
-    BackendKind::Mlx =>
-        MlxBackend::new(endpoint.to_string(), model.to_string())
+    BackendKind::VLlm =>
+        VLlmBackend::new(endpoint.to_string(), model.to_string())
             .generate(&spec, cancel, on_token).await,
 }
 ```
@@ -104,8 +101,8 @@ match backend {
 - **Why:** A single async method lets the prompt/compare/eval layers treat all
   three engines identically and select via a `BackendKind` match.
 - **What:** `trait InferenceBackend` with one method, `generate<F: FnMut(&str)>`.
-- **How/Where used:** Implemented by `OllamaBackend`, `LlamaCppBackend`,
-  `MlxBackend`; called from `commands/prompt/prompt_run.rs` and the
+- **How/Where used:** Implemented by `llama.cppBackend`, `LlamaCppBackend`,
+  `VLlmBackend`; called from `commands/prompt/prompt_run.rs` and the
   compare/eval paths.
 
 ```rust
@@ -124,51 +121,51 @@ pub trait InferenceBackend {
 - **Responsibility:** The closed set of engines a model can be served by.
 - **Why:** Surfaces over IPC as `ModelInfo.backend` and is the *only* selector
   for dispatch — backend identity is a property of the model, not a runtime choice.
-- **What:** `enum BackendKind { Ollama (default), LlamaCpp, Mlx, VLlm, SgLang }`,
+- **What:** `enum BackendKind { LlamaCpp (default), VLlm, VLlm }`,
   `#[serde(rename_all = "snake_case")]` — with per-variant `#[serde(rename)]` on the
-  last two so they round-trip to TS as `"ollama" | "llama_cpp" | "mlx" | "vllm" |
-  "sglang"` (not `"v_llm"`/`"sg_lang"`). `VLlm`/`SgLang` are **remote** OpenAI
+  last two so they round-trip to TS as `"llama_cpp" | "llama_cpp" | "vllm" | "vllm" |
+  "vllm"` (not `"v_llm"`/`"sg_lang"`). `VLlm`/`VLlm` are **remote** OpenAI
   servers (a GPU box); the rest are local.
-- **How/Where used:** Set at discovery (`llama_discover`, `mlx_discover`, Ollama
+- **How/Where used:** Set at discovery (`llama_discover`, `vllm_discover`, llama.cpp
   tags, and the remote `/v1/models` query); matched in `run_prompt_inner`, eval, and
   compare dispatch.
 
 #### File: `inference/backend/endpoint.rs`
 - **Responsibility:** Resolve a backend to its base URL + optional bearer token,
   with deliberately non-colliding local ports.
-- **Why:** The local sidecars (plus the STT whisper sidecar) may run at once.
-  llama-server sits on **8081 not 8080** specifically so a stray `mlx_lm.server`
+- **Why:** The local sidecars may run at once.
+  llama-server sits on **8081 not 8080** specifically so a stray `vllm_lm.server`
   (default 8080) can't shadow it — that exact collision made llama's `/health` pass
   while inference 404'd. The remote backends have no static default: their URL comes
   from `UserSettings` via `remote_config`.
-- **What:** consts `OLLAMA` (11434), `LLAMA_SERVER` (8081), `MLX_SERVER` (8082),
-  `WHISPER_SERVER` (8093); `struct ResolvedEndpoint { url, api_key }`;
+- **What:** consts `LLAMA_SERVER` (8081), `vLLM_SERVER` (8082);
+  `struct ResolvedEndpoint { url, api_key }`;
   `fn resolve(BackendKind) -> AppResult<ResolvedEndpoint>` (local = static/dynamic
-  URL + no auth; MLX reads its dynamic port; vLLM/SGLang read `remote_config` and
+  URL + no auth; vLLM reads its dynamic port; vLLM read `remote_config` and
   **error clearly when the URL is unset** — "set it in Settings", not an opaque
   connect error); `fn base_url(BackendKind) -> String` (url only, infallible — an
   unconfigured remote yields `""`, which probes treat as unavailable).
 - **How/Where used:** `prompt.rs` resolves up front (so an unconfigured remote fails
   before the run token spins up); compare/eval `endpoint_for` helpers call `base_url`;
-  health/discovery. (WHISPER_SERVER is *not* a `BackendKind` — STT is parallel.)
+  health/discovery.
 
 ```rust
-pub const OLLAMA: &str = "http://localhost:11434";
+pub const LLAMA_SERVER: &str = "http://localhost:8081";
 pub const LLAMA_SERVER: &str = "http://localhost:8081"; // NOT 8080
-pub const MLX_SERVER: &str = "http://localhost:8082";
+pub const vLLM_SERVER: &str = "http://localhost:8082";
 pub struct ResolvedEndpoint { pub url: String, pub api_key: Option<String> }
 pub fn resolve(kind: BackendKind) -> AppResult<ResolvedEndpoint> { /* local statics; remote from remote_config */ }
 pub fn base_url(kind: BackendKind) -> String { resolve(kind).map(|r| r.url).unwrap_or_default() }
 ```
 
 #### File: `inference/backend/remote_config.rs`
-- **Responsibility:** Hold the user-configured remote endpoints (vLLM/SGLang) as a
-  process-global — the same pattern as `mlx/server/mlx_endpoint.rs`.
-- **Why:** vLLM/SGLang run on a remote GPU, so their URL + optional bearer key are
+- **Responsibility:** Hold the user-configured remote endpoints (vLLM) as a
+  process-global — the same pattern as `vllm/server/vllm_endpoint.rs`.
+- **Why:** vLLM run on a remote GPU, so their URL + optional bearer key are
   user settings, and `inference/` can't read Tauri state. The settings command layer
   pushes them here on load and on every save; `endpoint::resolve` reads them.
 - **What:** `struct RemoteEndpoint { url, api_key }`; `set_vllm/vllm`,
-  `set_sglang/sglang` (setters trim blanks to `None` so an empty Settings field reads
+  `set_vllm/vllm` (setters trim blanks to `None` so an empty Settings field reads
   as "unconfigured").
 
 ---
@@ -182,17 +179,17 @@ pub fn base_url(kind: BackendKind) -> String { resolve(kind).map(|r| r.url).unwr
   Option<GenerateOptions>, keep_alive: Option<i32> }`.
 - **How/Where used:** Built in `run_prompt_inner`; consumed by every
   `*_backend.rs`. Each backend uses the subset it needs (llama ignores `model`
-  + `keep_alive`; MLX uses `model` but not `keep_alive`; only Ollama uses
+  + `keep_alive`; vLLM uses `model` but not `keep_alive`; only llama.cpp uses
   `keep_alive`).
 
 #### File: `inference/generate/generate_options.rs`
-- **Responsibility:** The sampler knobs, named after Ollama's API.
+- **Responsibility:** The sampler knobs, named after llama.cpp's API.
 - **Why:** One options struct shared by all three; each wire codec remaps field
-  names (`num_predict` → llama `n_predict` → MLX `max_tokens`).
+  names (`num_predict` → llama `n_predict` → vLLM `max_tokens`).
 - **What:** `struct GenerateOptions { temperature, top_p, top_k, num_predict,
   repeat_penalty, seed, num_ctx, stop }` (all `Option`, `skip_serializing_if`);
   `fn is_empty()` so an all-`None` options block is dropped before sending. `stop` is
-  `Option<Vec<String>>` → Ollama `options.stop`; for models whose end-of-turn markers
+  `Option<Vec<String>>` → llama.cpp `options.stop`; for models whose end-of-turn markers
   aren't a plain EOS (harmony `<|return|>`/`<|call|>`, gemma `<end_of_turn>`) these are
   what actually halt generation — the eval harness fills it per-model (see
   `backend-eval-engine.md` → `model_turn.rs`).
@@ -206,7 +203,7 @@ pub fn base_url(kind: BackendKind) -> String { resolve(kind).map(|r| r.url).unwr
   never a fabricated zero (`docs/architecture.md#robustness`).
 - **What:** `struct GenerateStats { prompt_eval_count, prompt_eval_ms,
   eval_count, eval_ms, load_ms, total_ms }` and `fn ns_to_ms(u64) -> u64`
-  (Ollama reports ns durations).
+  (llama.cpp reports ns durations).
 - **How/Where used:** Returned from every `generate`; the three `*_timings` /
   `*_stats` mappers produce it; UI renders TTFT/tok/s from this plus client-side
   `RunTiming`.
@@ -238,17 +235,16 @@ pub fn ns_to_ms(ns: u64) -> u64 { ns / 1_000_000 }
   failed body read rather than returning `""`). UA `quantamind/<version>` matters
   for HF endpoints behind Cloudflare.
 - **How/Where used:** `streaming_client()` in all three `stream_generate`s and
-  Ollama blob/create; `probe_client()` in blob existence checks.
+  llama.cpp blob/create; `probe_client()` in blob existence checks.
 
 #### File: `inference/http/ndjson.rs`
 - **Responsibility:** Line framing for NDJSON/SSE byte streams.
 - **What:** `next_line(&mut Vec<u8>) -> Option<Vec<u8>>` (pops one
   `\n`-terminated line, strips `\r\n`; `None` until a full line is buffered);
-  `tail(&[u8]) -> Option<&[u8]>` (recovers a final un-terminated line — Ollama
-  0.24+ emits one on `/api/create` / `/api/pull`).
-- **How/Where used:** `next_line` drives the read loop in llama + MLX
-  `stream_generate` (Ollama inlines an equivalent); `tail` is used by the
-  pull/create NDJSON consumers (model layer).
+  `tail(&[u8]) -> Option<&[u8]>` (recovers a final un-terminated line, which some
+  servers emit at end-of-stream).
+- **How/Where used:** `next_line` drives the read loop in the llama.cpp and
+  OpenAI-wire `stream_generate` paths.
 
 ```rust
 pub fn next_line(buf: &mut Vec<u8>) -> Option<Vec<u8>> {
@@ -284,14 +280,14 @@ move |t| match emit(t) {
 
 ---
 
-## `inference/chat/` — chat-template detection (Ollama Modelfile path)
+## `inference/chat/` — chat-template detection (GGUF chat-template detection)
 
-Used when importing a bare GGUF into Ollama: a `/completion`-style raw model
-needs a chat template baked into its Modelfile. (llama-server now drives the
+Used when importing a bare GGUF into llama.cpp: a `/completion`-style raw model
+needs a chat template baked into its chat-template config. (llama-server now drives the
 templated `/v1/chat/completions` with `--jinja`, so it uses the GGUF's *embedded*
 template rather than these Go-template strings; only the legacy `/completion`
-fallback prepends system text raw. MLX applies its own template server-side. So
-these Go templates remain chiefly an Ollama-create concern.)
+fallback prepends system text raw. vLLM applies its own template server-side. So
+
 
 #### File: `inference/chat/chat_template_data.rs`
 - **What:** `struct ChatTemplate { family, template_string, stop_tokens }` plus
@@ -313,110 +309,11 @@ these Go templates remain chiefly an Ollama-create concern.)
 
 ---
 
-## The three backends
+## The two backends
 
 Each engine is one folder with the same five-part shape: `*.rs`
 (`stream_generate` — HTTP + read loop), `*_backend.rs` (the trait impl),
 `*_wire.rs` (request struct + chunk struct), and a stats/timings mapper.
-
-### `inference/ollama/`
-
-The default backend; talks to the user's `ollama serve` daemon over NDJSON.
-
-#### File: `inference/ollama/ollama.rs`
-- **Responsibility:** Stream `/api/generate` (NDJSON), plus the VRAM-isolation
-  unload gate.
-- **What:** `stream_generate(endpoint, model, prompt, system, options,
-  keep_alive, cancel, on_token)`; `force_unload(endpoint, model)` —
-  **assert-and-fail**: POSTs `keep_alive:0` then polls `/api/ps` until
-  `size_vram == 0`, returning `Err` if VRAM doesn't release in 30s (the caller
-  *must* halt rather than load the next model onto dirty VRAM and OOM-lock).
-- **How/Where used:** `OllamaBackend::generate`; `force_unload` from the
-  compare/eval sequencer between models.
-
-The NDJSON read loop (trimmed) — inline line-splitting (not `next_line`):
-
-```rust
-while let Some(nl) = buf.iter().position(|&b| b == b'\n') {
-    let line: Vec<u8> = buf.drain(..=nl).collect();
-    let trimmed = &line[..line.len() - 1];
-    if trimmed.is_empty() { continue; }
-    let chunk: GenerateChunk = serde_json::from_slice(trimmed)?;
-    if !chunk.response.is_empty() { on_token(&chunk.response); }
-    if cancel.is_cancelled() { return Ok(GenerateStats::default()); }
-    if chunk.done { return Ok(chunk.stats()); }
-}
-```
-
-#### File: `inference/ollama/ollama_backend.rs`
-- **What:** `struct OllamaBackend { endpoint }`; `impl InferenceBackend`
-  forwards `spec`'s fields (the only backend that passes `keep_alive`) into
-  `stream_generate`.
-
-#### File: `inference/ollama/ollama_wire.rs`
-- **What:** `GenerateRequest<'a>` (borrowed, `stream:true` always) and
-  `GenerateChunk` (`response`, `done`, and on the final chunk the ns durations +
-  token counts). `GenerateChunk::stats()` maps ns→ms via `ns_to_ms`, filling
-  *all six* `GenerateStats` fields (Ollama is the richest reporter — it has
-  `load_duration` and `total_duration` the others lack).
-
-```rust
-impl GenerateChunk {
-    pub(crate) fn stats(&self) -> GenerateStats {
-        GenerateStats {
-            prompt_eval_count: self.prompt_eval_count,
-            prompt_eval_ms:    self.prompt_eval_duration.map(ns_to_ms),
-            eval_count:        self.eval_count,
-            eval_ms:           self.eval_duration.map(ns_to_ms),
-            load_ms:           self.load_duration.map(ns_to_ms),
-            total_ms:          self.total_duration.map(ns_to_ms),
-        }
-    }
-}
-```
-
-#### File: `inference/ollama/ollama_chat.rs`
-- **Responsibility:** Native `/api/chat` with a `tools` array (non-streaming),
-  for the eval tool-call pass.
-- **What:** `chat_with_tools(endpoint, model, system, user, tools: &Value,
-  options) -> ChatResult`; `parse_chat(json)`; the SHARED native-tool-call types
-  `NativeToolCall { name, args }` + `ChatResult { tool_calls, content, stats }`;
-  and `pub fn normalize_args` (re-parses an `arguments` value a model returned as
-  a JSON *string* back into a real object). The `tools` argument is a pre-built
-  `serde_json::Value` so this client never depends on the eval layer's types.
-- **How/Where used:** eval's native function-calling pass (see `backend-eval`).
-  `NativeToolCall`/`ChatResult`/`normalize_args` are reused by `llama_chat.rs`
-  (the shared canonical interface — native FC follows the running server).
-
-#### File: `inference/llama/llama_chat.rs`
-- **Responsibility:** llama.cpp's native tool pass — OpenAI `/v1/chat/completions`
-  with a `tools` array (non-streaming). Requires `--jinja` at spawn so the GGUF's
-  embedded tool grammar applies.
-- **What:** `chat_with_tools(...) -> ChatResult` (same shape as Ollama's) +
-  `parse_chat`. Reads `choices[0].message.{content, tool_calls[].function.{name,
-  arguments}}`; reuses `normalize_args` because llama.cpp builds disagree on
-  string-vs-object `arguments` (verified live: gemma returns the string form).
-  Usage → stats via the shared `openai::chat_stats::from_usage`.
-- **Why:** so a llama.cpp native turn canonicalizes tool calls byte-identically
-  to Ollama's — `NativeToolTurn` (`agentic/model_turn.rs`) dispatches the right
-  `chat_with_tools` by `BackendKind`; a new server adds one arm.
-
-#### File: `inference/ollama/ollama_show.rs`
-- **Responsibility:** `/api/show` model metadata.
-- **What:** `show_model(endpoint, model) -> ShowResponse` (`template`,
-  `capabilities`, `details`, raw `model_info` map kept untyped for the KV-cache
-  predictor); `supports_tools(caps)`; `probe_supports_tools` (any error →
-  `false`, never fabricated).
-
-#### File: `inference/ollama/ollama_blob.rs` & `ollama_create.rs`
-- **Responsibility:** GGUF→Ollama import (`/api/blobs` + `/api/create`).
-- **What:** `sha256_file`, `blob_exists`, `upload_blob` (streamed with progress);
-  `ollama_create(endpoint, model_name, spec, on_progress)` — hash → upload (if
-  the blob is new) → `POST /api/create` → consume NDJSON.
-- **How/Where used:** the GGUF-import command (model layer — see
-  **`backend-models-hf-gguf.md`**).
-
----
 
 ### `inference/llama/`
 
@@ -432,11 +329,11 @@ spawn, so the request carries no model name).
   stops. Posting a raw prompt to `/completion` (the old primary) applies **no**
   template — the model never emits EOS and loops to `n_predict`. That endpoint
   is now only a **404 fallback** for older builds; if it 404s too, the error
-  names the likely port collision (e.g. `mlx_lm.server` on 8080). Both routes
+  names the likely port collision (e.g. `vllm_lm.server` on 8080). Both routes
   hit the same process — never a cross-`BackendKind` jump.
 - **What:** `stream_generate(...)` orchestrates two helpers. `stream_chat` POSTs
   a llama-owned `ChatRequest` (`messages:[{system},{user}]`, keeps `seed` +
-  `stop` — unlike mlx's request, which drops `seed`) and parses a llama-owned
+  `stop` — unlike vllm's request, which drops `seed`) and parses a llama-owned
   `ChatStreamChunk { choices, timings }`. It keeps the latest `timings` (llama's
   per-phase ms extension on the final chunk) → `Timings::stats()`, so
   `prompt_eval_ms` survives the chat endpoint (the Latency tab's TTFT breakdown
@@ -460,10 +357,10 @@ Err(AppError::Inference("neither /v1/chat/completions nor /completion is availab
 - **What:** `ChatRequest` (the primary path — `messages`, `stream:true`,
   `max_tokens`, and crucially `seed` + `stop` so llama.cpp runs stay
   seed-reproducible) + `ChatMessage`; `CompletionRequest` (legacy `/completion`:
-  `prompt`, `n_predict` — not Ollama's `num_predict`, no `model`);
+  `prompt`, `n_predict` — not llama.cpp's `num_predict`, no `model`);
   `CompletionChunk { content, stop, timings }`; the chat-stream
   `ChatStreamChunk { choices, timings }` (+ `ChatChoice`/`ChatDelta`) — own type,
-  not mlx's, because it must read llama's `timings` ms extension; `strip_sse(line)`
+  not vllm's, because it must read llama's `timings` ms extension; `strip_sse(line)`
   removes a `data: ` prefix if present (bare JSON also OK).
 
 #### File: `inference/llama/llama_timings.rs`
@@ -486,18 +383,18 @@ GenerateStats {
 ### `inference/openai/` — shared OpenAI-compatible SSE codec
 
 The `/v1/chat/completions` streaming wire, shared by **every** backend that
-speaks it: mlx_lm.server, vLLM, and SGLang (llama.cpp reuses the chunk/stats
+speaks it: vllm_lm.server, vLLM, and vLLM (llama.cpp reuses the chunk/stats
 types on its own primary chat path). Each server is **multi-model** (the model id
-*is* sent) and streams SSE. Extracted here (rather than living inside `inference/mlx/`)
+*is* sent) and streams SSE. Extracted here (rather than living inside `inference/vllm/`)
 so a new OpenAI-wire backend is one thin adapter over this codec — no cross-backend
-`mlx::…` import.
+`vllm::…` import.
 
 #### File: `inference/openai/chat_stream.rs`
 - **Responsibility:** Stream `/v1/chat/completions` (OpenAI SSE) for any such server.
 - **What:** `stream_generate(endpoint, api_key: Option<&str>, model, prompt,
   system, options, think, cancel, on_token)`. When `api_key` is `Some`, attaches
-  `Authorization: Bearer` (remote vLLM/SGLang launched with `--api-key`); local
-  mlx_lm.server passes `None`. The initial `.send()` is **raced against `cancel`**
+  `Authorization: Bearer` (remote vLLM launched with `--api-key`); local
+  vllm_lm.server passes `None`. The initial `.send()` is **raced against `cancel`**
   (`tokio::select! { biased; cancel … ; send … }`) because a wedged server (e.g. a
   non-chat model loaded) can accept the TCP connection but never return response
   headers, blocking `.send()` forever. Terminates on a choice's `finish_reason`, a
@@ -526,24 +423,24 @@ if let Some(choice) = chunk.choices.into_iter().next() {
 
 #### File: `inference/openai/chat_request.rs`
 - **Gotcha (verified live):** the request sets `stream_options.include_usage:true`.
-  vLLM/SGLang **omit `usage` from streamed chunks** without it (token counts came
+  vLLM **omit `usage` from streamed chunks** without it (token counts came
   back `None`), and they send that `usage` in a **separate trailing chunk** (choices
   `[]`) *after* the `finish_reason` chunk — so `chat_stream` records the finish reason
-  but keeps reading until `[DONE]` rather than returning early. mlx_lm.server puts
+  but keeps reading until `[DONE]` rather than returning early. vllm_lm.server puts
   usage on the finish chunk and tolerates the flag, so it's unaffected.
 - **What:** `ChatRequest` (OpenAI shape: `model`, `messages`, `stream:true`,
   `max_tokens` ← `num_predict`, `temperature`, `top_p`, `top_k`,
   `repetition_penalty` ← `repeat_penalty`, `chat_template_kwargs.enable_thinking`).
-  System text becomes a `system` message. **No `seed`** — mlx_lm.server has no seed
+  System text becomes a `system` message. **No `seed`** — vllm_lm.server has no seed
   field, so these runs aren't seed-reproducible and the seed is intentionally dropped
-  (vLLM/SGLang accept the same body; unknown template kwargs are dropped by jinja).
+  (vLLM accept the same body; unknown template kwargs are dropped by jinja).
 
 #### File: `inference/openai/chat_chunk.rs`
 - **What:** `ChatChunk { choices, usage }`, `Choice { delta, finish_reason }`,
   `Delta { content, reasoning }`, `Usage { prompt_tokens, completion_tokens,
   total_tokens }` (all optional — usage is version-dependent and may never arrive);
-  `strip_sse(line)`. The reasoning field accepts both `reasoning` (mlx_lm.server)
-  and `reasoning_content` (vLLM/SGLang) via `#[serde(alias)]`.
+  `strip_sse(line)`. The reasoning field accepts both `reasoning` (vllm_lm.server)
+  and `reasoning_content` (vLLM) via `#[serde(alias)]`.
 
 #### File: `inference/openai/chat_stats.rs`
 - **What:** `from_usage(Option<Usage>) -> GenerateStats` — maps token counts
@@ -551,95 +448,44 @@ if let Some(choice) = chunk.choices.into_iter().next() {
   timing). Absent usage → all-`None` default. TTFT/tok/s come from the client-side
   `RunTiming`, not here.
 
-### `inference/mlx/`
+### `inference/vllm/`
 
-`mlx_lm.server` on Apple Silicon; **multi-model**, OpenAI-compatible SSE — the wire
+`vllm_lm.server` on Apple Silicon; **multi-model**, OpenAI-compatible SSE — the wire
 codec is the shared `inference/openai/` module above; this dir holds only the
 adapter + Apple-Silicon gate + process management.
 
-#### File: `inference/mlx/mlx_backend.rs`
-- **What:** `struct MlxBackend { endpoint, model }`; `impl InferenceBackend`.
+#### File: `inference/vllm/vllm_backend.rs`
+- **What:** `struct VLlmBackend { endpoint, model }`; `impl InferenceBackend`.
   Delegates to `openai::chat_stream::stream_generate` with `api_key: None` (local,
-  unauthenticated). Unlike llama, `spec.model` **is** sent; `keep_alive` has no MLX
+  unauthenticated). Unlike llama, `spec.model` **is** sent; `keep_alive` has no vLLM
   equivalent.
 
-#### File: `inference/mlx/mod.rs`
-- **What:** `mlx_supported() -> bool` — the single `cfg!(all(macos, aarch64))`
-  gate for the whole MLX path (discovery/install/start are no-ops/errors
+#### File: `inference/vllm/mod.rs`
+- **What:** `vllm_supported() -> bool` — the single `cfg!(all(macos, aarch64))`
+  gate for the whole vLLM path (discovery/install/start are no-ops/errors
   elsewhere).
-
-### `inference/mlx/server/` — MLX process-management primitives
-
-(Lives under `inference/` rather than `commands/` because the endpoint
-resolution must be readable from the dispatch path without Tauri state.)
-
-#### File: `server/mlx_endpoint.rs`
-- **Responsibility:** Hold the app-managed server's *dynamic* port as a
-  process-global.
-- **Why:** There's exactly one managed MLX server, and `inference/` can't read
-  Tauri state. The command layer `set_mlx_port` on start / `clear_mlx_port` on
-  stop; health/discovery/dispatch read `mlx_endpoint()`.
-- **What:** `AtomicU16 MLX_PORT`; `set_mlx_port`, `clear_mlx_port`,
-  `mlx_endpoint() -> String` (the dynamic `http://127.0.0.1:<port>` when set,
-  else the `:8082` default for a manually-run server).
-
-```rust
-pub fn mlx_endpoint() -> String {
-    match MLX_PORT.load(Ordering::Relaxed) {
-        0 => MLX_SERVER.to_string(),
-        p => format!("http://127.0.0.1:{p}"),
-    }
-}
-```
-
-#### File: `server/mlx_locate.rs`
-- **What:** `locate(configured: Option<&str>) -> Option<PathBuf>` — explicit
-  `QUANTAMIND_MLX_SERVER` path wins, else search `PATH` + `mlx-env/bin`,
-  `.venv/bin`, `miniconda3/bin`, `/opt/homebrew/bin` for `mlx_lm.server`. Pure
-  helpers `candidate_dirs` / `resolve_in` (inject `exists` for testability).
-
-#### File: `server/mlx_runtime.rs`
-- **What:** `find_available_port(start) -> Option<u16>` (bind-then-release scan
-  over `start..=start+10` — never assume a fixed port is free);
-  `build_spawn_args(model, port)`; `spawn_server(exe, args) -> Child` (**stderr
-  piped** so the reader thread sees phase/death; stdin/stdout discarded);
-  `kill_server(child)` (idempotent — killing an already-exited child is success).
-
-#### File: `server/mlx_stderr.rs`
-- **Responsibility:** Drain piped stderr on a thread; derive a coarse launch
-  phase + keep a tail for death diagnosis.
-- **Why:** stderr is **never** the authoritative ready signal — `Ready` is
-  decided by the health probe, `Exited` by `try_wait`. stderr only distinguishes
-  *Downloading* vs *Starting* and captures the failure reason.
-- **What:** `enum Phase { Downloading, Starting, Ready, Exited }`;
-  `phase_from_line` (returns `Some` only on a confident signal so the last
-  meaningful phase sticks — "download"/"fetch" → Downloading;
-  "uvicorn"/"running on" → Starting); `push_tail` (bounded 20-line ring);
-  `spawn_stderr_reader(stderr, phase, tail)`.
-
----
 
 ## Backend comparison
 
-| | **Ollama** | **llama.cpp** | **MLX** |
-|---|---|---|---|
-| `BackendKind` | `Ollama` (default) | `LlamaCpp` | `Mlx` (Apple Silicon only) |
-| Process | user's `ollama serve` daemon | bundled `llama-server` sidecar | `mlx_lm.server` (Python) |
-| Port model | fixed `11434` | fixed `8081` | **dynamic** 8082+ via `find_available_port`; `:8082` default for manual |
-| Multi-model? | yes (`model` in body) | **no** (GGUF fixed at spawn) | yes (`model` in body) |
-| Endpoint | `/api/generate` | `/v1/chat/completions` (templated via `--jinja`; → `/completion` fallback) | `/v1/chat/completions` |
-| Wire format | NDJSON | OpenAI SSE (fallback: SSE-ish `data: {json}`) | OpenAI SSE |
-| Request struct | `GenerateRequest` (`num_predict`, `keep_alive`) | `ChatRequest` (`max_tokens`, **keeps seed + stop**); fallback `CompletionRequest` (`n_predict`, no model) | `ChatRequest` (`max_tokens`, no seed) |
-| Stop signal | `done:true` | `finish_reason` / `[DONE]` (fallback: `stop:true`) | `finish_reason` / `[DONE]` |
-| System text | native `system` field | prepended to prompt | `system` message (template applied server-side) |
-| Stats source | final chunk: ns durations + counts | `timings` object (ms) | `usage` (counts only) |
-| `GenerateStats` filled | **all 6** (incl. `load_ms`, `total_ms`) | 4 (`load_ms`/`total_ms` = None) | 2 counts only (all `*_ms` = None) |
-| Health probe | `GET /api/tags` | `GET /health` | `GET /v1/models` |
-| Lifecycle owner | not ours (track only an app-spawned pid) | `LlamaServerState` (one `Child`) | `MlxServerState` (one `Child` + phase/tail) |
-| Readiness | poll `/api/tags` ≤10s | poll `/health` ≤30s (blocking start) | **non-blocking**; UI polls health + `mlx_server_status` |
-| Reproducible seed? | yes | yes | **no** (no seed field) |
+| | **llama.cpp** | **vLLM** |
+|---|---|---|
+| `BackendKind` | `LlamaCpp` (default) | `VLlm` / `VLlm` |
+| Process | bundled `llama-server` sidecar | user-run on a remote GPU box |
+| Port model | fixed `8081` | user-configured endpoint (`remote_config`) |
+| Multi-model? | **no** (GGUF fixed at spawn) | whatever the server was launched with |
+| Endpoint | `/v1/chat/completions` (templated via `--jinja`; → `/completion` fallback) | `/v1/chat/completions` |
+| Wire format | OpenAI SSE (fallback: SSE-ish `data: {json}`) | OpenAI SSE |
+| Request struct | `ChatRequest` (`max_tokens`, **keeps seed + stop**); fallback `CompletionRequest` (`n_predict`, no model) | `ChatRequest` (`max_tokens`, no seed) |
+| Stop signal | `finish_reason` / `[DONE]` (fallback: `stop:true`) | `finish_reason` / `[DONE]` |
+| Auth | none (loopback) | optional `Authorization: Bearer` |
+| Stats source | `timings` object (ms) + `cache_n` | `usage` (counts only) |
+| `GenerateStats` filled | 4 (`load_ms`/`total_ms` = None) | 2 counts only (all `*_ms` = None) |
+| Health probe | `GET /health` | `GET /v1/models` |
+| Lifecycle owner | `LlamaServerState` (one `Child`) | **not ours** — never spawned or reaped |
+| Readiness | poll `/health` ≤30s (blocking start) | reachability probe + credential check |
+| Reproducible seed? | yes | **no** (no seed field) |
 
-### Remote backends — vLLM (`VLlm`) & SGLang (`SgLang`)
+### Remote backends — vLLM (`VLlm`) & vLLM (`VLlm`)
 
 Both are **remote** OpenAI-compatible GPU servers (e.g. a GCP L4), so they differ
 from the three local backends on exactly the axes that matter:
@@ -648,21 +494,20 @@ from the three local backends on exactly the axes that matter:
   `app_lifecycle` entry — the app only points an HTTP client at a URL.
 - **Endpoint + auth from Settings.** URL + optional `Authorization: Bearer` come from
   `UserSettings` via `remote_config`; `endpoint::resolve` errors clearly when unset.
-- **Same wire as MLX.** OpenAI SSE `/v1/chat/completions` via the shared
+- **Same wire as vLLM.** OpenAI SSE `/v1/chat/completions` via the shared
   `inference/openai/` codec (multi-model, `usage`-only stats, no seed). Native
   tool-calls via `openai::chat_tools` (bearer). Adapters: `inference/vllm/vllm_backend.rs`,
-  `inference/sglang/sglang_backend.rs`.
+  `inference/vllm/vllm_backend.rs`.
 - **Health/discovery** via `commands/remote/` (`GET /v1/models` with bearer). The
   `model.backend` binding is **server-sourced** (`/v1/models`), so it never collides
-  with MLX's disk-sourced safetensors discovery.
+  with vLLM's disk-sourced safetensors discovery.
 
 This is a deliberate exception to the app's local-first posture (see the ADR under
-`docs/adr/`); note the STT loopback guard (`stt_probe.rs`) is STT-specific and does
-**not** apply to the LLM path.
+`docs/adr/`).
 
 ---
 
-## Server-process management (`commands/{llama,mlx,ollama}/`)
+## Server-process management (`commands/{llama,vllm,llama_cpp}/`)
 
 All three share five robustness guards (see memory *spawned-process-robustness*):
 log/health-gated readiness (not bare TCP-accept), reap on exit, dynamic/fixed
@@ -724,7 +569,7 @@ stderr-aware launcher where loading is slow.
 - **`spawn_server`** (`llama_runtime.rs`): sets `current_dir(dir)` +
   `DYLD_FALLBACK_LIBRARY_PATH=dir` so `@rpath` dylibs resolve; **pipes stderr**
   (drained on a thread into a bounded tail for the death diagnosis — an undrained
-  pipe would wedge the child); kills by `Child` handle (portable, unlike Ollama's
+  pipe would wedge the child); kills by `Child` handle (portable, unlike llama.cpp's
   macOS `pkill`).
 - **`LlamaServerState`**: one server per GGUF; a new model `stop()`s the prior;
   holds the `SpawnReadout` (set on ready, cleared on stop).
@@ -742,68 +587,68 @@ else {
 }
 ```
 
-### `commands/mlx/`
+### `commands/vllm/`
 
 | File | Role |
 |---|---|
-| `mlx_start.rs` | `start_mlx_server` / `stop_mlx_server` / `mlx_server_status`. |
-| `mlx_server_types.rs` | `MlxServerState`, `MlxStartResult`, `MlxServerStatus`, `Running`. |
-| `health_mlx.rs` | `check_mlx_health` via `GET /v1/models`. |
-| `mlx_discover.rs` | scan dirs for `config.json` + `*.safetensors` → `Mlx` models. |
-| `mlx_install.rs` | `install_mlx_model` — HF snapshot download into `~/.quantamind/mlx`. |
-| `mlx_models.rs` | `list_mlx_models` (from disk) / `delete_mlx_model` (symlink-safe). |
+| `vllm_start.rs` | `start_vllm_server` / `stop_vllm_server` / `vllm_server_status`. |
+| `vllm_server_types.rs` | `VLlmServerState`, `VLlmStartResult`, `VLlmServerStatus`, `Running`. |
+| `health_vllm.rs` | `check_vllm_health` via `GET /v1/models`. |
+| `vllm_discover.rs` | scan the weights folder for `*.gguf` → `LlamaCpp` models. |
+| `vllm_install.rs` | `install_vllm_model` — HF snapshot download into `~/.quantamind/vllm`. |
+| `vllm_models.rs` | `list_vllm_models` (from disk) / `delete_vllm_model` (symlink-safe). |
 
-- **`start_mlx_server`** (`mlx_start.rs`): gate on `mlx_supported()`;
+- **`start_vllm_server`** (`vllm_start.rs`): gate on `vllm_supported()`;
   `AlreadyRunning` if same model; `kill_all_servers()` otherwise; `locate` the
   exe; `find_available_port(8082)`; `spawn_server`; take stderr and
-  `spawn_stderr_reader`; `state.store(Running{…}, port)` (which `set_mlx_port`).
+  `spawn_stderr_reader`; `state.store(Running{…}, port)` (which `set_vllm_port`).
   **Does NOT block on readiness** — weight load is slow; the UI polls
-  `check_mlx_health` + `mlx_server_status` instead.
-- **`MlxServerState`** (`mlx_server_types.rs`): `store` sets the dynamic port;
+  `check_vllm_health` + `vllm_server_status` instead.
+- **`VLlmServerState`** (`vllm_server_types.rs`): `store` sets the dynamic port;
   `kill_all_servers` clears it + reaps; `status()` uses `try_wait` to report
   `Running{phase,model}` vs `Exited{code, stderr_tail}` (the tail diagnoses the
   death). A `Drop` impl is the teardown backstop because `Child` *detaches* (does
   not kill) on drop — the primary reap is the `lib.rs` exit hook.
 
 ```rust
-// mlx_start.rs — dynamic port + stderr-aware launcher, NON-blocking readiness
+// vllm_start.rs — dynamic port + stderr-aware launcher, NON-blocking readiness
 state.kill_all_servers()?;                          // ownership: stop a different model first
 let exe = locate(configured.as_deref())?;           // → NotFound
 let port = find_available_port(PORT_BASE)?;         // → NoFreePort
 let mut child = spawn_server(&exe, &build_spawn_args(&model_path, port))?;
 if let Some(err) = child.stderr.take() { spawn_stderr_reader(err, phase.clone(), tail.clone()); }
-state.store(Running { child, model: model_path, phase, tail }, port);  // set_mlx_port(port)
-Ok(MlxStartResult::Started { pid, port })
+state.store(Running { child, model: model_path, phase, tail }, port);  // set_vllm_port(port)
+Ok(VLlmStartResult::Started { pid, port })
 ```
 
-### `commands/ollama/`
+### `commands/llama_cpp/`
 
 | File | Role |
 |---|---|
-| `ollama_start.rs` | `start_ollama` / `stop_ollama`; `OllamaStartState`. |
-| `ollama_runtime.rs` | reachability probe, `resolve_ollama`, spawn/kill, ready poll. |
+| `llama_cpp_start.rs` | `start_llama_cpp` / `stop_llama_cpp`; `llama.cppStartState`. |
+| `llama_cpp_runtime.rs` | reachability probe, `resolve_llama_cpp`, spawn/kill, ready poll. |
 
-- **Ownership handshake is the key guard here.** Ollama is the user's own daemon.
-  `start_ollama` only `remember`s a pid when *it* spawned `ollama serve`; an
+- **Ownership handshake is the key guard here.** llama.cpp is the user's own daemon.
+  `start_llama_cpp` only `remember`s a pid when *it* spawned `llama-server -m MODEL.gguf --port 8081 --jinja`; an
   `AlreadyRunning` result (a pre-existing user daemon) is **never** reaped.
   `stop_owned` kills only the app-spawned pid (used by `stop`, the exit reap, the
-  signal reaper, and a `Drop` backstop). A separate `stop_ollama` command uses
-  `pkill -f "ollama serve"` for an explicit user stop.
+  signal reaper, and a `Drop` backstop). A separate `stop_llama_cpp` command uses
+  `pkill -f "llama-server -m MODEL.gguf --port 8081 --jinja"` for an explicit user stop.
 - **`kill_pid` is graceful-then-hard:** SIGTERM, a short grace (`kill -0` liveness
-  poll, ~600ms), then SIGKILL if still alive — so the app-spawned Ollama can't
+  poll, ~600ms), then SIGKILL if still alive — so the app-spawned llama.cpp can't
   outlive the app. Reached on **three** exit paths, all idempotent: Cmd+Q
   (`RunEvent::ExitRequested`), SIGINT/SIGTERM (the signal reaper), and **window
   close** (`on_window_event` → `reap_managed` + `app.exit(0)` — the macOS path,
-  where closing the window doesn't otherwise quit the app and would orphan Ollama).
-- `start_ollama` guards a re-entrant `in_progress` flag; `start_ollama_inner`
+  where closing the window doesn't otherwise quit the app and would orpha llama.cpp).
+- `start_llama_cpp` guards a re-entrant `in_progress` flag; `start_llama_cpp_inner`
   short-circuits to `AlreadyRunning` if already reachable, else
-  `resolve_ollama()` (`which` → Homebrew/usr-local), `spawn_serve`, and **block
-  on `wait_until_ready()`** (poll `/api/tags` ≤10s). Auto-start is macOS-only;
+  `resolve_llama_cpp()` (`which` → Homebrew/usr-local), `spawn_serve`, and **block
+  on `wait_until_ready()`** (poll the weights folder ≤10s). Auto-start is macOS-only;
   elsewhere `spawn_serve`/`kill_serve` return `UNSUPPORTED_OS_MSG`.
 
 ```rust
-// ollama_start.rs — only reap a server WE spawned
-if let OllamaStartResult::Started { pid } = &result { state.remember(*pid); }
+// llama_cpp_start.rs — only reap a server WE spawned
+if let llama.cppStartResult::Started { pid } = &result { state.remember(*pid); }
 // stop_owned(): kill only the remembered pid; a user daemon (AlreadyRunning) is untouched
 ```
 
@@ -811,10 +656,10 @@ if let OllamaStartResult::Started { pid } = &result { state.remember(*pid); }
 
 ## Data-flow walkthrough — one streaming generation per backend
 
-**Ollama** — `run_prompt(backend=Ollama)` → `prompt.rs` picks
-`default_for(Ollama)` (`:11434`), wraps emit in `make_token_handler` →
-`run_prompt_inner` → `OllamaBackend::generate` → `ollama::stream_generate`:
-`streaming_client()` POSTs `GenerateRequest{stream:true, …}` to `/api/generate`;
+**llama.cpp** — `run_prompt(backend=llama.cpp)` → `prompt.rs` picks
+`default_for(llama.cpp)` (`:8081`), wraps emit in `make_token_handler` →
+`run_prompt_inner` → `llama.cppBackend::generate` → `llama_cpp::stream_generate`:
+`streaming_client()` POSTs `GenerateRequest{stream:true, …}` to `/v1/chat/completions`;
 the read loop splits NDJSON lines, deserializes `GenerateChunk`, calls
 `on_token(chunk.response)`; on `done:true` returns `chunk.stats()` with all six
 ms/count fields (ns→ms). Cancel mid-stream returns the all-`None` default.
@@ -830,14 +675,14 @@ breakdown's prefill) survives. If the chat route 404s (older build) → fall bac
 legacy `/completion` (`CompletionChunk`, `stop:true`); if *that* 404s too →
 port-collision error.
 
-**MLX** — endpoint = `mlx_endpoint()` (the managed dynamic port).
-`MlxBackend::generate` → `mlx::stream_generate`: the `.send()` of
+**vLLM** — endpoint = `vllm_endpoint()` (the managed dynamic port).
+`VLlmBackend::generate` → `vllm::stream_generate`: the `.send()` of
 `ChatRequest{model, messages, stream:true}` is **raced against cancel** (a
 wedged model can stall headers). Then `next_line` → `strip_sse` → skip non-`{`
 SSE framing/`[DONE]` → `ChatChunk`; emit `choice.delta.content`; capture `usage`
 if present; on `finish_reason` or `[DONE]` return `from_usage(usage)` (token
 counts only, all `*_ms` = None). Throughout, `make_token_handler` records each
-token into `RunTiming` so the UI still gets TTFT + tokens/sec the MLX server
+token into `RunTiming` so the UI still gets TTFT + tokens/sec the vLLM server
 never reports.
 
 ---
@@ -849,11 +694,11 @@ never reports.
    signal.
 2. **Never fabricate metrics.** A missing stat is `None` ("Not available"), not
    `0`. Client-side timing (`RunTiming`) is the only source of TTFT/tok-s.
-3. **Cancellation is honored everywhere** — before/around `.send()` (MLX),
+3. **Cancellation is honored everywhere** — before/around `.send()` (vLLM),
    inside the read loop, and on emit failure (`make_token_handler`).
-4. **Readiness ≠ TCP-accept.** Health is `/health`-`/api/tags`-`/v1/models`-gated;
+4. **Readiness ≠ TCP-accept.** Health is `/health`- and `/v1/models`-gated;
    stderr is advisory phase only.
-5. **Only reap what we started.** Ollama tracks an app-spawned pid; llama/MLX own
-   their one `Child` and reap on stop + Drop + exit hook.
-6. **Ports are deliberately disjoint** (11434 / 8081 / 8082+ / 8093) so all
-   sidecars coexist without shadowing.
+5. **Only reap what we started.** `LlamaServerState` owns its one `Child` and reaps
+   on stop + Drop + exit hook; a remote server is never ours to touch.
+6. **The sidecar port is deliberately 8081, not 8080**, so a hand-launched
+   OpenAI-compatible server on the community default can't shadow it.

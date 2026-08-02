@@ -8,7 +8,7 @@ import { PublishDialog } from "../PublishDialog";
 import type { ModelVerdict } from "../../../shared/ipc/eval/readiness";
 
 const VERDICTS: ModelVerdict[] = [
-  { model: "qwen", backend: "ollama", verdict: { status: "ready", blocking: [], conditions: [], path: "native_fc" }, pass_k: 0.9 },
+  { model: "qwen", backend: "llama_cpp", verdict: { status: "ready", blocking: [], conditions: [], path: "native_fc" }, pass_k: 0.9 },
 ];
 
 const preview = (over: Partial<PublishPreview> = {}): PublishPreview => ({

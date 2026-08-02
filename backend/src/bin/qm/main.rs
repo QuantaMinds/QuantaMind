@@ -58,7 +58,7 @@ enum Command {
 
 #[derive(clap::Args)]
 struct PromptArgs {
-    /// Backend to generate against (falls back to qm.json, then ollama).
+    /// Backend to generate against (falls back to qm.json, then the server).
     #[arg(long, value_enum)]
     backend: Option<BackendArg>,
     /// Model to run. Env: QM_MODEL.
@@ -265,7 +265,7 @@ struct ParamArgs {
     /// Top-k sampling.
     #[arg(long)]
     top_k: Option<u32>,
-    /// Max generated tokens (Ollama `num_predict`). (Distinct from `cliff --max-tokens`,
+    /// Max generated tokens (the server `num_predict`). (Distinct from `cliff --max-tokens`,
     /// which is the padding-ladder ceiling.)
     #[arg(long)]
     num_predict: Option<u32>,
@@ -306,7 +306,7 @@ impl ParamArgs {
 
 #[derive(clap::Args)]
 struct RunArgs {
-    /// Backend to run against (falls back to qm.json, then ollama).
+    /// Backend to run against (falls back to qm.json, then the server).
     #[arg(long, value_enum)]
     backend: Option<BackendArg>,
     /// Model to run (falls back to qm.json; env QM_MODEL).
@@ -441,7 +441,7 @@ struct DoctorArgs {
     /// Endpoint URL for the targeted backend (only with --backend). Env: QM_BASE.
     #[arg(long, env = "QM_BASE")]
     base: Option<String>,
-    /// Model to check native tool-calling against (Ollama). Env: QM_MODEL.
+    /// Model to check native tool-calling against . Env: QM_MODEL.
     #[arg(long, env = "QM_MODEL")]
     model: Option<String>,
     /// Emit the machine-readable report as JSON on stdout (fixes still go to stderr).
@@ -452,22 +452,16 @@ struct DoctorArgs {
 /// The `--backend` values, mapped 1:1 onto `BackendKind`'s wire strings.
 #[derive(Clone, Copy, ValueEnum)]
 enum BackendArg {
-    Ollama,
     #[value(name = "llama_cpp", alias = "llama-cpp", alias = "llamacpp")]
     LlamaCpp,
-    Mlx,
     Vllm,
-    Sglang,
 }
 
 impl From<BackendArg> for BackendKind {
     fn from(b: BackendArg) -> Self {
         match b {
-            BackendArg::Ollama => BackendKind::Ollama,
             BackendArg::LlamaCpp => BackendKind::LlamaCpp,
-            BackendArg::Mlx => BackendKind::Mlx,
             BackendArg::Vllm => BackendKind::VLlm,
-            BackendArg::Sglang => BackendKind::SgLang,
         }
     }
 }
@@ -482,7 +476,6 @@ fn resolve_key(backend: Option<BackendKind>) -> Option<String> {
     }
     match backend {
         Some(BackendKind::VLlm) => secrets::get(secrets::VLLM_API_KEY),
-        Some(BackendKind::SgLang) => secrets::get(secrets::SGLANG_API_KEY),
         _ => None,
     }
 }
@@ -663,6 +656,8 @@ async fn run_test(args: TestArgs) {
     let opts = RunOptions {
         backend,
         model,
+        // No default price: absent `costs` in qm.json means every USD figure is n/a.
+        cost_config: cfg.as_ref().and_then(|c| c.costs).unwrap_or_default(),
         // The engine's loader treats a path with a separator / `.json` as a file.
         collection: args.collection.to_string_lossy().into_owned(),
         base,
@@ -705,6 +700,8 @@ async fn run_suite(args: RunArgs) {
     let opts = RunOptions {
         backend,
         model,
+        // No default price: absent `costs` in qm.json means every USD figure is n/a.
+        cost_config: cfg.as_ref().and_then(|c| c.costs).unwrap_or_default(),
         collection: resolve_collection(args.collection),
         base,
         api_key,
@@ -745,6 +742,8 @@ async fn run_cliff_cmd(args: CliffArgs) {
         run: RunOptions {
             backend,
             model,
+            // `qm cliff` doesn't emit the dollar block; no price basis needed.
+            cost_config: Default::default(),
             collection: resolve_collection(args.collection),
             base,
             api_key,
@@ -799,9 +798,7 @@ async fn run_cliff_cmd(args: CliffArgs) {
         }
         Ok(CliffOutcome::NativeUnsupported { backend, model }) => {
             let hint = match backend {
-                BackendKind::Ollama => "this model reports no `tools` capability (its template lacks .Tools) — use --mode prompt_based, or re-create the model with a tool-capable TEMPLATE",
-                BackendKind::Mlx => "MLX has no native tool-calling API — use --mode prompt_based",
-                _ => "the server can't run native tool-calling here — use --mode prompt_based",
+                _ => "the server can't run native tool-calling here — relaunch llama-server with --jinja and a tool-capable model, or use --mode prompt_based",
             };
             eprintln!("[QM-NATIVE-UNSUPPORTED] --mode native won't run for '{model}' on {}: {hint}.", label(backend));
             std::process::exit(2);
@@ -809,8 +806,7 @@ async fn run_cliff_cmd(args: CliffArgs) {
         Ok(CliffOutcome::ThinkingUnsupported { backend, model }) => {
             // Same hints as `qm run` — reasoning fails for different reasons per engine.
             let hint = match backend {
-                BackendKind::Ollama => "this model has no reasoning capability — use --thinking lean, or pick a reasoning model (e.g. one whose `ollama show` lists \"thinking\")",
-                BackendKind::LlamaCpp | BackendKind::Mlx => "the server returned no reasoning — relaunch it with `--jinja --reasoning-format deepseek` and use a reasoning model, or use --thinking lean",
+                BackendKind::LlamaCpp => "the server returned no reasoning — relaunch it with `--jinja --reasoning-format deepseek` and use a reasoning model, or use --thinking lean",
                 _ => "the server returned no reasoning — enable its reasoning parser, or use --thinking lean",
             };
             eprintln!("[QM-THINKING-UNSUPPORTED] --thinking won't take effect for '{model}' on {}: {hint}.", label(backend));
@@ -856,7 +852,7 @@ fn select(title: &str, options: &[String]) -> Option<usize> {
     run::render::parse_selection(&line, options.len())
 }
 
-/// Resolve the backend: flag → qm.json → (interactive pick among runnable) → ollama.
+/// Resolve the backend: flag → qm.json → (interactive pick among runnable) → the server.
 async fn resolve_backend(flag: Option<BackendArg>, cfg: &Option<QmConfig>) -> BackendKind {
     if let Some(b) = flag {
         return b.into();
@@ -878,7 +874,7 @@ async fn resolve_backend(flag: Option<BackendArg>, cfg: &Option<QmConfig>) -> Ba
             [] => {}
         }
     }
-    BackendKind::Ollama
+    BackendKind::LlamaCpp
 }
 
 /// Interactive model picker: probe the backend's served models and let the user
@@ -949,6 +945,7 @@ async fn run_init(args: InitArgs) {
     let opts = RunOptions {
         backend: cfg.backend,
         model: cfg.model,
+        cost_config: cfg.costs.unwrap_or_default(),
         collection: cfg.collection,
         base: cfg.base,
         api_key: resolve_key(Some(cfg.backend)),
@@ -1029,8 +1026,7 @@ async fn execute(opts: RunOptions, json: bool, fail_on: FailOn, junit: Option<Pa
         RunOutcome::ThinkingUnsupported { backend, model } => {
             // A backend-specific, actionable fix — reasoning fails for different reasons per engine.
             let hint = match backend {
-                BackendKind::Ollama => "this model has no reasoning capability — use --thinking lean, or pick a reasoning model (e.g. one whose `ollama show` lists \"thinking\")",
-                BackendKind::LlamaCpp | BackendKind::Mlx => "the server returned no reasoning — relaunch it with `--jinja --reasoning-format deepseek` and use a reasoning model, or use --thinking lean",
+                BackendKind::LlamaCpp => "the server returned no reasoning — relaunch it with `--jinja --reasoning-format deepseek` and use a reasoning model, or use --thinking lean",
                 _ => "the server returned no reasoning — enable its reasoning parser, or use --thinking lean",
             };
             eprintln!("[QM-THINKING-UNSUPPORTED] --thinking won't take effect for '{model}' on {}: {hint}.", label(backend));

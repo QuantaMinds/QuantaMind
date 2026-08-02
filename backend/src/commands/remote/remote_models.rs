@@ -68,11 +68,6 @@ pub async fn list_vllm_models() -> Result<Vec<InstalledModelInfo>, AppError> {
     Ok(list_remote_models(&remote_config::vllm(), BackendKind::VLlm).await)
 }
 
-#[tauri::command]
-pub async fn list_sglang_models() -> Result<Vec<InstalledModelInfo>, AppError> {
-    Ok(list_remote_models(&remote_config::sglang(), BackendKind::SgLang).await)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -85,36 +80,32 @@ mod tests {
 
     #[test]
     fn model_id_maps_to_name_with_no_fabricated_metrics() {
-        let info = to_info("qwen2.5-7b-instruct".into(), BackendKind::SgLang);
+        let info = to_info("qwen2.5-7b-instruct".into(), BackendKind::VLlm);
         assert_eq!(info.name, "qwen2.5-7b-instruct");
-        assert_eq!(info.backend, BackendKind::SgLang);
+        assert_eq!(info.backend, BackendKind::VLlm);
         assert_eq!(info.size_bytes, 0);
         assert!(info.parameter_size.is_empty() && info.quantization.is_empty());
     }
 
-    /// End-to-end against a REAL vLLM/SGLang server (CLAUDE.md rule 6). Exercises the
+    /// End-to-end against a REAL vLLM server (CLAUDE.md rule 6). Exercises the
     /// production code paths — discovery, streaming generation (with thinking), and a
     /// native tool-call — not a curl. Ignored by default; run with:
-    ///   QM_LIVE_URL=http://127.0.0.1:8000 QM_LIVE_BACKEND=vllm \
+    ///   QM_LIVE_URL=http://127.0.0.1:8000 \
     ///     cargo test --lib live_remote_end_to_end -- --ignored --nocapture
     #[tokio::test]
-    #[ignore = "live: set QM_LIVE_URL (+ QM_LIVE_KEY, QM_LIVE_BACKEND=vllm|sglang)"]
+    #[ignore = "live: set QM_LIVE_URL (+ QM_LIVE_KEY)"]
     async fn live_remote_end_to_end() {
         use crate::inference::backend::backend::InferenceBackend;
         use crate::inference::generate::generate_options::GenerateOptions;
         use crate::inference::generate::generate_spec::GenerateSpec;
         use crate::inference::openai::chat_tools::chat_with_tools;
-        use crate::inference::sglang::sglang_backend::SgLangBackend;
         use crate::inference::vllm::vllm_backend::VLlmBackend;
         use serde_json::json;
         use tokio_util::sync::CancellationToken;
 
         let url = std::env::var("QM_LIVE_URL").expect("set QM_LIVE_URL");
         let key = std::env::var("QM_LIVE_KEY").ok().filter(|k| !k.is_empty());
-        let backend = match std::env::var("QM_LIVE_BACKEND").as_deref() {
-            Ok("sglang") => BackendKind::SgLang,
-            _ => BackendKind::VLlm,
-        };
+        let backend = BackendKind::VLlm;
         let ep = RemoteEndpoint { url: Some(url.clone()), api_key: key.clone() };
 
         // 1) Discovery via GET /v1/models — the exact code the model picker runs.
@@ -134,17 +125,10 @@ mod tests {
             think: Some(true),
         };
         let mut out = String::new();
-        let stats = match backend {
-            BackendKind::SgLang => {
-                SgLangBackend::new(url.clone(), key.clone(), model.clone())
-                    .generate(&spec, CancellationToken::new(), |t| out.push_str(t)).await
-            }
-            _ => {
-                VLlmBackend::new(url.clone(), key.clone(), model.clone())
-                    .generate(&spec, CancellationToken::new(), |t| out.push_str(t)).await
-            }
-        }
-        .expect("live generation failed");
+        let stats = VLlmBackend::new(url.clone(), key.clone(), model.clone())
+            .generate(&spec, CancellationToken::new(), |t| out.push_str(t))
+            .await
+            .expect("live generation failed");
         println!("[live] output ({} chars):\n{out}", out.len());
         println!(
             "[live] stats prompt_eval={:?} eval={:?} finish={:?}",

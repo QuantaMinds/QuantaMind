@@ -118,13 +118,13 @@ finish: async () => {
 
 ### `steps.ts` — which step to show
 - **Responsibility:** pure derivation of the current step from live state. No
-  stored cursor — the step is recomputed from Ollama health + installed-model
+  stored cursor — the step is recomputed from llama.cpp health + installed-model
   count, so it can't drift.
 
 ```ts
-export type OnboardingStep = "ollama" | "model" | "ready";
-export function currentStep(ollamaHealthy: boolean | null, modelCount: number): OnboardingStep {
-  if (ollamaHealthy !== true) return "ollama"; // 1. start the engine
+export type OnboardingStep = "llama_cpp" | "model" | "ready";
+export function currentStep(llama_cppHealthy: boolean | null, modelCount: number): OnboardingStep {
+  if (llama_cppHealthy !== true) return "llama_cpp"; // 1. start the engine
   if (modelCount === 0)        return "model";  // 2. install a model
   return "ready";                               // 3. scaffold a workspace
 }
@@ -132,10 +132,10 @@ export function currentStep(ollamaHealthy: boolean | null, modelCount: number): 
 
 ### `components/OnboardingCoach.tsx` — the card
 - **Responsibility:** render the right step's CTA and run the "finish" action.
-- **How/Where used:** mounted in `App.tsx` above the nav. Reads `ollamaHealthy`
+- **How/Where used:** mounted in `App.tsx` above the nav. Reads `llama_cppHealthy`
   (`backendStore`) + `list.length` (`installedModelsStore`), passes them to
   `currentStep`. Step CTAs:
-  - **ollama** → embeds the shared `OllamaEmptyState` (start/install buttons).
+  - **llama_cpp** → embeds the shared `llama.cppEmptyState` (start/install buttons).
   - **model** → `pullModel(RECOMMENDED_MODEL)` (`llama3.2:1b`) then jumps to the
     `downloads` view; or "Browse models" → `models` view.
   - **ready** → `openWorkspace()`: `scaffoldOnboardingWorkspace()` (Rust creates

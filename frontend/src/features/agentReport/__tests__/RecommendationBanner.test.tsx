@@ -6,7 +6,7 @@ import type { ModelVerdict } from "../../../shared/ipc/eval/readiness";
 function verdict(model: string, status: ModelVerdict["verdict"]["status"], blocking: string[] = []): ModelVerdict {
   return {
     model,
-    backend: "ollama",
+    backend: "llama_cpp",
     verdict: { status, blocking, conditions: [], path: "prompt_based" },
     avg_steps: null,
     effort: null,

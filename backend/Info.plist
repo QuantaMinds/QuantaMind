@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-  <dict>
-    <!-- Shown when QuantaMind first asks for the mic (Speech-to-Text recording). -->
-    <key>NSMicrophoneUsageDescription</key>
-    <string>QuantaMind records audio locally to transcribe it with on-device speech-to-text. Audio never leaves your machine.</string>
-  </dict>
-</plist>

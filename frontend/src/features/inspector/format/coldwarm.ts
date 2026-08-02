@@ -2,7 +2,7 @@ import type { HistoryEntry } from "../../../shared/ipc/workspace/history";
 
 // A run whose model-load took longer than this was a cold start; at/below it
 // the model was already resident (warm). Only entries that report load_ms are
-// classified (Ollama); llama.cpp/old records (no load_ms) are skipped.
+// classified; records with no load_ms are skipped.
 export const WARM_LOAD_MS = 500;
 
 export interface SideStats {
@@ -45,10 +45,10 @@ export function coldWarmSummary(entries: HistoryEntry[], model: string): ColdWar
 export type ColdWarmState =
   | { kind: "ready"; data: ColdWarm }
   | { kind: "insufficient" } // timing-capable backend, just needs a cold + a warm run
-  | { kind: "unsupported" }; // backend reports no model-load time (MLX, llama.cpp)
+  | { kind: "unsupported" }; // backend reports no model-load time (llama.cpp)
 
 /// Classify what the cold/warm panel can show. Distinguishes "run it again" from
-/// "this backend can't report model-load time", so MLX/llama.cpp don't show a
+/// "this backend can't report model-load time", so llama.cpp doesn't show a
 /// forever-misleading "run cold and again warm" hint.
 export function coldWarmState(entries: HistoryEntry[], model: string): ColdWarmState {
   const data = coldWarmSummary(entries, model);

@@ -214,7 +214,7 @@ pub struct ToolAnnotations {
 
 /// One tool a server exposes. `input_schema` is the JSON-Schema for arguments
 /// (draft-07 in the reference server); kept as an opaque `Value`, mapped to the
-/// Ollama `tools` shape in Phase 5. `description` is UNTRUSTED (tool poisoning).
+/// the server `tools` shape in Phase 5. `description` is UNTRUSTED (tool poisoning).
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Tool {
     pub name: String,

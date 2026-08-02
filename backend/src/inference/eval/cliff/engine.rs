@@ -371,7 +371,7 @@ fn cliff_score(tasks: &[ToolTask], results: &[TaskResult]) -> (Option<f64>, Opti
 /// reports `prompt_n = 1`. Reading that as the depth breaks the probe twice over — the
 /// charted/persisted depth collapses toward zero, AND the learned byte→token rate explodes
 /// (`bytes / 1`), sizing the next rung far past the window, which llama.cpp rejects outright
-/// (killing the whole run). Ollama sends no `cache_n`, so there this is a no-op.
+/// (killing the whole run). A server that sends no `cache_n` makes this a no-op.
 fn occupancy(stats: &GenerateStats) -> Option<u32> {
     stats.prompt_eval_count.map(|p| p.saturating_add(stats.cache_n.unwrap_or(0)))
 }
@@ -539,7 +539,7 @@ async fn sweep<T: ModelTurn, F: Fn(&ToolTask) -> T>(
 
 /// A rung is MEASURED only when the padded prompt plus its reply budget fit inside the
 /// context window the backend actually gave us. Past that bound a backend does not fail
-/// loudly — Ollama truncates the prompt to fit, which silently deletes the injected needle
+/// loudly — a server that truncates the prompt to fit silently deletes the injected needle
 /// and pins `prompt_eval_count` at the window. Both halves of the rung are then artifacts:
 /// the score (the model never saw the task) and the depth (a saturated counter that reads
 /// the same no matter how much padding is sent). Such a rung must never be scored, plotted,
@@ -553,7 +553,7 @@ fn measurable(mean_tokens: u32, ctx_limit: u32, max_output: u32) -> bool {
 /// bytes-per-token `rate`. The ladder targets are already inside the window, but the
 /// verify-and-adjust REBUILD scales by a measured count and can overshoot — and an oversized
 /// prompt is fatal, not approximate: llama.cpp rejects the request ("the prompt is larger
-/// than the context window") and the whole probe dies, while Ollama truncates in silence.
+/// than the context window") and the whole probe dies, while the server truncates in silence.
 /// `NO_CTX_LIMIT` leaves the size untouched. Pure, so the bound is unit-tested directly.
 fn cap_bytes(bytes: usize, rate: f64, ctx_limit: u32, max_output: u32) -> usize {
     if ctx_limit == NO_CTX_LIMIT || rate <= 0.0 {
@@ -642,7 +642,7 @@ async fn probe_rung<T: ModelTurn, F: Fn(&ToolTask) -> T>(
         // Rebuild proportionally: scale the byte seed toward the target — but never past the
         // window. An overshoot here is not a survivable miss: llama.cpp REJECTS an oversized
         // prompt outright ("larger than the context window"), which aborts the whole probe,
-        // and Ollama truncates it silently. Better a rung slightly under target than no run.
+        // and the server truncates it silently. Better a rung slightly under target than no run.
         bytes = cap_bytes(
             ((bytes as f64) * (target as f64) / (mean_tokens as f64)).round() as usize,
             measured_rate.unwrap_or(seed_rate),

@@ -19,7 +19,7 @@ const PREFILL_STEPS = 5;
 /// Native title= tooltip for each metric column header (Model/Quant get none).
 const COLUMN_HELP: Record<string, string | undefined> = {
   "Pass^k": metricTitle("passK"),
-  "Native FC": "Pass^k measured via the model's NATIVE tool_calls API (Ollama /api/chat), not the prompt-based proxy. N/A when not measured / unsupported.",
+  "Native FC": "Pass^k measured via the model's NATIVE tool_calls API, not the prompt-based proxy. N/A when not measured / unsupported.",
   "Avg Steps": metricTitle("avgSteps"),
   Effort: metricTitle("effort"),
   "Tokens/Task": metricTitle("tokensPerTask"),
@@ -237,10 +237,10 @@ export function PerformanceMatrix({
   // the Audit tab. NEVER auto-runs (guardrail 1). Shared by the unprobed "Run probe ↗"
   // button and the "↻" re-probe affordance on already-measured cells.
   const reprobe = (model: string) => {
-    const backend = report?.columns.find((c) => c.model === model)?.backend ?? "ollama";
+    const backend = report?.columns.find((c) => c.model === model)?.backend ?? "llama_cpp";
     // Carry the model's GGUF path (llama.cpp) from the installed list — same source the server
     // launched with — so the probe matches the running server by its exact path (Fix: the
-    // re-probe used to drop it, causing a false "Start llama.cpp with …" error). Absent for Ollama.
+    // re-probe used to drop it, causing a false "Start llama.cpp with …" error). Absent for remote backends.
     const path = models.find((m) => m.name === model)?.path;
     if (collectionId) setCliffRequest({ model, backend, collectionId, maxTokens: PREFILL_MAX_TOKENS, steps: PREFILL_STEPS, path });
     goAudit("audit");
@@ -313,9 +313,9 @@ export function PerformanceMatrix({
             style={{ margin: "0 16px 10px", padding: "8px 12px", fontSize: 12, lineHeight: 1.5, color: "#475569", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, fontFamily: "Inter, sans-serif" }}
           >
             No model here exposes native tool-calling, so the column is all N/A. It's measured only
-            for <strong>Ollama</strong> models whose chat template advertises tool support — many
-            fine-tuned or heavily-quantized models (and all llama.cpp / MLX models) don't, so they stay
-            N/A even with <strong>"Measure native tool-calling (Ollama)"</strong> enabled. If you
+            for models whose chat template advertises tool support — many
+            fine-tuned or heavily-quantized models (and all llama.cpp models) don't, so they stay
+            N/A even with <strong>"Measure native tool-calling"</strong> enabled. If you
             haven't turned that on in the run config yet, do so and re-run.
           </div>
         )}
@@ -402,10 +402,10 @@ export function PerformanceMatrix({
                       style={{ ...td, fontWeight: 700 }}
                       data-testid={p.kind === "native" ? `matrix-native-${r.model}` : `matrix-prompt-${r.model}`}
                       // Explain an N/A native cell rather than leave a silent wall: native FC needs
-                      // an Ollama model whose /api/show lists the `tools` capability.
+                      // a model whose chat template carries a tool grammar.
                       title={
                         p.kind === "native" && p.passK === "N/A"
-                          ? "Native tool-calling is N/A for this model — it's measured only for Ollama models whose /api/show lists the `tools` capability (gemma & many fine-tuned / quantized models don't); llama.cpp / MLX are always N/A."
+                          ? "Native tool-calling is N/A for this model — its chat template carries no tool grammar (gemma & many fine-tuned / quantized models don't)."
                           : undefined
                       }
                     >

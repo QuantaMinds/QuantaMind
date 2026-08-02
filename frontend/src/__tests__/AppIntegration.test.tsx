@@ -46,21 +46,20 @@ beforeEach(() => {
     });
   });
   vi.mocked(invoke).mockImplementation((cmd: string) => {
-    if (cmd === "list_models")
-      return Promise.resolve(["llama3.2:1b", "mistral:7b"]);
-    if (cmd === "get_installed_models_with_stats")
+    if (cmd === "list_llama_models")
       return Promise.resolve([
-        { name: "llama3.2:1b", size_bytes: 1_000_000_000, modified_at: "", family: "llama", parameter_size: "1B", quantization: "Q4_K_M", backend: "ollama" },
-        { name: "mistral:7b", size_bytes: 4_000_000_000, modified_at: "", family: "llama", parameter_size: "7B", quantization: "Q4_K_M", backend: "ollama" },
+        { name: "llama3.2:1b", size_bytes: 1_000_000_000, modified_at: "", family: "llama", parameter_size: "1B", quantization: "Q4_K_M", backend: "llama_cpp", path: "/g/llama3.2-1b.gguf" },
+        { name: "mistral:7b", size_bytes: 4_000_000_000, modified_at: "", family: "llama", parameter_size: "7B", quantization: "Q4_K_M", backend: "llama_cpp", path: "/g/mistral-7b.gguf" },
       ]);
-    if (cmd === "check_ollama_health")
-      return Promise.resolve({ available: true, version: "0.1.32" });
+    if (cmd === "list_vllm_models" || cmd === "list_vllm_models") return Promise.resolve([]);
+    if (cmd === "check_llama_health")
+      return Promise.resolve({ available: true, version: null });
     if (cmd === "run_prompt") return Promise.resolve();
     if (cmd === "stop_prompt") return Promise.resolve();
     if (cmd === "save_prompt") return Promise.resolve(useWorkspacesStore.getState().current);
     return Promise.reject(new Error(`unknown ${cmd}`));
   });
-  useBackendStore.setState({ selectedBackend: "ollama" });
+  useBackendStore.setState({ selectedBackend: "llama_cpp", llamaHealthy: true });
   useSelectedModelStore.setState({ selectedModels: [] });
   useCompareStore.getState().reset();
   useNavStore.setState({ topView: "workspace", history: [] });
@@ -110,7 +109,7 @@ describe("Phase 1 E2E smoke — edit → run → re-run", () => {
       expect(invoke).toHaveBeenCalledWith("run_prompt", {
         model: "llama3.2:1b",
         prompt: "Why is the sky blue?",
-        backend: "ollama",
+        backend: "llama_cpp",
       }),
     );
     expect(useNavStore.getState().topView).toBe("compare");
@@ -138,7 +137,7 @@ describe("Phase 1 E2E smoke — edit → run → re-run", () => {
     expect(invoke).toHaveBeenCalledWith("run_prompt", {
       model: "llama3.2:1b",
       prompt: "Why is the sky blue?",
-      backend: "ollama",
+      backend: "llama_cpp",
     });
   });
 

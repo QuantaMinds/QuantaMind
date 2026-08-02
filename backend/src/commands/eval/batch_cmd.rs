@@ -15,9 +15,12 @@ use crate::inference::eval::toolcall::prompt::TerminalGuidance;
 use crate::inference::eval::agentic::step::TrajectoryStep;
 use crate::inference::eval::agentic::v2::collection::load_v2_collection;
 use crate::inference::eval::agentic::v2::scenarios::{collection_hash, v2_json};
+use crate::inference::eval::agentic::scoring::report::AgenticReport;
+use crate::inference::eval::costs::{summarize, RunCostSummary, TaskCostInput};
+use crate::commands::settings::user_settings::UserSettingsState;
 use crate::inference::eval::batch::{
     batch_summaries, fold_report, run_batch_resumable, run_native_fc_pass, AggAgentic, BatchColumn, BatchReport,
-    BatchSink, CompletedUnit, OllamaVramGate, TaskOutcome,
+    BatchSink, CompletedUnit, NoVramGate, TaskOutcome,
 };
 use crate::inference::eval::toolcall::matrix::ModelTarget;
 use crate::inference::eval::toolcall::tasks::{validate_tasks, ToolTask};
@@ -26,8 +29,6 @@ use crate::commands::system::process_memory;
 use crate::inference::eval::readiness::hardware::hwclass::agentic_ctx_ceiling;
 use crate::inference::llama::llama::probe_llama_n_ctx;
 use crate::commands::llama::llama_server_types::LlamaServerState;
-use crate::inference::eval::run_facts;
-use crate::inference::ollama::ollama_show::probe_ollama_version;
 use crate::persistence::eval_history;
 use crate::persistence::jobs::queue::{self, RunConfig};
 use crate::persistence::jobs::transcripts;
@@ -53,8 +54,8 @@ fn history_dir(app: &AppHandle) -> Result<PathBuf, AppError> {
     Ok(dir.join("history"))
 }
 
-/// Per-(model, task) agentic transcript dir. NOT `transcripts/` — that name is
-/// the STT feature's store.
+/// Per-(model, task) agentic transcript dir, namespaced so agentic traces never
+/// co-mingle with any other transcript store.
 fn transcripts_dir(app: &AppHandle) -> Result<PathBuf, AppError> {
     let dir = app.path().app_config_dir().map_err(|e| AppError::Io(e.to_string()))?;
     Ok(dir.join("agentic_transcripts"))
@@ -165,8 +166,9 @@ impl BatchSink for TauriBatchSink {
 fn skeleton_report(collection_id: &str, targets: &[ModelTarget]) -> BatchReport {
     BatchReport {
         collection_id: collection_id.to_string(),
+        unreadable_columns: 0,
+        costs: None,
         num_ctx: None,
-        ollama_version: None,
         collection_hash: None, // set on the FINAL report only (content-verified); intermediates stay unpublishable
         think_preset: None,    // stamped on the final report
         params: None,          // stamped on the final report
@@ -251,7 +253,7 @@ fn apply_overrides(
 }
 
 /// Floor (seconds) the eval batch pins the model resident for. An agentic task fires
-/// ~k × max_steps sequential generate calls; with `keep_alive` unset Ollama's default
+/// ~k × max_steps sequential generate calls; with `keep_alive` unset the server's default
 /// 5-min idle unload can fire across an inter-task/inter-turn gap, evicting the model
 /// AND its prefix-KV cache mid-run (a cold reload then charges as a stall). This floor
 /// keeps `warm_up()` (which honors the same field) pinned across the whole batch.
@@ -370,7 +372,7 @@ pub(crate) async fn run_passes(
     // skeleton; the prompt pass runs next and we merge the native aggregates into its report.
     let native_aggs: HashMap<String, AggAgentic> = if config.native {
         // Native FC follows the running server: probe each target on ITS backend
-        // (Ollama via /api/show tools; llama.cpp with --jinja is tool-capable; MLX
+        // (llama.cpp with --jinja is tool-capable
         // has no native tool API). A batch is single-backend (UI), so this just
         // selects whichever server the user is on.
         let mut supported = HashSet::new();
@@ -379,8 +381,8 @@ pub(crate) async fn run_passes(
                 supported.insert(t.model.clone());
             }
         }
-        // Guard: native tool-calling is selected but NO target can run it — Ollama's /api/show
-        // lists no `tools` capability (a custom-imported quant), MLX has no native tool API, or
+        // Guard: native tool-calling is selected but NO target can run it — a model-registry API
+        // lists no `tools` capability (a custom-imported quant), a template without a tool grammar yields no calls, or
         // the probe timed out. If native is the ONLY method, the run would otherwise skip every
         // model silently and return an all-null report (n=0). Refuse with an actionable message
         // (mirrors the Context-Stress-Test guard) instead of a silent no-result run. This Err
@@ -431,7 +433,7 @@ pub(crate) async fn run_passes(
             },
             prior,
             &record,
-            &OllamaVramGate,
+            &NoVramGate,
             sink.clone(),
             concurrency,
         )
@@ -447,20 +449,15 @@ pub(crate) async fn run_passes(
         HashMap::new()
     };
 
-    // Where Ollama placed each model's weights: a model spilled onto the CPU (didn't fit in VRAM)
-    // runs several times slower, so the runner must grant it a larger per-step timeout (else a
-    // progressing turn is killed as a false `TurnTimeout`). Probed once per target up front (the
-    // per-turn closure is sync). llama.cpp/MLX report nothing here → not offloaded. The UI reads
-    // the same placement via `ollama_model_placement` to show the "running on CPU" notice.
-    let placements = run_facts::probe_placements(&config.targets, endpoint_for).await;
-    // The per-turn closure needs only the bool (larger step timeout for a spilled model);
-    // the full placement (weights/offload bytes + claimed quant) is stamped on the report.
-    let cpu_offload: HashMap<String, bool> = placements.iter().map(|(m, p)| (m.clone(), p.on_cpu)).collect();
+    // Weight-placement probing was a model-registry API feature; llama-server reports no
+    // VRAM-vs-CPU split, so no model is known to be offloaded and the report's placement
+    // fields stay unstamped ("Not available") rather than carrying a guess.
+    let cpu_offload: HashMap<String, bool> = HashMap::new();
 
     // The hardware-adaptive `num_ctx` ceiling for THIS machine (bigger box → bigger window that
     // can hold a reasoning model's fixed per-turn budget + transcript). This is the ONLY knob
     // hardware moves; the budget itself (`max_tokens_for`) is a machine-independent constant so the
-    // tier stays reproducible. Per target: Ollama honors per-request `num_ctx` so it gets the full
+    // tier stays reproducible. Per target: a server may honor per-request `num_ctx` so it gets the full
     // class band; llama.cpp FIXES its window at launch and ignores per-request `num_ctx`, so the
     // eval must clamp to the ACTUAL launched `-c` (which `plan_launch` may have RAM-clamped below
     // the band) — never promise budget the runtime can't hold. `/props` unreachable → band fallback.
@@ -518,7 +515,7 @@ pub(crate) async fn run_passes(
             },
             prior,
             &record,
-            &OllamaVramGate,
+            &NoVramGate,
             concurrency,
         )
         .await?
@@ -526,9 +523,6 @@ pub(crate) async fn run_passes(
         skeleton_report(&config.collection_id, &config.targets)
     };
     // Merge the native aggregates (collected before the prompt pass) into its columns.
-    // Placement facts stamp via the SHARED helper (`run_facts`) — the same one the qm CLI
-    // uses, so the app's Latency view and `qm --costs` can never drift.
-    run_facts::stamp_placements(&mut report.columns, &placements);
     for col in &mut report.columns {
         if let Some(a) = native_aggs.get(&col.model) {
             col.agentic_native_fc = Some(a.clone());
@@ -559,9 +553,12 @@ pub(crate) async fn run_passes(
     // Fork-on-edit guard: stamp the content-verified hash from the RECEIVED tasks (pre-override).
     // `Some` only for a pristine bundled collection; `None` for custom OR any edit → unpublishable.
     report.collection_hash = verified_collection_hash(&config.collection_id, &config.tasks);
-    // Stamp the running Ollama version so a native tool-calling regression on a version bump is
-    // diagnosable (the honest garbled/foreign verdict reads as "at Ollama vX"). Best-effort.
-    report.ollama_version = probe_ollama_version(&endpoint_for(BackendKind::Ollama)).await;
+    // Wall-clock→dollars, from the SAME shared implementation `qm --costs` uses, so the
+    // app's Test-run view and the CLI can never drift. The completed units are read back
+    // from the durable job log (the resume path's own source), which holds every task's
+    // per-attempt timing. No declared price ⇒ `None` throughout and the UI reads
+    // "n/a (no price basis)" — never a $0.00 bill.
+    report.costs = stamp_costs(app, &job_path);
     log_emit(app, EVENT_BATCH_COMPLETE, BatchCompletePayload { report: report.clone(), r#final: true });
 
     if let Ok(dir) = history_dir(app) {
@@ -606,14 +603,13 @@ pub struct UnfinishedRun {
 pub(crate) use crate::inference::eval::batch::probe_native_tools;
 
 /// Upper bound on a run's units — prompt (targets × tasks) plus, when native is
-/// on, the agentic tasks on each native-capable target. MLX has no native tool API
-/// so it's excluded; an Ollama model without the `tools` capability is also a
-/// no-native case, so this stays an upper bound (the actual native pass runs only
-/// for probe-confirmed `supported` models).
+/// on, the agentic tasks on each native-capable target. a template without a tool grammar yields no calls
+/// This stays an upper bound: the actual native pass runs only for models whose
+/// template really carries a tool grammar.
 fn total_units(c: &RunConfig) -> usize {
     let prompt = c.targets.len() * c.tasks.len();
     let native = if c.native {
-        let native_capable = c.targets.iter().filter(|t| t.backend != BackendKind::Mlx).count();
+        let native_capable = c.targets.len();
         // The native pass runs every AGENTIC task — both "agentic" and "agent_loop" (see
         // `is_agentic`); counting only "agentic" under-sized the progress bar for agent_loop sets.
         let agentic = c.tasks.iter().filter(|t| crate::inference::eval::toolcall::tasks::is_agentic(&t.category)).count();
@@ -868,4 +864,26 @@ mod fork_on_edit_tests {
         }
         assert_eq!(verified_collection_hash("easy-webui-tasks", &b), None);
     }
+}
+
+/// Price this run's completed units, or `None` when the job log can't be read.
+/// Best-effort: a costing failure must never fail a finished run — the figures are
+/// a reporting layer over measurements that already happened.
+fn stamp_costs(app: &AppHandle, job_path: &std::path::Path) -> Option<RunCostSummary> {
+    let cfg = app.state::<UserSettingsState>().cost_config(app).ok()?;
+    let (_, units) = queue::load(job_path).ok()??;
+    let reports: Vec<&AgenticReport> = units
+        .iter()
+        .filter_map(|u| match &u.outcome {
+            TaskOutcome::Agentic { report } => Some(report),
+            _ => None,
+        })
+        .collect();
+    let inputs: Vec<TaskCostInput<'_>> = reports
+        .iter()
+        // The engine's own strict-Pass^k definition — the cost denominator must not
+        // invent a second, looser one.
+        .map(|report| TaskCostInput { report, meets_pass_k: report.is_strict_pass() })
+        .collect();
+    Some(summarize(&inputs, &cfg))
 }

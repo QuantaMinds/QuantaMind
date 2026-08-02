@@ -14,11 +14,11 @@ const STATUS_COLOR: Record<Readiness, string> = { ready: "#16a34a", conditional:
 const gb = (bytes: number) => (bytes / 1024 ** 3).toFixed(1);
 
 /// The memory footprint line for the export — numbers + static text only, so it
-/// needs no escaping; N/A for single-model backends, silent when unmeasured.
+/// needs no escaping; N/A for remote backends, silent when unmeasured.
 function memoryHtml(m: ModelVerdict): string {
   const mem = m.memory;
   if (!mem) {
-    return m.backend !== "ollama" ? `<div class=mem>VRAM fit: N/A (single-model backend)</div>` : "";
+    return m.backend !== "llama_cpp" ? `<div class=mem>VRAM fit: N/A (remote backend)</div>` : "";
   }
   const note = !mem.fits ? "won't fit" : mem.pressure ? "high VRAM pressure" : "fits";
   const est = mem.estimated ? " (conservative estimate)" : "";

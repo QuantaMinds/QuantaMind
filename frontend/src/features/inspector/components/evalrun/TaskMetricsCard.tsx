@@ -38,7 +38,7 @@ function outcomeBadge(outcome: TaskOutcome | undefined) {
 
 /// One task's cost breakdown on the Latency page's Test-run view: the prefill/decode
 /// split per step, token/cache totals, and the honesty-labeled gaps ("Not available"
-/// where the backend reports nothing — Ollama cache reuse, remote RSS).
+/// where the backend reports nothing — cache reuse on some backends, remote RSS).
 export function TaskMetricsCard({
   taskId,
   steps,
@@ -92,7 +92,7 @@ export function TaskMetricsCard({
           hint={
             cost.thinkingSplitMeasured
               ? "Measured split: the reasoning channel's text tokenized with the model's own tokenizer (llama.cpp /tokenize) — channel-marker tokens (~3/turn) not included."
-              : "The backend reports ONE combined generated count for a thinking model — no thinking/answer split exists (Ollama has no tokenize/split API; verified live: streamed chunks ≠ tokens). The small answer tail is included."
+              : "The backend reports ONE combined generated count for a thinking model — no thinking/answer split exists (this backend exposes no tokenize/split API; verified live: streamed chunks ≠ tokens). The small answer tail is included."
           }
         />
         <Cell
@@ -101,13 +101,13 @@ export function TaskMetricsCard({
           hint={
             cost.cacheHitTokensTotal != null
               ? "Prompt tokens served from the server's prefix cache (llama.cpp timings.cache_n — measured)"
-              : "Ollama/MLX report no cache-reuse count (ollama#8008) — not measurable, not zero"
+              : "This backend reports no cache-reuse count — not measurable, not zero"
           }
         />
         <Cell
           label="Peak context"
           value={cost.peakContextTokens != null ? `${cost.peakContextTokens} tok${cost.contextWindow != null ? ` / ${cost.contextWindow}` : ""}` : null}
-          hint={cost.kvTokensMeasured ? "Computed from measured tokens (llama.cpp)" : "From backend token counts — treat as estimate (Ollama saturates counts at the window)"}
+          hint={cost.kvTokensMeasured ? "Computed from measured tokens (llama.cpp)" : "From backend token counts — treat as estimate (some backends saturate counts at the window)"}
         />
       </div>
 

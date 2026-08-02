@@ -36,6 +36,7 @@ export function AgentReportPage() {
     verdicts,
     rightSizing,
     rightSizingHint,
+    unreadableColumns,
     hardware,
     hardwareTier,
     focusedModel,
@@ -452,6 +453,24 @@ export function AgentReportPage() {
               showNativeFc={showNativeFc}
               unified={!!hardware?.gpu?.unified}
             />
+            {unreadableColumns > 0 && (
+              // Loud about what ISN'T in the table: a silently-short verdict list
+              // would read as the complete run.
+              <p
+                data-testid="readiness-unreadable-columns"
+                style={{
+                  fontSize: 11, color: "#92400e", fontFamily: "Inter, sans-serif",
+                  background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 6,
+                  padding: "8px 10px", margin: 0,
+                }}
+              >
+                {unreadableColumns} model{unreadableColumns === 1 ? "" : "s"} from the saved run{" "}
+                {unreadableColumns === 1 ? "is" : "are"} not shown —{" "}
+                {unreadableColumns === 1 ? "it was" : "they were"} recorded on a backend this version
+                no longer supports. Re-run the collection to include{" "}
+                {unreadableColumns === 1 ? "it" : "them"}.
+              </p>
+            )}
             <RightSizingSection groups={rightSizing} hint={rightSizingHint} />
           </div>
         )}

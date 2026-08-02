@@ -179,7 +179,7 @@ describe("batchStore (rAF-buffered)", () => {
     const report: BatchReport = {
       collection_id: "c",
       columns: [
-        { model: "m1", backend: "ollama", toolcall: null, agentic: { tasks_passed: 0, tasks_total: 5, passes: 0, total_runs: 5, avg_steps: null, avg_output_tokens_success: null, schema_resilience: null, top_error: "infinite_loop", failures: { infinite_loop_hits: 5, hallucinated_completions: 0, malformed_json_calls: 0, schema_unrecovered_calls: 0 } }, error: null },
+        { model: "m1", backend: "llama_cpp", toolcall: null, agentic: { tasks_passed: 0, tasks_total: 5, passes: 0, total_runs: 5, avg_steps: null, avg_output_tokens_success: null, schema_resilience: null, top_error: "infinite_loop", failures: { infinite_loop_hits: 5, hallucinated_completions: 0, malformed_json_calls: 0, schema_unrecovered_calls: 0 } }, error: null },
       ],
     };
     get().complete(report);
@@ -211,7 +211,7 @@ describe("batchStore (rAF-buffered)", () => {
   it("drops a batch-complete from an abandoned run (cancelled on switch)", () => {
     get().startRun();
     get().reset(); // abandoned before the report arrived
-    const report: BatchReport = { collection_id: "a", columns: [{ model: "m1", backend: "ollama", toolcall: null, agentic: null, error: null }] };
+    const report: BatchReport = { collection_id: "a", columns: [{ model: "m1", backend: "llama_cpp", toolcall: null, agentic: null, error: null }] };
     get().complete(report);
     expect(get().report).toBeNull(); // the stale report never lands
   });
@@ -220,7 +220,7 @@ describe("batchStore (rAF-buffered)", () => {
   // running=false) — the gate must stay open across that, unlike a guard on `running`.
   it("keeps applying live-tail events after a partial complete (resume flow)", () => {
     get().startRun();
-    const partial: BatchReport = { collection_id: "a", columns: [{ model: "m1", backend: "ollama", toolcall: null, agentic: null, error: null }] };
+    const partial: BatchReport = { collection_id: "a", columns: [{ model: "m1", backend: "llama_cpp", toolcall: null, agentic: null, error: null }] };
     get().complete(partial); // partial paint → running=false, but the run continues
     expect(get().running).toBe(false);
     const done: BatchProgress = { phase: "done", model: "m1", task_id: "a1", outcome: { kind: "single", passed: true, trace: { system_message: "", user_prompt: "", raw_output: "", verdict: { parsed: true, tool_match: true, args_match: true, abstain_correct: null } } } };

@@ -35,7 +35,7 @@ describe("CacheBadge (per-turn prefix-cache state)", () => {
     expect(screen.queryByTestId("cache-badge-bust")).toBeNull();
   });
 
-  it("Ollama/MLX (cache_n null) → NO badge at all (absence-of-feature, not a false zero)", () => {
+  it("a remote backend (cache_n null) → NO badge at all (absence-of-feature, not a false zero)", () => {
     const { container } = render(<CacheBadge s={step({ step_index: 1, cache_n: null, prefill_tokens: null })} />);
     expect(container).toBeEmptyDOMElement();
   });

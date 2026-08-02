@@ -2,13 +2,13 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { findActiveDownload, useModelStore } from "../modelStore";
 
 beforeEach(() => {
-  useModelStore.setState({ activeTab: "ollama", downloads: {} });
+  useModelStore.setState({ activeTab: "huggingface", downloads: {} });
 });
 
 describe("modelStore (M.3)", () => {
-  it("starts with activeTab=ollama and an empty downloads map", () => {
+  it("starts with activeTab=huggingface and an empty downloads map", () => {
     const s = useModelStore.getState();
-    expect(s.activeTab).toBe("ollama");
+    expect(s.activeTab).toBe("huggingface");
     expect(s.downloads).toEqual({});
   });
 
@@ -18,15 +18,15 @@ describe("modelStore (M.3)", () => {
     expect(useModelStore.getState().activeTab).toBe("huggingface");
     setActiveTab("local");
     expect(useModelStore.getState().activeTab).toBe("local");
-    setActiveTab("ollama");
-    expect(useModelStore.getState().activeTab).toBe("ollama");
+    setActiveTab("huggingface");
+    expect(useModelStore.getState().activeTab).toBe("huggingface");
   });
 
   it("findActiveDownload returns the first downloading/installing entry", () => {
     const { upsertDownload } = useModelStore.getState();
-    upsertDownload({ id: "a", source: "ollama", name: "a", status: "success", percent: 100 });
+    upsertDownload({ id: "a", source: "huggingface", name: "a", status: "success", percent: 100 });
     expect(findActiveDownload(useModelStore.getState().downloads)).toBeUndefined();
-    upsertDownload({ id: "b", source: "ollama", name: "b", status: "downloading", percent: 30 });
+    upsertDownload({ id: "b", source: "huggingface", name: "b", status: "downloading", percent: 30 });
     const active = findActiveDownload(useModelStore.getState().downloads);
     expect(active?.name).toBe("b");
     expect(active?.percent).toBe(30);
@@ -45,9 +45,9 @@ describe("modelStore (M.3)", () => {
   it("hfSelectedRepo round-trips with its tags; clearing drops the tags too", () => {
     expect(useModelStore.getState().hfSelectedRepo).toBeNull();
     expect(useModelStore.getState().hfSelectedTags).toEqual([]);
-    useModelStore.getState().setHfSelectedRepo("mlx-community/X-4bit", ["mlx", "safetensors"]);
-    expect(useModelStore.getState().hfSelectedRepo).toBe("mlx-community/X-4bit");
-    expect(useModelStore.getState().hfSelectedTags).toEqual(["mlx", "safetensors"]);
+    useModelStore.getState().setHfSelectedRepo("org/X-4bit", ["gguf", "safetensors"]);
+    expect(useModelStore.getState().hfSelectedRepo).toBe("org/X-4bit");
+    expect(useModelStore.getState().hfSelectedTags).toEqual(["gguf", "safetensors"]);
     useModelStore.getState().setHfSelectedRepo(null);
     expect(useModelStore.getState().hfSelectedRepo).toBeNull();
     expect(useModelStore.getState().hfSelectedTags).toEqual([]);
@@ -56,8 +56,8 @@ describe("modelStore (M.3)", () => {
   it("hfRepoKind defaults to gguf; switching kind clears the open repo detail", () => {
     useModelStore.setState({ hfRepoKind: "gguf", hfSelectedRepo: "bartowski/Test-GGUF" });
     expect(useModelStore.getState().hfRepoKind).toBe("gguf");
-    useModelStore.getState().setHfRepoKind("mlx");
-    expect(useModelStore.getState().hfRepoKind).toBe("mlx");
+    useModelStore.getState().setHfRepoKind("gguf");
+    expect(useModelStore.getState().hfRepoKind).toBe("gguf");
     expect(useModelStore.getState().hfSelectedRepo).toBeNull();
   });
 });

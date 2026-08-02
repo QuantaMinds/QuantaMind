@@ -15,7 +15,7 @@ export interface VramUsage {
 /// `unified` (Apple Silicon): the CPU and GPU share ONE memory pool, so a loaded model is
 /// fully resident "in unified memory" and NOTHING is offloaded — the VRAM/RAM split (and the
 /// `size_vram` field, however each backend reports it) is meaningless here. So on unified the
-/// whole footprint counts as resident and `offload` is 0, for every backend (Ollama + llama.cpp).
+/// whole footprint counts as resident and `offload` is 0, for every backend.
 export function vramUsage(
   sizeBytes: number,
   sizeVramBytes: number,

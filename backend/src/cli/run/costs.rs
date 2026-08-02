@@ -6,6 +6,8 @@
 
 use crate::inference::eval::agentic::step::TrajectoryStep;
 use crate::inference::eval::batch::{BatchColumn, TaskOutcome};
+use crate::inference::eval::agentic::scoring::report::AgenticReport;
+use crate::inference::eval::costs::{summarize, CostConfig, RunCostSummary, TaskCostInput};
 use crate::inference::vram_math::{kv_cache_bytes_at, KvPrecision};
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -26,7 +28,7 @@ pub struct TaskCostRow {
     /// True only when the thinking count is a MEASURED channel split (llama.cpp
     /// /tokenize); false ⇒ the backend's combined count → render "(no split)".
     pub thinking_split_measured: bool,
-    /// Measured prefix-cache reuse (llama.cpp `cache_n` only; Ollama reports none).
+    /// Measured prefix-cache reuse (llama.cpp `cache_n` only; some servers report none).
     pub cache_hit_tokens_total: Option<u64>,
     /// Max single-run token occupancy — sizes the KV figure. Sums above can exceed it:
     /// they accumulate across runs; this is one moment.
@@ -60,13 +62,13 @@ pub struct KvAtPeak {
 /// verbatim — the same ladder the app's Latency view shows.
 #[derive(Serialize, Clone, Debug, PartialEq)]
 pub struct MemoryFacts {
-    /// Ollama: resident size from /api/ps (weights + context reservation). llama.cpp:
+    /// the server: resident size from /api/ps (weights + context reservation). llama.cpp:
     /// the GGUF size at launch when the app stamped it. `None` = not measurable.
     pub model_bytes: Option<u64>,
     pub model_bytes_provenance: &'static str,
     pub offload_bytes: Option<u64>,
     pub quantization_claimed: Option<String>,
-    /// "f16" | "q8_0" from an app-launched llama-server; `None` = unreported (Ollama,
+    /// "f16" | "q8_0" from an app-launched llama-server; `None` = unreported (the server,
     /// or an externally managed server — never guessed).
     pub kv_cache_type: Option<String>,
     pub kv_at_peak: Option<KvAtPeak>,
@@ -78,6 +80,12 @@ pub struct RunCosts {
     pub model: String,
     pub tasks: Vec<TaskCostRow>,
     pub memory: MemoryFacts,
+    /// Wall-clock-seconds → dollars, when a price basis was declared. Absent
+    /// entirely when `--costs` ran without one, so a reader never sees a $0 bill
+    /// standing in for "we don't know". `basis` names WHAT was priced so this
+    /// can't be mistaken for the token figures above it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usd: Option<RunCostSummary>,
 }
 
 fn sum_reported(steps: &[TrajectoryStep], pick: impl Fn(&TrajectoryStep) -> Option<u64>) -> Option<u64> {
@@ -195,6 +203,31 @@ pub fn assemble(
         model: model.to_string(),
         memory: memory_facts(column, kv_at_peak(dims, peak)),
         tasks,
+        // Priced separately by `with_usd` — `assemble` has no view of the config.
+        usd: None,
+    }
+}
+
+impl RunCosts {
+    /// Attach the dollar summary, priced from the captured per-task reports.
+    /// Kept off `assemble` so the token/memory facts stay independent of whether a
+    /// price was declared.
+    pub fn with_usd(mut self, outcomes: &BTreeMap<(String, bool), TaskOutcome>, cfg: &CostConfig) -> Self {
+        let reports: Vec<&AgenticReport> = outcomes
+            .values()
+            .filter_map(|o| match o {
+                TaskOutcome::Agentic { report } => Some(report),
+                _ => None,
+            })
+            .collect();
+        let inputs: Vec<TaskCostInput<'_>> = reports
+            .iter()
+            // Strict Pass^k is the eval engine's existing definition (`is_strict_pass`)
+            // — the cost denominator must not invent a second, looser one.
+            .map(|report| TaskCostInput { report, meets_pass_k: report.is_strict_pass() })
+            .collect();
+        self.usd = Some(summarize(&inputs, cfg));
+        self
     }
 }
 

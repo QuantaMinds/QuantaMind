@@ -17,8 +17,9 @@ pub const POLL_INTERVAL_MS: u64 = 500;
 pub const PROBE_TIMEOUT_MS: u64 = 1000;
 
 /// Health probe for the llama.cpp sidecar, in the shared `HealthStatus` shape the
-/// Ollama/MLX probes return so the frontend can poll all three uniformly. No
-/// version string (llama-server's `/health` reports none) → `version: None`.
+/// remote probes return so the frontend can poll them uniformly. No version
+/// string (llama-server's `/health` reports none) → `version: None`.
+#[cfg(feature = "gui")]
 #[tauri::command]
 pub async fn check_llama_health() -> crate::commands::system::health::HealthStatus {
     crate::commands::system::health::HealthStatus {
@@ -423,7 +424,7 @@ pub fn bin_name() -> &'static str {
 /// returning the child so the caller owns its lifecycle. `current_dir` +
 /// per-OS lib-path env vars (from `Host::envs_for_lib_dir`) ensure the
 /// `@rpath` / `@loader_path` dylibs resolve regardless of cwd. Killing by
-/// `Child` handle is portable across macOS / Windows / Linux, unlike Ollama's
+/// `Child` handle is portable across macOS / Windows / Linux, unlike the server's
 /// macOS-only `pkill`.
 ///
 /// stderr is `piped` (not discarded) so the caller can drain it for the death

@@ -1,16 +1,12 @@
 use crate::commands::llama::llama_server_types::LlamaServerState;
-use crate::commands::mlx::mlx_server_types::MlxServerState;
-use crate::commands::ollama::ollama_start::OllamaStartState;
-use crate::commands::stt::stt_server_types::SttServerState;
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, Signal, System};
 use tauri::{AppHandle, Manager, RunEvent};
 
 /// Our private app dir — a server process whose command line references it is one
 /// of ours, never a stranger's (a user would never point a hand-run server here).
 const OUR_MARKER: &str = ".quantamind";
-/// The server binaries we spawn (whisper.cpp + llama-server sidecars + the MLX
-/// LLM server).
-const SERVER_BINS: &[&str] = &["whisper-server", "llama-server", "mlx_lm.server"];
+/// The server binary we spawn (the llama-server sidecar).
+const SERVER_BINS: &[&str] = &["llama-server"];
 
 /// True for an **orphaned QuantaMind sidecar**: its command line names one of our
 /// servers AND references our private dir. Conservative on purpose — we never kill
@@ -19,20 +15,10 @@ fn is_our_server_cmd(cmd: &str) -> bool {
     cmd.contains(OUR_MARKER) && SERVER_BINS.iter().any(|b| cmd.contains(b))
 }
 
-/// Reap the four app-managed servers (our tracked children). Idempotent.
+/// Reap the app-managed server (our tracked child). Idempotent.
 pub(crate) fn reap_managed(app: &AppHandle) {
-    if let Err(e) = app.state::<MlxServerState>().kill_all_servers() {
-        eprintln!("mlx reap failed: {e}");
-    }
     if let Err(e) = app.state::<LlamaServerState>().stop() {
         eprintln!("llama reap failed: {e}");
-    }
-    if let Err(e) = app.state::<SttServerState>().stop() {
-        eprintln!("whisper reap failed: {e}");
-    }
-    // The Ollama WE spawned (never a pre-existing user daemon).
-    if let Err(e) = app.state::<OllamaStartState>().stop_owned() {
-        eprintln!("ollama reap failed: {e}");
     }
     // Live MCP server connections. NOTE: MCP servers are npx/node without our
     // `.quantamind` marker, so `sweep_orphans` can't match them — killing our
@@ -154,16 +140,13 @@ mod tests {
     #[test]
     fn recognizes_our_orphaned_servers_only() {
         // The real orphan this fix targets.
-        assert!(is_our_server_cmd(
-            "/opt/homebrew/bin/whisper-server -m /Users/x/.quantamind/stt/ggml-medium.en-q5_0.bin --host 127.0.0.1 --port 8093 --vad"
-        ));
         assert!(is_our_server_cmd("llama-server -m /Users/x/.quantamind/gguf/phi.gguf --port 8081"));
-        // A user's own whisper-server, NOT pointed at our private dir → never touched.
-        assert!(!is_our_server_cmd("/opt/homebrew/bin/whisper-server -m /Users/x/models/base.bin --port 9000"));
+        // A user's own llama-server, NOT pointed at our private dir → never touched.
+        assert!(!is_our_server_cmd("/opt/homebrew/bin/llama-server -m /Users/x/models/phi.gguf --port 9000"));
         // Our dir but not one of our servers (e.g. a file browser) → not a server.
         assert!(!is_our_server_cmd("/usr/bin/grep -r foo /Users/x/.quantamind"));
         // Unrelated processes.
         assert!(!is_our_server_cmd("/usr/bin/python3 train.py"));
-        assert!(!is_our_server_cmd("ollama serve"));
+        assert!(!is_our_server_cmd("/usr/bin/node server.js"));
     }
 }

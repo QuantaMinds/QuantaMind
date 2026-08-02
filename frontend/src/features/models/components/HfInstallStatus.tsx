@@ -22,13 +22,6 @@ export function HfInstallStatus({ state, onCancel, onReset }: Props) {
       </div>
     );
   }
-  if (state.status === "installing") {
-    return (
-      <div data-testid="hf-installing" className="text-xs">
-        Installing into Ollama…
-      </div>
-    );
-  }
   if (state.status === "success") {
     return (
       <div

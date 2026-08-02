@@ -33,11 +33,11 @@ describe("usePolledBackendHealth", () => {
   it("polls the SELECTED backend at 5s but a background backend only at 30s", async () => {
     vi.useFakeTimers();
     try {
-      // selectedBackend is llama_cpp → llama polls FAST, mlx (background) polls SLOW.
+      // selectedBackend is llama_cpp → llama polls FAST, the others poll SLOW.
       const fast = vi.fn().mockResolvedValue({ available: true });
       const slow = vi.fn().mockResolvedValue({ available: true });
       renderHook(() => usePolledBackendHealth("llama_cpp", fast, vi.fn(), { enabled: true }));
-      renderHook(() => usePolledBackendHealth("mlx", slow, vi.fn(), { enabled: true }));
+      renderHook(() => usePolledBackendHealth("vllm", slow, vi.fn(), { enabled: true }));
       await vi.advanceTimersByTimeAsync(0); // initial tick for both
       const fast0 = fast.mock.calls.length;
       const slow0 = slow.mock.calls.length;

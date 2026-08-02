@@ -11,9 +11,9 @@ const base = {
 };
 
 describe("InstalledModelInfoSchema backend field", () => {
-  it("accepts an ollama-backed model", () => {
-    const parsed = InstalledModelInfoSchema.parse({ ...base, backend: "ollama" });
-    expect(parsed.backend).toBe("ollama");
+  it("accepts a locally-backed model", () => {
+    const parsed = InstalledModelInfoSchema.parse({ ...base, backend: "llama_cpp" });
+    expect(parsed.backend).toBe("llama_cpp");
   });
 
   it("accepts a llama_cpp-backed model", () => {
@@ -21,9 +21,9 @@ describe("InstalledModelInfoSchema backend field", () => {
     expect(parsed.backend).toBe("llama_cpp");
   });
 
-  it("accepts the remote vllm and sglang backends", () => {
+  it("accepts the remote vllm and vllm backends", () => {
     expect(InstalledModelInfoSchema.parse({ ...base, backend: "vllm" }).backend).toBe("vllm");
-    expect(InstalledModelInfoSchema.parse({ ...base, backend: "sglang" }).backend).toBe("sglang");
+    expect(InstalledModelInfoSchema.parse({ ...base, backend: "vllm" }).backend).toBe("vllm");
   });
 
   it("rejects an unknown backend", () => {

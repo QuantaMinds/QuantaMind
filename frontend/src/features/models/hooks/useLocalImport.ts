@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { listModels } from "../../../shared/ipc/core/client";
+import { listLlamaModels } from "../../../shared/ipc/models/llama_start";
 import {
   inspectGguf,
   installLocalGguf,
@@ -28,10 +28,11 @@ export function useLocalImport() {
 
   useEffect(() => { void startDownloadEventBus(); }, []);
 
+  // Names already installed, so the form can warn before overwriting one.
   useEffect(() => {
-    listModels()
-      .then((m) => setInstalled(new Set(m)))
-      .catch((e) => console.error("useLocalImport: listModels failed —", formatIpcError(e)));
+    listLlamaModels()
+      .then((m) => setInstalled(new Set(m.map((x) => x.name))))
+      .catch((e) => console.error("useLocalImport: listLlamaModels failed —", formatIpcError(e)));
   }, []);
 
   const choose = useCallback(async (p: string) => {

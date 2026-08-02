@@ -4,7 +4,7 @@ import type { BatchReport } from "../../../shared/ipc/eval/batch";
 import type { InstalledModelInfo } from "../../../shared/ipc/models/storage";
 
 const model = (name: string, quantization: string): InstalledModelInfo =>
-  ({ name, quantization, parameter_size: "7B", family: "x", size_bytes: 0, modified_at: "", backend: "ollama" }) as InstalledModelInfo;
+  ({ name, quantization, parameter_size: "7B", family: "x", size_bytes: 0, modified_at: "", backend: "llama_cpp" }) as InstalledModelInfo;
 
 describe("nativeChannelLabel", () => {
   it("never fabricates: unrecorded (both null/absent) renders nothing", () => {
@@ -41,7 +41,7 @@ describe("toScoreRows", () => {
       columns: [
         {
           model: "salvaged",
-          backend: "ollama",
+          backend: "llama_cpp",
           toolcall: null,
           agentic: null,
           agentic_native_fc: { ...agentic, native_structured_calls: 0, native_salvaged_calls: 4 },
@@ -49,7 +49,7 @@ describe("toScoreRows", () => {
         },
         {
           model: "unrecorded", // an older report: fields absent → nothing rendered, never a fake 0
-          backend: "ollama",
+          backend: "llama_cpp",
           toolcall: null,
           agentic: null,
           agentic_native_fc: { ...agentic },
@@ -68,14 +68,14 @@ describe("toScoreRows", () => {
       columns: [
         {
           model: "qwen",
-          backend: "ollama",
+          backend: "llama_cpp",
           toolcall: null,
           agentic: { tasks_passed: 3, tasks_total: 5, passes: 3, total_runs: 5, avg_steps: 2.44, avg_output_tokens_success: 119.6, schema_resilience: null, top_error: "hallucinated", failures: { infinite_loop_hits: 0, hallucinated_completions: 2, malformed_json_calls: 0, schema_unrecovered_calls: 0 } },
           error: null,
         },
         {
           model: "loopy",
-          backend: "ollama",
+          backend: "llama_cpp",
           toolcall: null,
           agentic: { tasks_passed: 0, tasks_total: 5, passes: 0, total_runs: 5, avg_steps: null, avg_output_tokens_success: null, schema_resilience: null, top_error: "infinite_loop", failures: { infinite_loop_hits: 5, hallucinated_completions: 0, malformed_json_calls: 0, schema_unrecovered_calls: 0 } },
           error: null,
@@ -95,7 +95,7 @@ describe("toScoreRows", () => {
       columns: [
         {
           model: "qwen",
-          backend: "ollama",
+          backend: "llama_cpp",
           toolcall: null,
           // Effort (successes-only mean) 100, but T* (all tokens ÷ completions) 140 — the waste tax.
           agentic: { tasks_passed: 2, tasks_total: 3, passes: 2, total_runs: 3, avg_steps: 2, avg_output_tokens_success: 100, tokens_per_completed: 140, schema_resilience: null, top_error: "hallucinated", failures: { infinite_loop_hits: 0, hallucinated_completions: 1, malformed_json_calls: 0, schema_unrecovered_calls: 0 } },
@@ -103,7 +103,7 @@ describe("toScoreRows", () => {
         },
         {
           model: "loopy", // nothing completed → T* is null → "—", never a fabricated 0
-          backend: "ollama",
+          backend: "llama_cpp",
           toolcall: null,
           agentic: { tasks_passed: 0, tasks_total: 2, passes: 0, total_runs: 2, avg_steps: 3, avg_output_tokens_success: null, tokens_per_completed: null, schema_resilience: null, top_error: "infinite_loop", failures: { infinite_loop_hits: 2, hallucinated_completions: 0, malformed_json_calls: 0, schema_unrecovered_calls: 0 } },
           error: null,
@@ -121,14 +121,14 @@ describe("toScoreRows", () => {
       columns: [
         {
           model: "qwen", // a measured resilience + a schema top error
-          backend: "ollama",
+          backend: "llama_cpp",
           toolcall: null,
           agentic: { tasks_passed: 4, tasks_total: 5, passes: 4, total_runs: 5, avg_steps: 2, avg_output_tokens_success: 100, schema_resilience: 0.5, top_error: "malformed_schema", failures: { infinite_loop_hits: 0, hallucinated_completions: 0, malformed_json_calls: 0, schema_unrecovered_calls: 1 } },
           error: null,
         },
         {
           model: "clean", // no schema errors seen
-          backend: "ollama",
+          backend: "llama_cpp",
           toolcall: null,
           agentic: { tasks_passed: 5, tasks_total: 5, passes: 5, total_runs: 5, avg_steps: 1, avg_output_tokens_success: 80, schema_resilience: null, top_error: "none", failures: { infinite_loop_hits: 0, hallucinated_completions: 0, malformed_json_calls: 0, schema_unrecovered_calls: 0 } },
           error: null,
@@ -146,7 +146,7 @@ describe("toScoreRows", () => {
       columns: [
         {
           model: "m",
-          backend: "ollama",
+          backend: "llama_cpp",
           toolcall: { n: 3, parse_rate: 1, tool_selection_acc: 1, arg_acc: 1, abstain_acc: null, composite: 0.92, prompt_tokens: null, per_task: [] },
           agentic: null,
           error: null,
@@ -165,7 +165,7 @@ describe("toScoreRows", () => {
       columns: [
         {
           model: "qwen",
-          backend: "ollama",
+          backend: "llama_cpp",
           toolcall: null,
           agentic: { tasks_passed: 1, tasks_total: 2, passes: 1, total_runs: 2, avg_steps: 3.2, avg_output_tokens_success: 100, schema_resilience: null, top_error: "none", failures: { infinite_loop_hits: 0, hallucinated_completions: 0, malformed_json_calls: 0, schema_unrecovered_calls: 0 } },
           agentic_native_fc: { tasks_passed: 2, tasks_total: 2, passes: 2, total_runs: 2, avg_steps: 1.5, avg_output_tokens_success: 60, schema_resilience: null, top_error: "none", failures: { infinite_loop_hits: 0, hallucinated_completions: 0, malformed_json_calls: 0, schema_unrecovered_calls: 0 } },
@@ -189,7 +189,7 @@ describe("toScoreRows", () => {
       collection_id: "c",
       columns: [
         { model: "qwen-gguf", backend: "llama_cpp", toolcall: null, agentic: null, agentic_native_fc: nat("schema_rejected"), error: null },
-        { model: "qwen-ollama", backend: "ollama", toolcall: null, agentic: null, agentic_native_fc: nat("infra_host"), error: null },
+        { model: "qwen-remote", backend: "llama_cpp", toolcall: null, agentic: null, agentic_native_fc: nat("infra_host"), error: null },
       ],
     };
     const rows = toScoreRows(report, []);

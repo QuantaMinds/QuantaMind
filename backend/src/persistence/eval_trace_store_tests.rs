@@ -26,7 +26,7 @@ fn load_one_missing_is_none() {
 #[test]
 fn upsert_then_load_one_round_trips() {
     let dir = tempdir().unwrap();
-    upsert(dir.path(), "mine", "llama", BackendKind::Ollama, &[trace("t1", "out-1")]).unwrap();
+    upsert(dir.path(), "mine", "llama", BackendKind::LlamaCpp, &[trace("t1", "out-1")]).unwrap();
     let got = load_one(dir.path(), "mine", "llama", "t1").unwrap().unwrap();
     assert_eq!(got.raw_output, "out-1");
     assert!(got.verdict.tool_match);
@@ -39,20 +39,20 @@ fn upsert_then_load_one_round_trips() {
 fn incremental_upserts_accumulate_and_replace_by_task_id() {
     let dir = tempdir().unwrap();
     // Simulator streams one task per call — both must survive.
-    upsert(dir.path(), "mine", "llama", BackendKind::Ollama, &[trace("t1", "first")]).unwrap();
-    upsert(dir.path(), "mine", "llama", BackendKind::Ollama, &[trace("t2", "second")]).unwrap();
+    upsert(dir.path(), "mine", "llama", BackendKind::LlamaCpp, &[trace("t1", "first")]).unwrap();
+    upsert(dir.path(), "mine", "llama", BackendKind::LlamaCpp, &[trace("t2", "second")]).unwrap();
     assert_eq!(load_one(dir.path(), "mine", "llama", "t1").unwrap().unwrap().raw_output, "first");
     assert_eq!(load_one(dir.path(), "mine", "llama", "t2").unwrap().unwrap().raw_output, "second");
     // Re-running t1 replaces its trace, doesn't duplicate.
-    upsert(dir.path(), "mine", "llama", BackendKind::Ollama, &[trace("t1", "fresh")]).unwrap();
+    upsert(dir.path(), "mine", "llama", BackendKind::LlamaCpp, &[trace("t1", "fresh")]).unwrap();
     assert_eq!(load_one(dir.path(), "mine", "llama", "t1").unwrap().unwrap().raw_output, "fresh");
 }
 
 #[test]
 fn many_models_coexist_in_one_collection_file() {
     let dir = tempdir().unwrap();
-    upsert(dir.path(), "mine", "llama", BackendKind::Ollama, &[trace("t1", "a")]).unwrap();
-    upsert(dir.path(), "mine", "qwen", BackendKind::Mlx, &[trace("t1", "b")]).unwrap();
+    upsert(dir.path(), "mine", "llama", BackendKind::LlamaCpp, &[trace("t1", "a")]).unwrap();
+    upsert(dir.path(), "mine", "qwen", BackendKind::VLlm, &[trace("t1", "b")]).unwrap();
     assert_eq!(load_one(dir.path(), "mine", "llama", "t1").unwrap().unwrap().raw_output, "a");
     assert_eq!(load_one(dir.path(), "mine", "qwen", "t1").unwrap().unwrap().raw_output, "b");
 }
@@ -69,7 +69,40 @@ fn oversize_file_is_guarded() {
 fn bad_collection_id_rejected() {
     let dir = tempdir().unwrap();
     for id in ["../escape", "a/b", "", "..", ".hidden"] {
-        assert!(upsert(dir.path(), id, "llama", BackendKind::Ollama, &[trace("t", "x")]).is_err(), "should reject {id:?}");
+        assert!(upsert(dir.path(), id, "llama", BackendKind::LlamaCpp, &[trace("t", "x")]).is_err(), "should reject {id:?}");
         assert!(load_one(dir.path(), id, "llama", "t").is_err());
     }
+}
+
+/// Same migration guard as the history store: one model entry recorded against a
+/// now-removed backend must not make the whole trace cache unreadable — that
+/// would break the visualizer AND block every new trace write for the collection.
+#[test]
+fn a_model_entry_with_an_unsupported_backend_is_skipped_not_fatal() {
+    let dir = tempdir().unwrap();
+    let json = r#"{"models":[
+        {"model":"legacy","backend":"retired_engine","tasks":[]},
+        {"model":"current","backend":"llama_cpp","tasks":[]}
+    ]}"#;
+    std::fs::create_dir_all(dir.path()).unwrap();
+    std::fs::write(dir.path().join("mine.json"), json).unwrap();
+
+    let store = load(dir.path(), "mine").unwrap();
+    assert_eq!(store.models.len(), 1, "the readable model still loads");
+    assert_eq!(store.models[0].model, "current");
+}
+
+/// And an upsert must not delete it: the unreadable entry is re-emitted verbatim.
+#[test]
+fn upsert_preserves_a_model_entry_this_build_cannot_read() {
+    let dir = tempdir().unwrap();
+    let json = r#"{"models":[{"model":"legacy","backend":"retired_engine","tasks":[]}]}"#;
+    std::fs::create_dir_all(dir.path()).unwrap();
+    std::fs::write(dir.path().join("mine.json"), json).unwrap();
+
+    upsert(dir.path(), "mine", "current", BackendKind::LlamaCpp, &[]).unwrap();
+
+    let raw = std::fs::read_to_string(dir.path().join("mine.json")).unwrap();
+    assert!(raw.contains("retired_engine"), "legacy entry survived the rewrite: {raw}");
+    assert!(raw.contains("current"), "the new entry was written too: {raw}");
 }

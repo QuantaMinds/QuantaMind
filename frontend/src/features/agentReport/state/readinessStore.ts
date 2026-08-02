@@ -24,6 +24,9 @@ interface ReadinessStore {
   /// family). `rightSizingHint` explains an empty summary. Percent-only.
   rightSizing: RightSizingGroup[];
   rightSizingHint: string | null;
+  /// Stored report columns this build couldn't interpret — surfaced beside the
+  /// verdict table so a short list never reads as the complete run.
+  unreadableColumns: number;
   hardware: HardwareSnapshot | null;
   /// Hardware class + recommended difficulty tier (Phase 9B) — the Agent Report's
   /// Executive Verdict shows this as the advisory hardware lens. Best-effort; `null`
@@ -60,6 +63,7 @@ export const useReadinessStore = create<ReadinessStore>((set, get) => ({
   verdicts: [],
   rightSizing: [],
   rightSizingHint: null,
+  unreadableColumns: 0,
   hardware: null,
   hardwareTier: null,
   focusedModel: "",
@@ -94,7 +98,7 @@ export const useReadinessStore = create<ReadinessStore>((set, get) => ({
     }
   },
   setFocus: (model, path) => set({ focusedModel: model, focusedPath: path }),
-  selectProfile: (id) => set({ selectedProfileId: id, assessed: false, verdicts: [], rightSizing: [], rightSizingHint: null }),
+  selectProfile: (id) => set({ selectedProfileId: id, assessed: false, verdicts: [], rightSizing: [], rightSizingHint: null, unreadableColumns: 0 }),
   setCap: (bytes) => set({ capBytes: bytes }),
   assess: async (collectionId) => {
     const { selectedProfileId, capBytes } = get();
@@ -102,7 +106,7 @@ export const useReadinessStore = create<ReadinessStore>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const a = await assessReadiness(collectionId, selectedProfileId, capBytes ?? undefined);
-      set({ verdicts: a.verdicts, rightSizing: a.right_sizing, rightSizingHint: a.right_sizing_hint ?? null, assessed: true, loading: false });
+      set({ verdicts: a.verdicts, rightSizing: a.right_sizing, rightSizingHint: a.right_sizing_hint ?? null, unreadableColumns: a.unreadable_columns, assessed: true, loading: false });
     } catch (e) {
       set({ error: String(e), loading: false, assessed: false });
     }

@@ -98,14 +98,14 @@ export function useBatchRun() {
       // even before the 5s poll first ticks.
       const backends = Array.from(new Set(targets.map((t) => t.backend)));
       for (const backend of backends) {
-        // Remote (vLLM/SGLang): resolve+validate the CREDENTIAL up front, so a bad/expired key
+        // Remote (vLLM): resolve+validate the CREDENTIAL up front, so a bad/expired key
         // fails fast here with the right message (a 401 ≠ "unreachable"), not a mid-run 401.
-        if (backend === "vllm" || backend === "sglang") {
+        if (backend === "vllm") {
           let msg: string | null;
           try {
             msg = remoteCredentialMessage(backend, await credentialFor(backend));
           } catch {
-            const label = backend === "sglang" ? "SGLang" : "vLLM";
+            const label = "vLLM";
             msg = `Couldn't validate the ${label} endpoint — check it in Settings, then re-run.`;
           }
           if (msg) {
@@ -122,7 +122,7 @@ export function useBatchRun() {
           available = false;
         }
         if (!available) {
-          const label = backend === "llama_cpp" ? "llama.cpp" : backend === "mlx" ? "MLX" : "Ollama";
+          const label = "llama.cpp";
           useBatchStore
             .getState()
             .setError(`${label} server isn't reachable — start it from the Workspace status bar, then re-run.`);
@@ -172,7 +172,7 @@ export function useBatchRun() {
       }
       if (!available) {
         const label =
-          target.backend === "llama_cpp" ? "llama.cpp" : target.backend === "mlx" ? "MLX" : "Ollama";
+          target.backend === "llama_cpp" ? "llama.cpp" : "vLLM";
         useBatchStore
           .getState()
           .setError(`${label} server isn't reachable — start it from the Workspace status bar, then re-run.`);

@@ -16,7 +16,6 @@ const SERVICE: &str = "quantamind";
 
 /// Stable keychain keys. Changing one orphans the old entry, so treat as append-only.
 pub const VLLM_API_KEY: &str = "vllm-api-key";
-pub const SGLANG_API_KEY: &str = "sglang-api-key";
 
 /// Whether a secret reached durable OS storage or only the session copy. `SessionOnly`
 /// (keychain locked/denied/absent) means the value works for THIS launch but is not on

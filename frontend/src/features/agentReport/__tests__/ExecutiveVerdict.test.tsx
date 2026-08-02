@@ -23,7 +23,7 @@ const stat = (tier: Tier, passed: number, total: number): TierStat => ({
 const mkVerdict = (by_tier: TierStat[], cleared_tier: Tier | null): ModelVerdict =>
   ({
     model: "m",
-    backend: "ollama",
+    backend: "llama_cpp",
     verdict: { status: "conditional", blocking: [], conditions: [], path: "prompt_based", required_tier: "hard", cleared_tier },
     by_tier,
   }) as unknown as ModelVerdict;

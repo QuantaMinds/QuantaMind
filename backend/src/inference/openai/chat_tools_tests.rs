@@ -15,7 +15,7 @@ fn parses_tool_calls_with_object_arguments() {
     assert_eq!(r.tool_calls.len(), 1);
     assert_eq!(r.tool_calls[0].name, "get_weather");
     assert_eq!(r.tool_calls[0].args, json!({ "city": "Paris" }));
-    // vLLM/SGLang report token counts only → counts present, per-phase ms stay None.
+    // vLLM report token counts only → counts present, per-phase ms stay None.
     assert_eq!(r.stats.prompt_eval_count, Some(10));
     assert!(r.stats.prompt_eval_ms.is_none());
 }
@@ -50,7 +50,7 @@ fn empty_choices_is_a_clean_empty_result() {
     assert_eq!(r.content, "");
 }
 
-/// THE SAME REGRESSION AS #161, on the shared OpenAI tool wire (vLLM + SGLang). `Choice`
+/// THE SAME REGRESSION AS #161, on the shared OpenAI tool wire (vLLM + vLLM). `Choice`
 /// carried only `message`, so `parse_chat` read `.map(|c| c.message)` and dropped the stop
 /// reason on the floor — leaving `stats.finish_reason` permanently `None` and making the
 /// runner's truncation retry + Truncated/ReasoningOverrun split dead code on those backends
@@ -70,7 +70,7 @@ fn a_truncated_tool_turn_reports_length_not_a_silent_none() {
     assert_eq!(
         r.stats.finish_reason.as_deref(),
         Some("length"),
-        "a vLLM/SGLang native turn cut off by the output cap must not read as a capability failure",
+        "a vLLM native turn cut off by the output cap must not read as a capability failure",
     );
 }
 

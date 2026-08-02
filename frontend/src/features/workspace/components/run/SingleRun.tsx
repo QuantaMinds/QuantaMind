@@ -19,11 +19,8 @@ export function SingleRun({ model }: { model: string | null }) {
   const currentPath = useWorkspacesStore((s) => s.currentPath);
   const save = useWorkspacesStore((s) => s.save);
   const saveDraftAuto = useWorkspacesStore((s) => s.saveDraftAuto);
-  const ollamaHealthy = useBackendStore((s) => s.ollamaHealthy);
   const llamaHealthy = useBackendStore((s) => s.llamaHealthy);
-  const mlxHealthy = useBackendStore((s) => s.mlxHealthy);
   const vllmHealthy = useBackendStore((s) => s.vllmHealthy);
-  const sglangHealthy = useBackendStore((s) => s.sglangHealthy);
   const activeBackend = useBackendStore((s) => s.selectedBackend);
   const cliParams = useParamsStore((s) => s.globalParams); // for the equivalent-CLI-command preview
   const setSingleRun = useCompareStore((s) => s.setSingleRun);
@@ -49,11 +46,8 @@ export function SingleRun({ model }: { model: string | null }) {
   // A backend is coupled to the model's weight format — no fallback. If the
   // active backend isn't healthy, Run is blocked with a "start it" hint.
   const blockedHint = backendRunHint(activeBackend, {
-    ollama: ollamaHealthy,
     llama: llamaHealthy,
-    mlx: mlxHealthy,
     vllm: vllmHealthy,
-    sglang: sglangHealthy,
   });
   const canRun = !!model && prompt.trim().length > 0 && !blockedHint;
   const runNow = () => {

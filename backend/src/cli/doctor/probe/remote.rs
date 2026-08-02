@@ -1,4 +1,4 @@
-//! vLLM / SGLang probe: run the credential classifier (the full
+//! vLLM probe: run the credential classifier (the full
 //! Unreachable/401/NotFound/insecure failure space), then list models only when the
 //! credential resolved `Ok`.
 

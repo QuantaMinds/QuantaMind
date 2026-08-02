@@ -36,10 +36,7 @@ Phase 3 additions (locked; installed when their step lands):
 |---|---|---|
 | Word diff (TS) | `diff-match-patch` | De-facto standard for word-level diffs; tiny, dependency-free. |
 | Secret storage (Rust) | `keyring` | OS-native keychain for cloud API keys — never plaintext on disk. |
-| llama.cpp backend | `llama-server` (Tauri sidecar binary) | Local GGUF inference over HTTP, mirroring the Ollama path. Subprocess, not in-process FFI. |
-| STT engine (Phase 0) | `whisper-server` (whisper.cpp `server` example; bundled sidecar) | Local speech-to-text over HTTP on `:8093`, mirroring the `llama-server` lifecycle; reuses the bundled `libggml-*` dylibs. Subprocess, not FFI. State-aware `/health`; silero VAD bundled with each model. |
-| STT audio preprocessing (P1/P2) | `hound` (WAV) + `symphonia` (MP3/others, P2 upload) + `rubato` (resample) + `reqwest` `multipart` | Decode audio → downmix → resample to 16 kHz mono **in Rust** (explicit, logged) → POST per ~30 s window to whisper-server `/inference` (`verbose_json`). Pure-Rust, not FFI; lets the seam stream + bound memory + assert the resample/duration in our own code. WAV-first; `symphonia` (compressed formats) deferred. |
-| STT Inspector VAD (P3) | `webrtc-vad` | The silence-hallucination metric needs an **independent** voice-activity detector over the raw 16 kHz PCM — never the STT model's own opinion, or the metric is circular. WebRTC VAD is deterministic, non-ML (energy/SBC), negligible CPU, loads no model. Its `Vad` C handle is `!Send`, so the profiling fold runs on a `spawn_blocking` thread. Distinct from whisper-server's bundled silero VAD (which lives inside the decode path). |
+| llama.cpp backend | `llama-server` (Tauri sidecar binary) | Local GGUF inference over HTTP, mirroring the llama.cpp path. Subprocess, not in-process FFI. |
 
 Phase 4 additions (locked; installed when their step lands):
 
@@ -59,7 +56,7 @@ CLI additions (locked; installed with the headless `qm` bin):
 - State-machine library — Zustand is enough.
 - UI component library — Tailwind utility classes only.
 - Form library — no forms in Phase 1.
-- AI/ML libraries — we do not run models in-process. We call Ollama, and a
+- AI/ML libraries — we do not run models in-process. We call llama.cpp, and a
   bundled `llama-server` sidecar over HTTP — never FFI.
 
 Resist additions. Every dependency is a maintenance debt. Update this section
@@ -115,12 +112,12 @@ gh repo edit --enable-discussions
 pnpm tauri dev
 # Edit src/App.tsx, save, see the window reload. If yes → ready.
 
-# 8. Pull Ollama models
-brew install ollama
-ollama serve &
-ollama pull llama3.2:1b       # dev workhorse, ~700MB
-ollama pull phi3.5:latest     # variety for later phases
-curl http://localhost:11434/api/tags
+# 8. Pull llama.cpp models
+brew install llama_cpp
+llama-server -m MODEL.gguf --port 8081 --jinja &
+llama-server -m llama3.2:1b       # dev workhorse, ~700MB
+llama-server -m phi3.5:latest     # variety for later phases
+curl http://localhost:8081the weights folder
 ```
 
 All 8 steps green → development environment ready. Day 1 starts with Phase 1
@@ -142,7 +139,7 @@ All 8 steps green → development environment ready. Day 1 starts with Phase 1
 | TS constants | `SCREAMING_SNAKE` | `DEFAULT_TIMEOUT_MS` |
 | React component file | `PascalCase.tsx` | `PromptEditor.tsx` |
 | TS non-component file | `kebab-case.ts` | `use-streaming-run.ts` |
-| Rust file | `snake_case.rs` | `ollama.rs` |
+| Rust file | `snake_case.rs` | `llama_cpp.rs` |
 | Branch | `<type>/<short-description>` | `feature/streaming-output`, `fix/native-budget`, `bug/empty-output` |
 
 ### Commits — Conventional Commits
@@ -368,7 +365,7 @@ configs, and prompt templates.
 
 Steps 3.1–3.3 done: the `InferenceBackend` trait, the llama.cpp `llama-server`
 sidecar backend, and a left **backend switcher** that scopes the Workspace to
-Ollama or llama.cpp. Steps 3.4–3.9 done: a dedicated **Bench** tab with
+llama.cpp. Steps 3.4–3.9 done: a dedicated **Bench** tab with
 seq/parallel + VRAM gate, word-level diff, metric bar charts, saved
 `*.bench.yaml` configs, a quantamind.co report footer, and a bundled
 prompt-template library.
@@ -399,15 +396,15 @@ so users can see *why* it was fast or slow. Built one step at a time.
   `timeline` on its done event). Hovering a bar shows a `#index · ms — token`
   readout.
 - **4.3 TTFT breakdown (done).** `generate` now returns a `GenerateStats` from
-  each backend's final chunk (Ollama's `load_duration`/`prompt_eval_*`/`eval_*`,
+  each backend's final chunk (llama.cpp's `load_duration`/`prompt_eval_*`/`eval_*`,
   ns→ms; llama.cpp's `timings`), carried on the done payloads. The Latency tab
   shows a stacked TTFT bar per model — Model load + Prompt prefill +
   Network/first-token (remainder) — segmented only by what the backend reports;
   otherwise "not available". Pure math in `features/inspector/format/ttft.ts`.
-- **4.4 VRAM allocation (done).** `get_loaded_models` reads Ollama `/api/ps`;
+- **4.4 VRAM allocation (done).** `get_loaded_models` reads llama.cpp the server's status endpoint;
   the Latency tab shows a per-model bar — In VRAM (`size_vram`) vs offloaded to
   system RAM (`size − size_vram`), `context_length` in the tooltip. Models not
-  loaded / non-Ollama backends → "Not available" (never a fabricated
+  loaded / non-llama.cpp backends → "Not available" (never a fabricated
   weights/KV/free split). Device free/total VRAM deferred to 4.5 (GPU probe).
 - **4.5 Hardware detection (done).** CPU/cores/RAM/OS/arch via `sysinfo` + a
   shell-out GPU probe (`nvidia-smi` CSV → bytes; macOS `sysctl` chip name +
@@ -430,7 +427,7 @@ so users can see *why* it was fast or slow. Built one step at a time.
 - **4.7 Cold- vs warm-start (done).** `HistoryEntry` records ttft/tok-s/load_ms;
   the Latency tab compares cold (load_ms>500ms) vs warm runs per model and shows
   the cold-load TTFT delta (`format/coldwarm.ts`).
-- **4.8 Memory-leak heuristic (done).** `get_ollama_rss` (sysinfo processes)
+- **4.8 Memory-leak heuristic (done).** `get_llama_cpp_rss` (sysinfo processes)
   sampled per run into a session series; a banner flags a monotonic climb across
   5 runs (`format/leak.ts`).
 - **4.9 Regression alerts (done).** Per model, the latest run is compared to the
@@ -453,41 +450,41 @@ pending (same gate as earlier phases).
 Broaden *which* models and backends users can run, and help them pick the right
 one. Built one step at a time.
 
-- **5.1 MLX inference backend (done; live-verified).** A `MlxBackend` streams from
-  `mlx_lm.server`'s OpenAI-compatible `/v1/chat/completions` (SSE), reached over
+- **5.1 vLLM inference backend (done; live-verified).** A `VLlmBackend` streams from
+  `vllm_lm.server`'s OpenAI-compatible `/v1/chat/completions` (SSE), reached over
   HTTP — no FFI, consistent with the locked stack. **Apple Silicon only.**
-  mlx_lm is user-installed (`pip install mlx-lm`), not bundled; QuantaMind only
-  health-probes it read-only via `GET /v1/models` and shows MLX in the workspace
-  backend rail only on Apple Silicon. `BackendKind::Mlx` listens on `:8082`
-  (mlx_lm defaults to `:8080`, which collides with llama-server — launch with
+  vllm_lm is user-installed (`pip install vllm-lm`), not bundled; QuantaMind only
+  health-probes it read-only via `GET /v1/models` and shows vLLM in the workspace
+  backend rail only on Apple Silicon. `BackendKind::VLlm` is user-configured
+  (vllm_lm defaults to `:8080`, which collides with llama-server — launch with
   `--port 8082`). Wire mapping: `num_predict→max_tokens`, `top_k→top_k`,
-  `repeat_penalty→repetition_penalty`; **`seed` is dropped** (mlx_lm has no seed
-  field, so MLX runs are **not seed-reproducible**). Stats are token counts only
-  (all `*_ms` stay `None` — mlx_lm reports no per-phase timing); TTFT and
+  `repeat_penalty→repetition_penalty`; **`seed` is dropped** (vllm_lm has no seed
+  field, so vLLM runs are **not seed-reproducible**). Stats are token counts only
+  (all `*_ms` stay `None` — vllm_lm reports no per-phase timing); TTFT and
   tokens/sec come from the client-side `RunTiming`. Sub-steps: 5.1.1 enum +
   endpoint + dispatch; 5.1.2 wire request; 5.1.3 stats; 5.1.4 stream + backend;
   5.1.5 cancellation; 5.1.6 health command + Apple-Silicon gate; 5.1.7 frontend
   rail + gating + not-detected hint; 5.1.8 docs; 5.1.9 model discovery — the
-  loaded model is listed via `GET /v1/models` (a third source alongside Ollama
-  and llama.cpp) so MLX is selectable and runnable; size/quant aren't reported
+  loaded model is listed via `GET /v1/models` (a third source alongside llama.cpp
+  and llama.cpp) so vLLM is selectable and runnable; size/quant aren't reported
   by that endpoint, so they show blank rather than a fabricated `0`.
-- **5.2 Model fit + MLX launcher (done).** Two parts. **5.2A:** hardware-fit
+- **5.2 Model fit + vLLM launcher (done).** Two parts. **5.2A:** hardware-fit
   badges on the HF download table — green "Fits" / amber "Tight" / red "Won't
   fit" per variant from `features/models/fit.ts` (the compare feature's
   1.3×-safety, 70%-tight rule); the column is omitted, never guessed, when no
-  hardware snapshot. **5.2B:** QuantaMind now **starts `mlx_lm.server`** for a
+  hardware snapshot. **5.2B:** QuantaMind now **starts `vllm_lm.server`** for a
   user-chosen HF repo (the dropdown-driven flow), reversing 5.1's "no in-app
-  start" — `mlx_lm.server --model <repo>` downloads the repo on launch, so this
+  start" — `vllm_lm.server --model <repo>` downloads the repo on launch, so this
   is download + run in one flow. It mirrors the llama-server lifecycle with
   three hardenings: (1) **no false-fail** — start returns immediately, a stderr
   reader thread reports `Downloading`/`Starting`, readiness is the health probe
-  (never a timeout during a multi-minute download), and `mlx_server_status`
+  (never a timeout during a multi-minute download), and `vllm_server_status`
   surfaces a died process's stderr tail; (2) **exit-reap** —
   `RunEvent::ExitRequested` kills the child (also llama-server) so no zombie
   holds memory/port; (3) **dynamic port** — `find_available_port(8082..=8092)`
-  picks a free port stored in a process-global, and the MLX endpoint is
-  state-derived (`mlx_endpoint()`), so health/discovery/dispatch follow it (no
-  hardcoded `:8082`). Set `QUANTAMIND_MLX_SERVER` to override the executable
+  picks a free port stored in a process-global, and the vLLM endpoint is
+  state-derived (`vllm_endpoint()`), so health/discovery/dispatch follow it (no
+  hardcoded `:8082`). Set `QUANTAMIND_vLLM_SERVER` to override the executable
   path. (AWQ variants + resumable multi-file pulls deferred.)
 - **5.3 Quantization comparison (done).** On the **Quant** tab, a chosen model's
   installed quants compare side-by-side: **size** + hardware **fit** (static),
@@ -515,13 +512,13 @@ one. Built one step at a time.
   rank: fast-chat picks the smallest fitting quant, quality use-cases the
   highest-quality one; honest when nothing fits or hardware is unknown.
 - **5.6 Backend auto-selection (done).** A backend is **coupled to the model's
-  weight format** — an MLX model runs only on MLX, a GGUF only on
-  llama.cpp/Ollama — so selection is the absolute `model.backend` mapping, never
+  weight format** — an vLLM model runs only on vLLM, a GGUF only on
+  llama.cpp/llama.cpp — so selection is the absolute `model.backend` mapping, never
   a health-based fallback. Compare rows are now **backend-aware** (`rows_for`
   takes a backend per model; `run_compare` forwards each model's backend, so a
   mixed-backend compare dispatches each row to the right server — previously all
-  rows wrongly went to Ollama). When the required backend isn't healthy, Run is
-  **blocked with a hint** ("Start the MLX backend to run this model") rather than
+  rows wrongly went to llama.cpp). When the required backend isn't healthy, Run is
+  **blocked with a hint** ("Start the vLLM backend to run this model") rather than
   rerouting (`features/workspace/state/runHint.ts`).
 - **5.7 Model card viewer (done).** Real READMEs are arbitrary HTML, so the card
   is treated as a **data source, not a document**: `hf_model_card` fetches the
@@ -569,12 +566,12 @@ one. Built one step at a time.
   `useEvalRegistryStore`).
 
 - **5.10 Model inspector + template/base-model guard (done).** Local diagnostics
-  from Ollama's `/api/show`: the chat **template** (rendered as inert text, never
+  from the GGUF header: the chat **template** (rendered as inert text, never
   injected HTML), the reported **capabilities**, and an **advisory base-model
   guess** — flagged when the template has no chat-role markers AND `tools` isn't a
   capability, with the **evidence** surfaced (`base_reason`) so it reads "likely
-  base — …", not an absolute claim. **Ollama-only** (the data lives in `/api/show`);
-  other backends show "Not available — Ollama only". `inference/ollama/ollama_show.rs`
+  base — …", not an absolute claim. **llama.cpp-only** (the data lives in the GGUF header);
+  other backends show "Not available — llama.cpp only". `inference/llama_cpp/llama_cpp_show.rs`
   (Tauri-free client; raw `model_info` kept for the 5.11 KV predictor) +
   `commands/models/model_inspect.rs`; UI `features/models/.../TemplatePanel.tsx` on
   the Tests tab. First of the **5.10+ diagnostics** band (metadata + local math).
@@ -584,7 +581,7 @@ one. Built one step at a time.
   formula lives in `inference/vram_math.rs` (`2·layers·kv_heads·head_dim·2·ctx`, unit-tested:
   Llama-3-8B @ 8k = 1 GiB) and is exposed via `estimate_kv_cache_bytes`; the Quant tab's
   **context-length selector** (4K/8K/32K/128K, capped at the model max) drives it. Dims come from
-  Ollama `/api/show` `model_info` (on `ModelInspect.dims`); non-Ollama falls back to the file-size
+  llama.cpp the GGUF header `model_info` (on `ModelInspect.dims`); non-llama.cpp falls back to the file-size
   ×1.3 heuristic, flagged **approximate**. A quant whose `base + KV` exceeds available memory gets an
   **"OOM Risk"** badge and is **blocked from running** (only when hardware is known); the
   recommendation respects the same gate. A note states local-LLM speed is **memory-bandwidth-bound**,
@@ -593,7 +590,7 @@ one. Built one step at a time.
 
 - **5.12 Silent-CPU-fallback guard (done).** The Tests tab warns when the selected model is loaded
   with weights off the accelerator (the silent fallback that tanks speed and ruins eval timings):
-  `cpuOffload(size, vram)` over `/api/ps` data, gated on an accelerator being present. Ollama-only;
+  `cpuOffload(size, vram)` over the server's status endpoint data, gated on an accelerator being present. llama.cpp-only;
   renders nothing when fully resident / not loaded / other backend. `features/eval/CpuFallbackBanner`.
 
 - **5.13 Quant parse-rate delta (done).** The Quant table shows the quality lost to a smaller quant
@@ -663,8 +660,8 @@ for the contract.
 | — | Persist the last `BatchReport` per collection (`persistence/readiness/reports`) — Rust is the verdict's source of truth, not the frontend store | done |
 | 7.7 | **Agent Report** tab: pick a collection + profile, run `assess_readiness`, render per-model badges + interpolated reasons + measured path; shareable offline HTML export | done |
 | 7.4 | **Hardware Telemetry**: measure VRAM fit (exact weights + real KV cache at the run's `num_ctx` vs an allocation cap) via the pure `readiness::vram_fit`; Host Hardware Profile panel (arch + cap dropdown) + per-model memory line; flips `require_full_vram` on for Coding-agent | done |
-| 7.2 | **Native-FC test mode**: run the same agentic tasks through Ollama's native `/api/chat` `tool_calls` API (`NativeOllamaTurn` translates back to the canonical call shape, so the sandbox/scoring are byte-identical); parallel **Native FC pass^k** Matrix column behind a toggle; the verdict **prefers native** when measured. Ollama-only — llama.cpp/MLX N/A | done |
-| 7.5 | **Resumable job queue + VRAM isolation**: append-only `.jsonl` job log per run (`persistence/jobs`), healed on a truncated tail; `run_batch_resumable` skips completed units (prompt AND native) and appends each new one; an injected `VramGate` (`OllamaVramGate` = `keep_alive:0` + `/api/ps` poll, **assert-and-fail**) evicts the previous model before the next loads; resume bulk-paints the Matrix from one partial report then streams the tail; transactional finish (save → verify → delete log) | done |
+| 7.2 | **Native-FC test mode**: run the same agentic tasks through llama.cpp's native `/v1/chat/completions` `tool_calls` API (`Nativellama.cppTurn` translates back to the canonical call shape, so the sandbox/scoring are byte-identical); parallel **Native FC pass^k** Matrix column behind a toggle; the verdict **prefers native** when measured. llama.cpp-only — llama.cpp N/A | done |
+| 7.5 | **Resumable job queue + VRAM isolation**: append-only `.jsonl` job log per run (`persistence/jobs`), healed on a truncated tail; `run_batch_resumable` skips completed units (prompt AND native) and appends each new one; an injected `VramGate` (`llama.cppVramGate` = `keep_alive:0` + the server's status endpoint poll, **assert-and-fail**) evicts the previous model before the next loads; resume bulk-paints the Matrix from one partial report then streams the tail; transactional finish (save → verify → delete log) | done |
 | 7.3 | **Agentic-aware recommender**: `assess_readiness` returns verdicts **ranked best-first** via the pure `readiness::recommend::rank` (tier Ready>Conditional>NotReady, ties by effort then steps, native-first metrics, float-safe `total_cmp`/`None→MAX`); the Agent Report opens with a leaderboard + a Recommendation banner ("Recommended for {profile}: {model} (Ready)", or "no model is ready — closest" — never a fabricated Ready) | done |
 | 7.6 | Headless `quantamind-cli` | **revived as `qm`** (see below) |
 
@@ -678,7 +675,7 @@ crate (ADR 0001 — a `[[bin]]`, not a workspace split), reusing the eval engine
 - **Phase 2 — `qm run` + `qm init`: shipped** (`cli/run` + `cli/init`; all CLI engines live under `cli/`). `run` wraps the
   thin `run_batch` + the no-hardware `assess_report` → a Ready/Conditional/NotReady verdict with the
   `0/10/20` exit codes and `--fail-on`; `init` auto-detects a runnable backend, writes `qm.json`, and
-  runs the suite (zero config). Live-verified on Ollama + llama.cpp incl. a weak model → NotReady/20.
+  runs the suite (zero config). Live-verified on llama.cpp + llama.cpp incl. a weak model → NotReady/20.
 - **Phase 3 — GitHub Action + `qm run --junit`: shipped.** `qm run --junit <path>` writes a JUnit
   report (panel mirrors the exit code — Ready green, NotReady red with the culprit tier). The composite
   action `.github/actions/qm-eval` wraps `qm run` → JUnit + JSON artifact, `fail-on` gates the job;
@@ -687,7 +684,7 @@ crate (ADR 0001 — a `[[bin]]`, not a workspace split), reusing the eval engine
 - **`qm test`: shipped** — run a user-provided collection FILE (v2-object or `ToolTask[]` JSON, loaded
   via `persistence::evals::read_capped`, 1 MB cap) under `--mode both` → a per-mode native-vs-prompt
   scoreboard. `--collection` now accepts a file on `run` too. Collection basename shown, never the path
-  (rule 7f). Live-verified on Ollama (custom file → scoreboard; bad/missing/malformed → exit 2).
+  (rule 7f). Live-verified on llama.cpp (custom file → scoreboard; bad/missing/malformed → exit 2).
 - **`qm report`: shipped** — offline re-assessment. `run`/`test --save-report <path>` persist the raw
   `BatchReport`; `qm report --report <path> --profile <id|file>` reloads it and re-assesses (via
   `assess_report`, no backend) against any bar. `--profile` now accepts a `ReadinessProfile` `.json`
@@ -722,8 +719,8 @@ doesn't mark every model NotReady for infra reasons. The **Context Stress Test i
 wired** end-to-end (Model Results pre-fills the probe → measured context limit saved per
 (collection, model) → fed into the verdict → shown in the Agent Report), but the
 `min_context_tokens` gate stays **opt-in** (off in the built-ins; a custom profile
-turns it on) so an un-probed model is never silently failed. VRAM fit is **Ollama-precise**
-(real `/api/show` dims) — single-model backends are N/A, never approximated; the
+turns it on) so an un-probed model is never silently failed. VRAM fit is **llama.cpp-precise**
+(real the GGUF header dims) — single-model backends are N/A, never approximated; the
 cap is auto-detected and overridable in-session (not persisted). The verdict scoring
 is **one function** (`assess`) so GUI and the future CLI can never diverge.
 
@@ -881,14 +878,14 @@ out of v1 scope:
   The chat stream tokenizes its accumulated `reasoning_content` via the server's
   `/tokenize` (reconciled live: split + answer = predicted_n − ~3 marker tokens,
   1%); `thinking_split_measured` carries provenance to the UI. Remaining: the
-  OLLAMA arm is blocked upstream — no `/api/tokenize` (404 on 0.24.0;
-  ollama#12030 unmerged), one combined `eval_count`, and streamed chunk counting
+  LLAMA_SERVER arm is blocked upstream — no `/api/tokenize` (404 on 0.24.0;
+  llama_cpp#12030 unmerged), one combined `eval_count`, and streamed chunk counting
   is NOT a token count (measured live: 228 thinking chunks vs eval_count 300).
-  When #12030 merges, flip `ollama_chat`/`ollama_wire`'s `thinking_tokens: None`
-  to the same recipe over the separated `thinking` text. Until then Ollama shows
+  When #12030 merges, flip `llama_cpp_chat`/`llama_cpp_wire`'s `thinking_tokens: None`
+  to the same recipe over the separated `thinking` text. Until then llama.cpp shows
   the combined count with the "(no split)" qualifier.
-- **Ollama cache-reuse count** stays "Not available": ollama#8008 open, and
-  Ollama Cloud reports cached_tokens=0 even where caching occurs (ollama#15758,
+- **llama.cpp cache-reuse count** stays "Not available": llama_cpp#8008 open, and
+  llama.cpp Cloud reports cached_tokens=0 even where caching occurs (llama_cpp#15758,
   April 2026) — a reported-zero there is not a measurement either.
 - **Forced-OOM live acceptance run.** The OOM classifier (`is_oom_message`) is
   unit-tested against the real backend strings; deliberately NOT exercised by
@@ -934,10 +931,10 @@ Follow-ups to the KV-precision + right-sizing work, deliberately out of scope
   auto-picks a q4_0 cache (real quality cost, and much slower at long context).
   Q4 exists only as planning math in the Latency meters. A future "aggressive
   long-context" opt-in could offer it behind an explicit, warned toggle.
-- **Ollama/vLLM/SGLang KV precision detection.** Their cache dtype is a
+- **llama.cpp/vLLM KV precision detection.** Their cache dtype is a
   server-global/launch flag we can't verify from a client, so those columns are
-  graded f16 (conservative). Detecting or setting it (e.g. spawning Ollama with
-  `OLLAMA_KV_CACHE_TYPE`) would let the gate reflect the real cache.
+  graded f16 (conservative). Detecting or setting it (e.g. spawning llama.cpp with
+  `LLAMA_KV_CACHE_TYPE`) would let the gate reflect the real cache.
 - **Asymmetric K8/V4 caches** (V-cache quantization hurts quality more than K)
   and non-`q8_0/q4_0` llama.cpp types (`q5_x`, `iq4_nl`) — modelled as a single
   precision axis for now.
@@ -953,7 +950,7 @@ Part 3 endorses until scale forces a split (see
 [`adr/0001-single-crate-not-workspace.md`](adr/0001-single-crate-not-workspace.md)). The
 guide's Part 3c target is a Cargo workspace where the *compiler* enforces the Dependency
 Rule instead of a guard test: `engine-core` (domain — `inference/` minus the HTTP
-clients), `engine-app` (use cases), `backends` (Ollama/llama.cpp/MLX driven adapters),
+clients), `engine-app` (use cases), `backends` (llama.cpp / vLLM driven adapters),
 `commands` (the Tauri driving adapter), and a `bin/` composition root.
 
 **Activate when** one of these triggers fires (not before):
@@ -1077,22 +1074,6 @@ have a dedicated decline tool: `es_ec_price_match`→`decline_match`, `md_lg_dat
 **Do NOT "fix" these** — a decline routed through a real action tool is correct RequireAll. Only a
 name-implies-abstain task with NO decline tool (so the only way to "pass" is an unrelated reply) is a
 mis-authoring like `abstain_no_tool` was.
-
-### Additional STT engines (faster-whisper)
-
-**Removed:** `mlx-audio` was trialed as a second STT engine but removed — its
-0.4.4 server crashes during transcription (its inference broker runs the model on
-a worker thread with no Metal GPU stream), and the transcription endpoint only
-exists in that broken release. The MLX whisper model itself works *inline*, so a
-future engine could wrap `mlx-whisper` directly (bypassing mlx-audio's server),
-but that's a custom sidecar with its own maintenance cost — not worth it while
-whisper.cpp covers Apple Silicon well. (The MLX **LLM** backend is unaffected.)
-
-**Why deferred:** `faster-whisper` (the path for Ollama users, who have no native
-STT) gets its own `commands/stt/<engine>` lifecycle. **Activate when:** a later
-phase needs Ollama-user parity. It exposes an OpenAI-compatible endpoint, so it
-must keep the loopback-only `stt_probe` guardrail (never silently reach
-`api.openai.com`).
 
 ### Apple Developer ID + notarization (macOS)
 

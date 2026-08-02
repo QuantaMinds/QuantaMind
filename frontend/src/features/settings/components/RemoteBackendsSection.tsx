@@ -38,7 +38,7 @@ function InsecureKeyNote() {
   );
 }
 
-/// Configure the remote vLLM / SGLang endpoints. These backends run on a remote
+/// Configure the remote vLLM endpoint. This backend runs on a remote
 /// GPU (not app-managed), so the app just points its HTTP client at the URL you
 /// enter here; the optional API key is sent as `Authorization: Bearer` (set it
 /// when the server was launched with `--api-key`). Saved to user_settings.yaml
@@ -65,7 +65,7 @@ export function RemoteBackendsSection() {
       await setUserSettings(settings);
       // Mirror the new endpoints into the reactive store so the health pollers start/stop
       // immediately (a just-configured endpoint begins polling; a cleared one stops).
-      useRemoteEndpointsStore.getState().setUrls({ vllmUrl: settings.vllm_url, sglangUrl: settings.sglang_url });
+      useRemoteEndpointsStore.getState().setUrls({ vllmUrl: settings.vllm_url });
       // The saved URL/key just changed which remote models are reachable — refetch
       // so the header picker reflects the new endpoint (health-edge refresh only
       // fires when reachability flips; a same-state URL change wouldn't trigger it).
@@ -118,8 +118,8 @@ export function RemoteBackendsSection() {
           Remote GPU backends
         </h2>
         <p className="text-xs text-gray-500">
-          vLLM and SGLang run on a remote GPU. Enter each server's base URL (and API
-          key if it was started with <code>--api-key</code>).
+          vLLM runs on a remote GPU. Enter the server's base URL (and API key if it
+          was started with <code>--api-key</code>).
         </p>
       </div>
 
@@ -133,18 +133,6 @@ export function RemoteBackendsSection() {
           placeholder: "optional",
         })}
         {keyWithheldInsecure(settings.vllm_url, settings.vllm_api_key) && <InsecureKeyNote />}
-      </div>
-
-      <div className="space-y-2">
-        <h3 className="text-xs font-semibold text-ink">SGLang</h3>
-        {field("Server URL", "sglang-url", settings.sglang_url, (v) => update({ sglang_url: v }), {
-          placeholder: "http://34.10.20.30:30000",
-        })}
-        {field("API key", "sglang-api-key", settings.sglang_api_key, (v) => update({ sglang_api_key: v }), {
-          password: true,
-          placeholder: "optional",
-        })}
-        {keyWithheldInsecure(settings.sglang_url, settings.sglang_api_key) && <InsecureKeyNote />}
       </div>
 
       <div className="flex items-center gap-3">

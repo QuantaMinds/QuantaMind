@@ -4,7 +4,7 @@
 // contains no macOS or Linux code, and so on. Result: smaller binaries and
 // OS-specific error diagnostics stay OS-specific.
 //
-// Every runtime-engine lifecycle module (`commands/{ollama,llama,stt}/…_runtime.rs`,
+// Every runtime-engine lifecycle module (`commands/llama/…_runtime.rs`,
 // plus `commands/app_lifecycle.rs`) uses `os::Host::…` instead of scattering
 // `#[cfg(target_os = "…")]` blocks. Adding a new engine = one adapter impl.
 

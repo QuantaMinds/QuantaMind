@@ -49,7 +49,7 @@ heavy report lands once on completion. Crash-recovery (`check_unfinished_run` �
 | **BoundaryPanel** *(Category K)* | Per config: resistance + over-refusal (over decisive benign runs; capability-failed runs shown as excluded; honest em-dash when an arm didn't decide), Pass/Fail/Inconclusive gate, model/config/unattributed attribution split, per-vector breakdown, and the static-set caveat (rendered prominently). Kept off the capability axis | reads `AggAgentic.boundary` off `report` | — |
 | **CollectionEditor** | Task list + Task/Sandbox configurator (authoring) | registry CRUD (via store) | `evalRegistryStore` |
 | **CsvImportModal** | Live-validated CSV → tasks | `read_text_capped`, `import`/`save_custom_collection` | `evalRegistryStore` |
-| **ContextCliffPanel** + Chart | Cliff probe controls, rung table, accuracy-vs-depth chart. A **Native FC / Prompt-based** method toggle (default native; disabled → prompt-only on MLX) picks the tool-calling path the probe measures. A pre-flight amber banner (`cliff-fit-warning`) warns before Execute when the requested depth won't fit device memory on Ollama (`useHardwareSnapshot` cap + `useVramFit` KV + loaded-model weights). Each rung row shows its sample as n/N over m tasks and names failing tasks (`cliff-by-task-<i>`) with `(N died at cap)` markers plus an amber `cliff-near-cap-<i>` line (<150‰ headroom); trace cells show decoded/cap tokens; a `BudgetLimited` run reads as a budget outcome in the panel and a `cliff-budget-limited-<model>` Matrix chip; a `CapMarginal` run (baseline grazed the cap, probe refused at rung 0) reads the same way — panel read-out + `cliff-cap-marginal-<model>` chip — never "✓ no cliff", since nothing above the baseline was measured. For a thinking probe model a **Lean/Standard/Deep** thinking-budget row (`cliff-thinking`) appears — the scratchpad scales with rung depth (`cliffThinkTokens`), the slider cap reserves it (`usableCliffTokens(window, isThinking, preset)`), and the choice rides to the backend + the CLI preview (`--thinking`). | `run_context_cliff` / `stop_context_cliff` / `get_cliff_results` | `cliffStore` |
+| **ContextCliffPanel** + Chart | Cliff probe controls, rung table, accuracy-vs-depth chart. A **Native FC / Prompt-based** method toggle (default native; disabled → prompt-only on vLLM) picks the tool-calling path the probe measures. A pre-flight amber banner (`cliff-fit-warning`) warns before Execute when the requested depth won't fit device memory on llama.cpp (`useHardwareSnapshot` cap + `useVramFit` KV + loaded-model weights). Each rung row shows its sample as n/N over m tasks and names failing tasks (`cliff-by-task-<i>`) with `(N died at cap)` markers plus an amber `cliff-near-cap-<i>` line (<150‰ headroom); trace cells show decoded/cap tokens; a `BudgetLimited` run reads as a budget outcome in the panel and a `cliff-budget-limited-<model>` Matrix chip; a `CapMarginal` run (baseline grazed the cap, probe refused at rung 0) reads the same way — panel read-out + `cliff-cap-marginal-<model>` chip — never "✓ no cliff", since nothing above the baseline was measured. For a thinking probe model a **Lean/Standard/Deep** thinking-budget row (`cliff-thinking`) appears — the scratchpad scales with rung depth (`cliffThinkTokens`), the slider cap reserves it (`usableCliffTokens(window, isThinking, preset)`), and the choice rides to the backend + the CLI preview (`--thinking`). | `run_context_cliff` / `stop_context_cliff` / `get_cliff_results` | `cliffStore` |
 | **RunRecoveryDialog** | Resume/Discard an interrupted batch | `check_unfinished_run` / `resume_batch_eval` / `discard_run` | `batchStore` |
 | **PipelinePanel** *(standalone)* | Single-task Config→System Pkg→Stream→Verify stepper | `trace_toolcall_task` / `load_toolcall_trace` | `evalRegistryStore` |
 | **MatrixPanel / MatrixGrid** *(standalone)* | Tasks×models P/T/A grid + regression timeline | `run_collection_matrix` / `load_collection_history` | `evalRegistryStore` |
@@ -209,7 +209,7 @@ and `__tests__/TraceDebuggerRunIo.test.tsx` (rendered).
 | File | One-line |
 |---|---|
 | `ToolCallPanel.tsx` *(standalone)* | Batch scoreboard (task table + bar chart + stats + run controls) over `run_toolcall_eval`; `batchStore` + `evalRegistryStore` + `installedModelsStore`. |
-| `CpuFallbackBanner.tsx` | Warns when Ollama weights spill to CPU; reads `loadedModels()` + hardware snapshot. |
+| `CpuFallbackBanner.tsx` | Warns when llama.cpp weights spill to CPU; reads `loadedModels()` + hardware snapshot. |
 | `RunRecoveryDialog.tsx` | Modal "Resume interrupted evaluation?" — Resume (keeps data) / Discard (destructive) / Esc-dismiss. Renders `run.collection_id` + `done/total`. |
 | `ContextCliffPanel.tsx` | The full Context Stress Test — see [Context Stress Test](#contextcliff-folder). |
 
@@ -301,7 +301,7 @@ Test-run view binds to it), `progress {done,total}`, `flushes`, `error`, `runnin
 
 **taskCost.ts.** Pure derivation over one cell's `TrajectoryStep[]` → `TaskCost`:
 prefill/eval ms + token sums over all Pass^k runs, `cacheHitTokensTotal` (llama.cpp
-`cache_n` only — null on Ollama/MLX renders "Not available", never 0),
+`cache_n` only — null on the remote backends renders "Not available", never 0),
 `kvTokensMeasured` (picks the KV honesty tier: "computed from measured tokens" vs
 "estimated"), `peakContextTokens` (max single-run occupancy — sizes the KV headline),
 and `maxStepEndRssBytes` (max of step-END samples — NOT a true in-step peak, and
@@ -510,7 +510,7 @@ Limit** cell is a small state machine, checked in order:
    and navigates to the **Audit** tab (never auto-runs — guardrail 1)
 
 `Native FC` column is behind a toggle (`showNative`); N/A is explained (only
-Ollama models whose `/api/show` lists the `tools` capability). The `ⓘ` on Top
+llama.cpp models whose the GGUF header lists the `tools` capability). The `ⓘ` on Top
 Error portals the full failure breakdown (Loop Cap / Fake Done / Bad Schema /
 Malformed). Clicking a row → `onFocusModel` (scrolls the detail panels up).
 
@@ -697,10 +697,10 @@ own collection selection (independent of the editor). All probe state lives in
 mount-only effect) → sets model override + collection + tokens + steps, then
 `consumeRequest()`. Max-Tokens defaults to — and its slider caps at —
 `usableCliffTokens(context_length)` = the model's real context window (`useVramFit` dims,
-`/api/show`) **minus `CLIFF_CTX_HEADROOM`** (both from `shared/ipc/eval/cliff.ts`, mirroring
+the GGUF header) **minus `CLIFF_CTX_HEADROOM`** (both from `shared/ipc/eval/cliff.ts`, mirroring
 the backend constant), and clamps on model switch. The headroom subtraction is load-bearing,
 not cosmetic: the backend runs the probe at `maxTokens + CLIFF_CTX_HEADROOM`, so offering the
-full window asked for more context than the model has — for every model — and Ollama answers
+full window asked for more context than the model has — for every model — and llama.cpp answers
 that by silently clamping and truncating the needle away, yielding a fabricated cliff at the
 window. The rung table shows
 each step's tokens / accuracy / Pass·Failure / **View trace** (expands the system
@@ -758,7 +758,7 @@ Scoreboard row Result = Pass^k (all k pass / partial p/total / fail)
     + per-turn llama.cpp prefix-cache readout (CacheBadge): green "N reused / M recomputed"
       when the prefix was reused, amber "⚠ CACHE BUST · M re-prefilled (+ms)" when a
       non-first turn's prefix collapsed (reuseRatio < CACHE_BUST_BELOW=0.5), neutral on the
-      first turn; absent for Ollama/MLX. The bust is rare by design (agentic_num_ctx sizes
+      first turn; absent for the remote backends. The bust is rare by design (agentic_num_ctx sizes
       the per-run window to keep the prefix cacheable) — so it flags a genuine anomaly.
 ```
 

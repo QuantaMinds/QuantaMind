@@ -12,7 +12,7 @@ const GIB: u64 = 1_073_741_824;
 fn verdict(model: &str, status: Readiness, pass_k: Option<f64>, total: Option<(u64, KvPrecision)>) -> ModelVerdict {
     ModelVerdict {
         model: model.into(),
-        backend: BackendKind::Ollama,
+        backend: BackendKind::LlamaCpp,
         verdict: ReadinessVerdict {
             status,
             blocking: vec![],

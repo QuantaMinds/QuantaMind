@@ -71,10 +71,5 @@ serve_capture vllm 8000 \
   --model Qwen/Qwen3-0.6B --dtype auto --max-model-len 8192 \
   --enable-auto-tool-choice --tool-call-parser hermes
 
-serve_capture sglang 30000 \
-  -p 30000:30000 lmsysorg/sglang:latest \
-  python3 -m sglang.launch_server --model-path Qwen/Qwen3-0.6B \
-  --host 0.0.0.0 --port 30000 --enable-metrics
-
 echo "=== capture done $(date -u) ==="
 touch "$HOME/capture-done"

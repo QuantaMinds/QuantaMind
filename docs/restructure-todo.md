@@ -37,7 +37,7 @@ Per `CLAUDE.md`/`docs/process.md#workflow`, each phase is one commit:
       *Verified:* `cargo test --test layering_guard` green; planted reverse `use` →
       RED, removed → green (teeth confirmed).
       ⚠️ **Follow-up debt:** split `persistence/`(12), `inference/eval/toolcall/`(11),
-      `commands/mlx/`(11), `commands/llama/`(11) into concern sub-folders to green the
+      `commands/vllm/`(11), `commands/llama/`(11) into concern sub-folders to green the
       taxonomy target — a dedicated refactor (out of this plan's scope per the
       "separate refactor commit" rule).
 - [x] **Phase 5** — `#![deny(unsafe_code)]` added to `lib.rs` (compiles clean — no

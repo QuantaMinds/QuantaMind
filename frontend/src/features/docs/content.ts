@@ -35,7 +35,7 @@ You need two things: a **backend** running, and a **model** installed for it.
 3. Select the model, then head to **Tests** or **Workspace**.
 
 > [!TIP]
-> The little colored dot in the header is your backend's health. Green = the server is running and reachable. If it's grey/red, start the server (Ollama, llama.cpp, or MLX) — the **Choosing a backend** guide covers each.
+> The little colored dot in the header is your backend's health. Green = the server is running and reachable. If it's grey/red, start the server — the **Choosing a backend** guide covers each.
 
 ## Next steps
 
@@ -50,19 +50,17 @@ const choosingBackend = `
 A *backend* is the server that loads and runs the model. QuantaMind talks to whichever one you
 select in the header. You run **one at a time** — the whole app is scoped to the selected backend.
 
-## The three local backends
+## The three backends
 
 | Backend | Best for | Notes |
 | --- | --- | --- |
-| **Ollama** | The easiest start | One-command install; manages its own models |
-| **llama.cpp** | GGUF weights + fine control | Bundled server; great for right-sizing context |
-| **MLX** | Apple Silicon only | Uses the unified-memory GPU; prompt-based only |
+| **llama.cpp** | GGUF weights on this machine | Bundled server; great for right-sizing context |
+| **vLLM** | High throughput on a remote GPU | OpenAI-compatible; endpoint set in Settings |
 
 ## Starting a backend
 
-- **Ollama** — install from ollama.com, then it runs in the background. QuantaMind detects it automatically.
-- **llama.cpp** — QuantaMind ships the server; it starts when you select a GGUF model.
-- **MLX** — Apple-Silicon only; QuantaMind launches \`mlx_lm.server\` for you.
+- **llama.cpp** — QuantaMind ships the server; it starts when you select a GGUF model and press ▶.
+- **vLLM** — you run this on your own GPU box; paste the URL (and API key) in Settings.
 
 The header dot turns green once the server responds.
 
@@ -97,9 +95,8 @@ Models live in the **Downloads** and **Models** tabs. What you install depends o
 
 ## By backend
 
-- **Ollama** — pull models with Ollama itself (e.g. \`ollama pull qwen3.5:9b\`); they appear in QuantaMind automatically.
 - **llama.cpp** — drop \`.gguf\` files into the shared weights folder (shown on the Downloads page), or download them from the **Hugging Face** tab.
-- **MLX** — MLX-format model folders go in the MLX models directory.
+- **vLLM** — the models are whatever your remote server was launched with; QuantaMind lists them from its \`/v1/models\`.
 
 ## Downloading from Hugging Face
 
@@ -133,14 +130,14 @@ full test run.
 The bar across the top drives the *whole app* — every page runs against the globally-selected model,
 so there's no per-page model choice to keep in sync.
 
-- **Model dropdown** — the selected model. For **Ollama** you can multi-select **2+ models**, which
+- **Model dropdown** — the selected model. Which
   turns Run into a side-by-side **Compare** (see **Comparing models**).
 - **Gear (⚙)** — a temperature popover (0.0–2.0), persisted per model.
 - **Stop (◼)** — kills the backend server; the header health dot flips red immediately.
 
 > [!TIP]
-> On a fresh machine the dropdown is replaced by an "Ollama is not running" card. On macOS it offers
-> **Start Ollama** / **Install Ollama**; on Windows and Linux, start Ollama yourself and click
+> On a fresh machine the run surface is replaced by a setup guide with a card per engine. Press ▶ to
+> start the bundled llama-server, or configure a remote endpoint in Settings, then click
 > **Check again**.
 
 ## System + user prompt
@@ -179,7 +176,7 @@ each other — the only honest way to choose between models for a task.
 
 ## Starting a compare
 
-Select **2+ models** in the Workspace picker (Ollama), write your prompt, and Run. Each model gets
+Pick a model in the header, write your prompt, and Run. The model gets
 its own **column** that streams independently — a slow model never holds up the others. Directly
 below the answers you also get the full per-token **latency** panels (the same ones the Latency tab
 shows), so quality and speed sit together.
@@ -344,10 +341,10 @@ are different eval methods, so their costs are shown separately, never blended.
   all Pass^k runs. The little bar track shows the same split per step.
 - **Output tokens** — tokens generated across all runs.
 - **Thinking tokens** — on **llama.cpp**, a *measured* split: the reasoning channel tokenized with
-  the model's own tokenizer. On **Ollama** the API reports one combined count, shown as
+  the model's own tokenizer. On a backend that reports one combined count, it shows as
   "*(no split)*" — no honest split exists there today.
 - **Cache hits** — prompt tokens served from the server's prefix cache instead of recomputed.
-  Measured on **llama.cpp** (it's why steps after the first take ~1s); **Ollama** reports no such
+  Measured on **llama.cpp** (it's why steps after the first take ~1s); a backend without one reports no such
   count → "Not available".
 - **Peak context** — the fullest a single run's window got. Cache-hit totals can exceed it: hits
   accumulate across runs, the peak is one moment.
@@ -355,7 +352,7 @@ are different eval methods, so their costs are shown separately, never blended.
 
 ## Memory for this run
 
-- **Model in memory** — Ollama: resident size from /api/ps (weights **plus** the context buffer it
+- **Model in memory** — the GGUF's size at launch (weights **plus** the context buffer it
   reserves at load — that's why it reads above the raw weight file). llama.cpp: the GGUF's size at
   launch (it reports no resident split).
 - **KV cache at this run's peak** — the headline: what *this* run's deepest context cost, with the
@@ -393,7 +390,7 @@ Two different things, two different displays:
 
 > [!NOTE]
 > The ceiling bars need the model's dimensions and size. For **llama.cpp**, start the server from
-> the app (an externally started one can't report its launch settings); for **Ollama** they come
+> the app (an externally started one can't report its launch settings); elsewhere they come
 > from the model's reported metadata.
 
 ## Next steps
@@ -656,9 +653,9 @@ Prompt-based tool-calling, or pick a model built with a tool template.
 
 The selected backend's server isn't reachable. Start it:
 
-- **Ollama** — make sure the Ollama app/service is running.
+- **llama.cpp** — press ▶ in the header to start the bundled server.
 - **llama.cpp** — re-select the GGUF model to relaunch the bundled server.
-- **MLX** — Apple Silicon only; check the model folder exists.
+- **vLLM** — check the endpoint URL in Settings and that the remote box is up.
 
 ## Out of memory / "Compute error"
 
@@ -675,9 +672,7 @@ run settings, or check the **Latency** context-ceiling bars for a safe value.
 Load the model in the **selected** backend first — the bars need the model's dimensions and its
 loaded size. Make sure the header backend matches the model you're inspecting.
 
-## MLX not detected
 
-MLX only runs on Apple Silicon. On Intel Macs or other platforms it isn't offered.
 
 ## MCP server won't connect ("✗ …")
 
@@ -712,7 +707,7 @@ export const DOC_SECTIONS: DocSection[] = [
     title: "Get started",
     pages: [
       { id: "getting-started", title: "Getting started", description: "What QuantaMind is and how to begin.", body: gettingStarted },
-      { id: "choosing-a-backend", title: "Choosing a backend", description: "Ollama, llama.cpp, or MLX — and native tool-calling.", body: choosingBackend },
+      { id: "choosing-a-backend", title: "Choosing a backend", description: "llama.cpp or vLLM — and native tool-calling.", body: choosingBackend },
     ],
   },
   {

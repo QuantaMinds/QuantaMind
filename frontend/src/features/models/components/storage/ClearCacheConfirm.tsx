@@ -37,7 +37,7 @@ export function ClearCacheConfirm({
           className="mt-0.5"
         />
         <span>
-          Also clear the HuggingFace model cache (MLX/whisper snapshots). These
+          Also clear the HuggingFace model cache (model snapshots). These
           re-download on next use; your app-managed models in <code>~/.quantamind</code>{" "}
           are not affected.
         </span>

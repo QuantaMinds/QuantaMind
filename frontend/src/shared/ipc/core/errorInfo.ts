@@ -2,7 +2,7 @@ import { rawMessage } from "./error";
 
 const DOCS = "https://quantamind.co/docs/troubleshooting";
 
-export type ActionHint = "retry" | "start_ollama" | "open_models" | "open_settings";
+export type ActionHint = "retry" | "start_server" | "open_models" | "open_settings";
 
 export interface ErrorInfo {
   title: string;
@@ -16,15 +16,15 @@ export interface ErrorInfo {
 export function classifyError(e: unknown): ErrorInfo {
   const low = rawMessage(e).toLowerCase();
   if (
-    low.includes("ollama is not running") || low.includes("connection refused") ||
+    low.includes("server is not running") || low.includes("connection refused") ||
     low.includes("error trying to connect") || low.includes("os error 61") ||
     low.includes("tcp connect error")
   ) {
     return {
-      title: "Ollama isn't running",
-      body: "QuantaMind talks to a local Ollama server. Start Ollama, then try again.",
-      learnMore: `${DOCS}#ollama-not-running`,
-      actionHint: "start_ollama",
+      title: "The local server isn't running",
+      body: "QuantaMind talks to a local llama-server. Start it from the header, then try again.",
+      learnMore: `${DOCS}#server-not-running`,
+      actionHint: "start_server",
     };
   }
   if (low.includes("model") && low.includes("not found")) {

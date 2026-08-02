@@ -38,11 +38,9 @@ root. It renders, top to bottom:
 
 - **`AppHeader`** — back button (drives `navStore.goBack`), logo/title, the
   global `GlobalControls`, and (on the Workspace view only) a History toggle.
-- **`GlobalControls`** — two independent header control groups so one LLM and
-  one STT job can run in parallel: the **LLM group** (`ServerControl`,
-  `BackendSelector`, `ModelSelector`, `ParamsControl`) and the **STT group**
-  (`SttHeaderControl`). These read/write the global stores, so every page sees
-  the same selection.
+- **`GlobalControls`** — the header control group: `ServerControl`,
+  `BackendSelector`, `ModelSelector`, `ParamsControl`. These read/write the
+  global stores, so every page sees the same selection.
 - **`OnboardingCoach`** — first-run guidance (feature).
 - **The top-nav `<nav>`** — ten tabs from the `TABS` array, each a button that
   calls `setView(t.id)`.
@@ -101,23 +99,23 @@ logic is the routing in `navStore` (§3) and the model picker. Compact summary:
 | `main.tsx` | React root; renders `<App/>` in `StrictMode`; imports `index.css`. |
 | `App.tsx` | Composition root: `TABS`, top-nav, ten `hidden`-toggled view containers, always-mounted overlays, mount-time effects + global hooks. |
 | `AppHeader.tsx` | Back button → `navStore.goBack`; logo/title; mounts `GlobalControls`; History toggle on Workspace view. |
-| `GlobalControls.tsx` | Composes the LLM control group + STT control group at shell level (features don't import each other). |
-| `BackendSelector.tsx` | Global LLM-backend dropdown (Ollama / llama.cpp / +MLX on Apple Silicon). Writes `backendStore.selectedBackend`; health dot from `isHealthy`. `useMlxBackend`/`useLlamaBackend` poll health. |
+| `GlobalControls.tsx` | Composes the LLM control group at shell level (features don't import each other). |
+| `BackendSelector.tsx` | Global LLM-backend dropdown (llama.cpp / +vLLM on Apple Silicon). Writes `backendStore.selectedBackend`; health dot from `isHealthy`. `useVLlmBackend`/`useLlamaBackend` poll health. |
 | `ModelSelector.tsx` | Global model picker (see below). |
-| `ParamsControl.tsx` | Inference-params popover writing `paramsStore`; "same for all" toggle → per-model overrides for Ollama 2+ compares; "Use max" pulls `num_ctx` from `useVramFit`. Reuses `ParamRow`/`PARAMS`. |
+| `ParamsControl.tsx` | Inference-params popover writing `paramsStore`; "same for all" toggle → per-model overrides for llama.cpp 2+ compares; "Use max" pulls `num_ctx` from `useVramFit`. Reuses `ParamRow`/`PARAMS`. |
 | `WorkspaceSidebar.tsx` | Workspace left rail (`WorkspaceSwitcher` + `FilesSection`); visibility from `uiStore.sidebarVisible`. |
 | `appHotkeys.ts` | `useGlobalHotkeys` — wires global shortcuts to store actions (see §5). |
 | `vite-env.d.ts` | Vite client type reference only. |
 
 **`ModelSelector.tsx`** carries the one piece of real shell logic worth
-showing — the single/multi-select rule and the cross-store wiring. Ollama is
-multi-select (1 → single run, 2+ → a Workspace compare); llama.cpp/MLX are
+showing — the single/multi-select rule and the cross-store wiring. llama.cpp is
+multi-select (1 → single run, 2+ → a Workspace compare); llama.cpp are
 single. It filters the installed list to the selected backend, drops embedding
 models (`isEmbeddingModel`), de-dupes by digest, and writes the **global**
 `selectedModelStore`:
 
 ```ts
-const multi = selectedBackend === "ollama";
+const multi = selectedBackend === "llama_cpp";
 const generative = dedupeByDigest(
   list.filter((m) => !isEmbeddingModel(m) && m.backend === selectedBackend),
 );
@@ -175,7 +173,7 @@ normalizer. (Pairs with MEMORY *no fake metrics* / *guardrail + popup on bugfix*
 errors are surfaced honestly, not swallowed.)
 **What:** `rawMessage(e)` (ordered: ZodError → `Error` → string → `{message}` →
 JSON → `String`), `friendly(msg)` (Connection-refused / os error 61 →
-"Ollama is not running…"), and the public `formatIpcError(e)`.
+"the local server is not running…"), and the public `formatIpcError(e)`.
 **How/Where used:** Every catch block across features routes through
 `formatIpcError`; richer cards use `classifyError` (below).
 
@@ -189,8 +187,8 @@ export function formatIpcError(e: unknown): string {
 **Responsibility:** Upgrade a raw error to a structured, actionable
 `ErrorInfo { title, body, learnMore?, actionHint? }`.
 **Why:** Toasts want a string; the `ErrorCard` wants a title + body + a primary
-action (Retry / Start Ollama / Open Models / Open Settings) and a docs link.
-**What:** `classifyError(e)` — most-specific-first branches (Ollama down →
+action (Retry / Start llama.cpp / Open Models / Open Settings) and a docs link.
+**What:** `classifyError(e)` — most-specific-first branches (llama.cpp down →
 model-not-found → OOM → timeout → generic). `learnMore` anchors match
 `docs/reference.md#troubleshooting`.
 **How/Where used:** Rendered by `shared/ui/ErrorCard` across feature error
@@ -202,7 +200,7 @@ mirrors Rust's `errors.rs`), `HealthStatus {available, version}`. Type-only.
 
 **File:** `shared/ipc/core/client.ts`
 **Responsibility:** The health-probe command group. `listModels`,
-`checkOllamaHealth`/`checkMlxHealth`/`checkLlamaHealth`, and `healthFor(backend)`
+`checkllama.cppHealth`/`checkVLlmHealth`/`checkLlamaHealth`, and `healthFor(backend)`
 dispatching to the right one (used by the batch pre-flight to fail fast on a down
 server). Backend: see [backend-overview](backend-overview.md) /
 [backend-inference-backends](backend-inference-backends.md).
@@ -252,9 +250,8 @@ maps to.
 
 | Wrapper file | Backend commands wrapped | Backend doc |
 |---|---|---|
-| `audio/capture.ts` | `start_recording`, `stop_recording`, `recording_level` | [backend-stt](backend-stt.md) |
-| `compare/compare.ts` | `run_compare`, `stop_compare`, `save_compare_report` | [backend-compare](backend-compare.md) |
-| `compare/hardware.ts` | `get_hardware_snapshot` | [backend-compare](backend-compare.md) |
+| `compare/compare.ts` | `save_compare_report` | [backend-overview](backend-overview.md) |
+| `compare/hardware.ts` | `get_hardware_snapshot` | [backend-overview](backend-overview.md) |
 | `eval/batch.ts` | `run_batch_eval`, `stop_batch_eval` | [backend-eval-engine](backend-eval-engine.md) |
 | `eval/cliff.ts` | `run_context_cliff`, `stop_context_cliff`, `save_cliff_result`, `get_cliff_results` | [backend-eval-engine](backend-eval-engine.md) |
 | `eval/evals.ts` | `list_evals`, `run_eval_task` | [backend-eval-engine](backend-eval-engine.md) |
@@ -268,10 +265,10 @@ maps to.
 | `models/hf_install.ts` | `install_hf_gguf`, `cancel_hf_install` | [backend-models-hf-gguf](backend-models-hf-gguf.md) |
 | `models/llama_start.ts` | `start_/stop_llama_server`, `list_llama_models`, `delete_llama_model` | [backend-inference-backends](backend-inference-backends.md) |
 | `models/local_install.ts` | (Zod schema only — no command) | [backend-models-hf-gguf](backend-models-hf-gguf.md) |
-| `models/mlx.ts` | `list_mlx_models`, `install_mlx_model`, `delete_mlx_model` | [backend-models-hf-gguf](backend-models-hf-gguf.md) |
-| `models/mlx_start.ts` | `start_/stop_mlx_server`, `mlx_server_status` | [backend-inference-backends](backend-inference-backends.md) |
+| `models/vllm.ts` | `list_vllm_models`, `install_vllm_model`, `delete_vllm_model` | [backend-models-hf-gguf](backend-models-hf-gguf.md) |
+| `models/vllm_start.ts` | `start_/stop_vllm_server`, `vllm_server_status` | [backend-inference-backends](backend-inference-backends.md) |
 | `models/model_settings.ts` | `get_model_settings`, `set_model_temperature` | [backend-prompt-workspace-system](backend-prompt-workspace-system.md) |
-| `models/ollama_start.ts` | `start_ollama`, `stop_ollama` | [backend-inference-backends](backend-inference-backends.md) |
+| `models/llama_cpp_start.ts` | `start_llama_cpp`, `stop_llama_cpp` | [backend-inference-backends](backend-inference-backends.md) |
 | `models/storage.ts` | `get_installed_models_with_stats`, `remove_model`, `get_disk_usage`; exports `BackendKind` | [backend-models-hf-gguf](backend-models-hf-gguf.md) |
 | `prompts/templates.ts` | `list_prompt_templates` | [backend-prompt-workspace-system](backend-prompt-workspace-system.md) |
 | `publish/export.ts` | `save_readiness_image` | [backend-publish](backend-publish.md) |
@@ -279,13 +276,10 @@ maps to.
 | `publish/publish.ts` | `publish_to_board`, `start_login` | [backend-publish](backend-publish.md) |
 | `settings/settings.ts` | `get_storage_path`, `validate_storage_path` | [backend-prompt-workspace-system](backend-prompt-workspace-system.md) |
 | `settings/userSettings.ts` | `get_user_settings`, `set_user_settings`, `resolve_models_folder` | [backend-prompt-workspace-system](backend-prompt-workspace-system.md) |
-| `stt/eval.ts` | `run_stt_eval`, `list_transcripts`, `list_/load_/save_/delete_stt_eval`, `load_stt_report`, `assess_stt_readiness`, `list_/save_/delete_stt_readiness_profile` | [backend-stt](backend-stt.md) |
-| `stt/stt.ts` | `list_stt_catalog`, `list_installed_stt_models`, `delete_stt_model`, `check_whisper_env`, `check_whisper_health`, `download_stt_model`, `cancel_stt_install`, `start_/stop_whisper_server` | [backend-stt](backend-stt.md) |
-| `stt/transcribe.ts` | `transcribe_audio`, `load_transcript` | [backend-stt](backend-stt.md) |
 | `system/feedback.ts` | (pure — `buildFeedbackMailto`, no command) | [backend-prompt-workspace-system](backend-prompt-workspace-system.md) |
 | `system/inspect.ts` | `inspect_model`, `estimate_kv_cache_bytes` | [backend-models-hf-gguf](backend-models-hf-gguf.md) |
 | `system/onboarding.ts` | `scaffold_onboarding_workspace`, `pull_model` | [backend-prompt-workspace-system](backend-prompt-workspace-system.md) |
-| `system/process_memory.ts` | `get_ollama_rss` | [backend-prompt-workspace-system](backend-prompt-workspace-system.md) |
+| `system/process_memory.ts` | `get_llama_cpp_rss` | [backend-prompt-workspace-system](backend-prompt-workspace-system.md) |
 | `system/updater.ts` | Tauri updater plugin: `check`, `relaunch`, `getVersion` (not `invoke`) | [backend-overview](backend-overview.md) |
 | `system/vram.ts` | `get_loaded_models` | [backend-models-hf-gguf](backend-models-hf-gguf.md) |
 | `workspace/history.ts` | `history_append`, `history_list`, `history_get`, `history_clear`, `history_remove_by_path` | [backend-prompt-workspace-system](backend-prompt-workspace-system.md) |
@@ -346,14 +340,14 @@ setSelectedBackend: (selectedBackend) => {
 **File:** `shared/state/selectedModelStore.ts` — the model(s) the app is working
 on.
 `SelectedModel {name, backend, size_bytes, path?}` carries backend+path so
-consumers never re-resolve from the installed list. Multi-select for Ollama only.
+consumers never re-resolve from the installed list. Multi-select for llama.cpp only.
 `selectedModels: SelectedModel[]` + `setSelectedModels`.
 
 **File:** `shared/state/paramsStore.ts` — global inference params (one source of
 truth for every run).
 `globalParams: InferenceParams` (unset key = omitted → backend default),
-`keepLoaded` (Ollama `keep_alive` 0 vs -1), `sharedParams` + `perModelParams`
-(per-model overrides for Ollama 2+ compares). Setters delete-on-undefined so an
+`keepLoaded` (llama.cpp `keep_alive` 0 vs -1), `sharedParams` + `perModelParams`
+(per-model overrides for llama.cpp 2+ compares). Setters delete-on-undefined so an
 unset key is truly absent. Ranges/validation live at the Rust boundary, not here.
 
 ```ts
@@ -421,7 +415,7 @@ Pure, dependency-light helpers shared by the model-related features. (Backend
 detail: [backend-models-hf-gguf](backend-models-hf-gguf.md).)
 
 **File:** `shared/models/classify.ts` — the model classification logic.
-**Why:** Embedding-only models (no `/api/generate`) would 400 on a generate
+**Why:** Embedding-only models (no `/v1/chat/completions`) would 400 on a generate
 request, and the UI has nowhere to route their output — so they're hidden from
 the Workspace picker and the Compare multi-select.
 **What/How:** `isEmbeddingModel(m)` — family allow-list (`bert`, `nomic-bert`)
@@ -443,10 +437,10 @@ export function isEmbeddingModel(m: ModelLike): boolean {
 | File | Purpose |
 |---|---|
 | `shared/models/modelLabel.ts` | `modelLabel(m)` → `display_name ?? name`; selection/wire calls still use `name`. |
-| `shared/models/dedupeDigest.ts` | `dedupeByDigest()` collapses Ollama tags sharing one content digest (first wins); digest-less entries (GGUF/MLX) always kept. Pure. |
-| `shared/models/backendSupport.ts` | `servesModelsByName(b)` (Ollama only) + two note strings explaining that llama.cpp/MLX serve one model at a time (so multi-model/per-quant evals need Ollama). |
+| `shared/models/dedupeDigest.ts` | `dedupeByDigest()` collapses llama.cpp tags sharing one content digest (first wins); digest-less entries (GGUF/vLLM) always kept. Pure. |
+| `shared/models/backendSupport.ts` | `servesModelsByName(b)` (llama.cpp only) + two note strings explaining that llama.cpp serve one model at a time (so multi-model/per-quant evals need llama.cpp). |
 | `shared/format/bytes.ts` | `formatBytes(n)` ("1.3GB") + `formatDuration(secs)` ("3m 24s") — one canonical formatter so HF/Storage/Compare agree byte-for-byte. |
-| `shared/install_error.ts` | `friendlyInstallError(raw)` — maps install-time IPC errors (HF gated repo, rate-limit, bad GGUF, silent Ollama rollback, …) to user-facing next steps. Used by the install hooks → `AddModelModal`. |
+| `shared/install_error.ts` | `friendlyInstallError(raw)` — maps install-time IPC errors (HF gated repo, rate-limit, bad GGUF, silent llama.cpp rollback, …) to user-facing next steps. Used by the install hooks → `AddModelModal`. |
 | `shared/markdown.tsx` | `Markdown`/`parseInline` — tiny markdown subset (bold, inline code, links, h1–h3, bullets) for release notes; links open in the system browser. |
 
 ---
@@ -458,7 +452,6 @@ export function isEmbeddingModel(m: ModelLike): boolean {
 [frontend-compare-analysis](frontend-compare-analysis.md) ·
 [frontend-eval](frontend-eval.md) ·
 [frontend-models](frontend-models.md) ·
-[frontend-stt](frontend-stt.md) ·
 [frontend-inspector-quant-agentreport](frontend-inspector-quant-agentreport.md) ·
 [frontend-support-features](frontend-support-features.md).
 
@@ -469,8 +462,6 @@ export function isEmbeddingModel(m: ModelLike): boolean {
 health) ·
 [backend-models-hf-gguf](backend-models-hf-gguf.md) ·
 [backend-eval-engine](backend-eval-engine.md) ·
-[backend-stt](backend-stt.md) ·
-[backend-compare](backend-compare.md) ·
 [backend-prompt-workspace-system](backend-prompt-workspace-system.md) ·
 [backend-persistence](backend-persistence.md) ·
 [backend-publish](backend-publish.md).

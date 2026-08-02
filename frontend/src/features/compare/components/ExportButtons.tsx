@@ -25,7 +25,7 @@ export function ExportButtons() {
     if (!path) return;
     const s = useCompareStore.getState();
     const report = buildReport({
-      prompt: s.prompt, systemPrompt: s.systemPrompt, strategy: s.strategy,
+      prompt: s.prompt, systemPrompt: s.systemPrompt,
       hardwareSnapshot: s.hardwareSnapshot,
       selectedModels: useSelectedModelStore.getState().selectedModels, rows: s.rows,
       installed: useInstalledModelsStore.getState().list,

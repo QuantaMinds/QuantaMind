@@ -41,7 +41,6 @@ const runSection = (d: AnalysisDocument, r: DocRun): string[] => {
 export function toMarkdown(d: AnalysisDocument): string {
   const lines: string[] = ["# QuantaMind Compare Report"];
   lines.push(`- Run at: ${d.created_at}`);
-  if (d.run_strategy) lines.push(`- Strategy: ${d.run_strategy}`);
   const hw = hardwareLine(d);
   if (hw) lines.push(hw);
   lines.push(selectedLine(d));

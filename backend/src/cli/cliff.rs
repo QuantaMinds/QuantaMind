@@ -13,7 +13,6 @@ use crate::inference::eval::agentic::model_turn::BackendTurn;
 use crate::inference::eval::agentic::spec::Tier;
 use crate::inference::eval::cliff::{build_ladder, run_cliff_with, CliffBudget, CliffReport, CliffSource, DEFAULT_DEPTHS};
 use crate::inference::eval::readiness::types::CliffStatus;
-use crate::inference::ollama::ollama_show::probe_supports_thinking;
 use tokio_util::sync::CancellationToken;
 
 pub struct CliffOptions {
@@ -61,8 +60,8 @@ pub enum CliffOutcome {
     /// previously this died mid-ladder on an opaque "prompt is larger than the context
     /// window" rejection, or silently dropped the deepest rungs.
     WindowTooSmall { running_ctx: u32, needed_ctx: u32, usable_max_tokens: u32 },
-    /// `--mode native` on a backend/model that can't run native tool-calling (MLX has no
-    /// tool API; an Ollama model whose template lacks `.Tools` 400s on every call).
+    /// `--mode native` on a backend/model that can't run native tool-calling (the remote server has no
+    /// tool API).
     /// Refused up front (mirrors the GUI gate in `run_context_cliff`) — previously this
     /// died mid-ladder on an opaque `[QM-INTERNAL] … does not support tools` error.
     NativeUnsupported { backend: BackendKind, model: String },
@@ -240,7 +239,6 @@ pub async fn run_cliff_probe(opts: CliffOptions) -> AppResult<CliffOutcome> {
         .unwrap_or_else(|| endpoint::base_url(opts.run.backend));
     match opts.run.backend {
         BackendKind::VLlm => remote_config::set_vllm(Some(ep.clone()), opts.run.api_key.clone()),
-        BackendKind::SgLang => remote_config::set_sglang(Some(ep.clone()), opts.run.api_key.clone()),
         _ => {}
     }
 
@@ -249,10 +247,7 @@ pub async fn run_cliff_probe(opts: CliffOptions) -> AppResult<CliffOutcome> {
     // a preset that can't actually reason must refuse loudly, not silently no-op.
     let is_thinking = !matches!(opts.run.think, ThinkPreset::Lean);
     if is_thinking {
-        let reasons = match opts.run.backend {
-            BackendKind::Ollama => probe_supports_thinking(&ep, &opts.run.model).await,
-            _ => openai_reasons(&ep, &opts.run.model, opts.run.api_key.as_deref()).await,
-        };
+        let reasons = openai_reasons(&ep, &opts.run.model, opts.run.api_key.as_deref()).await;
         if !reasons {
             return Ok(CliffOutcome::ThinkingUnsupported { backend: opts.run.backend, model: opts.run.model });
         }

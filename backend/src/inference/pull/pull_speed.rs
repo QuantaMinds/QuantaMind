@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 /// Moving-average download-rate tracker over a rolling time window.
-/// Push `(now, completed_bytes)` as Ollama reports progress; ask for
+/// Push `(now, completed_bytes)` as some servers report progress; ask for
 /// `bps(now)` to get the current bytes-per-second estimate.
 pub struct SpeedTracker {
     samples: VecDeque<(Instant, u64)>,

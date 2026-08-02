@@ -7,12 +7,15 @@ export const UserSettingsSchema = z.object({
   community_prompt_shown: z.boolean().default(false),
   last_update_check_at: z.string().nullable().optional(),
   models_folder: z.string().nullable().optional(),
-  stt_engine_dir: z.string().nullable().optional(),
-  // Remote vLLM/SGLang OpenAI endpoints (a GPU box) + optional bearer keys.
+  // Remote vLLM OpenAI endpoint (a GPU box) + optional bearer key.
   vllm_url: z.string().nullable().optional(),
   vllm_api_key: z.string().nullable().optional(),
-  sglang_url: z.string().nullable().optional(),
-  sglang_api_key: z.string().nullable().optional(),
+  /// Hourly accelerator price for the Test-run cost figures. NO default — absent
+  /// means every dollar figure reads "n/a (no price basis)". A guessed price
+  /// would understate a real bill, which is worse than showing none.
+  gpu_hourly_usd: z.number().nullable().optional(),
+  /// Fraction of that accelerator this app has (1.0 = the whole card).
+  cost_utilization: z.number().nullable().optional(),
 });
 export type UserSettings = z.infer<typeof UserSettingsSchema>;
 

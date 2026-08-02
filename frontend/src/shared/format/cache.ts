@@ -6,7 +6,7 @@
 /// cache_n=39` (total 40, prefill 578ms→51ms).
 ///
 /// This is the SINGLE gate every cache readout uses — `available` is false unless BOTH counts
-/// are present and the total is positive, so a backend without the feature (Ollama/MLX →
+/// are present and the total is positive, so a backend without the feature (a remote backend →
 /// `cache_n` null) shows nothing, while a cold llama run (`cache_n: 0`, recomputed > 0) is
 /// `available` and honestly shows "0 reused". A measured zero and an absent feature must
 /// render differently; this rule is the line between them.

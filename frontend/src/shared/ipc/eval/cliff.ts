@@ -18,7 +18,7 @@ export const EVENT_CLIFF_STEP = "cliff-step";
 /// schemas), the injected needle, and the output budget all sit ON TOP of the padding,
 /// so the backend runs at `maxTokens + CLIFF_CTX_HEADROOM`. Max Tokens must therefore
 /// stay this far BELOW the model's context window: asking for the full window makes the
-/// deepest rung overflow it, and Ollama then silently clamps and truncates the prompt
+/// deepest rung overflow it, since a server may silently clamp and truncate the prompt
 /// (dropping the needle) while `prompt_eval_count` saturates — a fabricated depth.
 /// `usableCliffTokens` is the single place that subtraction happens.
 export const CLIFF_CTX_HEADROOM = 2048;
@@ -215,7 +215,7 @@ export async function runContextCliff(
   /// Which tool-calling path to probe on — chosen by the user on the test page. `true`
   /// drives native function-calling (structured `tool_calls`), `false`/undefined the
   /// prompt-based JSON-in-text proxy. The backend refuses native on a model/backend that
-  /// can't do it (MLX / no tool template).
+  /// can't do it (no tool template).
   runNativeFc?: boolean,
   /// Thinking model + budget preset: when `isThinking`, each rung's output budget adds a
   /// scratchpad banded to that rung's depth (mirrors the Tests page's tier presets).
@@ -256,7 +256,7 @@ export { BackendKindSchema };
 /// Record one model's context-cliff outcome for a collection. `broken` ⇒ fails at the
 /// baseline; else `depth` = the collapse depth (tokens), or `null` when accuracy held —
 /// in which case `tested` is how far the probe reached ("✓ No cliff (≥tested)"). The
-/// backend stores keys verbatim (Ollama names carry colons) and writes atomically.
+/// backend stores keys verbatim (model names carry colons) and writes atomically.
 export async function saveCliffResult(
   collectionId: string,
   model: string,

@@ -59,10 +59,11 @@ describe("AgentReportPage", () => {
   it("assesses the selected collection + profile and renders the verdict table", async () => {
     vi.mocked(assessReadiness).mockResolvedValue({
       verdicts: [
-        { model: "qwen", backend: "ollama", verdict: { status: "ready", blocking: [], conditions: [], path: "prompt_based" } },
+        { model: "qwen", backend: "llama_cpp", verdict: { status: "ready", blocking: [], conditions: [], path: "prompt_based" } },
       ],
       right_sizing: [],
       right_sizing_hint: null,
+      unreadable_columns: 0,
     });
     render(<AgentReportPage />);
     await waitFor(() => expect(screen.getByTestId("readiness-profile-select")).toBeInTheDocument());
@@ -78,10 +79,11 @@ describe("AgentReportPage", () => {
   it("auto-refreshes only when a batch completes for the shown collection or its domain", async () => {
     vi.mocked(assessReadiness).mockResolvedValue({
       verdicts: [
-        { model: "qwen", backend: "ollama", verdict: { status: "ready", blocking: [], conditions: [], path: "prompt_based" } },
+        { model: "qwen", backend: "llama_cpp", verdict: { status: "ready", blocking: [], conditions: [], path: "prompt_based" } },
       ],
       right_sizing: [],
       right_sizing_hint: null,
+      unreadable_columns: 0,
     });
     // Already assessed for the shown collection (easy-coding); two tier-siblings + a
     // different-domain collection are present so the domain guard can be exercised.
@@ -118,10 +120,50 @@ describe("AgentReportPage", () => {
   });
 
   it("shows an empty state (not a fabricated verdict) when no report is persisted", async () => {
-    vi.mocked(assessReadiness).mockResolvedValue({ verdicts: [], right_sizing: [], right_sizing_hint: null });
+    vi.mocked(assessReadiness).mockResolvedValue({ verdicts: [], right_sizing: [], right_sizing_hint: null, unreadable_columns: 0 });
     render(<AgentReportPage />);
     await waitFor(() => expect(screen.getByTestId("readiness-profile-select")).toBeInTheDocument());
     fireEvent.click(screen.getByTestId("readiness-run"));
     await waitFor(() => expect(screen.getByTestId("readiness-empty")).toHaveTextContent("No batch report found"));
   });
+
+  /// Migration guard: a saved report with a column from a now-removed backend used
+  /// to fail the whole assess. The readable verdicts must render, and the models
+  /// left out must be NAMED — a short table can't pass as the complete run.
+  it("renders the readable verdicts and names the models left out of a legacy report", async () => {
+    vi.mocked(assessReadiness).mockResolvedValue({
+      verdicts: [
+        { model: "qwen", backend: "llama_cpp", verdict: { status: "ready", blocking: [], conditions: [], path: "prompt_based" } },
+      ],
+      right_sizing: [],
+      right_sizing_hint: null,
+      unreadable_columns: 2,
+    });
+    render(<AgentReportPage />);
+    await waitFor(() => expect(screen.getByTestId("readiness-profile-select")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("readiness-run"));
+
+    await waitFor(() => expect(screen.getByTestId("readiness-verdict-table")).toBeInTheDocument());
+    const note = screen.getByTestId("readiness-unreadable-columns");
+    expect(note).toHaveTextContent("2 models from the saved run are not shown");
+    expect(note).toHaveTextContent("no longer supports");
+  });
+
+  it("says nothing about missing models when the whole report was readable", async () => {
+    vi.mocked(assessReadiness).mockResolvedValue({
+      verdicts: [
+        { model: "qwen", backend: "llama_cpp", verdict: { status: "ready", blocking: [], conditions: [], path: "prompt_based" } },
+      ],
+      right_sizing: [],
+      right_sizing_hint: null,
+      unreadable_columns: 0,
+    });
+    render(<AgentReportPage />);
+    await waitFor(() => expect(screen.getByTestId("readiness-profile-select")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("readiness-run"));
+
+    await waitFor(() => expect(screen.getByTestId("readiness-verdict-table")).toBeInTheDocument());
+    expect(screen.queryByTestId("readiness-unreadable-columns")).not.toBeInTheDocument();
+  });
+
 });

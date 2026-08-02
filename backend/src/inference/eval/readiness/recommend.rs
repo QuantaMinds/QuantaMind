@@ -40,7 +40,7 @@ mod tests {
     fn verdict(model: &str, status: Readiness, effort: Option<f64>, steps: Option<f64>) -> ModelVerdict {
         ModelVerdict {
             model: model.into(),
-            backend: BackendKind::Ollama,
+            backend: BackendKind::LlamaCpp,
             verdict: ReadinessVerdict {
                 status,
                 blocking: vec![],

@@ -30,7 +30,7 @@ jobs:
           # report (unreachable everywhere), not crash. Exit code is nonzero by
           # contract, so don't gate on it; gate on the report being printed.
           qm doctor > doctor.out 2>&1 || true
-          grep -q 'ollama' doctor.out
+          grep -q 'llama_cpp' doctor.out
           cat doctor.out
 
   # The documented manual path for the static musl binary (the shell installer

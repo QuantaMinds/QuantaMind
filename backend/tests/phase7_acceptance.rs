@@ -1,6 +1,6 @@
 //! Phase 7 acceptance suite — one integration test per end-to-end scenario (S1–S6
 //! from the Phase-7 manual test plan), exercising the REAL pure functions the GUI
-//! and the future CLI share. The truly manual legs (force-quit, live Ollama, real
+//! and the future CLI share. The truly manual legs (force-quit, live the server, real
 //! VRAM detection) are out of scope here; this proves the deterministic logic each
 //! scenario rests on. Scenario IDs map to the manual plan.
 
@@ -37,7 +37,7 @@ fn agg(passes: u32, total: u32, steps: Option<f64>, effort: Option<f64>, loops: 
 fn column(model: &str, agentic: Option<AggAgentic>, native: Option<AggAgentic>) -> BatchColumn {
     BatchColumn {
         model: model.into(),
-        backend: BackendKind::Ollama,
+        backend: BackendKind::LlamaCpp,
         toolcall: None,
         agentic,
         agentic_native_fc: native,
@@ -128,11 +128,11 @@ fn s2_lowering_the_cap_flips_a_fitting_model_to_not_ready() {
 
 #[test]
 fn s2_single_model_backend_is_unmeasured_and_blocks_under_require_full_vram() {
-    // try_profile returns None when dims/weights/cap are absent (a non-Ollama backend).
+    // try_profile returns None when dims/weights/cap are absent (a non-the server backend).
     assert!(try_profile(None, None, None, Some(24 * 1024u64.pow(3))).is_none());
 
     // Unmeasured VRAM (None) under require_full_vram → NotReady (never a guessed pass).
-    let col = column("mlx-model", Some(agg(9, 10, Some(4.0), Some(120.0), 0, 0)), None);
+    let col = column("remote-model", Some(agg(9, 10, Some(4.0), Some(120.0), 0, 0)), None);
     assert_eq!(status_of(&col, None, false, &profile(0.80, true, true)), Readiness::NotReady);
 }
 
@@ -225,7 +225,7 @@ fn s4_a_truncated_final_line_heals_rather_than_panicking() {
 fn s4_fold_report_rebuilds_the_partial_matrix_for_bulk_rehydration() {
     let targets = vec![quantamind_lib::inference::eval::toolcall::matrix::ModelTarget {
         model: "qwen".into(),
-        backend: BackendKind::Ollama,
+        backend: BackendKind::LlamaCpp,
     }];
     let tasks = vec![task("a1")];
     let prior = vec![unit("a1", false, 2), unit("a1", true, 1)]; // prompt 2/2 + native 1/1
@@ -253,7 +253,7 @@ fn verdict(model: &str, status: Readiness, effort: Option<f64>, steps: Option<f6
     use quantamind_lib::inference::eval::readiness::types::ReadinessVerdict;
     ModelVerdict {
         model: model.into(),
-        backend: BackendKind::Ollama,
+        backend: BackendKind::LlamaCpp,
         verdict: ReadinessVerdict { status, blocking: vec![], conditions: vec![], path: AgentPath::PromptBased },
         memory: None,
         avg_steps: steps,

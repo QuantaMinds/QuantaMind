@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, fireEvent, within } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 
 vi.mock("../shared/memory/useVramFit", () => ({
   useVramFit: (model?: string) => ({
@@ -15,7 +15,7 @@ import { useSelectedModelStore } from "../shared/state/selectedModelStore";
 
 beforeEach(() => {
   useParamsStore.setState({ globalParams: {}, perModelParams: {}, sharedParams: true, keepLoaded: false });
-  useBackendStore.setState({ selectedBackend: "ollama" });
+  useBackendStore.setState({ selectedBackend: "llama_cpp" });
   useSelectedModelStore.setState({ selectedModels: [] });
 });
 
@@ -45,34 +45,14 @@ describe("ParamsControl (header global params)", () => {
   });
 
   it("no per-model toggle for a single model", () => {
-    useSelectedModelStore.setState({ selectedModels: [{ name: "llama", backend: "ollama", size_bytes: 1 }] });
+    useSelectedModelStore.setState({ selectedModels: [{ name: "llama", backend: "llama_cpp", size_bytes: 1 }] });
     render(<ParamsControl />);
     fireEvent.click(screen.getByTestId("header-params-button"));
     expect(screen.queryByTestId("header-shared-params")).toBeNull();
   });
 
-  it("2+ Ollama models: unchecking 'same for all' reveals per-model editors that write perModelParams", () => {
-    useSelectedModelStore.setState({ selectedModels: [
-      { name: "llama", backend: "ollama", size_bytes: 1 },
-      { name: "mistral", backend: "ollama", size_bytes: 1 },
-    ] });
-    render(<ParamsControl />);
-    fireEvent.click(screen.getByTestId("header-params-button"));
-    // shared by default → no per-model groups
-    expect(screen.getByTestId("header-shared-params")).toBeInTheDocument();
-    expect(screen.queryByTestId("header-model-params-llama")).toBeNull();
-    // uncheck → per-model groups appear
-    fireEvent.click(screen.getByTestId("header-shared-params-toggle"));
-    expect(screen.getByTestId("header-model-params-llama")).toBeInTheDocument();
-    expect(screen.getByTestId("header-model-params-mistral")).toBeInTheDocument();
-    // editing one model's row writes only that model's params
-    const llamaTemp = within(screen.getByTestId("header-model-params-llama")).getByTestId("param-temperature-input");
-    fireEvent.change(llamaTemp, { target: { value: "0.1" } });
-    expect(useParamsStore.getState().perModelParams).toEqual({ llama: { temperature: 0.1 } });
-  });
-
-  it("offers 'Use max' for a single Ollama model and sets num_ctx to the model's context window", () => {
-    useSelectedModelStore.setState({ selectedModels: [{ name: "phi3.5:latest", backend: "ollama", size_bytes: 1 }] });
+  it("offers 'Use max' for a single the server model and sets num_ctx to the model's context window", () => {
+    useSelectedModelStore.setState({ selectedModels: [{ name: "phi3.5:latest", backend: "llama_cpp", size_bytes: 1 }] });
     render(<ParamsControl />);
     fireEvent.click(screen.getByTestId("header-params-button"));
     expect(screen.getByTestId("header-ctx-max")).toHaveTextContent("131,072");

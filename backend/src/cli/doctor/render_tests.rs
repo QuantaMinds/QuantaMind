@@ -14,9 +14,9 @@ fn remote(status: RemoteAuthStatus, insecure_key: bool) -> BackendDoctor {
     }
 }
 
-fn ollama(reachable: bool, models: &[&str]) -> BackendDoctor {
+fn local(reachable: bool, models: &[&str]) -> BackendDoctor {
     BackendDoctor {
-        kind: BackendKind::Ollama,
+        kind: BackendKind::LlamaCpp,
         endpoint: "http://localhost:11434".into(),
         reachable,
         version: reachable.then(|| "0.24.0".to_string()),
@@ -54,24 +54,24 @@ fn a_key_over_plain_http_says_withheld() {
 }
 
 #[test]
-fn ollama_up_with_zero_models_is_a_loud_no_models_finding() {
+fn a_reachable_backend_with_zero_models_is_a_loud_no_models_finding() {
     // Reachable but empty → the most common first-run trap. NOT a green line.
-    let l = lines_for(ollama(true, &[]));
-    assert!(l.iter().any(|s| s.contains("[QM-NO-MODELS]") && s.contains("ollama pull")), "{l:?}");
+    let l = lines_for(local(true, &[]));
+    assert!(l.iter().any(|s| s.contains("[QM-NO-MODELS]") && s.contains("start the server with a model loaded")), "{l:?}");
 }
 
 #[test]
 fn a_healthy_scan_emits_no_blocker_spam() {
-    // Ollama runnable + vLLM simply off → no fix line for the backend that's just not running.
-    let report = DoctorReport { backends: vec![ollama(true, &["qwen2.5:3b"]), remote(RemoteAuthStatus::Unreachable, false)] };
+    // the server runnable + vLLM simply off → no fix line for the backend that's just not running.
+    let report = DoctorReport { backends: vec![local(true, &["qwen2.5:3b"]), remote(RemoteAuthStatus::Unreachable, false)] };
     assert!(error_lines(&report).is_empty(), "a healthy scan should be quiet: {:?}", error_lines(&report));
     assert_eq!(report.exit_code(), crate::cli::doctor::report::EXIT_OK);
 }
 
 #[test]
 fn human_report_names_the_next_command_when_ready() {
-    let report = DoctorReport { backends: vec![ollama(true, &["qwen2.5:3b"])] };
+    let report = DoctorReport { backends: vec![local(true, &["qwen2.5:3b"])] };
     let text = render_human(&report);
-    assert!(text.contains("qm run --backend ollama"), "{text}");
+    assert!(text.contains("qm run --backend llama_cpp"), "{text}");
     assert!(text.contains("✓ ready"), "{text}");
 }

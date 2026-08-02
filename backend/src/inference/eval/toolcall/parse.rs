@@ -335,7 +335,7 @@ fn has_call_structure(text: &str) -> bool {
 /// generated in a non-JSON tool grammar (a mis-built gemma-qat emits harmony-ish channel
 /// tokens) the parser can't read, rather than fumbling JSON ([`looks_like_broken_json`] →
 /// `Malformed`) or yielding nothing (`Hallucinated`). Deliberately NOT salvaged: a real
-/// deployment (Ollama's native parser) also drops these forms, so crediting them would make
+/// deployment (a server-side native parser) also drops these forms, so crediting them would make
 /// the bench more lenient than production. Anchored on BOTH a channel control token AND an
 /// attempted [`has_call_structure`]: either alone appears in ordinary prose (a model quoting
 /// `<|tool_response|>`, or writing "call:foo(x)"), so the verdict requires the pair — they
@@ -577,7 +577,7 @@ mod tests {
     #[test]
     fn foreign_dialect_paren_form_is_not_salvaged_but_is_flagged() {
         // A mis-built gemma-qat (prompt path) emits paren-form calls in channel tokens.
-        // Ollama's native parser does not recover paren-form function calls, so neither do
+        // a server-side native parser does not recover paren-form function calls, so neither do
         // we — but it IS recognized as foreign dialect, not a bare hallucination.
         let raw = "<audio|>thought<channel|><|tool_response|>call:reply(text='The test suite for module \"cart\" failed: test_add_item_to_cart_success')<tool_call|>";
         assert!(extract_calls_dialect(raw).is_none(), "paren form must NOT be salvaged (production drops it)");
@@ -588,7 +588,7 @@ mod tests {
 
     #[test]
     fn foreign_dialect_brace_with_pseudo_quote_wrappers_is_not_salvaged_but_is_flagged() {
-        // The `<|"|>` string-value wrappers break relax_object — Ollama's native parser
+        // The `<|"|>` string-value wrappers break relax_object — a server-side native parser
         // dropped this `reply` too, so we drop it as well and flag the run foreign.
         let raw = "thought\n<channel|><|tool_response|>call:reply{text:<|\"|>The test suite for module 'cart' failed: test_add_item_to_cart_success<|\"|>}<tool_call|>";
         assert!(extract_calls_dialect(raw).is_none(), "<|\"|>-wrapped body must NOT be salvaged");
@@ -597,7 +597,7 @@ mod tests {
 
     #[test]
     fn clean_brace_harmony_call_is_still_salvaged_at_production_parity() {
-        // `call:run_tests{module:'cart'}` has no `<|"|>` wrapper — Ollama's native parser
+        // `call:run_tests{module:'cart'}` has no `<|"|>` wrapper — a server-side native parser
         // recovers it, so the existing harmony path must keep recovering it (unchanged).
         let raw = "<channel|><|tool_response|>call:run_tests{module: \"cart\"}<tool_call|>";
         let (calls, dialect) = extract_calls_dialect(raw).unwrap();

@@ -8,7 +8,7 @@ use crate::persistence::publish::row::PublishContext;
 fn verdict(model: &str, pass_k: Option<f64>, quant: Option<&str>) -> ModelVerdict {
     ModelVerdict {
         model: model.to_string(),
-        backend: BackendKind::Ollama,
+        backend: BackendKind::LlamaCpp,
         verdict: ReadinessVerdict {
             status: Readiness::Ready,
             blocking: vec!["secret task detail".into()],

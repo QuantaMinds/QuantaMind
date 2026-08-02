@@ -34,7 +34,6 @@ use crate::inference::eval::readiness::types::{ModelVerdict, Readiness};
 use crate::inference::eval::toolcall::matrix::ModelTarget;
 use crate::inference::eval::toolcall::prompt::TerminalGuidance;
 use crate::inference::eval::toolcall::tasks::{builtin_collection, ToolTask};
-use crate::inference::ollama::ollama_show::probe_supports_thinking;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -91,6 +90,9 @@ pub struct RunOptions {
     /// cache hits, peak context, step-end RSS, KV-at-peak) — the CLI twin of the
     /// app's Latency Test-run view. Off by default: it samples host RSS per turn.
     pub costs: bool,
+    /// Price basis for the `--costs` dollar figures. Defaults to no price, so the
+    /// USD fields read `n/a` until the user declares one in `qm.json`.
+    pub cost_config: crate::inference::eval::costs::CostConfig,
     /// If set, persist every task's per-step trajectory (the raw model output,
     /// injections, timings) as JSONL files in this directory — the SAME format the
     /// GUI's agentic_transcripts store uses, so failing runs can be post-mortemed
@@ -110,7 +112,7 @@ pub enum RunOutcome {
     BadProfileFile { path: String, reason: String },
     /// `--mode native` but the model/backend has no native tool-calling — exit 2.
     NativeUnsupported { backend: BackendKind, model: String },
-    /// `--thinking standard|deep` but the model can't reason (Ollama 400s it) — exit 2.
+    /// `--thinking standard|deep` but the model can't reason — exit 2.
     ThinkingUnsupported { backend: BackendKind, model: String },
     /// An uploaded collection FAILED the mandatory validation gate — testing must not
     /// start on a broken answer key. Exit 20; `findings` name every defect + its fix.
@@ -159,7 +161,7 @@ impl RunReport {
     }
 }
 
-/// Will an OpenAI-compatible backend (llama.cpp / MLX / vLLM / SGLang) actually
+/// Will an OpenAI-compatible backend (llama.cpp / vLLM) actually
 /// produce reasoning in THIS model+server setup? Sends one tiny request and checks
 /// for `reasoning_content` — the field llama.cpp (`--reasoning-format`) and vLLM use.
 /// A null/absent field means `--thinking` would silently no-op (the exact bug this
@@ -202,8 +204,9 @@ fn effective_tier(tasks: &[ToolTask]) -> Tier {
 fn skeleton(collection_id: &str, targets: &[ModelTarget]) -> BatchReport {
     BatchReport {
         collection_id: collection_id.to_string(),
+        unreadable_columns: 0,
+        costs: None,
         num_ctx: None,
-        ollama_version: None,
         collection_hash: None,
         think_preset: None,
         params: None,
@@ -407,7 +410,6 @@ pub async fn run_suite(opts: RunOptions) -> AppResult<RunOutcome> {
         .unwrap_or_else(|| endpoint::base_url(opts.backend));
     match opts.backend {
         BackendKind::VLlm => remote_config::set_vllm(Some(ep.clone()), opts.api_key.clone()),
-        BackendKind::SgLang => remote_config::set_sglang(Some(ep.clone()), opts.api_key.clone()),
         _ => {}
     }
 
@@ -416,15 +418,10 @@ pub async fn run_suite(opts: RunOptions) -> AppResult<RunOutcome> {
     let preset = opts.think;
 
     // Guard: a Thinking-Budget preset where reasoning won't actually happen — shown
-    // CLEARLY instead of silently no-op'ing (llama.cpp) or 400'ing every run into a
-    // bogus verdict (Ollama). Ollama gates per-model (probe /api/show); the other
-    // OpenAI-compatible backends can't be queried, so we probe the live setup for a
-    // `reasoning_content` field.
+    // CLEARLY instead of silently no-op'ing. The OpenAI-compatible backends expose no
+    // capability endpoint, so we probe the live setup for a `reasoning_content` field.
     if is_thinking {
-        let reasons = match opts.backend {
-            BackendKind::Ollama => probe_supports_thinking(&ep, &opts.model).await,
-            _ => openai_reasons(&ep, &opts.model, opts.api_key.as_deref()).await,
-        };
+        let reasons = openai_reasons(&ep, &opts.model, opts.api_key.as_deref()).await;
         if !reasons {
             return Ok(RunOutcome::ThinkingUnsupported { backend: opts.backend, model: opts.model });
         }
@@ -441,7 +438,8 @@ pub async fn run_suite(opts: RunOptions) -> AppResult<RunOutcome> {
     });
     let sink: Arc<dyn BatchSink> = cli_sink.clone();
 
-    // Native eligibility (Ollama /api/show tools; llama.cpp --jinja; MLX has none).
+    // Native eligibility (llama.cpp `--jinja`; the remote OpenAI servers apply the
+    // model's tool grammar).
     let mut supported: HashSet<String> = HashSet::new();
     if opts.mode.wants_native() && probe_native_tools(opts.backend, &ep, &opts.model).await {
         supported.insert(opts.model.clone());
@@ -522,13 +520,9 @@ pub async fn run_suite(opts: RunOptions) -> AppResult<RunOutcome> {
     // The params this run sent (mirrors the GUI batch command) — a saved report stays
     // self-describing for later `qm report`/publish reads.
     report.params = opts.params.clone();
-    // Stamp the measured placement facts via the SHARED helper — the same one the GUI's
-    // batch command uses, so `qm --costs` and the app's Latency view can never drift.
-    // (llama-server launch facts stay unstamped here: the CLI never spawns servers, and
-    // an externally managed server's flags are unknowable — never guessed.)
-    let ep_probe = ep.clone();
-    let placements = crate::inference::eval::run_facts::probe_placements(&targets, move |_| ep_probe.clone()).await;
-    crate::inference::eval::run_facts::stamp_placements(&mut report.columns, &placements);
+    // Weight-placement facts stay unstamped: no supported server reports a VRAM-vs-CPU
+    // split, and the CLI never spawns servers, so an externally managed server's flags
+    // are unknowable. Left as "Not available" rather than guessed.
 
     // Persist the raw BatchReport if asked (for offline `qm report --report`). Saved
     // even for an errored/inconclusive run — the raw evidence is still worth keeping.
@@ -572,17 +566,23 @@ pub async fn run_suite(opts: RunOptions) -> AppResult<RunOutcome> {
     }
 
     // Per-task run costs (`--costs`): assemble from the sink's captured turns + the
-    // stamped column, with KV-at-peak from the model's dims (Ollama /api/show; other
-    // backends can't be dim-probed by model name → the KV figure stays None, honestly).
+    // stamped column, with KV-at-peak from the model's dims (read from the installed
+    // GGUF header; a remote backend has no local file → the KV figure stays None, honestly).
     let costs = if opts.costs {
         let dims = match opts.backend {
-            BackendKind::Ollama => crate::commands::models::model_inspect::fetch_dims(&opts.model)
-                .await
+            BackendKind::LlamaCpp => crate::commands::models::model_inspect::fetch_dims(&opts.model)
                 .map(|d| (d.layers, d.head_count, d.head_count_kv, d.embedding_length, d.kv_estimated)),
             _ => None,
         };
         let column = report.columns.iter().find(|c| c.model == opts.model);
-        Some(costs::assemble(&opts.model, &cli_sink.captured_steps(), &cli_sink.captured_outcomes(), column, dims))
+        let outcomes = cli_sink.captured_outcomes();
+        // The dollar layer prices the SAME captured outcomes the token rows came
+        // from. With no declared price every USD field stays None and the renderer
+        // prints "n/a (no price basis)" — never $0.00.
+        Some(
+            costs::assemble(&opts.model, &cli_sink.captured_steps(), &outcomes, column, dims)
+                .with_usd(&outcomes, &opts.cost_config),
+        )
     } else {
         None
     };

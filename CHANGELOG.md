@@ -51,12 +51,12 @@ All notable changes to QuantaMind are documented here. The format follows
   included) with an inline raise-or-reduce hint, and `qm cliff` preflights the same window
   (`[QM-WINDOW-TOO-SMALL]`, exit `2`) instead of dying mid-ladder. This was the "stress test
   maxes out at ~9K no matter what I set" report.
-- **Context Stress Test on Ollama: the native-FC ceiling shows before the click** — Ollama
+- **Context Stress Test on llama.cpp: the native-FC ceiling shows before the click** — llama.cpp
   grants the `tools` capability only when a model's template references `.Tools` (imported
   GGUFs usually don't), and rejects native tool requests otherwise. The Method toggle now
   disables Native FC for such a model with a hint naming the cause and both levers (probe
   Prompt-based, or re-create the model with a tool-capable TEMPLATE) instead of refusing
-  post-click on every run. This was the "Ollama doesn't work with the stress test" report.
+  post-click on every run. This was the "llama.cpp doesn't work with the stress test" report.
 - **Three-bucket cliff aggregate** — a cap-affected rung reports `passed · failed ·
   died-at-cap` and no single rate (dropping budget cells overstates, folding them
   understates); model claims run on the content rate, budget-event scale on the folded
@@ -123,7 +123,7 @@ from a single prompt all the way to a hardware-aware agent-readiness verdict.
 ### Added
 
 **Backends**
-- llama.cpp (`llama-server`) and MLX (`mlx_lm`, Apple Silicon) backends, alongside Ollama, behind a single `InferenceBackend` trait.
+- llama.cpp (`llama-server`) and vLLM (`vllm_lm`, Apple Silicon) backends, alongside llama.cpp, behind a single `InferenceBackend` trait.
 - Backend is auto-selected from the model's weight format (never a silent fallback).
 - External servers launch stream-aware (no blind timeout), are reaped on app exit, and bind to a dynamically chosen free port.
 
@@ -137,7 +137,7 @@ from a single prompt all the way to a hardware-aware agent-readiness verdict.
 - Single-turn tool-calling: composite accuracy (parse · tool-selection · args · abstain) with cascaded conditional denominators; deterministic, sandbox-free scoring.
 - Multi-step agentic: Pass^k reliability, average steps, effort (tokens on success), schema resilience, and a dominant-failure-mode breakdown.
 - Context-cliff probe — finds the prompt length where tool-call accuracy collapses, plotted against real measured prompt tokens.
-- Custom task collections by hand or via CSV import; optional native function-calling path (Ollama `/api/chat` `tools`); per-task trace debugger.
+- Custom task collections by hand or via CSV import; optional native function-calling path (llama.cpp `/v1/chat/completions` `tools`); per-task trace debugger.
 
 **Quant** — compare a model family's quantizations
 - Side-by-side size · hardware fit (OOM risk) · quality (eval pass-rate) · tool-call composite, with a best-trade-off recommendation for your use case and context length.
@@ -166,7 +166,7 @@ from a single prompt all the way to a hardware-aware agent-readiness verdict.
 
 ## [0.1.0]
 
-- Initial workbench: Workspace (prompt → streamed completion with timing), Model Management (install from Ollama library / Hugging Face GGUF / local file), and Compare (one prompt across multiple models). Local-first, no telemetry.
+- Initial workbench: Workspace (prompt → streamed completion with timing), Model Management (install from Hugging Face / Hugging Face GGUF / local file), and Compare (one prompt across multiple models). Local-first, no telemetry.
 
 [0.2.0]: https://github.com/QuantaMinds/QuantaMind/releases/tag/v0.2.0
 [0.1.0]: https://github.com/QuantaMinds/QuantaMind/releases/tag/v0.1.0

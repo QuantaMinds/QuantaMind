@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import type { BackendKind } from "../../../shared/ipc/models/storage";
-import { getHardwareSnapshot } from "../../../shared/ipc/compare/hardware";
-import { checkLlamaHealth, checkMlxHealth, checkVllmHealth, checkSglangHealth } from "../../../shared/ipc/core/client";
+import { checkLlamaHealth, checkVllmHealth } from "../../../shared/ipc/core/client";
 import { useBackendStore } from "../../../shared/state/backendStore";
 import { useInstalledModelsStore } from "../../models/state/installedModelsStore";
 import { useRemoteEndpointsStore } from "../state/remoteEndpointsStore";
@@ -13,7 +12,7 @@ const SLOW_MS = 30000; // background backends — a slow heartbeat, just so the 
 /// Polls one backend's health into the store, at a cadence that depends on whether it is the
 /// SELECTED backend (5s) or a background one (30s), and only while `enabled`. Centralizes the
 /// selected-aware interval + enable gate so a backend the user isn't running isn't probed every
-/// 5s — the old code probed all five unconditionally (including remote vLLM/SGLang with no
+/// 5s — the old code probed every backend unconditionally (including remote vLLM with no
 /// endpoint configured). `onBecameAvailable` fires on the false/null→true edge (e.g. refresh a
 /// remote model list when its server first comes up).
 export function usePolledBackendHealth(
@@ -66,28 +65,7 @@ export function useLlamaBackend(): void {
   usePolledBackendHealth("llama_cpp", checkLlamaHealth, setLlamaHealthy);
 }
 
-// Detects Apple Silicon (the only platform where mlx_lm.server can run) and, when present, polls
-// MLX health. Off Apple Silicon MLX is never offered, so the poll is gated off (`enabled: false`).
-export function useMlxBackend(): { appleSilicon: boolean } {
-  const [appleSilicon, setAppleSilicon] = useState(false);
-  const setMlxHealthy = useBackendStore((s) => s.setMlxHealthy);
-
-  useEffect(() => {
-    let cancelled = false;
-    getHardwareSnapshot()
-      .then((hw) => !cancelled && setAppleSilicon(hw.is_apple_silicon))
-      .catch(() => !cancelled && setAppleSilicon(false));
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  usePolledBackendHealth("mlx", checkMlxHealth, setMlxHealthy, { enabled: appleSilicon });
-
-  return { appleSilicon };
-}
-
-// vLLM/SGLang run on a remote GPU box. They are polled ONLY when an endpoint is configured in
+// vLLM runs on a remote GPU box. It is polled ONLY when an endpoint is configured in
 // Settings — an unconfigured remote backend is never probed (the old code hit a blank endpoint
 // every 5s → constant connection-refused). On the unreachable→reachable edge the installed-models
 // list is refreshed, since the remote model list is served by the endpoint (`/v1/models`).
@@ -97,10 +75,4 @@ export function useVllmBackend(): void {
   const set = useBackendStore((s) => s.setVllmHealthy);
   const configured = useRemoteEndpointsStore((s) => s.vllmUrl != null);
   usePolledBackendHealth("vllm", checkVllmHealth, set, { enabled: configured, onBecameAvailable: refreshModels });
-}
-
-export function useSglangBackend(): void {
-  const set = useBackendStore((s) => s.setSglangHealthy);
-  const configured = useRemoteEndpointsStore((s) => s.sglangUrl != null);
-  usePolledBackendHealth("sglang", checkSglangHealth, set, { enabled: configured, onBecameAvailable: refreshModels });
 }

@@ -9,7 +9,7 @@ use crate::errors::{AppError, AppResult};
 use crate::inference::eval::mcp::oracle_db::DbOracle;
 use crate::inference::eval::mcp::oracle_fs::FsOracle;
 use crate::inference::mcp::bridge::{execute_call, ToolExecution};
-use crate::inference::ollama::ollama_chat::NativeToolCall;
+use crate::inference::chat::native_call::NativeToolCall;
 use crate::mcp::client::McpClient;
 use crate::fs_guard;
 use serde::{Deserialize, Serialize};

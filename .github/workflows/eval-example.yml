@@ -2,7 +2,7 @@ name: qm eval (example)
 
 # A runnable EXAMPLE of gating CI on model readiness with the qm-eval action.
 # It is manual (workflow_dispatch) + a nightly schedule, because it needs a reachable
-# OpenAI-compatible endpoint (vLLM/SGLang) — GitHub's runners can't host a local model.
+# OpenAI-compatible endpoint (vLLM) — GitHub's runners can't host a local model.
 # Point `base-url` at your endpoint and set the QM_API_KEY secret. See docs/ci/README.md.
 
 on:

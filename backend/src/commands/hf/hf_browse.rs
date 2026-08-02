@@ -22,7 +22,7 @@ pub async fn hf_repo_files(repo: String) -> Result<Vec<HfRepoFile>, AppError> {
     repo_gguf_files(HF_ENDPOINT, &repo).await
 }
 
-/// All downloadable files in a repo (the MLX snapshot set), so the UI can show
+/// All downloadable files in a repo (the the remote server snapshot set), so the UI can show
 /// the total download size and a fit estimate before downloading.
 #[tauri::command]
 pub async fn hf_repo_all_files(repo: String) -> Result<Vec<HfRepoFile>, AppError> {

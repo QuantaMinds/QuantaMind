@@ -17,7 +17,7 @@ beforeEach(() => {
   vi.mocked(listen).mockResolvedValue(() => {});
   vi.mocked(invoke).mockImplementation((cmd: string) => {
     if (cmd === "list_models") return Promise.resolve([]);
-    if (cmd === "check_ollama_health")
+    if (cmd === "check_llama_health")
       return Promise.resolve({ available: true, version: "x" });
     return Promise.reject(new Error(`unknown ${cmd}`));
   });

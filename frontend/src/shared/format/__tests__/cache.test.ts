@@ -4,7 +4,7 @@ import { cacheReuse } from "../cache";
 // cacheReuse(cached, recomputed): cached = cache_n (reused), recomputed = prompt_n
 // (prompt_eval_count, processed this turn); total = cached + recomputed.
 describe("cacheReuse", () => {
-  it("is NOT available for a backend without the feature (Ollama/MLX → null)", () => {
+  it("is NOT available for a backend without the feature (a remote backend → null)", () => {
     // The false-zero guard: absence-of-feature must stay absent, never "0 reused".
     expect(cacheReuse(null, 40).available).toBe(false);
     expect(cacheReuse(undefined, 40).available).toBe(false);

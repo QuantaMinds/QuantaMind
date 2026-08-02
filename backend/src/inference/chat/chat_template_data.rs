@@ -1,4 +1,4 @@
-/// A chat template for an Ollama `Modelfile`. `template_string` is the
+/// A chat template for an the server `Modelfile`. `template_string` is the
 /// raw Go-template body (uses {{ .System }} / {{ .Prompt }} / {{ .Response }}),
 /// `stop_tokens` are the strings that terminate a generation.
 #[derive(Clone, Copy, Debug, PartialEq)]

@@ -187,6 +187,13 @@ pub fn render_costs(c: &crate::cli::run::costs::RunCosts) -> String {
         out.push_str(&format!("  quantization (tag's claim, unverified): {q}\n"));
     }
     out.push_str("  rss_max = max of step-END samples of the WHOLE server process (weights + residue), never a per-task amount\n");
+    if let Some(usd) = &c.usd {
+        // The two headline figures, then the basis. The basis line is NOT optional:
+        // a serial benchmark is an upper bound on a batched deployment, and a cost
+        // number without that caveat invites being read as a production quote.
+        out.push_str(&format!("  {}\n", crate::inference::eval::costs::cli_line(usd)));
+        out.push_str(&format!("  basis: {} — {}\n", usd.basis, usd.basis_note));
+    }
     out
 }
 

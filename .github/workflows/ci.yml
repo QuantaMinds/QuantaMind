@@ -38,19 +38,19 @@ jobs:
       - name: Build lean qm (no default features, no Tauri system deps)
         working-directory: backend
         run: cargo build --release --bin qm --no-default-features
-      - name: Assert no GUI/audio/TLS system linkage
+      - name: Assert no GUI/TLS system linkage
         working-directory: backend
         run: |
           ldd target/release/qm
           if ldd target/release/qm | grep -iE 'gtk|webkit|asound|libssl|libcrypto'; then
-            echo "::error::lean qm links a GUI/audio/OpenSSL system lib — the gui feature seam regressed"
+            echo "::error::lean qm links a GUI/OpenSSL system lib — the gui feature seam regressed"
             exit 1
           fi
       - name: Smoke-run the binary
         working-directory: backend
         run: ./target/release/qm --version
-      # Static musl build (feeds the release matrix). rustls + gated audio deps
-      # make this possible; if a dep regresses musl support this fails loudly.
+      # Static musl build (feeds the release matrix). rustls + the gated GUI
+      # deps make this possible; if a dep regresses musl support this fails loudly.
       - name: Build static musl qm
         working-directory: backend
         run: |
@@ -80,15 +80,11 @@ jobs:
       # Linux needs the Tauri system libs so `cargo test --lib` (which pulls in
       # `tauri` as a regular [dependencies] entry) compiles. macOS + Windows
       # ship the equivalents.
-      # `libasound2-dev` provides ALSA — required by the `cpal` audio-capture
-      # crate (mic recording for STT). Without it `alsa-sys`'s build script
-      # panics with `Package alsa was not found in the pkg-config search path`
-      # and the whole `cargo test --lib` step exits 101.
       - name: Install Linux Tauri deps
         if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf libasound2-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
 
       # --- Backend: Rust lib tests (the green suite; NOT full `cargo test`, a
       #     pre-existing broken non-lib target blocks that). ---

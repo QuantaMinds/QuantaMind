@@ -1,4 +1,3 @@
-import type { StrategyId } from "../state/strategy";
 
 // The exported document shape — a populated subset of docs/reference.md#analysis-schema.
 // Everything beyond the required spine is optional; we only emit what we have.
@@ -50,7 +49,6 @@ export interface AnalysisDocument {
   document_type: "bench-report" | "analysis";
   title: string;
   created_at: string;
-  run_strategy?: StrategyId;
   environment?: DocEnvironment;
   models: DocModel[];
   prompts: DocPrompt[];

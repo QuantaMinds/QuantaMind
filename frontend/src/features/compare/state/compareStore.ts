@@ -1,7 +1,6 @@
 import { create } from "zustand";
 import type { GenerateStats, TokenTiming } from "../../../shared/ipc/events/events";
 import type { HardwareSnapshot } from "../../../shared/ipc/compare/hardware";
-import type { StrategyId } from "./strategy";
 import { newRow, updateRow, type CompareModel, type CompareRow } from "./compareRow";
 
 export type { CompareModel, CompareRow, RowStatus } from "./compareRow";
@@ -10,13 +9,11 @@ interface CompareStore {
   prompt: string;
   systemPrompt: string;
   hardwareSnapshot: HardwareSnapshot | null;
-  strategy: StrategyId;
   rows: CompareRow[];
   isRunning: boolean;
   setPrompt: (p: string) => void;
   setSystemPrompt: (p: string) => void;
   setHardwareSnapshot: (s: HardwareSnapshot | null) => void;
-  setStrategy: (s: StrategyId) => void;
   initRun: (models: CompareModel[]) => void;
   setRowLoading: (model: string, modelId: string) => void;
   appendToken: (model: string, modelId: string, text: string) => void;
@@ -32,13 +29,11 @@ export const useCompareStore = create<CompareStore>((set) => ({
   prompt: "",
   systemPrompt: "",
   hardwareSnapshot: null,
-  strategy: "sequential",
   rows: [],
   isRunning: false,
   setPrompt: (prompt) => set({ prompt }),
   setSystemPrompt: (systemPrompt) => set({ systemPrompt }),
   setHardwareSnapshot: (hardwareSnapshot) => set({ hardwareSnapshot }),
-  setStrategy: (strategy) => set({ strategy }),
   initRun: (models) =>
     set({ rows: models.map((m) => newRow(m.name)), isRunning: true }),
   setRowLoading: (model, modelId) =>
@@ -64,5 +59,5 @@ export const useCompareStore = create<CompareStore>((set) => ({
     set((s) => ({ isRunning: false,
       rows: s.rows.map((r) => r.status === "pending" ? { ...r, status: "cancelled", endedAt: new Date().toISOString() } : r) })),
   reset: () => set({ prompt: "", systemPrompt: "", hardwareSnapshot: null,
-    strategy: "sequential", rows: [], isRunning: false }),
+    rows: [], isRunning: false }),
 }));

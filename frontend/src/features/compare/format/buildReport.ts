@@ -1,5 +1,4 @@
 import type { HardwareSnapshot } from "../../../shared/ipc/compare/hardware";
-import type { StrategyId } from "../state/strategy";
 import type { CompareRow, CompareModel } from "../state/compareStore";
 import type { InstalledModelInfo } from "../../../shared/ipc/models/storage";
 import type { AnalysisDocument, DocModel, DocRun } from "./schema";
@@ -11,7 +10,6 @@ const modelId = (name: string) => `model.${slug(name)}`;
 export interface BuildReportInput {
   prompt: string;
   systemPrompt?: string;
-  strategy: StrategyId;
   hardwareSnapshot: HardwareSnapshot | null;
   selectedModels: CompareModel[];
   rows: CompareRow[];
@@ -68,7 +66,7 @@ export function buildReport(input: BuildReportInput): AnalysisDocument {
   const hw = input.hardwareSnapshot;
   const environment = {
     ...(hw ? { memory: { total_bytes: hw.total_memory_bytes, available_bytes_at_start: hw.available_memory_bytes }, gpu: { unified_memory: hw.is_apple_silicon } } : {}),
-    runtimes: [{ name: "ollama" }],
+    runtimes: [{ name: "llama_cpp" }],
   };
 
   const title = names.length <= 1 ? `Run: ${names[0] ?? "(no model)"}` : `Compare: ${names.join(" · ")}`;
@@ -79,7 +77,6 @@ export function buildReport(input: BuildReportInput): AnalysisDocument {
     document_type: "bench-report",
     title,
     created_at: now().toISOString(),
-    run_strategy: input.strategy,
     environment,
     models,
     prompts,

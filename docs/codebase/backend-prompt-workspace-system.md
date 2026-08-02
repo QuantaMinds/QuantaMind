@@ -30,7 +30,7 @@ grounded in real RAM/VRAM, not a guess. Each lives in its own folder under
 | `workspace/` | Open/close/list a workspace folder; CRUD over its YAML prompt files; append/list/get/clear run history. |
 | `settings/` | Model-storage path, per-model temperature, user settings (weights folders), models-folder resolution. |
 | `storage/` | Installed-model disk stats, disk usage, regenerable-cache clear, a free-space guard. |
-| `system/` | Hardware snapshot (GPU, RAM/VRAM, bandwidth), Ollama health/ps/RSS, onboarding scaffold. |
+| `system/` | Hardware snapshot (GPU, RAM/VRAM, bandwidth), llama.cpp health/ps/RSS, onboarding scaffold. |
 
 **How (IPC command surface).** Every public entry point is a `#[tauri::command]`
 invoked from React via `invoke()`:
@@ -51,8 +51,8 @@ invoked from React via `invoke()`:
 | `get_hardware_snapshot` | system/hardware.rs | sync |
 | `probe_gpu` (internal), via snapshot | system/gpu.rs | — |
 | `get_loaded_models` | system/loaded_models.rs | async |
-| `get_ollama_rss` | system/process_memory.rs | sync |
-| `check_ollama_health` | system/health.rs | async |
+| `get_llama_cpp_rss` | system/process_memory.rs | sync |
+| `check_llama_cpp_health` | system/health.rs | async |
 | `scaffold_onboarding_workspace` | system/onboarding.rs | sync |
 
 > Note: the IPC names in the task brief use shorthand (e.g. "open/close/current/
@@ -106,9 +106,9 @@ pub async fn run_prompt(
     let handler = make_token_handler(
         move |t| emit_app.emit(EVENT_TOKEN, TokenPayload { text: t.to_string() }).map_err(|_| ()),
         token.clone(), timing.clone());
-    // MLX uses the app-managed server's dynamic port; others use their default.
-    let mlx_ep = mlx_endpoint();
-    let ep = if backend == BackendKind::Mlx { mlx_ep.as_str() } else { endpoint::default_for(backend) };
+    // vLLM uses the app-managed server's dynamic port; others use their default.
+    let vllm_ep = vllm_endpoint();
+    let ep = if backend == BackendKind::VLlm { vllm_ep.as_str() } else { endpoint::default_for(backend) };
     let result = run_prompt_inner(backend, ep, &model, &prompt,
         system.as_deref().map(str::trim).filter(|s| !s.is_empty()),
         Some(options), keep_alive, token.clone(), handler).await;
@@ -130,14 +130,14 @@ pub fn stop_prompt(state: tauri::State<'_, RunState>) -> Result<(), AppError> {
 ```
 
 Key behaviours: backend defaults via `BackendKind::default()`; temperature
-falls back to the per-model setting when the prompt left it unset; only MLX uses
+falls back to the per-model setting when the prompt left it unset; only vLLM uses
 the dynamic app-managed port. The token handler closes over the cancel token and
 `RunTiming`, so cancellation stops emission and timing records TTFT / tok/s.
 
 ### prompt/prompt_options.rs
 
 - **File:** `backend/src/commands/prompt/prompt_options.rs`
-- **Responsibility:** Validate `InferenceParams` ranges and map them to Ollama's
+- **Responsibility:** Validate `InferenceParams` ranges and map them to llama.cpp's
   `GenerateOptions` block.
 - **Why:** Reject nonsensical sampling params at the boundary; translate the
   persisted schema's field names to the wire names (`max_tokens` → `num_predict`).
@@ -181,9 +181,9 @@ pub fn to_generate_options(p: &InferenceParams) -> GenerateOptions {
 - **Responsibility:** Backend-agnostic dispatch — `run_prompt_inner` builds a
   `GenerateSpec` and calls `.generate()` on the chosen `InferenceBackend`.
 - **Why:** Keep the command (`prompt.rs`) free of backend selection; one place
-  fans out to Ollama / llama.cpp / MLX.
+  fans out to llama.cpp / vLLM.
 - **What:** `validate(model, prompt)` (non-empty), then a `match` on
-  `BackendKind` constructing `OllamaBackend` / `LlamaCppBackend` / `MlxBackend`.
+  `BackendKind` constructing `llama.cppBackend` / `LlamaCppBackend` / `VLlmBackend`.
 - **How/Where used:** Called by `run_prompt`; re-exported as `run_prompt_inner`.
   See [`backend-inference-backends.md`](backend-inference-backends.md) for the
   trait and each backend.
@@ -197,9 +197,9 @@ pub async fn run_prompt_inner(backend: BackendKind, endpoint: &str, model: &str,
     let spec = GenerateSpec { model: model.into(), prompt: prompt.into(),
         system: system.map(str::to_string), options, keep_alive };
     match backend {
-        BackendKind::Ollama   => OllamaBackend::new(endpoint.into()).generate(&spec, cancel, on_token).await,
+        BackendKind::llama.cpp   => llama.cppBackend::new(endpoint.into()).generate(&spec, cancel, on_token).await,
         BackendKind::LlamaCpp => LlamaCppBackend::new(endpoint.into()).generate(&spec, cancel, on_token).await,
-        BackendKind::Mlx      => MlxBackend::new(endpoint.into(), model.into()).generate(&spec, cancel, on_token).await,
+        BackendKind::VLlm      => VLlmBackend::new(endpoint.into(), model.into()).generate(&spec, cancel, on_token).await,
     }
 }
 ```
@@ -396,29 +396,29 @@ pub fn set_model_temperature(app, state, model: String, temperature: f32) -> Res
 ### settings/user_settings.rs
 
 - **File:** `backend/src/commands/settings/user_settings.rs`
-- **Responsibility:** User settings (the shared weights-folder override, STT
-  engine dir, and the remote vLLM/SGLang endpoints) in `user_settings.yaml`;
+- **Responsibility:** User settings (the shared weights-folder override and the
+  remote vLLM endpoints) in `user_settings.yaml`;
   resolve the effective GGUF folder.
 - **Why:** Let the user relocate model storage; provide one resolution point
   combining user setting → env → default. The remote backends' URL + bearer key
   live here because they run off-box (no static localhost default).
 - **What:** `UserSettingsState`; `weights_dir` (user → `QUANTAMIND_GGUF_DIR` →
-  `~/.quantamind/gguf`), `mlx_weights_dir`, `stt_engine_dir`; the remote fields
-  `vllm_url`/`vllm_api_key`/`sglang_url`/`sglang_api_key`; commands
+  `~/.quantamind/gguf`), `vllm_weights_dir`, `stt_engine_dir`; the remote fields
+  `vllm_url`/`vllm_api_key`/`vllm_url`/`vllm_api_key`; commands
   `get_user_settings`, `set_user_settings`, `resolve_models_folder` (absolute
   GGUF folder for display).
 - **How/Where used:** Settings UI reads/writes user settings and shows the
-  resolved models folder; downloaders consult `weights_dir`/`mlx_weights_dir`.
-  On load and on every save, `push_remote_endpoints` mirrors the vLLM/SGLang
+  resolved models folder; downloaders consult `weights_dir`/`vllm_weights_dir`.
+  On load and on every save, `push_remote_endpoints` mirrors the vLLM
   URL+key into `inference/backend/remote_config` so the Tauri-free dispatch path
   (`endpoint::resolve`) can read them.
 
 ### settings/settings.rs
 
 - **File:** `backend/src/commands/settings/settings.rs`
-- **Responsibility:** Report the Ollama models-storage path and validate a
+- **Responsibility:** Report the llama.cpp models-storage path and validate a
   candidate relocation directory.
-- **Why:** Before pointing Ollama at a new disk the app must confirm it exists,
+- **Why:** Before pointing llama.cpp at a new disk the app must confirm it exists,
   is a writable+renameable dir, and has enough free space (HF resume renames
   `*.partial`).
 - **What:** `StoragePathInfo { current_path, from_env }`; `PathValidation`
@@ -448,11 +448,11 @@ pub fn validate_storage_path(path: String) -> Result<PathValidation, AppError> {
 ### storage/storage.rs
 
 - **File:** `backend/src/commands/storage/storage.rs`
-- **Responsibility:** List installed Ollama models with size/family/quant stats;
+- **Responsibility:** List installed llama.cpp models with size/family/quant stats;
   delete a model.
 - **Why:** The model picker and storage panel need real per-model footprints;
   deletion must invalidate the UI's model list.
-- **What:** `fetch_installed_with_stats` (GET `/api/tags`, map to
+- **What:** `fetch_installed_with_stats` (GET the weights folder, map to
   `InstalledModelInfo`, sort by size desc), `remove_model_inner` (DELETE
   `/api/delete`, 404 → `NotFound`); commands `get_installed_models_with_stats`,
   `remove_model` (emits `EVENT_MODELS_CHANGED` on success).
@@ -463,10 +463,10 @@ pub fn validate_storage_path(path: String) -> Result<PathValidation, AppError> {
 
 - **File:** `backend/src/commands/storage/storage_types.rs`
 - **Responsibility:** Serde DTOs for the storage layer.
-- **Why:** Shared shapes between fetch, usage, and the `/api/tags` wire format.
+- **Why:** Shared shapes between fetch, usage, and the the weights folder wire format.
 - **What:** `InstalledModelInfo` (name, size, family, parameter_size, quant,
   `backend`, optional `digest`/`display_name`/`path`), `DiskUsage`
-  (`total_bytes`, `free_bytes`, `ollama_models_bytes`), and the internal
+  (`total_bytes`, `free_bytes`, `llama_cpp_models_bytes`), and the internal
   `TagsResponse` / `ModelEntry` / `ModelDetails` deserialize structs.
 - **How/Where used:** Returned by `get_installed_models_with_stats` and
   `get_disk_usage`; `digest` lets the picker collapse one blob shared across tags.
@@ -476,11 +476,11 @@ pub fn validate_storage_path(path: String) -> Result<PathValidation, AppError> {
 - **File:** `backend/src/commands/storage/storage_disk.rs`
 - **Responsibility:** Resolve every on-disk model folder and compute per-disk
   total/free bytes.
-- **Why:** One place that knows where Ollama / GGUF / MLX weights live and how to
+- **Why:** One place that knows where llama.cpp / GGUF / vLLM weights live and how to
   size the disk holding them; UI must never show a relative path.
-- **What:** `absolutize`; `models_dir` (`OLLAMA_MODELS` → `~/.ollama/models`);
+- **What:** `absolutize`; `models_dir` (`QUANTAMIND_GGUF_DIR` → `~/.llama_cpp/models`);
   `gguf_dir_resolved` (setting → `QUANTAMIND_GGUF_DIR` → `~/.quantamind/gguf`)
-  and `gguf_dest`; `mlx_dir_resolved` + `mlx_model_dir`; `compute_disk_usage`
+  and `gguf_dest`; `vllm_dir_resolved` + `vllm_model_dir`; `compute_disk_usage`
   (picks the longest-matching mount, falls back to zeros).
 - **How/Where used:** Used by `settings.rs`, `user_settings.rs`,
   `storage_usage.rs`, and the downloaders. Sibling `storage_disk_tests.rs`.
@@ -495,7 +495,7 @@ pub fn compute_disk_usage(probe_path: &Path, models_bytes: u64) -> DiskUsage {
         Some(d) => (d.total_space(), d.available_space()),
         None => (0u64, 0u64),                                  // exotic mount → zeros, no panic
     };
-    DiskUsage { total_bytes: total, free_bytes: free, ollama_models_bytes: models_bytes }
+    DiskUsage { total_bytes: total, free_bytes: free, llama_cpp_models_bytes: models_bytes }
 }
 ```
 
@@ -504,9 +504,9 @@ pub fn compute_disk_usage(probe_path: &Path, models_bytes: u64) -> DiskUsage {
 - **File:** `backend/src/commands/storage/storage_usage.rs`
 - **Responsibility:** Combine model-byte sum with disk free/total into one
   `DiskUsage`.
-- **Why:** Storage info must survive a down Ollama — only the model-bytes sum
+- **Why:** Storage info must survive a down llama.cpp — only the model-bytes sum
   zeroes, never the whole panel.
-- **What:** `disk_usage_for(endpoint)` (sum `/api/tags` sizes, default 0 on
+- **What:** `disk_usage_for(endpoint)` (sum the weights folder sizes, default 0 on
   failure, then `compute_disk_usage(models_dir())`); command `get_disk_usage`.
 - **How/Where used:** Storage panel. Sibling `storage_usage_tests.rs`.
 
@@ -599,19 +599,20 @@ pub struct HardwareSnapshot {
 ### system/health.rs
 
 - **File:** `backend/src/commands/system/health.rs`
-- **Responsibility:** Probe Ollama liveness + version.
+- **Responsibility:** Probe llama.cpp liveness + version.
 - **Why:** Gate UI on whether the runtime is up; a 2500 ms budget tolerates a
   busy server loading a large model while still failing fast on a real outage.
-- **What:** `HealthStatus { available, version }`; `probe_health` (GET
-  `/api/version`); command `check_ollama_health`.
-- **How/Where used:** App-wide Ollama status indicator / readiness gates.
+- **What:** `HealthStatus { available, version }`; `probe_health(endpoint)`. The
+  per-backend command wrappers live with their backends (`check_llama_health`,
+  `check_vllm_health`, `check_vllm_health`).
+- **How/Where used:** App-wide llama.cpp status indicator / readiness gates.
 
 ### system/loaded_models.rs
 
 - **File:** `backend/src/commands/system/loaded_models.rs`
-- **Responsibility:** List currently-loaded Ollama models from `/api/ps`.
+- **Responsibility:** List the currently-resident model (the running llama-server's).
 - **Why:** Show what's resident and how much sits in VRAM vs RAM; degrade to
-  empty (not error) when Ollama is unreachable.
+  empty (not error) when llama.cpp is unreachable.
 - **What:** `LoadedModel { name, size_bytes, size_vram_bytes, context_length }`;
   `fetch_loaded` (empty on any failure); command `get_loaded_models`.
 - **How/Where used:** Latency tab / live-memory view, leak heuristics.
@@ -619,10 +620,10 @@ pub struct HardwareSnapshot {
 ### system/process_memory.rs
 
 - **File:** `backend/src/commands/system/process_memory.rs`
-- **Responsibility:** Total RSS of all `ollama` processes.
+- **Responsibility:** Total RSS of all `llama_cpp` processes.
 - **Why:** Feed the frontend's basic memory-leak heuristic (server + runner).
-- **What:** `ollama_rss()` (sum `.memory()` of processes whose name contains
-  "ollama"; `None` if zero); command `get_ollama_rss`. Inline "never panics" test.
+- **What:** `llama_cpp_rss()` (sum `.memory()` of processes whose name contains
+  "llama_cpp"; `None` if zero); command `get_llama_cpp_rss`. Inline "never panics" test.
 - **How/Where used:** Sampled per run by the leak heuristic.
 
 ### system/onboarding.rs
@@ -656,7 +657,7 @@ pub fn scaffold_in(root: &Path) -> AppResult<PathBuf> {
 2. `prompt.rs` `ensure_loaded`s model settings, `validate_params`, maps to
    `GenerateOptions`, fills temperature from `temperature_for(model)` if unset.
 3. A fresh `CancellationToken` is stored in `RunState`, cancelling any prior run.
-4. Endpoint resolved (MLX → dynamic app port; others → backend default).
+4. Endpoint resolved (vLLM → dynamic app port; others → backend default).
 5. `run_prompt_inner` builds a `GenerateSpec` and dispatches to the matching
    `InferenceBackend.generate()`; the token handler emits `prompt-token` per
    chunk and records `RunTiming` (TTFT, tok/s).
@@ -674,7 +675,7 @@ pub fn scaffold_in(root: &Path) -> AppResult<PathBuf> {
    `guess_memory_bandwidth_gbps`, and embeds `probe_gpu()`.
 3. The snapshot (RAM/VRAM, unified flag, bandwidth) is what the memory-fit
    logic compares model footprints against. `get_loaded_models` and
-   `get_ollama_rss` supplement it with live residency for leak/over-commit
+   `get_llama_cpp_rss` supplement it with live residency for leak/over-commit
    checks. Anything unknown is `None` → "Not available", never fabricated.
 
 ### (c) Workspace open + prompt save round-trip
@@ -695,7 +696,7 @@ pub fn scaffold_in(root: &Path) -> AppResult<PathBuf> {
 
 ## Cross-links
 
-- **Generation engine** (`InferenceBackend`, `GenerateSpec`, Ollama/llama.cpp/MLX
+- **Generation engine** (`InferenceBackend`, `GenerateSpec`, llama.cpp / vLLM
   backends, the download/install 2 GB pre-flight gate):
   [`backend-inference-backends.md`](backend-inference-backends.md).
 - **Persistence** (serde YAML round-trip for prompts, history index + eviction,

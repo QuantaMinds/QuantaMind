@@ -6,15 +6,16 @@ use tempfile::tempdir;
 
 fn report(collection_id: &str, passes: u32) -> BatchReport {
     BatchReport {
+        unreadable_columns: 0,
+        costs: None,
         collection_id: collection_id.into(),
         num_ctx: Some(8192),
-        ollama_version: None,
         collection_hash: None,
         think_preset: None,
         params: None,
         columns: vec![BatchColumn {
             model: "qwen".into(),
-            backend: BackendKind::Ollama,
+            backend: BackendKind::LlamaCpp,
             toolcall: None,
             agentic: Some(AggAgentic {
                 tasks_passed: passes,
@@ -73,7 +74,7 @@ fn pre_7_2_column_without_native_fc_loads_as_none() {
     // key; #[serde(default)] must fill it with None rather than fail the load.
     let dir = tempdir().unwrap();
     let json = r#"{"collection_id":"old","num_ctx":4096,"columns":[
-        {"model":"m","backend":"ollama","toolcall":null,"agentic":null,"error":null}
+        {"model":"m","backend":"llama_cpp","toolcall":null,"agentic":null,"error":null}
     ]}"#;
     std::fs::create_dir_all(dir.path()).unwrap();
     std::fs::write(report_path(dir.path(), "old"), json).unwrap();
@@ -104,4 +105,37 @@ fn long_collection_ids_do_not_collide() {
     save(dir.path(), &report(&format!("{base}-BBBB"), 5)).unwrap();
     assert_eq!(load(dir.path(), &format!("{base}-AAAA")).unwrap().unwrap().columns[0].agentic.as_ref().unwrap().passes, 1);
     assert_eq!(load(dir.path(), &format!("{base}-BBBB")).unwrap().unwrap().columns[0].agentic.as_ref().unwrap().passes, 5);
+}
+
+/// Same migration guard as the history/trace stores: a report whose columns name a
+/// now-removed backend must not blank the whole Agent Report page. The readable
+/// columns load and the dropped ones are COUNTED, so the verdict table can say
+/// what it isn't showing rather than passing a short list off as the full run.
+#[test]
+fn a_column_naming_an_unsupported_backend_is_skipped_not_fatal() {
+    let dir = tempdir().unwrap();
+    let json = r#"{
+        "collection_id":"c",
+        "columns":[
+            {"model":"legacy","backend":"retired_engine","toolcall":null,"agentic":null,"error":null},
+            {"model":"current","backend":"llama_cpp","toolcall":null,"agentic":null,"error":null}
+        ]
+    }"#;
+    std::fs::create_dir_all(dir.path()).unwrap();
+    std::fs::write(dir.path().join(safe_filename("c")).with_extension("json"), json).unwrap();
+
+    let r = load(dir.path(), "c").unwrap().expect("report loads");
+    assert_eq!(r.columns.len(), 1, "the readable column still loads");
+    assert_eq!(r.columns[0].model, "current");
+    assert_eq!(r.unreadable_columns, 1, "the legacy column is counted, not silently dropped");
+}
+
+/// A report with nothing to skip reports zero — the count must not be a
+/// permanently-on caveat that trains the user to ignore it.
+#[test]
+fn a_fully_readable_report_counts_zero_unreadable_columns() {
+    let dir = tempdir().unwrap();
+    save(dir.path(), &report("c", 5)).unwrap();
+    let r = load(dir.path(), "c").unwrap().expect("report loads");
+    assert_eq!(r.unreadable_columns, 0);
 }

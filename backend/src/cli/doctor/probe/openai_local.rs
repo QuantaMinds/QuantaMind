@@ -1,4 +1,4 @@
-//! llama.cpp / MLX probe: OpenAI-compatible `/v1/models`, no auth. The first
+//! llama.cpp probe: OpenAI-compatible `/v1/models`, no auth. The first
 //! reachable candidate port wins; there's no version endpoint on this path, so the
 //! version is honestly "not available".
 

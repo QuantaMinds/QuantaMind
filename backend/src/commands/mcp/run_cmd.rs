@@ -440,9 +440,10 @@ pub async fn run_mcp_byo_batch(
     // The final batch report (one column, the aggregate diagnostic) → Model Results + persistence.
     let full = BatchReport {
         collection_id: BYO_COLLECTION.to_string(),
+        costs: None,
+        unreadable_columns: 0,
         columns: vec![byo_column(&model, backend, &agg, agg.successes, agg.total_calls)],
         num_ctx: None,
-        ollama_version: None,
         collection_hash: None, // never publishable — no answer key
         think_preset: None,
         params: None,
@@ -507,6 +508,9 @@ fn byo_step(run: usize, i: usize, kind: StepKind, raw: &str, injection: Option<&
 /// are set but never rendered for a diagnostic — the UI branches on `diagnostic`).
 fn byo_report(diag: &DiagnosticStats) -> AgenticReport {
     AgenticReport {
+        // BYO/MCP diagnostic: no Pass^k attempts ran, so there is nothing to price —
+        // an empty vec reads as "not measured" downstream, never as "zero attempts".
+        attempts: Vec::new(),
         // BYO/MCP diagnostic: no native tool pass ran, so the channel is unmeasured (not zero).
         native_structured_calls: None,
         native_salvaged_calls: None,
@@ -548,7 +552,7 @@ mod byo_report_tests {
         // 5 valid of 6 calls ≠ a clean pass — and there's no answer key anyway.
         assert!(!report.is_strict_pass(), "a diagnostic must never read as a strict pass");
 
-        let col = byo_column("m", BackendKind::Ollama, &diag, 4, 6);
+        let col = byo_column("m", BackendKind::LlamaCpp, &diag, 4, 6);
         let ag = col.agentic.expect("BYO column has an agentic aggregate");
         assert!(ag.diagnostic.is_some(), "the aggregate carries the diagnostic");
         assert_eq!(ag.pass_k(), None, "tasks_total=0 → Model Results shows no pass^k for BYO");

@@ -1,16 +1,7 @@
-import { useEffect, useState } from "react";
-import { checkOllamaHealth } from "../../../../shared/ipc/core/client";
-import type { HealthStatus } from "../../../../shared/ipc/core/types";
 import { useWorkspaceStore } from "../../state/workspaceStore";
 import { useBackendStore } from "../../../../shared/state/backendStore";
 import { formatMetrics } from "../../format";
 import { backendStatus } from "./backendStatus";
-
-// Ollama is polled fast (5s) only while it's the selected backend; a slow 30s heartbeat
-// otherwise — so a user on llama.cpp/MLX isn't probing Ollama every 5s (matches the other
-// backends' selected-aware cadence in usePolledBackendHealth).
-const POLL_FAST_MS = 5000;
-const POLL_SLOW_MS = 30000;
 
 type Props = {
   model: string | null;
@@ -19,41 +10,16 @@ type Props = {
 
 export function StatusBar({ model, onModelClick }: Props) {
   const metrics = useWorkspaceStore((s) => s.lastRunMetrics);
-  const setOllamaHealthy = useBackendStore((s) => s.setOllamaHealthy);
   const activeBackend = useBackendStore((s) => s.selectedBackend);
   const llamaHealthy = useBackendStore((s) => s.llamaHealthy);
-  const mlxHealthy = useBackendStore((s) => s.mlxHealthy);
   const vllmHealthy = useBackendStore((s) => s.vllmHealthy);
-  const sglangHealthy = useBackendStore((s) => s.sglangHealthy);
-  const [health, setHealth] = useState<HealthStatus | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    const tick = async () => {
-      try {
-        const h = await checkOllamaHealth();
-        if (!cancelled) { setHealth(h); setOllamaHealthy(h.available); }
-      } catch {
-        if (!cancelled) { setHealth({ available: false, version: null }); setOllamaHealthy(false); }
-      }
-    };
-    tick();
-    const id = setInterval(tick, activeBackend === "ollama" ? POLL_FAST_MS : POLL_SLOW_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [setOllamaHealthy, activeBackend]);
-
-  // The status reflects the active backend, not always Ollama. llama.cpp and
-  // MLX track their server's run state and name the loaded model.
+  // The status reflects the active backend: llama.cpp tracks its server's run
+  // state, the remote backends their reachability. Each names the loaded model.
   const { running, label: healthLabel, aria: healthAria } = backendStatus(
     activeBackend,
-    health,
     llamaHealthy,
-    mlxHealthy,
     vllmHealthy,
-    sglangHealthy,
     model,
   );
   const dotClass = running ? "bg-green-500" : "bg-red-500";

@@ -99,7 +99,7 @@ pub fn get_builtin_collection(id: String) -> Result<Vec<ToolTask>, AppError> {
 /// Run a tool-call reliability eval over the given `tasks` (built-in or custom)
 /// against a model on a backend and return the report. Tasks are validated here
 /// too — a command can be invoked directly, so the trust boundary is enforced
-/// regardless of source. The endpoint (MLX's dynamic port) is resolved here so
+/// regardless of source. The endpoint (the remote server's dynamic port) is resolved here so
 /// the frontend stays port-agnostic. Each task's full trace is cached under
 /// `collection_id` (best-effort: a cache-write hiccup never fails the eval — the
 /// visualizer falls back to a live run) so "View Trace" needs no re-run.
