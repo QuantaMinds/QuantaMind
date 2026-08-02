@@ -6,6 +6,8 @@
 
 use crate::inference::eval::agentic::step::TrajectoryStep;
 use crate::inference::eval::batch::{BatchColumn, TaskOutcome};
+use crate::inference::eval::agentic::scoring::report::AgenticReport;
+use crate::inference::eval::costs::{summarize, CostConfig, RunCostSummary, TaskCostInput};
 use crate::inference::vram_math::{kv_cache_bytes_at, KvPrecision};
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -78,6 +80,12 @@ pub struct RunCosts {
     pub model: String,
     pub tasks: Vec<TaskCostRow>,
     pub memory: MemoryFacts,
+    /// Wall-clock-seconds → dollars, when a price basis was declared. Absent
+    /// entirely when `--costs` ran without one, so a reader never sees a $0 bill
+    /// standing in for "we don't know". `basis` names WHAT was priced so this
+    /// can't be mistaken for the token figures above it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usd: Option<RunCostSummary>,
 }
 
 fn sum_reported(steps: &[TrajectoryStep], pick: impl Fn(&TrajectoryStep) -> Option<u64>) -> Option<u64> {
@@ -195,6 +203,31 @@ pub fn assemble(
         model: model.to_string(),
         memory: memory_facts(column, kv_at_peak(dims, peak)),
         tasks,
+        // Priced separately by `with_usd` — `assemble` has no view of the config.
+        usd: None,
+    }
+}
+
+impl RunCosts {
+    /// Attach the dollar summary, priced from the captured per-task reports.
+    /// Kept off `assemble` so the token/memory facts stay independent of whether a
+    /// price was declared.
+    pub fn with_usd(mut self, outcomes: &BTreeMap<(String, bool), TaskOutcome>, cfg: &CostConfig) -> Self {
+        let reports: Vec<&AgenticReport> = outcomes
+            .values()
+            .filter_map(|o| match o {
+                TaskOutcome::Agentic { report } => Some(report),
+                _ => None,
+            })
+            .collect();
+        let inputs: Vec<TaskCostInput<'_>> = reports
+            .iter()
+            // Strict Pass^k is the eval engine's existing definition (`is_strict_pass`)
+            // — the cost denominator must not invent a second, looser one.
+            .map(|report| TaskCostInput { report, meets_pass_k: report.is_strict_pass() })
+            .collect();
+        self.usd = Some(summarize(&inputs, cfg));
+        self
     }
 }
 

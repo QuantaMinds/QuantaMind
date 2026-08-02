@@ -507,6 +507,9 @@ fn byo_step(run: usize, i: usize, kind: StepKind, raw: &str, injection: Option<&
 /// are set but never rendered for a diagnostic — the UI branches on `diagnostic`).
 fn byo_report(diag: &DiagnosticStats) -> AgenticReport {
     AgenticReport {
+        // BYO/MCP diagnostic: no Pass^k attempts ran, so there is nothing to price —
+        // an empty vec reads as "not measured" downstream, never as "zero attempts".
+        attempts: Vec::new(),
         // BYO/MCP diagnostic: no native tool pass ran, so the channel is unmeasured (not zero).
         native_structured_calls: None,
         native_salvaged_calls: None,

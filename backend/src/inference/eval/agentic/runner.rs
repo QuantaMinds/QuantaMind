@@ -327,8 +327,12 @@ where
                 continue;
             }
         };
+        // Per-ATTEMPT wall clock: the loop owns the clock (the run itself has no view of
+        // it), and the cost layer needs per-attempt time to price attempts independently —
+        // the task total alone can't tell a cheap pass from an expensive retry.
+        let attempt_started = std::time::Instant::now();
         match run_once_cancellable(turn, &sandbox, max_steps, max_recovery, run_index, tx, cancel).await {
-            Ok(outcome) => outcomes.push(outcome),
+            Ok(outcome) => outcomes.push(outcome.with_wall_ms(attempt_started.elapsed().as_millis() as u64)),
             // Stop was clicked mid-run (not just between runs) — discard this attempt (neither a
             // pass nor a fail: the model never got a fair, complete shot) and stop the batch here,
             // same as the pre-run check above. NOT folded into `last_err`: that path is for genuine
@@ -598,6 +602,10 @@ async fn run_steps<M: ModelTurn>(
     let mut hit_schema_error = false; // this run emitted a schema-invalid call
     let mut schema_recovered = false; // ...and later produced a valid one
     let mut unknown_tools = 0u32; // decoy / unknown-tool calls this run (Phase 9 distraction signal)
+    // Any turn cut at the output cap. On a FAILING run the cap already surfaces as
+    // FailureKind::Truncated/ReasoningOverrun; this carries it onto a run that PASSED
+    // anyway, so the cost layer can exclude a truncated pass instead of pricing it.
+    let mut hit_output_cap = false;
     let mut prev_turn_sig: Option<Vec<String>> = None; // canonical calls of the previous turn
     let mut stalled_repeats = 0u32; // consecutive identical, no-progress turns (loop detector)
     let mut no_progress_streak = 0u32; // consecutive no-checkpoint turns, sig-agnostic (busy-loop guard)
@@ -687,6 +695,7 @@ async fn run_steps<M: ModelTurn>(
                 }
             };
             let truncated = stats.finish_reason.as_deref() == Some("length");
+            hit_output_cap |= truncated;
             let zero_calls = {
                 let clean = think_stripped(&raw, turn.is_thinking());
                 extract_calls_dialect(&clean).is_none()
@@ -786,7 +795,8 @@ async fn run_steps<M: ModelTurn>(
                 // Declined to call any tool, exactly as the task demanded.
                 EndStateRule::ExpectAbstainingText => {
                     send(StepKind::EndStateReached, None, EnvView::None);
-                    return Ok(RunOutcome::success(step_index + 1, output_tokens));
+                    return Ok(RunOutcome::success(step_index + 1, output_tokens)
+                        .with_output_cap(hit_output_cap));
                 }
                 // Yielded (no call) without completing the required checkpoints / reaching the
                 // target UI state.
@@ -1055,6 +1065,7 @@ async fn run_steps<M: ModelTurn>(
             if complete {
                 send(StepKind::EndStateReached, join_injection(&turn_lines), call_env);
                 return Ok(RunOutcome::success(step_index + 1, output_tokens)
+                    .with_output_cap(hit_output_cap)
                     .with_schema(hit_schema_error, schema_recovered)
                     .with_unknown_tools(unknown_tools));
             }

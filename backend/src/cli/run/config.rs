@@ -4,6 +4,7 @@
 
 use crate::errors::{AppError, AppResult};
 use crate::inference::backend::backend_kind::BackendKind;
+use crate::inference::eval::costs::CostConfig;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -19,6 +20,10 @@ pub struct QmConfig {
     /// Endpoint override for remote backends (never a key — that stays in env/keychain).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base: Option<String>,
+    /// Cost basis for `--costs`. Omitted entirely by `qm init` — there is no
+    /// default price, and a guessed one would understate a real bill.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub costs: Option<CostConfig>,
 }
 
 impl QmConfig {

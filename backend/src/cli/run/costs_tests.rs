@@ -115,3 +115,59 @@ fn per_task_kv_uses_each_tasks_own_peak_and_gates_on_dims() {
     let c2 = assemble("m", &cells, &std::collections::BTreeMap::new(), None, None);
     assert!(c2.tasks.iter().all(|t| t.kv_f16_bytes_at_peak.is_none()));
 }
+
+// ── the dollar layer, end-to-end through RunCosts ────────────────────────────
+
+use crate::inference::eval::agentic::scoring::report::{AttemptClass, AttemptCost};
+use crate::inference::eval::costs::CostConfig;
+
+fn agentic_task(attempts: Vec<AttemptCost>, passes: u32, total: u32) -> TaskOutcome {
+    let mut report = AgenticReport::from_outcomes(&[]);
+    report.attempts = attempts;
+    report.passes = passes;
+    report.total_runs = total;
+    TaskOutcome::Agentic { report }
+}
+
+fn outcomes(items: Vec<(&str, TaskOutcome)>) -> BTreeMap<(String, bool), TaskOutcome> {
+    items.into_iter().map(|(id, o)| ((id.to_string(), false), o)).collect()
+}
+
+fn base_costs() -> RunCosts {
+    RunCosts { model: "m".into(), tasks: Vec::new(), memory: memory_facts(None, None), usd: None }
+}
+
+/// `with_usd` must take the pass^k denominator from the engine's own
+/// `is_strict_pass`, not a second definition invented here.
+#[test]
+fn with_usd_counts_only_strictly_passing_tasks_as_successes() {
+    let attempt = |c| AttemptCost { wall_ms: Some(10_000), class: c };
+    let o = outcomes(vec![
+        // 2/2 runs passed → a strict pass.
+        ("clears", agentic_task(vec![attempt(AttemptClass::PassedClean); 2], 2, 2)),
+        // 1/2 → does not clear, but its time still cost money.
+        ("misses", agentic_task(vec![attempt(AttemptClass::PassedClean), attempt(AttemptClass::FailedContent)], 1, 2)),
+    ]);
+    let cfg = CostConfig { enabled: true, gpu_hourly_usd: Some(3600.0), utilization: 1.0 };
+    // $3600/hr = $1/sec, so every figure below is just seconds.
+    let c = base_costs().with_usd(&o, &cfg).usd.expect("priced");
+
+    assert_eq!(c.run_total_usd, Some(40.0), "all four priceable attempts count toward the bill");
+    // 40 seconds of compute bought ONE strictly-passing task.
+    assert_eq!(c.cost_per_success_usd, Some(40.0));
+    assert_eq!(c.cost_per_task_usd, Some(20.0));
+}
+
+/// Without a declared price the block is still emitted (so the reader learns the
+/// exclusions and why there's no figure) but carries no dollars.
+#[test]
+fn with_usd_without_a_price_emits_the_block_with_nulls_not_zeros() {
+    let o = outcomes(vec![(
+        "t",
+        agentic_task(vec![AttemptCost { wall_ms: Some(1000), class: AttemptClass::DiedAtCap }], 0, 1),
+    )]);
+    let c = base_costs().with_usd(&o, &CostConfig::default()).usd.expect("block present");
+    assert_eq!(c.run_total_usd, None);
+    assert!(!c.cost_measured);
+    assert_eq!(c.excluded_truncated, 1, "exclusions are counted even with no price");
+}

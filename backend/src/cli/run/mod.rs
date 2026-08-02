@@ -90,6 +90,9 @@ pub struct RunOptions {
     /// cache hits, peak context, step-end RSS, KV-at-peak) — the CLI twin of the
     /// app's Latency Test-run view. Off by default: it samples host RSS per turn.
     pub costs: bool,
+    /// Price basis for the `--costs` dollar figures. Defaults to no price, so the
+    /// USD fields read `n/a` until the user declares one in `qm.json`.
+    pub cost_config: crate::inference::eval::costs::CostConfig,
     /// If set, persist every task's per-step trajectory (the raw model output,
     /// injections, timings) as JSONL files in this directory — the SAME format the
     /// GUI's agentic_transcripts store uses, so failing runs can be post-mortemed
@@ -572,7 +575,14 @@ pub async fn run_suite(opts: RunOptions) -> AppResult<RunOutcome> {
             _ => None,
         };
         let column = report.columns.iter().find(|c| c.model == opts.model);
-        Some(costs::assemble(&opts.model, &cli_sink.captured_steps(), &cli_sink.captured_outcomes(), column, dims))
+        let outcomes = cli_sink.captured_outcomes();
+        // The dollar layer prices the SAME captured outcomes the token rows came
+        // from. With no declared price every USD field stays None and the renderer
+        // prints "n/a (no price basis)" — never $0.00.
+        Some(
+            costs::assemble(&opts.model, &cli_sink.captured_steps(), &outcomes, column, dims)
+                .with_usd(&outcomes, &opts.cost_config),
+        )
     } else {
         None
     };

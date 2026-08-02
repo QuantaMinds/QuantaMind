@@ -16,6 +16,8 @@ pub async fn detect(api_key: Option<String>) -> Option<QmConfig> {
     let report = run_doctor(DoctorOptions { backend: None, base: None, model: None, api_key }).await;
     let first = report.runnable().into_iter().next()?;
     Some(QmConfig {
+        // No price is guessed: `--costs` reads n/a until the user declares one.
+        costs: None,
         backend: first.kind,
         model: first.models.first().cloned()?,
         collection: DEFAULT_COLLECTION.into(),

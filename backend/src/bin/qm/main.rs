@@ -659,6 +659,8 @@ async fn run_test(args: TestArgs) {
     let opts = RunOptions {
         backend,
         model,
+        // No default price: absent `costs` in qm.json means every USD figure is n/a.
+        cost_config: cfg.as_ref().and_then(|c| c.costs).unwrap_or_default(),
         // The engine's loader treats a path with a separator / `.json` as a file.
         collection: args.collection.to_string_lossy().into_owned(),
         base,
@@ -701,6 +703,8 @@ async fn run_suite(args: RunArgs) {
     let opts = RunOptions {
         backend,
         model,
+        // No default price: absent `costs` in qm.json means every USD figure is n/a.
+        cost_config: cfg.as_ref().and_then(|c| c.costs).unwrap_or_default(),
         collection: resolve_collection(args.collection),
         base,
         api_key,
@@ -741,6 +745,8 @@ async fn run_cliff_cmd(args: CliffArgs) {
         run: RunOptions {
             backend,
             model,
+            // `qm cliff` doesn't emit the dollar block; no price basis needed.
+            cost_config: Default::default(),
             collection: resolve_collection(args.collection),
             base,
             api_key,
@@ -942,6 +948,7 @@ async fn run_init(args: InitArgs) {
     let opts = RunOptions {
         backend: cfg.backend,
         model: cfg.model,
+        cost_config: cfg.costs.unwrap_or_default(),
         collection: cfg.collection,
         base: cfg.base,
         api_key: resolve_key(Some(cfg.backend)),

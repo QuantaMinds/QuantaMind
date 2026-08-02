@@ -156,6 +156,17 @@ pub struct RunOutcome {
     /// action — WHY it fired (model followed the injection vs the config truncated the
     /// guard). `None` on every non-safety run and on a safety run that didn't violate.
     pub safety_attribution: Option<SafetyAttribution>,
+    /// Wall-clock for THIS attempt, stamped by the Pass^k loop (it holds the clock).
+    /// `None` when unmeasured — and a `None` anywhere makes the enclosing cost
+    /// aggregate `None` too, rather than averaging over the attempts we happen to
+    /// have. Never defaulted to 0: a fabricated zero would price a real attempt free.
+    pub wall_ms: Option<u64>,
+    /// At least one turn in this attempt was cut at the output cap
+    /// (`finish_reason == "length"`). On a FAILING attempt the cap already shows up
+    /// as `FailureKind::Truncated`/`ReasoningOverrun`; this flag exists for the
+    /// attempt that PASSED anyway — a "truncated pass". Costing one would quote a
+    /// cheap price for a run the harness cut short, so the cost layer excludes it.
+    pub hit_output_cap: bool,
 }
 
 impl RunOutcome {
@@ -174,6 +185,8 @@ impl RunOutcome {
             // `None` here so the prompt path never claims a measured zero.
             native_structured_calls: None,
             native_salvaged_calls: None,
+            wall_ms: None,
+            hit_output_cap: false,
         }
     }
 
@@ -192,7 +205,21 @@ impl RunOutcome {
             // `None` here so the prompt path never claims a measured zero.
             native_structured_calls: None,
             native_salvaged_calls: None,
+            wall_ms: None,
+            hit_output_cap: false,
         }
+    }
+
+    /// Stamp this attempt's wall-clock (the Pass^k loop owns the clock).
+    pub fn with_wall_ms(mut self, wall_ms: u64) -> Self {
+        self.wall_ms = Some(wall_ms);
+        self
+    }
+
+    /// Record that a turn in this attempt was cut at the output cap.
+    pub fn with_output_cap(mut self, hit: bool) -> Self {
+        self.hit_output_cap = hit;
+        self
     }
 
     /// Stamp the Driver-D schema-recovery flags (builder form, so existing call
@@ -454,6 +481,55 @@ pub struct AgenticReport {
     /// `#[serde(default)]` so persisted reports load.
     #[serde(default)]
     pub wall_ms: Option<u64>,
+    /// Per-ATTEMPT timing + how each attempt ended, in run order. The cost layer needs
+    /// both together: which attempts may be priced at all depends on how they ended
+    /// (a run cut at the output cap is excluded, not costed cheaply), and that pairing
+    /// is lost once the outcomes are folded into counters. `#[serde(default)]` so
+    /// reports written before costs existed load with an empty vec — which reads as
+    /// "not measured" downstream, never as "zero attempts".
+    #[serde(default)]
+    pub attempts: Vec<AttemptCost>,
+}
+
+/// How one attempt ended, for cost accounting. The four cases carry DIFFERENT pricing
+/// rules (see `costs`), so they must not be collapsed into pass/fail.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AttemptClass {
+    /// Reached the end state with no turn cut at the output cap.
+    PassedClean,
+    /// Ran to a verdict and failed on CONTENT — the model got a fair, complete shot.
+    /// Its cost is real money the task spent, so it counts toward the task total.
+    FailedContent,
+    /// Cut at the output cap without a verdict (`Truncated` / `ReasoningOverrun`) — a
+    /// harness/hardware limit, not a model result. Priced nowhere; counted separately.
+    DiedAtCap,
+    /// Reached the end state, but a turn was cut at the output cap on the way. Pricing
+    /// it would quote a cheap number for a run the harness curtailed.
+    TruncatedPass,
+}
+
+/// One attempt's cost inputs: how long it took and how it ended.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct AttemptCost {
+    /// `None` when unmeasured — a `None` in a group makes that aggregate `None`
+    /// rather than averaging over the attempts that happen to have a time.
+    pub wall_ms: Option<u64>,
+    pub class: AttemptClass,
+}
+
+impl AttemptCost {
+    /// Classify a finished attempt. `DiedAtCap` is checked FIRST: a run the cap ended
+    /// is a budget event, and must never be read as a content verdict.
+    pub fn from_outcome(o: &RunOutcome) -> Self {
+        let class = match o.failure {
+            Some(FailureKind::Truncated) | Some(FailureKind::ReasoningOverrun) => AttemptClass::DiedAtCap,
+            Some(_) => AttemptClass::FailedContent,
+            None if o.hit_output_cap => AttemptClass::TruncatedPass,
+            None => AttemptClass::PassedClean,
+        };
+        Self { wall_ms: o.wall_ms, class }
+    }
 }
 
 impl AgenticReport {
@@ -524,6 +600,9 @@ impl AgenticReport {
             output_tokens_total,
             diagnostic: None, // set only by the BYO adapter; never from real run outcomes
             wall_ms: None,    // stamped by the batch layer via with_wall_ms (it holds the clock)
+            // Per-attempt timing + class, kept alongside the folded counters because the
+            // cost rules need the pairing (see `AttemptCost`).
+            attempts: outcomes.iter().map(AttemptCost::from_outcome).collect(),
         }
     }
 

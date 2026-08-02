@@ -4,6 +4,7 @@ use super::*;
 fn save_then_load_round_trips() {
     let dir = tempfile::tempdir().unwrap();
     let cfg = QmConfig {
+        costs: None,
         backend: BackendKind::LlamaCpp,
         model: "qwen2.5:3b".into(),
         collection: "easy-coding".into(),

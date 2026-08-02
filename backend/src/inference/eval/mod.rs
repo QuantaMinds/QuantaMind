@@ -1,5 +1,6 @@
 pub mod agentic;
 pub mod batch;
+pub mod costs;
 pub mod cliff;
 pub mod eval_score;
 pub mod eval_task;
