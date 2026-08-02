@@ -342,6 +342,12 @@ pub struct BatchReport {
     /// what we persist or publish.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub unreadable_columns: usize,
+    /// Wall-clock→dollars for this run, when a price basis was declared in Settings.
+    /// Computed by the ONE shared implementation (`eval::costs`) that `qm --costs`
+    /// uses, so the app's Test-run view and the CLI can never drift. `None` when no
+    /// price is set — the UI then reads "n/a (no price basis)", never $0.00.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub costs: Option<crate::inference::eval::costs::RunCostSummary>,
     /// The context length (`num_ctx`) the run used, when set — the basis for the
     /// readiness VRAM-fit KV-cache estimate. `#[serde(default)]` so reports saved
     /// before Phase 7.4 (and the engine, which doesn't know the param) still load.
@@ -730,7 +736,7 @@ where
     }
     // The engine is param-agnostic; the command layer stamps `num_ctx`/reasoning
     // budget after.
-    Ok(BatchReport { collection_id: collection_id.to_string(), columns, unreadable_columns: 0, num_ctx: None, collection_hash: None, think_preset: None, params: None })
+    Ok(BatchReport { collection_id: collection_id.to_string(), columns, unreadable_columns: 0, costs: None, num_ctx: None, collection_hash: None, think_preset: None, params: None })
 }
 
 /// Build a partial `BatchReport` from already-completed units ONLY — no execution.
@@ -777,7 +783,7 @@ pub fn fold_report(
             }
         })
         .collect();
-    BatchReport { collection_id: collection_id.to_string(), columns, unreadable_columns: 0, num_ctx: None, collection_hash: None, think_preset: None, params: None }
+    BatchReport { collection_id: collection_id.to_string(), columns, unreadable_columns: 0, costs: None, num_ctx: None, collection_hash: None, think_preset: None, params: None }
 }
 
 fn unit_of(target: &ModelTarget, task: &ToolTask, outcome: TaskOutcome, is_native: bool) -> CompletedUnit {

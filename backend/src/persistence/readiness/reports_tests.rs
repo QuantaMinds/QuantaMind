@@ -7,6 +7,7 @@ use tempfile::tempdir;
 fn report(collection_id: &str, passes: u32) -> BatchReport {
     BatchReport {
         unreadable_columns: 0,
+        costs: None,
         collection_id: collection_id.into(),
         num_ctx: Some(8192),
         collection_hash: None,

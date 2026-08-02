@@ -20,6 +20,8 @@ fn round_trip_preserves_non_secret_fields() {
     let dir = tempdir().unwrap();
     let p = dir.path().join("u.yaml");
     let s = UserSettings {
+        gpu_hourly_usd: None,
+        cost_utilization: None,
         theme: Some("dark".into()),
         first_run_complete: true,
         community_prompt_shown: true,

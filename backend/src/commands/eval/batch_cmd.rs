@@ -15,6 +15,9 @@ use crate::inference::eval::toolcall::prompt::TerminalGuidance;
 use crate::inference::eval::agentic::step::TrajectoryStep;
 use crate::inference::eval::agentic::v2::collection::load_v2_collection;
 use crate::inference::eval::agentic::v2::scenarios::{collection_hash, v2_json};
+use crate::inference::eval::agentic::scoring::report::AgenticReport;
+use crate::inference::eval::costs::{summarize, RunCostSummary, TaskCostInput};
+use crate::commands::settings::user_settings::UserSettingsState;
 use crate::inference::eval::batch::{
     batch_summaries, fold_report, run_batch_resumable, run_native_fc_pass, AggAgentic, BatchColumn, BatchReport,
     BatchSink, CompletedUnit, NoVramGate, TaskOutcome,
@@ -164,6 +167,7 @@ fn skeleton_report(collection_id: &str, targets: &[ModelTarget]) -> BatchReport 
     BatchReport {
         collection_id: collection_id.to_string(),
         unreadable_columns: 0,
+        costs: None,
         num_ctx: None,
         collection_hash: None, // set on the FINAL report only (content-verified); intermediates stay unpublishable
         think_preset: None,    // stamped on the final report
@@ -549,6 +553,12 @@ pub(crate) async fn run_passes(
     // Fork-on-edit guard: stamp the content-verified hash from the RECEIVED tasks (pre-override).
     // `Some` only for a pristine bundled collection; `None` for custom OR any edit → unpublishable.
     report.collection_hash = verified_collection_hash(&config.collection_id, &config.tasks);
+    // Wall-clock→dollars, from the SAME shared implementation `qm --costs` uses, so the
+    // app's Test-run view and the CLI can never drift. The completed units are read back
+    // from the durable job log (the resume path's own source), which holds every task's
+    // per-attempt timing. No declared price ⇒ `None` throughout and the UI reads
+    // "n/a (no price basis)" — never a $0.00 bill.
+    report.costs = stamp_costs(app, &job_path);
     log_emit(app, EVENT_BATCH_COMPLETE, BatchCompletePayload { report: report.clone(), r#final: true });
 
     if let Ok(dir) = history_dir(app) {
@@ -854,4 +864,26 @@ mod fork_on_edit_tests {
         }
         assert_eq!(verified_collection_hash("easy-webui-tasks", &b), None);
     }
+}
+
+/// Price this run's completed units, or `None` when the job log can't be read.
+/// Best-effort: a costing failure must never fail a finished run — the figures are
+/// a reporting layer over measurements that already happened.
+fn stamp_costs(app: &AppHandle, job_path: &std::path::Path) -> Option<RunCostSummary> {
+    let cfg = app.state::<UserSettingsState>().cost_config(app).ok()?;
+    let (_, units) = queue::load(job_path).ok()??;
+    let reports: Vec<&AgenticReport> = units
+        .iter()
+        .filter_map(|u| match &u.outcome {
+            TaskOutcome::Agentic { report } => Some(report),
+            _ => None,
+        })
+        .collect();
+    let inputs: Vec<TaskCostInput<'_>> = reports
+        .iter()
+        // The engine's own strict-Pass^k definition — the cost denominator must not
+        // invent a second, looser one.
+        .map(|report| TaskCostInput { report, meets_pass_k: report.is_strict_pass() })
+        .collect();
+    Some(summarize(&inputs, &cfg))
 }

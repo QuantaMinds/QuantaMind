@@ -21,6 +21,16 @@ pub struct UserSettings {
     /// Override for the shared GGUF weights folder (default `~/.quantamind/gguf`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub models_folder: Option<String>,
+    /// Hourly price of the accelerator this machine runs on, for the Test-run cost
+    /// figures. **No default** — absent means every dollar figure reads "n/a (no
+    /// price basis)". A guessed price would understate a real bill, which is worse
+    /// than no price at all.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gpu_hourly_usd: Option<f64>,
+    /// Fraction of that accelerator this app actually has (1.0 = the whole card).
+    /// Absent ⇒ 1.0.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_utilization: Option<f64>,
     /// Base URL of a remote vLLM OpenAI-compatible server (e.g.
     /// `http://34.10.20.30:8000`). vLLM/SGLang run on a remote GPU, so — unlike the
     /// localhost sidecars — their endpoint is user-configured. Empty/unset ⇒ the

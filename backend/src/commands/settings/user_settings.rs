@@ -1,4 +1,5 @@
 use crate::commands::storage::storage_disk::gguf_dir_resolved;
+use crate::inference::eval::costs::CostConfig;
 use crate::errors::{AppError, AppResult};
 use crate::inference::backend::remote_config;
 use crate::inference::backend::remote_guard::credential_allowed;
@@ -115,6 +116,17 @@ impl UserSettingsState {
         self.ensure_loaded(app)?;
         let folder = self.inner.lock_recover().models_folder.clone();
         Ok(gguf_dir_resolved(folder.as_deref()))
+    }
+    /// The declared cost basis for the Test-run dollar figures. No price ⇒ the
+    /// figures read "n/a (no price basis)" rather than $0.00.
+    pub fn cost_config(&self, app: &tauri::AppHandle) -> AppResult<CostConfig> {
+        self.ensure_loaded(app)?;
+        let g = self.inner.lock_recover();
+        Ok(CostConfig {
+            enabled: g.gpu_hourly_usd.is_some(),
+            gpu_hourly_usd: g.gpu_hourly_usd,
+            utilization: g.cost_utilization.unwrap_or(1.0),
+        })
     }
 }
 

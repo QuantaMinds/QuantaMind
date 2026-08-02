@@ -46,13 +46,19 @@ impl CostConfig {
     }
 }
 
+/// What this surface prices. Named in the output so a later token-based basis
+/// can never be mistaken for these wall-clock figures.
+pub const BASIS: &str = "gpu_seconds";
+
 /// The costed result for one run. Every USD field is `Option`: `None` means "not
 /// measured / no basis", which the renderers print as `n/a` — never 0.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct RunCostSummary {
     /// Always `"gpu_seconds"` — names WHAT was priced, so a later token-based
-    /// basis can't be confused for this one.
-    pub basis: &'static str,
+    /// basis can't be confused for this one. Owned (not `&'static str`) because
+    /// this rides on the persisted `BatchReport`, which must round-trip through
+    /// serde on load.
+    pub basis: String,
     /// Mandatory prose stating the price, the utilization, and that serial
     /// wall-clock is an UPPER bound. Emitted even when there's no price.
     pub basis_note: String,
@@ -72,7 +78,7 @@ impl RunCostSummary {
     /// The no-basis result: exclusions still counted, every dollar figure absent.
     fn unpriced(note: String, excluded: usize) -> Self {
         Self {
-            basis: "gpu_seconds",
+            basis: BASIS.to_string(),
             basis_note: note,
             cost_per_attempt_usd: None,
             cost_per_task_usd: None,
@@ -197,7 +203,7 @@ pub fn summarize(tasks: &[TaskCostInput<'_>], cfg: &CostConfig) -> RunCostSummar
     };
 
     RunCostSummary {
-        basis: "gpu_seconds",
+        basis: BASIS.to_string(),
         basis_note: note(cfg),
         cost_per_attempt_usd,
         cost_per_task_usd,

@@ -12,6 +12,12 @@ export const UserSettingsSchema = z.object({
   vllm_api_key: z.string().nullable().optional(),
   sglang_url: z.string().nullable().optional(),
   sglang_api_key: z.string().nullable().optional(),
+  /// Hourly accelerator price for the Test-run cost figures. NO default — absent
+  /// means every dollar figure reads "n/a (no price basis)". A guessed price
+  /// would understate a real bill, which is worse than showing none.
+  gpu_hourly_usd: z.number().nullable().optional(),
+  /// Fraction of that accelerator this app has (1.0 = the whole card).
+  cost_utilization: z.number().nullable().optional(),
 });
 export type UserSettings = z.infer<typeof UserSettingsSchema>;
 

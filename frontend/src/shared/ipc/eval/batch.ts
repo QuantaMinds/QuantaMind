@@ -386,6 +386,20 @@ export const BatchColumnSchema = z.object({
 });
 export type BatchColumn = z.infer<typeof BatchColumnSchema>;
 
+/// Every USD field is nullable: null means "not measured / no basis", which the
+/// UI renders as n/a — never 0.
+export const RunCostSummarySchema = z.object({
+  basis: z.string(),
+  basis_note: z.string(),
+  cost_per_attempt_usd: z.number().nullish(),
+  cost_per_task_usd: z.number().nullish(),
+  cost_per_success_usd: z.number().nullish(),
+  run_total_usd: z.number().nullish(),
+  excluded_truncated: z.number().int().nonnegative().default(0),
+  cost_measured: z.boolean().default(false),
+});
+export type RunCostSummary = z.infer<typeof RunCostSummarySchema>;
+
 export const BatchReportSchema = z.object({
   collection_id: z.string(),
   columns: z.array(BatchColumnSchema),
@@ -397,6 +411,10 @@ export const BatchReportSchema = z.object({
   // this to publish — it's the single source of truth for publishability (the backend never
   // re-derives it). Nullish so older reports parse (as not-publishable).
   collection_hash: z.string().nullish(),
+  // Wall-clock→dollars for the run, computed by the SAME Rust implementation
+  // `qm --costs` uses so the two can't drift. Absent when no price is configured —
+  // the UI then reads "n/a (no price basis)", never $0.00.
+  costs: RunCostSummarySchema.nullish(),
   // The FULL inference params THIS run sent, stamped at run time like num_ctx. Publish reads
   // THESE (never the live global header, which may have been edited since the run). Nullish:
   // older reports / a run that sent no params (backend defaults) omit it.
