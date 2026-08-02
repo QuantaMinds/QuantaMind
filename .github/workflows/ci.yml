@@ -107,6 +107,22 @@ jobs:
         working-directory: backend
         run: cargo test --test layering_guard
 
+      # --- Backend: the `qm certify` live gate. Its own target for the same
+      #     reason as layering_guard — a pre-existing broken non-lib target
+      #     blocks a full `cargo test`, so each gated suite is named explicitly
+      #     or it silently never runs.
+      #
+      #     This is the rule-6 substitute for a feature that issues no model
+      #     call: it drives REAL subprocesses (spawn, cwd, pipes, group-kill).
+      #     Unix only — the fixtures are shell scripts, and the file is
+      #     `#![cfg(unix)]`, so on Windows it would compile to an empty binary
+      #     and pass vacuously. Skipping it there is honest; the Windows kill
+      #     path is best-effort by design and covered by the unit tests.
+      - name: cargo test --test certify_gate
+        if: runner.os != 'Windows'
+        working-directory: backend
+        run: cargo test --test certify_gate
+
       # --- Backend: clippy as an error gate. Surfaces lint warnings in the log
       #     and fails on clippy *errors* (incl. any `unsafe`, denied crate-wide).
       #     Not `-D warnings` yet: ~49 pre-existing warnings are tracked separately
