@@ -230,6 +230,19 @@ commands/compare.rs         impl CompareSink for TauriCompareSink { … app.emit
 ```
 
 This is why `commands/` can know about `inference/` types but not the reverse.
+
+The **certify harness** (`inference/eval/harness/`) applies the same seam to a
+system under test that is not ours. It seeds a world, hands it to an injected
+*actuator*, and grades the real end state k times — it issues no model call and
+reads none of the agent's words. The actuator is a closure, so everything about
+*how* the agent is invoked (argv templates, environment policy, timeouts, process
+groups) stays at the CLI edge where the configuration lives, and `inference/`
+never touches `std::process`. The payoff is that pass^k and the whole
+failure-attribution table are unit-testable with a fake closure and **zero
+subprocesses**. It deliberately mirrors `mcp::score::score_fs_task`, which already
+takes an injected driver factory, so the two grading paths stay recognisably the
+same shape.
+
 The eval **batch dispatcher** follows the same shape: `inference/eval/batch.rs`'s
 `run_batch` runs a strict sequential model×task queue (never fans out local
 inference → OOM-safe) and emits through a `BatchSink`; `commands/eval/batch_cmd.rs`
