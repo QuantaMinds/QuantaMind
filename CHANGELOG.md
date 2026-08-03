@@ -6,7 +6,62 @@ All notable changes to QuantaMind are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`qm certify` — gate a deploy on YOUR OWN agent.** Every other command benchmarks a
+  *model*; this one inverts it. QuantaMind seeds a world, runs *your* command against
+  it, grades the real end state, and repeats k times — **issuing no model call**. Your
+  agent owns its model, framework, prompts and retries; we never see them, which is why
+  it works with any stack in any language with no SDK and no code change. The suite file
+  is the shape the desktop MCP builder already authors, so an existing world file runs
+  unchanged.
+  - **Negative tasks** (`"kind": "negative"`) — where the correct answer is to *refuse*.
+    A suite where every task rewards action teaches over-triggering, so one with no
+    counterweight prints `[QM-ONE-SIDED]`. A negative task must declare both a survival
+    assertion (the restraint check) and a trace-of-refusal assertion (what keeps it
+    discriminating); both are enforced at load.
+  - **Every task is proven failable before anything runs.** Each is seeded and graded
+    with zero actions; if doing nothing passes, the run aborts with exit 20 and no agent
+    is spawned.
+  - **`--record` — demonstrate a suite instead of writing it.** Give a task a goal
+    and a world but no oracle, run the agent you already trust once, and QuantaMind
+    records what it did to the world as the answer key. State-only by design:
+    content assertions are never auto-generated, because a recorded body embeds
+    run-specific text and would fail on its own second run. Nothing unusable is
+    written — a run that created and deleted nothing, a modify-only run, and db
+    worlds are each skipped with a distinct reason, and if nothing was recorded no
+    file is produced at all.
+  - **Injection is structurally impossible**, not filtered: argv is a list handed to the
+    OS, never a string handed to a shell.
+  - Exit codes distinguish *what we measured* from *what we couldn't*: an unmeasured
+    attempt reports `11` (retry) rather than `10`, because surfacing our own missing
+    `sqlite3` as "Conditional" would tell you your agent is flaky; a command that never
+    started reports `3`, because retrying will not create a missing binary; and a proven
+    hard failure still outranks both at `20`.
+
 ### Fixed
+
+- **Oracle paths could escape the sandbox.** `static_world_findings` guarded *seed* paths
+  but not *oracle* paths, and `FsOracle::grade` joins onto the world root — where joining
+  an absolute path discards that root entirely. An oracle asserting `/etc/passwd` present
+  therefore graded the host filesystem and passed on every machine regardless of what the
+  agent did. All three oracle fields now use the same predicate as the seed guard.
+- **A mutating oracle query was self-fulfilling.** An `INSERT`/`UPDATE`/`DELETE`/`DROP` in
+  an assert query creates the state it claims to check, so the task could never fail.
+  `SELECT` and `WITH` are accepted, after stripping comments and whitespace.
+- **Orphaned scratch directories leaked on Windows.** The reaper was `#[cfg(unix)]`-gated,
+  so every hard-killed run leaked its temp directory forever. It now uses the
+  cross-platform `Host::pid_alive`, and additionally refuses to remove a directory owned
+  by another user — a shared `/tmp` previously let one user's sweep delete another's live
+  run.
+- **Install and run commands across the docs were unusable.** The backend-removal renames
+  had rewritten identifiers inside command blocks, leaving a `llama-server` invocation
+  taking an Ollama tag instead of a `.gguf` path, a 404 installer URL, a nonexistent
+  Homebrew formula and winget package, and a `curl` whose URL path had been replaced by
+  prose. Linux and Windows users were sent chasing an installer that does not exist when
+  the desktop app in fact bundles `llama-server`. The same renames left documentation for
+  components that no longer exist, and a wholly fictional "Start vLLM" workflow — vLLM is
+  remote and is never spawned by QuantaMind.
 
 - **Checkpoint near-misses are labeled honestly** — a required call made with the right
   tool but non-matching args (e.g. a `reason` missing a required factor) now reads

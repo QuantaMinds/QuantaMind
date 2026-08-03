@@ -70,7 +70,7 @@ HTTP to a local llama.cpp server.
   contains **zero** Windows/Linux code, a Windows build contains zero
   macOS/Linux code, and so on. `host.rs` type-aliases `Host` to the right impl
   via `cfg`, with a `compile_error!` for unsupported target OSes. Every
-  lifecycle module (`commands/{llama_cpp,llama,vllm}/…_runtime.rs`, plus
+  lifecycle module (`commands/llama/llama_runtime.rs`, plus
   `commands/app_lifecycle.rs`) uses `os::Host::…` instead of scattering
   `#[cfg(target_os = "…")]` blocks. Methods: `resolve_on_path` (`which` on
   macOS/Linux vs `where.exe` on Windows), `envs_for_lib_dir`
@@ -82,6 +82,19 @@ HTTP to a local llama.cpp server.
   (CTRL_BREAK_EVENT, pid)` on Windows), `hard_stop` (SIGKILL vs
   `TerminateProcess`), `pid_alive`. Also `user_dirs::data_dir` →
   `~/.quantamind` on Unix, `%LOCALAPPDATA%\QuantaMind` on Windows.
+
+  Two cfg-neutral helpers sit here because **more than one subsystem spawns**, and
+  both concerns are inherently OS work rather than any one caller's business:
+  `proc_group` stops a child's whole **process group** (a server forks its own
+  children — an MCP server is `npx`→`node` — so killing the pid we hold would
+  orphan the grandchild), and `scratch_dir::ScratchDir` is a self-removing temp
+  directory that also reaps the ones a SIGKILL'd run could never `Drop`. The
+  sweep goes through `Host::pid_alive`, so it now works on **all three
+  platforms** — it was previously `#[cfg(unix)]`-gated and Windows leaked every
+  orphaned directory. It is prefix-namespaced (`qm-mcp-world`, `qm-cert`, …) so
+  one subsystem's sweep never considers another's directories, and it skips any
+  directory not owned by the current uid so a shared `/tmp` can't let one user
+  delete another's live run.
   Cross-OS-testable helpers (pure fallback-path builders, JSON parsers) live
   in cfg-neutral files so their tests run on any CI runner; per-OS lifecycle
   code is only compiled + tested on its own OS runner (Phase 5 CI matrix
@@ -217,6 +230,19 @@ commands/compare.rs         impl CompareSink for TauriCompareSink { … app.emit
 ```
 
 This is why `commands/` can know about `inference/` types but not the reverse.
+
+The **certify harness** (`inference/eval/harness/`) applies the same seam to a
+system under test that is not ours. It seeds a world, hands it to an injected
+*actuator*, and grades the real end state k times — it issues no model call and
+reads none of the agent's words. The actuator is a closure, so everything about
+*how* the agent is invoked (argv templates, environment policy, timeouts, process
+groups) stays at the CLI edge where the configuration lives, and `inference/`
+never touches `std::process`. The payoff is that pass^k and the whole
+failure-attribution table are unit-testable with a fake closure and **zero
+subprocesses**. It deliberately mirrors `mcp::score::score_fs_task`, which already
+takes an injected driver factory, so the two grading paths stay recognisably the
+same shape.
+
 The eval **batch dispatcher** follows the same shape: `inference/eval/batch.rs`'s
 `run_batch` runs a strict sequential model×task queue (never fans out local
 inference → OOM-safe) and emits through a `BatchSink`; `commands/eval/batch_cmd.rs`
@@ -377,9 +403,12 @@ Enforced by a guardrail test on each side (`backend/tests/folder_taxonomy.rs`,
 `frontend/src/__tests__/folderTaxonomy.test.ts`). `__tests__` dirs are exempt —
 they mirror their source one-to-one, so their size is already bounded.
 
-> **Known debt (2026-06):** four backend folders are currently over the limit —
-> `persistence/` (12), `inference/eval/toolcall/` (11), `commands/vllm/` (11),
-> `commands/llama/` (11). The taxonomy test is kept in its **own** target
+> **Known debt (measured 2026-08-02):** six backend folders are over the limit —
+> `persistence/` (13), `inference/eval/agentic/v2/` (13), `inference/mcp/` (11),
+> `inference/eval/toolcall/` (11), `commands/llama/` (11), and `backend/src/`
+> itself (11). The previous note here listed four and named `commands/vllm/`,
+> which no longer exists; run `cargo test --test folder_taxonomy` for the current
+> set rather than trusting this list. The taxonomy test is kept in its **own** target
 > (`folder_taxonomy.rs`), separate from the dependency-law target
 > (`layering_guard.rs`), so the law can gate CI while this split is worked off as a
 > dedicated refactor. Tracked in `docs/restructure-todo.md`.

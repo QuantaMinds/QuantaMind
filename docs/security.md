@@ -54,6 +54,30 @@ The rule-7 invariants from `CLAUDE.md`. Every change must uphold all of them:
 
 ## trust-boundaries
 
+- **The customer agent subprocess (`qm certify`).** The most permissive boundary in the product,
+  and the one that must be described honestly rather than reassuringly.
+
+  **What QuantaMind guarantees:** a fresh directory per attempt · every seed path rejected for
+  `..`/absolute then confined through `fs_guard` · cwd set to the workspace · the tree removed
+  afterwards · directories from killed runs reaped · argv handed to the OS as a list, never to a
+  shell, so task text cannot be interpreted as commands · a program path that looks like a path is
+  resolved once at config time, never chosen by task data · **`QM_*` stripped from the child's
+  environment in both env modes, before the allowlist**, so not even `--env QM_API_KEY` can pass a
+  QuantaMind credential into customer code · every line the child prints, and every failure label,
+  routed through `redact_path` before it can reach a terminal or a report (rule 7f — we hand the
+  child an absolute path, making this the highest-risk leak surface in the feature).
+
+  **What QuantaMind does NOT guarantee, stated in these words in the user docs:** *"The agent you
+  name runs with your full user privileges. It can write outside the workspace, open network
+  connections, and read your environment. QuantaMind is not a sandbox. The fresh workspace is a
+  reproducibility mechanism, not a security boundary. If you need containment, run `qm certify`
+  inside a container or VM."* The word "sandbox" is deliberately banned from this mode's docs.
+
+  **Platform limit:** on macOS/Linux the child leads its own process group and the whole group is
+  signalled on timeout. On Windows `EngineHost::command` applies `CREATE_NO_WINDOW`, so the child
+  has no console and a console ctrl event cannot reach it — the timeout terminates the direct child
+  and grandchildren may survive. Documented, not papered over.
+
 - **Webview ↔ Rust (the primary boundary).** The React webview is treated as untrusted (any
   future XSS = attacker-in-webview). It cannot touch disk or network directly: there is NO
   `tauri-plugin-fs` and NO `tauri-plugin-http`. All file/network access is funneled through

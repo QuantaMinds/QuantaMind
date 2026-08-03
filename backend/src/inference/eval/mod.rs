@@ -4,6 +4,7 @@ pub mod costs;
 pub mod cliff;
 pub mod eval_score;
 pub mod eval_task;
+pub mod harness;
 pub mod mcp;
 pub mod readiness;
 pub mod run_summary;

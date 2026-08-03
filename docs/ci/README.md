@@ -6,6 +6,27 @@ produces a JUnit report + a JSON report, uploads both as an artifact, and lets `
 
 The action lives at `.github/actions/qm-eval`; a runnable example is `.github/workflows/eval-example.yml`.
 
+**Two actions, two questions.** `qm-eval` asks *"is this model ready to be wired into an agent?"* —
+it needs a reachable backend and a model id. **`qm-certify`** (`.github/actions/qm-certify`) asks
+*"is MY agent correct?"* — it seeds a world, runs **your** command against it, and grades the real
+end state k times. It issues no model call and needs no backend, so it has no `base-url` or `model`
+input; your agent's provider credentials come from the calling job's env/secrets and are inherited
+by the child (with every `QM_*` variable stripped first).
+
+```yaml
+- uses: QuantaMinds/QuantaMind/.github/actions/qm-certify@main
+  with:
+    suite: ./qm/suite.json
+    agent: ./my-agent --task "{task}" --workspace "{workspace}"
+    k: 5
+  env:
+    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}   # your agent's key, not ours
+```
+
+Exit codes gate the job as usual, with two distinctions worth wiring into your retry policy:
+**`11`** means *we could not measure* (retry is sensible), while **`3`** means the agent command
+never started at all (retrying will not help — fix the path).
+
 ## Usage
 
 By default the action installs the **prebuilt `qm`** from the latest GitHub Release — no Rust

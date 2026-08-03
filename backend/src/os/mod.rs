@@ -10,6 +10,13 @@
 
 pub mod engine_host;
 pub mod host;
+/// Stop a child's whole process group. Cross-cutting because every spawner needs it:
+/// the MCP transport, and the `qm certify` agent actuator.
+pub mod proc_group;
+/// A temp directory that removes itself, and reaps the ones a killed run left behind.
+/// Here rather than beside one caller because both the MCP world and the certify
+/// harness need it, and the orphan sweep is inherently OS work.
+pub mod scratch_dir;
 pub mod user_dirs;
 
 #[cfg(target_os = "macos")]
@@ -21,3 +28,4 @@ pub mod windows;
 
 pub use engine_host::EngineHost;
 pub use host::Host;
+pub use scratch_dir::ScratchDir;
