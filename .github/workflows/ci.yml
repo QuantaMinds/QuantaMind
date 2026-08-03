@@ -27,7 +27,7 @@ jobs:
       group: ci-qm-headless-${{ github.ref }}
       cancel-in-progress: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-musl
@@ -75,7 +75,7 @@ jobs:
       group: ci-${{ github.ref }}-${{ matrix.os }}
       cancel-in-progress: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Linux needs the Tauri system libs so `cargo test --lib` (which pulls in
       # `tauri` as a regular [dependencies] entry) compiles. macOS + Windows
@@ -132,10 +132,10 @@ jobs:
         run: cargo clippy --lib
 
       # --- Frontend: typecheck + vitest. ---
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 9
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: pnpm

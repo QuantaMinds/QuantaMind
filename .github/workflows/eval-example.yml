@@ -26,7 +26,7 @@ jobs:
   eval-fast:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Run agent-readiness eval
         uses: ./.github/actions/qm-eval
         with:
@@ -44,7 +44,7 @@ jobs:
       # is also uploaded as an artifact by the action). Runs even when the eval failed.
       - name: Publish test report
         if: always()
-        uses: mikepenz/action-junit-report@v4
+        uses: mikepenz/action-junit-report@v6
         with:
           report_paths: qm-junit.xml
           check_name: qm agent-readiness
