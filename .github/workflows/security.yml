@@ -22,7 +22,7 @@ jobs:
   secret-scan:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # full history — a secret removed in a later commit still leaked
       # Install the gitleaks binary directly (no org-license gate that the marketplace
@@ -37,7 +37,7 @@ jobs:
   rust-audit:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - name: cargo audit
         working-directory: backend
@@ -51,7 +51,7 @@ jobs:
   frontend-audit:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # pnpm 11 ONLY in this job (the rest of CI stays on 9): npm retired the audit
       # endpoints pnpm 9 and 10 call — both now answer `410 Gone` ("use the bulk advisory
       # endpoint"), so `pnpm audit` fails outright on any input and the gate reports a
@@ -59,10 +59,10 @@ jobs:
       # repo's `lockfileVersion: 9.0` unchanged (verified: `--frozen-lockfile` installs
       # clean and does not rewrite the lock), so pinning it here fixes the gate without
       # touching the build/release path.
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 11
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           # 22, not the 20 the other jobs use: pnpm 11 declares `engines.node >= 22.13` and
           # dies on 20 with ERR_UNKNOWN_BUILTIN_MODULE. Scoped to this job, which only
@@ -87,17 +87,17 @@ jobs:
   sbom:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - name: Rust SBOM (CycloneDX)
         working-directory: backend
         run: |
           cargo install cargo-cyclonedx --locked
           cargo cyclonedx --format json
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 9
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
       - name: Frontend SBOM (CycloneDX)
@@ -106,7 +106,7 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm dlx @cyclonedx/cyclonedx-npm --output-file sbom.frontend.json || true
       - name: Upload SBOMs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sbom
           path: |
